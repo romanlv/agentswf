@@ -54,7 +54,7 @@ Research, and the operator's decisions, all 2026-09-28:
 ## Still to decide
 
 - **Published names are permanent.** Settled in story 009's rename: `cli-agent` became
-  `@agentswf/wf`, and `autoresearch` became `@agentswf/lab`.
+  `@agentswf/wf`, since folded into the engine (ADR 0013), and `autoresearch` became `@agentswf/lab`.
 - **`./testing` exports:** publish them marked unstable?
 - **`@agentswf/lab/review/*`:** a wildcard export of every lab module, added in story 009 for the
   operator's review repository, which uses two dozen of them. Publish it marked unstable, or name

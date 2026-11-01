@@ -72,9 +72,9 @@ describe("tools", () => {
         name: "handoff",
         description: "A message hands an item to the agent that closes it.",
       },
-      async run(workflow) {
-        const lead = await workflow.agents.open({ key: "lead", runtime: "codex" });
-        const closer = await workflow.agents.open({
+      async run(wf) {
+        const lead = await wf.agents.open({ key: "lead", runtime: "codex" });
+        const closer = await wf.agents.open({
           key: "closer",
           runtime: "codex",
           tools: {
@@ -88,7 +88,7 @@ describe("tools", () => {
             }),
           },
         });
-        await workflow.messages.allow({
+        await wf.messages.allow({
           from: lead,
           to: closer,
           purpose: "Hand over items to close.",

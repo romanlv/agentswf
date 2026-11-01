@@ -95,12 +95,12 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
     whenToUse:
       "Use to check that each harness runs at the effort and model awf sets, and that set switches them in the same session.",
   },
-  async run(workflow, args) {
-    const checks = await workflow.parallel(
+  async run(wf, args) {
+    const checks = await wf.parallel(
       args.runtimes,
       async (runtime): Promise<EffortCheck> => {
         const { execution, switched: then } = RUNTIMES[runtime];
-        const agent = await workflow.agents.open({
+        const agent = await wf.agents.open({
           key: `effort:${runtime}`,
           runtime: execution,
         });

@@ -140,7 +140,7 @@ export interface AgentOpenSpec {
 export type AgentTools = Readonly<Record<string, ToolSpec>>;
 
 /**
- * A tool the workflow's code runs for an agent, which calls it with `wf tool {name}` while it is in a
+ * A tool the workflow's code runs for an agent, which calls it with `wfa tool {name}` while it is in a
  * turn and waits for the result. Write one with `tool()`, which types the handler's input from
  * `input`.
  */
@@ -157,7 +157,7 @@ export interface ToolSpec<I extends JsonObject = JsonObject> {
    * Runs once per accepted call, in the scope of the operation the call came in, and must be short.
    * What it returns is the result the agent reads: a string as is, any other JSON value as JSON,
    * nothing as nothing. A throw fails the call, not the run. It may not run, stop or fork an agent
-   * whose handler it is in, nor `workflow.receive()`.
+   * whose handler it is in, nor `wf.receive()`.
    */
   // biome-ignore lint/suspicious/noConfusingVoidType: an async handler that returns nothing is a Promise<void>.
   handler(input: I, call: ToolCall): Promise<JsonValue | void> | JsonValue | void;

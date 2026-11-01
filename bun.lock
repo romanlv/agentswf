@@ -53,7 +53,6 @@
         "@agentswf/contract": "workspace:*",
         "@agentswf/harness": "workspace:*",
         "@agentswf/sandbox": "workspace:*",
-        "@agentswf/wf": "workspace:*",
         "typebox": "^1.3.34",
       },
     },
@@ -83,16 +82,6 @@
         "@agentswf/contract": "workspace:*",
       },
     },
-    "packages/wf": {
-      "name": "@agentswf/wf",
-      "version": "0.1.0-beta.3",
-      "bin": {
-        "wf": "./src/cli.ts",
-      },
-      "dependencies": {
-        "@agentswf/contract": "workspace:*",
-      },
-    },
   },
   "catalog": {
     "@types/bun": "^1.3.4",
@@ -112,8 +101,6 @@
     "@agentswf/lab": ["@agentswf/lab@workspace:packages/lab"],
 
     "@agentswf/sandbox": ["@agentswf/sandbox@workspace:packages/sandbox"],
-
-    "@agentswf/wf": ["@agentswf/wf@workspace:packages/wf"],
 
     "@biomejs/biome": ["@biomejs/biome@2.5.14", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.14", "@biomejs/cli-darwin-x64": "2.5.14", "@biomejs/cli-linux-arm64": "2.5.14", "@biomejs/cli-linux-arm64-musl": "2.5.14", "@biomejs/cli-linux-x64": "2.5.14", "@biomejs/cli-linux-x64-musl": "2.5.14", "@biomejs/cli-win32-arm64": "2.5.14", "@biomejs/cli-win32-x64": "2.5.14" }, "bin": { "biome": "bin/biome" } }, "sha512-0FabLIjd4M/dm8VFI86RMaLLdgepzbdfiAL2R8cr7V81OYYrP1w7Z73KfAwPK5h9SrEBXTzNG2y+mBwPo9xRnw=="],
 

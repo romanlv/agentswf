@@ -21,7 +21,7 @@ declare function singleton<W>(workflow: W): W;
 export default singleton(
   defineWorkflow({
     meta: { name: "mr-tick", description: "Tell each MR's review run what changed on GitLab." },
-    async run(workflow) {
+    async run(wf) {
       const mrs = await gitlab.reviewing();
       const seen = openSeen(TICK_STATE);
       for (const mr of mrs) {
@@ -29,14 +29,14 @@ export default singleton(
         const authorized = mr.labels.includes("ai-review");
         const state = { head: mr.head, authorized, threads };
         if (seen.changed(mr.iid, state)) {
-          await workflow.emit(mrRun, String(mr.iid), "mr.changes", { iid: mr.iid, ...state });
+          await wf.emit(mrRun, String(mr.iid), "mr.changes", { iid: mr.iid, ...state });
           seen.record(mr.iid, state);
         }
       }
       const gone = ledgers.tracked().filter((iid) => !mrs.some((mr) => mr.iid === iid));
       for (const mr of await gitlab.settled(gone)) {
         if (seen.changed(mr.iid, { closed: true })) {
-          await workflow.emit(mrRun, String(mr.iid), "mr.closed", {
+          await wf.emit(mrRun, String(mr.iid), "mr.closed", {
             iid: mr.iid,
             merged: mr.merged,
           });

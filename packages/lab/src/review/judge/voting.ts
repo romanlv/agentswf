@@ -50,7 +50,7 @@ type Asked = { ok: true; labels: FindingLabel[]; missed: string } | { ok: false;
  * same session would not recover from. So an agent takes at most three turns, `3 × turnMs` in all.
  */
 async function ask(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   voter: Voter,
   input: JudgedCase,
   prompt: string,
@@ -59,7 +59,7 @@ async function ask(
 ): Promise<Asked> {
   const { by, runtime, sandbox } = voter;
   const open = (key: string) =>
-    workflow.agents.open({ key, runtime, cwd: workflow.cwd, ...(sandbox ? { sandbox } : {}) });
+    wf.agents.open({ key, runtime, cwd: wf.cwd, ...(sandbox ? { sandbox } : {}) });
   let agent = await open(by);
   let next = prompt;
   let fresh = false;
@@ -82,14 +82,14 @@ async function ask(
         return { ok: true, labels: outcome.value.labels, missed: outcome.value.missed };
       }
       detail = problems.map((p) => `${p.path}: ${p.message}`).join("; ");
-      workflow.log(`${by}: turn ${turn} failed its checks: ${detail}`);
+      wf.log(`${by}: turn ${turn} failed its checks: ${detail}`);
       if (next !== prompt && !fresh) return { ok: false, detail };
       next = retryPrompt(problems);
       continue;
     }
     detail = `${outcome.kind}: ${outcome.reason}`;
     if (outcome.kind === "timed-out" && !fresh) {
-      workflow.log(
+      wf.log(
         `${by}: turn ${turn} ran past ${Math.round(turnMs / 60_000)} min; asking once more, fresh`,
       );
       fresh = true;
@@ -112,7 +112,7 @@ async function ask(
  * With nothing settled, this is the panel.
  */
 export async function voteOnRest(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   input: JudgedCase,
   settled: ReadonlyMap<number, FindingLabel>,
   { voters, tiebreak, sandbox, turnMs }: Voters,
@@ -129,9 +129,9 @@ export async function voteOnRest(
     ...(box ? { sandbox: box } : {}),
     by: `judge${i + 1}:${runtimeName(runtime)}`,
   }));
-  const answers = await workflow.parallel(
+  const answers = await wf.parallel(
     named,
-    (voter) => ask(workflow, voter, input, prompt, { asked, claimed }, turnMs),
+    (voter) => ask(wf, voter, input, prompt, { asked, claimed }, turnMs),
     { label: "Judge" },
   );
   const withheld = answers.flatMap((a, i) => (a.ok ? [] : [`${named[i]!.by}: ${a.detail}`]));
@@ -151,10 +151,10 @@ export async function voteOnRest(
   const split = disputed(a.labels, b.labels);
   let third: Vote | undefined;
   if (split.length > 0 && tiebreak) {
-    workflow.log(`The judges split on findings ${split.join(", ")}; the tiebreak votes`);
+    wf.log(`The judges split on findings ${split.join(", ")}; the tiebreak votes`);
     const by = `tiebreak:${runtimeName(tiebreak)}`;
     const answered = await ask(
-      workflow,
+      wf,
       { by, runtime: tiebreak, ...(box ? { sandbox: box } : {}) },
       input,
       tiebreakPrompt({ ...input, asked: split, settled: a.labels }),
@@ -165,9 +165,7 @@ export async function voteOnRest(
       third = { by, role: "tiebreak", labels: answered.labels };
       votes.push(third);
     } else
-      workflow.log(
-        `${by} gave no valid vote (${answered.detail}); the split findings stay unsettled`,
-      );
+      wf.log(`${by} gave no valid vote (${answered.detail}); the split findings stay unsettled`);
   }
   for (const label of settle(a, b, third)) labels.set(label.finding, label);
   return { labels, votes, missed };

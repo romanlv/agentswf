@@ -166,6 +166,8 @@ const ISSUES_REFS = {
   reason: "only the engine issues a participant ref",
 };
 
+const AGENT_CLI = "packages/engine/src/agent-cli";
+
 const RULES: Rule[] = [
   { dir: "packages/contract", allow: [], pure: true },
   // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
@@ -247,20 +249,23 @@ const RULES: Rule[] = [
     allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [
       {
-        pattern: /^@agentswf\/(harness|engine|wf)/,
+        pattern: /^@agentswf\/(harness|engine)/,
         reason: "the sandbox package imports contract only",
       },
       ISSUES_REFS,
     ],
   },
+  // The agent's side of the wire: bundled into one file the agent's sandbox can read, it reaches the
+  // engine around it only over the control plane.
   {
-    dir: "packages/wf",
+    dir: AGENT_CLI,
     allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [
-      { pattern: /^@agentswf\/(engine|harness)/, reason: "wf reaches the engine only over wire" },
-      { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "wf never performs run-directory I/O" },
+      { pattern: /^@agentswf\/(engine|harness)/, reason: "wfa reaches the engine only over wire" },
+      { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "wfa never performs run-directory I/O" },
       ISSUES_REFS,
     ],
+    paths: (target) => containsPath(AGENT_CLI, target),
   },
   // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
   // is that nothing here reaches a runtime, which is what made them approvable.
@@ -379,8 +384,8 @@ export async function boundaryProblems(root: string): Promise<string[]> {
       if (rule.pure && ANY_BUN.test(source)) {
         problems.push(`${where}: uses the Bun global; ${rule.dir} is pure`);
       }
-      if (rule.dir === "packages/wf" && BUN_FILE_IO.test(source)) {
-        problems.push(`${where}: wf never performs run-directory I/O`);
+      if (rule.dir === AGENT_CLI && BUN_FILE_IO.test(source)) {
+        problems.push(`${where}: wfa never performs run-directory I/O`);
       }
       if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(where)) {
         problems.push(`${where}: contains a computed import whose boundary cannot be verified`);

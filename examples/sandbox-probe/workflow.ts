@@ -80,10 +80,10 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
       "Run fixed shell commands in shared and private sandboxes, and report each output.",
     whenToUse: "Use to check what agents in sandboxes reach, against canaries the caller planted.",
   },
-  async run(workflow, plan) {
+  async run(wf, plan) {
     const environment: SandboxEnvironment =
       plan.environment === "srt" ? { srt: {} } : { docker: {} };
-    const shared = await workflow.sandboxes.open({
+    const shared = await wf.sandboxes.open({
       key: "shared",
       write: ["."],
       network: plan.network,
@@ -96,7 +96,7 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
         metered: _metered,
         ...target
       } = PROBES[name] as ExecutionConfig;
-      const agent = await workflow.agents.open({
+      const agent = await wf.agents.open({
         key: name,
         runtime: pane ? target : PROBES[name],
         sandbox: name === "reviewer" ? { network: plan.network, ...environment } : shared,

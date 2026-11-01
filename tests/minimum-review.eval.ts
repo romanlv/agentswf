@@ -87,7 +87,7 @@ export type NativeOutcomeEvidence = {
 };
 
 const ROOT = join(import.meta.dir, "..");
-const CLI_SOURCE = join(ROOT, "packages/wf/src/cli.ts");
+const CLI_SOURCE = join(ROOT, "packages/engine/src/agent-cli/cli.ts");
 const FIXTURE_SOURCE = join(ROOT, "examples/minimum-review/fixtures/review-target.ts");
 const HERDR_SESSION = "default";
 const METERED_CREDENTIAL_ENV = [
@@ -137,7 +137,7 @@ export async function evaluationPreflight(): Promise<EvaluationPreflight> {
     ok: process.env.HERDR_ENV === "1",
     detail: process.env.HERDR_ENV === "1" ? "managed pane" : "HERDR_ENV is not 1",
   });
-  checks.push(await executable("workflow-cli", CLI_SOURCE));
+  checks.push(await executable("workflow-cli", CLI_SOURCE, false));
   checks.push(await executable("review-fixture", FIXTURE_SOURCE, false));
 
   const credentialOverrides = METERED_CREDENTIAL_ENV.filter((name) => process.env[name]);
@@ -507,10 +507,10 @@ async function prepareEvaluationDirectory(): Promise<{
     "--no-compile-autoload-dotenv",
     "--no-compile-autoload-bunfig",
     "--outfile",
-    join(binDir, "wf"),
+    join(binDir, "wfa"),
   ]);
   if (built.exitCode !== 0)
-    throw new Error(`failed to compile evaluation wf CLI: ${safeDetail(built)}`);
+    throw new Error(`failed to compile evaluation wfa CLI: ${safeDetail(built)}`);
   return { root, workDir, runRoot, binDir };
 }
 
@@ -545,12 +545,12 @@ async function smokeWorkflowCli(): Promise<Check> {
   try {
     // Run bare, the way nothing is meant to: the refusal proves the executable built and its
     // contract imports resolved. The live path reaches it through the engine's own launcher.
-    const result = await command([join(prepared.binDir, "wf")]);
+    const result = await command([join(prepared.binDir, "wfa")]);
     const ok = result.exitCode === 2 && result.stderr.includes("must be run through the launcher");
     return {
       name: "workflow-cli-smoke",
       ok,
-      detail: ok ? "wf executable and contract imports resolve" : safeDetail(result),
+      detail: ok ? "wfa executable and contract imports resolve" : safeDetail(result),
     };
   } finally {
     await rm(prepared.root, { recursive: true, force: true });

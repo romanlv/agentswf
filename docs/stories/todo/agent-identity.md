@@ -20,7 +20,7 @@ shell, which in a fork holds the parent's cache key.
 A session id does three jobs, and awf mixes them:
 - **the history**: what awf resumes, and where it reads the agent's usage;
 - **the cache key**: what the provider routes its prompt cache by;
-- **the agent**: which agent a `wf` request comes from.
+- **the agent**: which agent a `wfa` request comes from.
 
 Checked against the code, `docs/findings/fork-cache.md`, and a probe on 2026-10-25 (codex
 `gpt-6-luna` and cursor `composer-2.5`, headless, two forks each):
@@ -39,7 +39,7 @@ fork, the shell's variable printed the parent's id.
 So two things are wrong:
 1. **A pi fork has no history id of its own.** It is the parent's id in a hidden directory, which
    pi's lookup by id never reaches, and awf finds it only by path.
-2. **The shell's session variable is read as the agent.** `wf` sends it with every request
+2. **The shell's session variable is read as the agent.** `wfa` sends it with every request
    (`--session`, `launcherScript` in `packages/engine/src/agent-launcher.ts`), and it is the main
    source of an agent's sessions for its usage (story 002, ADR 0010). In a fork, on codex, cursor
    and pi, it holds the cache key, which is the parent's, so the engine subtracts a parent's
@@ -54,7 +54,7 @@ So two things are wrong:
   environment variable awf sets. `awf-forks/` goes. The extension loads even under the
   `--no-extensions` a sandbox passes, or this is checked.
 - **The shell's session variable is no longer the agent.** For an agent awf opened, its sessions come
-  from its harness (the fork's id, the headless output, Herdr's `agent_session`), not from `wf`. The
+  from its harness (the fork's id, the headless output, Herdr's `agent_session`), not from `wfa`. The
   variable is kept only where nothing else names the session, as for the calling session of
   `awf run --here` (ADR 0010), which isn't forked from anything. `reportedSessions`' subtraction
   goes.
@@ -73,7 +73,7 @@ So two things are wrong:
 ## Not in it
 
 A fork's copied command reaching its parent's socket, and acting as the parent while the parent is
-in a turn, is accepted, for `wf send`, `wf reply` and `wf tool` alike ([[035-workflow-tools|story
+in a turn, is accepted, for `wfa send`, `wfa reply` and `wfa tool` alike ([[035-workflow-tools|story
 035]], Q4). The guards weighed there: `AWF_AGENT` in the environment, which a codex pane's shell
 commands never see (commit `38dd03a`) and a sandboxed pane drops; the call id on every command; the
 parent's launcher replaced at each fork; a launcher per operation. Pick one up only if a run is seen

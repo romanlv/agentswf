@@ -81,8 +81,8 @@ export default defineWorkflow<SingleReviewArgs, SingleReviewResult>({
     description: "One agent reviews a change in one turn, with a public review skill or none.",
     whenToUse: "Use as a baseline review, or to measure what a review skill adds.",
   },
-  async run(workflow, args) {
-    const agent = await workflow.agents.open({
+  async run(wf, args) {
+    const agent = await wf.agents.open({
       key: "reviewer",
       runtime: args.runtime,
       // Exactly the skill named, or none: what the agent has is the variable measured.

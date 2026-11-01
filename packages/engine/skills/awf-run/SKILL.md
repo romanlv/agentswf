@@ -23,7 +23,7 @@ Leave out `-- {arguments}` when they gave none. Then:
 - **It refuses:** tell the user what it printed, word for word, and stop. Do not retry another way.
 
 From then on, each of the workflow's steps arrives as a prompt. Do each one as it asks, and return
-its answer the way it says, with the `wf result` command it names. A message starting `[awf]` says
+its answer the way it says, with the `wfa result` command it names. A message starting `[awf]` says
 the workflow has ended; nothing in it needs doing.
 
 ## Waiting on it as a command

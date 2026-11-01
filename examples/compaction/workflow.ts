@@ -78,12 +78,12 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
     whenToUse:
       "Use to check that each harness compacts natively, that the focus reaches its compaction, and that the agent goes on afterwards in the same session.",
   },
-  async run(workflow, args) {
-    const checks = await workflow.parallel(
+  async run(wf, args) {
+    const checks = await wf.parallel(
       args.runtimes,
       async (runtime): Promise<CompactionCheck> => {
         const { execution, ...rest } = RUNTIMES[runtime];
-        const agent = await workflow.agents.open({
+        const agent = await wf.agents.open({
           key: `compact:${runtime}`,
           runtime: execution,
         });

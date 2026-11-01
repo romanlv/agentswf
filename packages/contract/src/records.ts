@@ -383,7 +383,7 @@ export type MailboxRecord = {
       data: JsonValue;
       /** As `WorkflowEvent.from`. */
       from: string;
-      /** The event that created its run: `workflow.started`. */
+      /** The event that created its run: `wf.started`. */
       starts?: true;
     }
   /**
@@ -593,7 +593,7 @@ export type RouteEnds =
 export type UndeliveredReason = "withdrawn" | "route-closed" | "attempt-ended";
 
 /**
- * How an owed answer ended: answered with `wf reply` or `awf reply`; failed (its peer stopped,
+ * How an owed answer ended: answered with `wfa reply` or `awf reply`; failed (its peer stopped,
  * failed, or still owed it after its reminder); the asker's `--timeout` or its route's passed; the
  * asker finished first, before its peer saw the question (`withdrawn`) or after (`released`), or
  * the outside participant it was owed by was released (`released`); a deadline the workflow set
@@ -648,7 +648,7 @@ export type MessagingEvent =
       reason: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
     } & RouteEnds)
   /**
-   * Admitted, before `wf send`, `wf reply`, `awf send` or `awf reply` returned. `operationId` is the
+   * Admitted, before `wfa send`, `wfa reply`, `awf send` or `awf reply` returned. `operationId` is the
    * sender's open operation; an outside participant has none, and says what it came through
    * instead. A question carries the answer's deadline, if it has one; an answer, the question it
    * answers.
@@ -666,7 +666,7 @@ export type MessagingEvent =
       /** The question it answers. */
       replyTo?: number;
     } & ({ operationId: string; via?: never } | { via: OutsideVia; operationId?: never }))
-  /** Refused before admission, with the code `wf` printed. */
+  /** Refused before admission, with the code `wfa` printed. */
   | {
       kind: "message-refused";
       callPath: string[];
@@ -732,7 +732,7 @@ export type MessagingEvent =
       error?: string;
       durationMs: number;
     }
-  /** Refused before the handler ran, with the code `wf tool` printed; `operationId` absent for `no-operation`. */
+  /** Refused before the handler ran, with the code `wfa tool` printed; `operationId` absent for `no-operation`. */
   | {
       kind: "tool-refused";
       callPath: string[];
@@ -741,7 +741,7 @@ export type MessagingEvent =
       agent: AgentKey;
       tool: string;
       code: ToolCode;
-      /** What `wf tool` printed for `invalid-input`: the schema's errors, or the usage line's. */
+      /** What `wfa tool` printed for `invalid-input`: the schema's errors, or the usage line's. */
       error?: string;
     }
   /** An owed answer's end. `message` is the question; `reply`, its answer's number. */
@@ -871,7 +871,7 @@ export type RunJson = {
     turns: number;
     sessions: { harness: HarnessKind; id: string; files: string[] }[];
     live: {
-      /** `waiting` after `wf waiting`; `awaiting-reply` on `peer`'s answer. */
+      /** `waiting` after `wfa waiting`; `awaiting-reply` on `peer`'s answer. */
       phase?: "waiting" | "awaiting-reply";
       reason?: string;
       peer?: AgentKey;

@@ -17,7 +17,7 @@ type Args = { fixture: string; findings: string; mode: string; settled?: string 
 
 export default defineWorkflow<Args, ScorerResult>({
   meta: { name: "exact-judge", description: "Label findings by exact text." },
-  async run(_workflow, args) {
+  async run(_wf, args) {
     const key: AnswerKey = await Bun.file(join(args.fixture, "key", "key.json")).json();
     const findings: ReviewFinding[] = await Bun.file(args.findings).json();
     const settled: FindingLabel[] = args.settled ? await Bun.file(args.settled).json() : [];

@@ -50,7 +50,7 @@ const withEvents = defineWorkflow({
   meta: { name: "w", description: "w" },
   file: import.meta.path,
   events: { ping: { type: "object" } as OutputSchema<{ n: number }> },
-  run: async (workflow) => (await workflow.receive()).length,
+  run: async (wf) => (await wf.receive()).length,
 });
 export const tested = () => testWorkflow(withEvents, { id: "k" });
 // @ts-expect-error a workflow with events is tested from { id, event? }, never its args
@@ -58,7 +58,7 @@ export const byArgs = () => testWorkflow(withEvents, null);
 const plain = defineWorkflow({
   meta: { name: "p", description: "p" },
   prepare: ({ argv }) => ({ n: argv.length }),
-  run: async (_workflow, args) => args.n,
+  run: async (_wf, args) => args.n,
 });
 // @ts-expect-error a workflow without events is tested from its args, not { id }
 export const byOptions = () => testWorkflow(plain, { id: "k" });

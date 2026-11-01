@@ -13,7 +13,7 @@ export const MESSAGE_LIMITS: MessageLimits = {
 /**
  * Where an asker may wait for an answer, by harness and placement: on where M2 passed
  * (`docs/findings/messaging-m2.md`), off elsewhere. A pane that is `confirmed` waits only where it
- * confirms what it was sent, as `wf waiting` needs. The fake harness always may. cursor is off:
+ * confirms what it was sent, as `wfa waiting` needs. The fake harness always may. cursor is off:
  * its turns ran past their deadline in M2.
  */
 export const AWAIT_REPLY: Readonly<Record<string, { headless?: true; pane?: true | "confirmed" }>> =

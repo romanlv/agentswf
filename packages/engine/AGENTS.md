@@ -11,9 +11,16 @@ harness writes. `src/skills/` resolves, checks and copies skills; its `sources.t
 from `@agentswf/contract/records`;
 the I/O is here and stays here.
 
-The installed `wf` command lives in `@agentswf/wf`, compiles against contract alone, and reaches
-this package over the per-agent Unix socket argued in
-[`docs/design/README.md`](../../docs/design/README.md#what-an-agent-inside-a-session-sees).
+`src/agent-cli/` is `wfa`, the command an agent runs inside its session. The engine bundles it into
+one file the agent's sandbox can read, so it imports contract alone, never reads or writes a run
+directory, and reaches the engine only over the per-agent Unix socket argued in
+[`docs/design/README.md`](../../docs/design/README.md#what-an-agent-inside-a-session-sees). It is a
+directory of the engine, not a package of its own: the engine is its only consumer, and the
+boundary checker holds it to that rule by path, as it does `src/accounting`.
+
+`wfa result <call-id>` accepts flags the schema names, or JSON from one argument or standard input. Nothing it carries
+is secret: the socket it arrives on is what says which agent is answering, so the call id is a
+name, not a claim.
 
 `result-validation.ts` never repairs a value. A near-miss is a rejection the agent corrects, not
 something the engine quietly fixes. `result-slots.ts` is package-internal; callers outside the

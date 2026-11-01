@@ -6,9 +6,9 @@ export default defineWorkflow<{ fail: boolean }, string>({
     description: "Logs two lines, opens no agent.",
     whenToUse: "Never.",
   },
-  async run(workflow, args) {
-    workflow.log("an ordinary log line");
-    workflow.log("another one");
+  async run(wf, args) {
+    wf.log("an ordinary log line");
+    wf.log("another one");
     if (args.fail) throw new Error("failing on purpose");
     return "done";
   },

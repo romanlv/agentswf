@@ -67,17 +67,17 @@ export default defineWorkflow<null, SandboxesResult>({
       "Run a team of headed agents in one docker container, then a headless pi under srt.",
     whenToUse: "Use to see what agents in a sandbox can read, write and reach.",
   },
-  async run(workflow) {
-    const container = await workflow.sandboxes.open({
+  async run(wf) {
+    const container = await wf.sandboxes.open({
       key: "team",
       write: ["."],
       network: [DOMAIN],
       docker: {},
     });
-    const team = await workflow.parallel(
+    const team = await wf.parallel(
       TEAM,
       async (name) => {
-        const agent = await workflow.agents.open({
+        const agent = await wf.agents.open({
           key: name,
           runtime: TEAM_RUNTIME,
           sandbox: container,
@@ -92,7 +92,7 @@ export default defineWorkflow<null, SandboxesResult>({
       { label: "Team in one container" },
     );
     // A spec instead of a ref: a sandbox of the auditor's own, closed when the run ends.
-    const auditor = await workflow.agents.open({
+    const auditor = await wf.agents.open({
       key: "auditor",
       runtime: AUDITOR_RUNTIME,
       sandbox: { srt: {} },

@@ -127,7 +127,7 @@ function setup(
   const waiting = (timeoutMs = 20) =>
     slots.waiting({ operationId: "op", agentId: "agent", reason: "job", timeoutMs });
   const answer = () =>
-    slots.submit({ operationId: "op", agentId: "agent", raw: '"done"', source: "wf" });
+    slots.submit({ operationId: "op", agentId: "agent", raw: '"done"', source: "wfa" });
   return {
     run,
     slots,

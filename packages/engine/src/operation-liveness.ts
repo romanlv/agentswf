@@ -506,7 +506,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           deliveryUntil === undefined &&
           receiptUntil === undefined;
         const messages = options.messages;
-        // Before any check-in: what continues it goes now, cutting a `wf waiting` short, and an
+        // Before any check-in: what continues it goes now, cutting a `wfa waiting` short, and an
         // operation awaiting an answer waits for it with no check-in.
         if (messages && settledTurn) {
           if (messages.pending() === "continues") {

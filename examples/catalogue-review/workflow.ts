@@ -81,28 +81,27 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
     whenToUse: "Use for read-only reviews where each lens must inspect the diff independently.",
   },
 
-  async run(workflow, args) {
+  async run(wf, args) {
     if (new Set(args.lenses.map((lens) => lens.id)).size !== args.lenses.length) {
       throw new Error("catalogue-review: lens ids must be unique");
     }
 
     const verificationLimit = Math.max(0, Math.floor(args.maxVerifyPerLens ?? 3));
-    const lensResults = await workflow.parallel(
-      args.lenses,
-      (lens) => runLens(workflow, args, lens),
-      { label: "Catalogue lenses", concurrency: 6 },
-    );
+    const lensResults = await wf.parallel(args.lenses, (lens) => runLens(wf, args, lens), {
+      label: "Catalogue lenses",
+      concurrency: 6,
+    });
     const lensFailures = lensResults.flatMap((result) =>
       result.kind === "failed"
         ? [{ stage: "lens" as const, subject: result.lens.id, reason: result.reason }]
         : [],
     );
     const { candidates, unchecked } = selectVerificationCandidates(
-      workflow,
+      wf,
       lensResults,
       verificationLimit,
     );
-    const verified = await verifyFindings(workflow, args, candidates);
+    const verified = await verifyFindings(wf, args, candidates);
 
     return {
       range: args.range,
@@ -115,7 +114,7 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
 };
 
 function selectVerificationCandidates(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   results: LensResult[],
   verificationLimit: number,
 ): { candidates: Finding[]; unchecked: ReviewedFinding[] } {
@@ -132,19 +131,15 @@ function selectVerificationCandidates(
     candidates.push(...ranked.slice(0, verificationLimit));
     unchecked.push(...ranked.slice(verificationLimit).map(notVerified));
     if (ranked.length > verificationLimit) {
-      workflow.log(`${result.lens.id}: ${ranked.length - verificationLimit} findings not verified`);
+      wf.log(`${result.lens.id}: ${ranked.length - verificationLimit} findings not verified`);
     }
   }
   return { candidates, unchecked };
 }
 
-async function runLens(
-  workflow: WorkflowContext,
-  args: CatalogueArgs,
-  lens: Lens,
-): Promise<LensResult> {
+async function runLens(wf: WorkflowContext, args: CatalogueArgs, lens: Lens): Promise<LensResult> {
   try {
-    const reviewer = await workflow.agents.open({
+    const reviewer = await wf.agents.open({
       key: `lens:${lens.id}`,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}. ${READ_ONLY}`,
       runtime: lens.runtime ?? args.runtime,
@@ -176,15 +171,15 @@ async function runLens(
 }
 
 async function verifyFindings(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   args: CatalogueArgs,
   findings: Finding[],
 ): Promise<{ findings: ReviewedFinding[]; failures: Failure[] }> {
-  const results = await workflow.parallel(
+  const results = await wf.parallel(
     findings,
     async (finding, index) => {
       try {
-        const verifier = await workflow.agents.open({
+        const verifier = await wf.agents.open({
           key: `verifier:${index}`,
           instructions: `Try to refute this finding against the diff and surrounding code. ${READ_ONLY}`,
           runtime: args.verifierRuntime ?? args.runtime,

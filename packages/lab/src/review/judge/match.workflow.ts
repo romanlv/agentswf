@@ -52,7 +52,7 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
       "Label a review's findings against a case's key: Jev matches what the key knows, voters with the code label the rest.",
     whenToUse: "Run by awf-lab to score a review run (story 011).",
   },
-  async run(workflow, args) {
+  async run(wf, args) {
     const input = await readJudgedCase(args.fixture, args.findings);
     const { key, findings } = input;
     if (findings.length === 0) {
@@ -63,7 +63,7 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
     if (args.settled) {
       const given: FindingLabel[] = await Bun.file(args.settled).json();
       const settled = new Map(given.map((label) => [label.finding, label]));
-      const { labels, votes, missed } = await voteOnRest(workflow, input, settled, args);
+      const { labels, votes, missed } = await voteOnRest(wf, input, settled, args);
       return whole(labels, votes, missed, () => "not asked");
     }
     let settled = new Map<number, FindingLabel>();
@@ -72,7 +72,7 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
       const known = knownOptions(key);
       const matched = await Promise.all(
         findings.map(async (finding, index) => {
-          const { answers } = await workflow.decisions.decide({
+          const { answers } = await wf.decisions.decide({
             key: `match:${index}`,
             model: "jev",
             state: { finding: finding.text },
@@ -85,9 +85,9 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
         }),
       );
       ({ settled, left } = settleMatches(matched, key, args.sure));
-      workflow.log(`Jev settled ${settled.size} of ${findings.length}; ${left.length} left`);
+      wf.log(`Jev settled ${settled.size} of ${findings.length}; ${left.length} left`);
     }
-    const { labels, votes, missed } = await voteOnRest(workflow, input, settled, args);
+    const { labels, votes, missed } = await voteOnRest(wf, input, settled, args);
     return whole(
       labels,
       votes,

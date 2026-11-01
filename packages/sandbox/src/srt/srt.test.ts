@@ -54,10 +54,10 @@ const agent: AgentContext = {
   },
   door: {
     endpoint: "/private/tmp/awf-x/a1/s.sock",
-    launcher: "/private/tmp/awf-x/a1/wf",
+    launcher: "/private/tmp/awf-x/a1/wfa",
     boxScript: "",
-    bundle: "/private/tmp/awf-x/a1/wf.js",
-    reads: ["/Users/op/.bun/bin/bun", "/private/tmp/awf-x/a1/wf.js"],
+    bundle: "/private/tmp/awf-x/a1/wfa.js",
+    reads: ["/Users/op/.bun/bin/bun", "/private/tmp/awf-x/a1/wfa.js"],
   },
 };
 

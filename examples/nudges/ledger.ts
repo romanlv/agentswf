@@ -6,7 +6,7 @@ type Saved = { nextNudge: string | null; nudges: number };
 
 /**
  * The question's state, in a file beside the run's work: a parked run wakes in a new process, and
- * `workflow.at` reads the next nudge from here again. Read at the start; each change written whole.
+ * `wf.at` reads the next nudge from here again. Read at the start; each change written whole.
  */
 export class Ledger {
   private constructor(

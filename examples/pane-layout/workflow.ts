@@ -29,14 +29,14 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
     whenToUse:
       'Use to see pane layout live: run it from a Herdr pane, and its tab opens there ("origin"), or pass run or a workspace name.',
   },
-  async run(workflow, args) {
+  async run(wf, args) {
     const steps = { timeoutMs: 5 * 60_000 };
     const ask = {
       prompt: "Reply with your name: one word you make up. Do not run any code.",
       schema: NAMED,
       ...steps,
     };
-    const lead = await workflow.agents.open({
+    const lead = await wf.agents.open({
       key: "lead",
       runtime: RUNTIME,
       layout: { workspace: args.workspace, tab: "review" },
@@ -53,7 +53,7 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
       key: "style",
       layout: { beside: "security", side: "below" },
     });
-    const answers = await workflow.parallel([security, style], (agent) => agent.run(ask));
+    const answers = await wf.parallel([security, style], (agent) => agent.run(ask));
     return {
       answered: [first, ...answers].flatMap(({ outcome }) =>
         isAnswered(outcome) ? [outcome.value.name] : [],

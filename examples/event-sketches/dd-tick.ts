@@ -35,41 +35,35 @@ type Tick = { changed: number; skipped?: string };
 export default singleton(
   defineWorkflow({
     meta: { name: "dd-tick", description: "Triage Datadog signals into cases." },
-    async run(workflow): Promise<Tick> {
+    async run(wf): Promise<Tick> {
       // A window of some models' only, as `week (Fable)`, doesn't limit the triage's sonnet.
-      const plan = await workflow.allowance("claude");
+      const plan = await wf.allowance("claude");
       if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent >= 80))
         return { changed: 0, skipped: "claude's plan is over 80% used" };
       const cases = openCases(DD_CASES);
-      const triage = await workflow.agents.open({
+      const triage = await wf.agents.open({
         key: "triage",
         runtime: "claude",
         cwd: DD_CASES,
       });
 
-      const { decisions, sources } = await workflow.stage(
-        "triage",
-        { result: Triage },
-        async () => {
-          const { outcome } = await triage.run({
-            prompt: fill(TRIAGE.prompt, { lastTick: cases.lastTick() }),
-            schema: Triage,
-          });
-          if (!isAnswered(outcome)) throw new Error(`triage: ${outcome.kind}`);
-          return outcome.value;
-        },
-      );
+      const { decisions, sources } = await wf.stage("triage", { result: Triage }, async () => {
+        const { outcome } = await triage.run({
+          prompt: fill(TRIAGE.prompt, { lastTick: cases.lastTick() }),
+          schema: Triage,
+        });
+        if (!isAnswered(outcome)) throw new Error(`triage: ${outcome.kind}`);
+        return outcome.value;
+      });
       if (sources.some((s) => !s.ok)) return { changed: 0, skipped: "a pull failed" };
 
-      const changed = await workflow.stage("write", { result: Changed }, () =>
+      const changed = await wf.stage("write", { result: Changed }, () =>
         cases.apply(decisions, { maxNew: 3 }),
       );
-      const commits = await workflow.stage("commit", { result: Commits }, () =>
-        cases.commit(changed),
-      );
+      const commits = await wf.stage("commit", { result: Commits }, () => cases.commit(changed));
       for (const c of changed) {
         const commit = commits[c.id] ?? c.id;
-        await workflow.emit(
+        await wf.emit(
           caseRun,
           c.id,
           "dd.changes",
@@ -77,7 +71,7 @@ export default singleton(
           { eventId: commit },
         );
         if (c.closed) {
-          await workflow.emit(
+          await wf.emit(
             caseRun,
             c.id,
             "dd.closed",

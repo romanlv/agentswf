@@ -168,7 +168,7 @@ describe("reading flags", () => {
   });
 });
 
-describe("a result as wf sent it", () => {
+describe("a result as wfa sent it", () => {
   const call = { question: "q", schema: VERDICT };
 
   test("no input is {}: taken by optional properties, refused by a required one", async () => {

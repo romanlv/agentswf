@@ -10,8 +10,8 @@ import {
 export type Session = ReturnType<typeof session>;
 
 /** An agent whose turns answer or stop the run; a stop it causes carries its name. */
-export function session(workflow: WorkflowContext, agent: AgentRef, name: string = agent.key) {
-  const stop = (reason: string): never => workflow.stop(`${name}: ${reason}`);
+export function session(wf: WorkflowContext, agent: AgentRef, name: string = agent.key) {
+  const stop = (reason: string): never => wf.stop(`${name}: ${reason}`);
   return {
     agent,
     stop,

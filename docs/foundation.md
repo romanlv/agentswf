@@ -13,7 +13,8 @@ comes next is in [`status.md`](status.md). Decisions taken against this document
 > `packages/harness` is `@agentswf/harness`. A workflow imports the author surface as
 > `agentswf/workflow`. The operator's command is `awf`, and everything it owns at run time keeps
 > that name: `~/.awf/runs`, `AWF_*`, docker's `awf.*` labels, and `awf-lab`. The command an agent
-> runs inside its session is `wf` (`wf result`), short because every prompt carries it.
+> runs inside its session is `wfa` (`wfa result`), short because every prompt carries it, and a
+> workflow names its context `wf` ([ADR 0013](adr/0013-the-agent-command-is-wfa.md)).
 
 ## 1. What this is
 
@@ -179,8 +180,8 @@ awf/
   packages/
     contract/               # pure: types, schema, record formats, the author surface. no I/O
     harness/                # drive a coding agent. adapters, liveness, usage extraction
-    engine/                 # the workflow runtime, run-directory I/O, and local control plane
-    wf/                     # the in-session `wf` binary; contract plus wire client only
+    engine/                 # the workflow runtime, run-directory I/O, and local control plane;
+                            # src/agent-cli is the in-session `wfa`, contract plus wire client only
     sandbox/                # sandboxes a workflow opens: the provider seam and the providers
     lab/                    # evaluating workflows against known answers; a consumer of the engine
 
@@ -191,9 +192,11 @@ awf/
   scripts/                  # check-boundaries.ts, and ad-hoc dev commands
 ```
 
-`packages/wf` is the fourth package. It was created only when the versioned wire boundary
-and engine-owned local endpoint existed, as required below. `packages/sandbox` came with
-[[004-sandboxed-agents|story 004]], so that neither harness nor engine holds a provider's code.
+The in-session command, `wfa`, was a fourth package, created only when the versioned wire
+boundary and engine-owned local endpoint existed, as required below. It is now
+`engine/src/agent-cli`, held to contract-only by a path rule: the engine was its only importer
+(ADR 0013). `packages/sandbox` came with [[004-sandboxed-agents|story 004]], so that neither
+harness nor engine holds a provider's code.
 
 The justification for each package is that something outside it must import it.
 
@@ -213,13 +216,13 @@ that reads and writes them does not.
 
 The JSON-schema subset, its validator, `describe()`, and the per-field error text (E5: 2.00 attempts
 against 2.90–4.95 for a bare refusal). The author-facing workflow types. The control-plane messages
-— and these need runtime-decodable schemas, not TypeScript types alone, because `wf` is an
+— and these need runtime-decodable schemas, not TypeScript types alone, because `wfa` is an
 untrusted process boundary and a version-skewed or malformed request has to be rejected predictably.
 
 **One production return channel, not three.** E2 measured all three and all three work, but the
 accepted result now settles through the control plane, and write-a-file has the agent writing into
 the call directory itself (`return-method.ts:35-43`, read back at `97-103`) — which contradicts the
-engine being the only writer of the run record. `wf result < file` already covers the case
+engine being the only writer of the run record. `wfa result < file` already covers the case
 write-a-file existed for. The other two are E2 evidence, in git history with its scripts.
 
 Two things that were in earlier drafts of this plan have moved out. **Run-directory I/O** —
@@ -255,7 +258,7 @@ host never starts, closes or cleans it up
 each distinct operation receives fresh result authority. A pane agent keeps one pane for all its
 operations, and each later one is prompted into it once the agent has settled
 ([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). Initial prompts and check-ins share
-one operation, slot and schema. On placements with measured receipt support, `wf waiting`
+one operation, slot and schema. On placements with measured receipt support, `wfa waiting`
 permits repeated check-ins under one fixed deadline ([[021-turn-liveness-and-limits]]).
 The harness reports dispatch, native acceptance and model receipt; the engine owns the timers.
 An accepted native queue entry is not yet model receipt. Unsupported placements do not gain
@@ -297,15 +300,17 @@ Herdr and a
 fake host satisfy the run-host interface; provider variation is internal composition, not another
 choice exposed to workflows or the engine.
 
-**`wf`** — the command the in-session agent is told to run, through a launcher the engine
-installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send` / `wf reply`. It
-*compiles* against `contract` alone, and at runtime it talks to the engine over the local control
-plane described in section 7. It never links the engine and never touches the run directory itself.
+**`engine/src/agent-cli`, `wfa`** — the command the in-session agent is told to run, through a
+launcher the engine installs per agent: `wfa result` and `wfa waiting`, and later `wfa peers` /
+`wfa send` / `wfa reply`. It *compiles* against `contract` alone, and at runtime it talks to the
+engine over the local control plane described in section 7. It never links the rest of the engine
+and never touches the run directory itself.
 
-It was deliberately absent through Stage 0. Stage 2 created it together with
+It was deliberately absent through Stage 0. Stage 2 created it as a package, `wf`, together with
 `@agentswf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
-package now has a real boundary to uphold: it submits over the local socket and cannot reach the
-run directory or engine implementation.
+engine was its only importer, so it is now a directory of the engine, and a path rule holds the
+same boundary: it submits over the local socket and cannot reach the run directory or engine
+implementation (ADR 0013).
 
 **`engine`** — logical-agent identity, alias resolution, queueing, idempotency, `parallel`, `steps`,
 `signals`, usage collection, spend-pool admission, **all run-directory I/O, and the local
@@ -328,7 +333,7 @@ sandbox       → contract
 harness       → contract, sandbox
 engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only;
                                                the fakes: workflow-testing/ and tests)
-wf            → contract
+agent-cli     → contract            (engine/src/agent-cli, bundled as `wfa`)
 lab           → contract            (runs `awf run`)
 examples/     → contract/workflow   (their tests: engine/workflow-testing too)
 scripts/*     → any
@@ -342,7 +347,8 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
    needs `Bun.*` or `node:fs`, it is in the wrong package.
 2. `engine/src/accounting` imports `contract` only, performs no I/O, and uses no runtime-specific
    API, so it can be lifted out whole (section 8).
-3. `wf` imports `contract` only, and reaches the engine over the wire, never by linking.
+3. `wfa`, in `engine/src/agent-cli`, imports `contract` and its own files only, and reaches the
+   rest of the engine over the wire, never by linking.
 4. `sandbox` imports `contract` only. harness and engine import its seam, `@agentswf/sandbox`, and their
    tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
    provider imports another. The same holds for decision providers in `engine/src/decisions/`: only
@@ -397,17 +403,17 @@ The feature spans every layer:
 
 - route, envelope and obligation **types** — needed by everything
 - `HarnessTurn.deliver`, presenting a message at the next safe model continuation — **harness**
-- `wf peers`, `wf send --await-reply`, `wf reply` — **wf**
+- `wfa peers`, `wfa send --await-reply`, `wfa reply` — **engine** (`src/agent-cli`)
 - the obligation state machine: atomic acceptance of a send and its obligation, a request waking
-  an agent that awaits a reply, refusing `wf result` while a reply is owed, and a result while
+  an agent that awaits a reply, refusing `wfa result` while a reply is owed, and a result while
   awaiting dropping the wait — **engine**
 
 The types go in `contract` and the enforcement in `engine`, the way openclaw names
 `gateway-protocol` separately from the gateway.
 
-**But a dependency rule is not a communication channel, and this plan was missing one.** `wf`
-is a separate operating-system process. `wf send --await-reply` has to create its obligation
-atomically with the message; `wf result` has to be refused while a reply is owed; a `wf reply` has
+**But a dependency rule is not a communication channel, and this plan was missing one.** `wfa`
+is a separate operating-system process. `wfa send --await-reply` has to create its obligation
+atomically with the message; `wfa result` has to be refused while a reply is owed; a `wfa reply` has
 to be matched against the wait still open, ordered against another process's send. None of that
 can be done by two processes writing to a shared directory.
 
@@ -417,8 +423,8 @@ current storage cannot substitute for a server: `writeAccepted` is an existence 
 write (`packages/engine/src/run-dir.ts:54-62`), so two delayed invocations can both pass it.
 
 So: **the engine owns a local control plane from Stage 2**, an authenticated local endpoint it
-serves and `wf` calls. Wire messages go in `@agentswf/contract/wire`, the
-client is `wf`'s internals, the state and transactions are the engine's. Remote execution
+serves and `wfa` calls. Wire messages go in `@agentswf/contract/wire`, the
+client is `wfa`'s internals, the state and transactions are the engine's. Remote execution
 later replaces the transport without having to invent the boundary — which is why "client/server
 split when remote execution arrives" was the wrong trigger.
 
@@ -480,7 +486,7 @@ to hand-roll.
 | --- | --- |
 | `herdr agent prompt` exits 0 having delivered nothing; two pings vanished and both printed `notified` | E7's finding, reached independently. Delivery is confirmed from the transcript, never from a return value |
 | Herdr reports `idle` mid-turn, so the findings doc is the only signal `wait` can trust | Turn completion and result submission are separate signals — the result gate, not lifecycle state |
-| The shell ate a round: a backtick inside a disposition was substituted away, silently | `wf result` takes argument **or** stdin, exactly one, with no shell in the path |
+| The shell ate a round: a backtick inside a disposition was substituted away, silently | `wfa result` takes argument **or** stdin, exactly one, with no shell in the path |
 | Both sides idle looks identical to work in progress; a stalled loop surfaces only when a human opens the tab | The engine holds queue and admission state, so "waiting on nobody" is a state it can report |
 | One reviewer pinging hides the other's silence indefinitely | `parallel` with a per-branch outcome, where `unanswered` is terminal rather than quiet |
 | Derived agent names changed under running reviewers, stranding two of them | A stable `AgentKey`, owned by the engine |
@@ -745,7 +751,7 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
   direct-process and pane adapters and the Herdr run host are tested without the engine. The gate
   is a small general-purpose command that drives one harness through `harness` alone.
 - **Stage 2 — minimum engine and the control plane.** `agents.open/run`, `parallel`, result slots,
-  `wf`, the local endpoint and the workflow loader, proven against a fake and then live. An
+  `wfa`, the local endpoint and the workflow loader, proven against a fake and then live. An
   ambiguous Herdr `idle` is not an answer or proof that background work ended. The original
   stage used one measured nudge; [[021-turn-liveness-and-limits]] adds cooperative waiting and
   repeated check-ins only on placements with measured receipt support. Native release is bounded

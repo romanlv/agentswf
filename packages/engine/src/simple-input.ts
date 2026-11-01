@@ -137,7 +137,7 @@ export type ReadFlags = { ok: true; value: JsonObject } | { ok: false; error: st
 export type ReadGiven = { ok: true; value: unknown } | { ok: false; error: string };
 
 /**
- * An input as `wf` sent it, as a value: JSON parsed, flags read by the schema, nothing as `{}`.
+ * An input as `wfa` sent it, as a value: JSON parsed, flags read by the schema, nothing as `{}`.
  * The schema's own check comes after, in `checkGiven`.
  */
 export function readGiven(schema: JsonSchema | undefined, given: GivenInput): ReadGiven {

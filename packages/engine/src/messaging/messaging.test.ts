@@ -8,7 +8,7 @@ import {
 } from "./messaging";
 import { envelope, fenced } from "./text";
 
-const WF = "/tmp/awf-x/a1/wf";
+const WF = "/tmp/awf-x/a1/wfa";
 const T0 = Date.parse("2026-10-12T14:00:00Z");
 
 /** A runner as the logic sees it: agents by state, a manual clock, the record kept. */
@@ -491,7 +491,7 @@ describe("owed answers", () => {
     return fixture;
   }
 
-  test("only wf reply meets it: a send first is a message, and the answer stays owed", async () => {
+  test("only wfa reply meets it: a send first is a message, and the answer stays owed", async () => {
     const { messaging } = await owed();
     await messaging.send("reviewer", { peer: "implementer", text: "Why?", awaitReply: true });
     messaging.take("op-i", "joins");
@@ -780,7 +780,7 @@ describe("what an agent reads", () => {
         `Continue without it, or finish with ${WF} result op-38.`,
       ].join("\n"),
     );
-    // A message operation's never names wf result.
+    // A message operation's never names wfa result.
     const woken = envelope([{ kind: "no-reply", from: "architect", reason: "x" }], {
       launcher: WF,
       callId: "m-7",
@@ -807,7 +807,7 @@ describe("what an agent reads", () => {
     expect([...tags].every(Boolean)).toBe(true);
   });
 
-  test("the route lesson, a new route's announcement, and wf peers", async () => {
+  test("the route lesson, a new route's announcement, and wfa peers", async () => {
     const { messaging, open } = setup({
       reviewer: "working",
       implementer: "working",
@@ -1135,7 +1135,7 @@ describe("pending, opening and failures", () => {
     expect(messaging.take("op-r", "continues")?.messages).toEqual([
       { kind: "no-reply", from: "implementer", reason: 'it stopped ("x") before replying' },
     ]);
-    // `wf peers` still lists the stopped peer, with its reason.
+    // `wfa peers` still lists the stopped peer, with its reason.
     expect(messaging.peers("reviewer").peers).toEqual([
       {
         peer: "implementer",

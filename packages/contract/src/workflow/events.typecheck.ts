@@ -18,10 +18,10 @@ const caseRun = defineWorkflow({
   file: import.meta.path,
   events: { "dd.changes": Changes, "dd.closed": Closed },
   starts: ["dd.changes"],
-  async run(workflow) {
-    const thread = await workflow.participants.connect({ key: "thread", to: "code" });
-    const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-    const triage = await workflow.agents.open({
+  async run(wf) {
+    const thread = await wf.participants.connect({ key: "thread", to: "code" });
+    const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
+    const triage = await wf.agents.open({
       key: "triage",
       runtime: "claude",
       keepAlive: {
@@ -33,7 +33,7 @@ const caseRun = defineWorkflow({
       },
     });
     for (;;) {
-      const events = await workflow.receive({ label: workflow.runId });
+      const events = await wf.receive({ label: wf.runId });
       for (const e of events) {
         if (investigator.is<Given>(e)) {
           const given: Given = e.data.meta;
@@ -118,8 +118,8 @@ defineWorkflow({
   file: import.meta.path,
   events: { "dd.changes": Changes },
   prepare: ({ argv }) => ({ occurrences: argv.length }),
-  async run(workflow, args) {
-    await workflow.receive();
+  async run(wf, args) {
+    await wf.receive();
     return args.occurrences;
   },
 }) satisfies Workflow<{ occurrences: number }, number, { "dd.changes": typeof Changes }>;
@@ -130,9 +130,9 @@ function plainHelper<Args extends null>(prepare: (invocation: WorkflowInvocation
   return defineWorkflow({
     meta: { name: "plain-helper", description: "Generic over its args." },
     prepare,
-    async run(workflow) {
+    async run(wf) {
       // @ts-expect-error Only a workflow with events waits.
-      await workflow.receive();
+      await wf.receive();
       return null;
     },
   });
@@ -140,13 +140,13 @@ function plainHelper<Args extends null>(prepare: (invocation: WorkflowInvocation
 
 const plain: Workflow<null, null> = defineWorkflow({
   meta: { name: "plain", description: "No events." },
-  async run(workflow) {
+  async run(wf) {
     // @ts-expect-error Only a workflow with events waits.
-    await workflow.receive();
+    await wf.receive();
     // @ts-expect-error A participant routed to the code needs a mailbox.
-    const routed = await workflow.participants.connect({ key: "thread", to: "code" });
+    const routed = await wf.participants.connect({ key: "thread", to: "code" });
     void routed;
-    const agent = await workflow.agents.open({ key: "a", runtime: "claude" });
+    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
     // @ts-expect-error Its end would have no wait to arrive at.
     await agent.start({ prompt: "Look" });
     return null;
@@ -162,9 +162,9 @@ void [typed, sender, plain, plainHelper, noEvents];
 
 defineWorkflow({
   meta: { name: "plain", description: "No events: its runs never park." },
-  async run(workflow) {
+  async run(wf) {
     // @ts-expect-error keepAlive is for a workflow with events.
-    await workflow.agents.open({ key: "a", runtime: "claude", keepAlive: {} });
+    await wf.agents.open({ key: "a", runtime: "claude", keepAlive: {} });
     return null;
   },
 });
@@ -177,13 +177,13 @@ defineWorkflow({
   meta: { name: "approval", description: "Reminders and an expiry." },
   file: import.meta.path,
   events: { "doc.approved": Approved, "dd.closed": Closed },
-  async run(workflow) {
-    const approvals = await workflow.participants.connect({ key: "approvals", to: "code" });
-    const expiry = workflow.timer("doc-expires", "14d");
+  async run(wf) {
+    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    const expiry = wf.timer("doc-expires", "14d");
     for (let round = 1; ; round++) {
-      const next = await workflow.race(
+      const next = await wf.race(
         `approval-${round}`,
-        { reply: approvals, remind: "2d", expiry, closed: workflow.signal("dd.closed") },
+        { reply: approvals, remind: "2d", expiry, closed: wf.signal("dd.closed") },
         { label: "awaiting approval" },
       );
       if (next.expiry) {
@@ -213,24 +213,24 @@ defineWorkflow({
   meta: { name: "approval-loop", description: "The same, as a select." },
   file: import.meta.path,
   events: { "doc.approved": Approved },
-  async run(workflow) {
-    const approvals = await workflow.participants.connect({ key: "approvals", to: "code" });
-    const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-    const expiry = workflow.timer("doc-expires", new Date("2026-11-12T09:00:00Z"));
-    for await (const next of workflow.select(
-      { reply: approvals, expiry, timer: workflow.timers(), ended: investigator },
-      { label: () => `${workflow.now().toISOString()}` },
+  async run(wf) {
+    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
+    const expiry = wf.timer("doc-expires", new Date("2026-11-12T09:00:00Z"));
+    for await (const next of wf.select(
+      { reply: approvals, expiry, timer: wf.timers(), ended: investigator },
+      { label: () => `${wf.now().toISOString()}` },
     )) {
       if (next.expiry) return null;
-      if (next.timer?.name.startsWith("remind-")) workflow.timer(`remind-${next.timer.at}`, "2d");
+      if (next.timer?.name.startsWith("remind-")) wf.timer(`remind-${next.timer.at}`, "2d");
       if (next.ended && isAnswered(next.ended.outcome)) void next.ended.meta;
     }
     // @ts-expect-error A branch named key would hide the answer's key.
-    await workflow.race("k", { key: approvals, other: "1h" });
+    await wf.race("k", { key: approvals, other: "1h" });
     // @ts-expect-error A race of nothing never returns.
-    await workflow.race("empty", {});
+    await wf.race("empty", {});
     // @ts-expect-error A select takes no duration: it has no name to give a timer.
-    workflow.select({ remind: "2d" });
+    wf.select({ remind: "2d" });
     return null;
   },
 });
@@ -239,28 +239,28 @@ defineWorkflow({
   meta: { name: "turn", description: "A turn a close cuts short." },
   file: import.meta.path,
   events: { "dd.closed": Closed },
-  async run(workflow) {
-    const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+  async run(wf) {
+    const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
     const turn = await investigator.start({ prompt: "Look" });
-    const next = await workflow.race(`turn-${turn.id}`, {
+    const next = await wf.race(`turn-${turn.id}`, {
       done: turn,
-      closed: workflow.signal("dd.closed"),
+      closed: wf.signal("dd.closed"),
     });
     if (next.closed) await turn.cancel();
     // @ts-expect-error A turn that may not be running isn't a source.
-    await workflow.race("maybe", { done: investigator.turn });
+    await wf.race("maybe", { done: investigator.turn });
     // @ts-expect-error A promise isn't a source.
-    await workflow.race("promise", { done: investigator.run({ prompt: "Look" }) });
+    await wf.race("promise", { done: investigator.run({ prompt: "Look" }) });
     // @ts-expect-error Only a declared event is a signal.
-    workflow.signal("dd.opened");
+    wf.signal("dd.opened");
     // @ts-expect-error A duration is days, hours or minutes.
-    workflow.timer("typo", "2 days");
+    wf.timer("typo", "2 days");
     // @ts-expect-error Nor seconds.
-    await workflow.sleep("short", "30s");
-    for (const e of await workflow.receive()) {
-      const retry = workflow.timer("retry-1", "10m");
+    await wf.sleep("short", "30s");
+    for (const e of await wf.receive()) {
+      const retry = wf.timer("retry-1", "10m");
       if (retry.is(e)) void [e.at, e.data.name];
-      const closed = workflow.signal("dd.closed");
+      const closed = wf.signal("dd.closed");
       if (closed.is(e)) void e.data.by;
       else if (e.name === "dd.closed") void e;
       if (turn.is<{ n: number }>(e)) void e.data.meta.n;
@@ -268,18 +268,18 @@ defineWorkflow({
       if (investigator.is<{ n: number }>(e)) void e.data.meta.n;
       if (e.name === "timer:due") void e.data.name;
     }
-    void workflow.started?.data;
+    void wf.started?.data;
     return null;
   },
 });
 
 defineWorkflow({
   meta: { name: "follow-up", description: "A sleep in a workflow without events." },
-  async run(workflow) {
-    await workflow.sleep("follow-up", "14d");
-    void workflow.now().getTime();
+  async run(wf) {
+    await wf.sleep("follow-up", "14d");
+    void wf.now().getTime();
     // @ts-expect-error A race takes events, which a workflow without them has none of.
-    await workflow.race("x", { rested: "1h" });
+    await wf.race("x", { rested: "1h" });
     return null;
   },
 });
@@ -288,26 +288,26 @@ defineWorkflow({
   meta: { name: "nudges", description: "A time read from state, moved by the loop." },
   file: import.meta.path,
   events: { "doc.approved": Approved },
-  async run(workflow) {
-    const engineer = await workflow.participants.connect({ key: "engineer", to: "code" });
-    const ledger = { nextNudge: workflow.after("4h") as Date | null };
-    for await (const next of workflow.select({
+  async run(wf) {
+    const engineer = await wf.participants.connect({ key: "engineer", to: "code" });
+    const ledger = { nextNudge: wf.after("4h") as Date | null };
+    for await (const next of wf.select({
       reply: engineer,
-      nudge: workflow.at(() => ledger.nextNudge),
+      nudge: wf.at(() => ledger.nextNudge),
     })) {
       if (next.nudge) {
         const due: string = next.nudge.at;
         void due;
-        ledger.nextNudge = workflow.after("1d");
+        ledger.nextNudge = wf.after("1d");
       }
       if (next.reply) ledger.nextNudge = null;
     }
     // @ts-expect-error A race answers once: it takes a timer, not a time read from state.
-    await workflow.race("r", { reply: engineer, nudge: workflow.at(() => null) });
+    await wf.race("r", { reply: engineer, nudge: wf.at(() => null) });
     // @ts-expect-error A time read from state is a Date or null, not a duration.
-    workflow.at(() => "4h");
+    wf.at(() => "4h");
     // @ts-expect-error after takes a duration.
-    workflow.after(new Date());
+    wf.after(new Date());
     return null;
   },
 });

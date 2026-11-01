@@ -25,3 +25,5 @@ One file per decision: what was decided, what it replaces, and what evidence mov
 - [0011](0011-a-run-continues-from-its-stages.md) — a run continues from its stages
 - [0012](0012-a-kept-session-and-its-window.md) — an event run keeps its agents' sessions, and a
   kept-alive agent holds the run live
+- [0013](0013-the-agent-command-is-wfa.md) — the agent's command is `wfa`, a workflow's context
+  is `wf`, and the command lives in the engine

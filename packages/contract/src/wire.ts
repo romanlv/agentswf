@@ -9,7 +9,7 @@ import { isRecord } from "./schema";
 export const WIRE_VERSION = 5 as const;
 
 /**
- * An input as `wf` was given it, which it sends without knowing the schema: `raw`, JSON from standard
+ * An input as `wfa` was given it, which it sends without knowing the schema: `raw`, JSON from standard
  * input, or `args`, the words after the call id or tool name, which the engine reads as flags by
  * the schema. Neither is no input, `{}` to a schema.
  */
@@ -21,7 +21,7 @@ export type ResultSubmitRequest = {
   operationId: string;
   /**
    * The harness's own session id, where the agent's shell names one. Added within version 2: the
-   * engine installs the `wf` its agents run, so client and engine always ship together.
+   * engine installs the `wfa` its agents run, so client and engine always ship together.
    */
   session?: string;
 } & GivenInput;
@@ -35,7 +35,7 @@ export type WaitingRequest = {
   session?: string;
 };
 
-/** The agent's routes and its peers' states, as `wf peers` shows them. */
+/** The agent's routes and its peers' states, as `wfa peers` shows them. */
 export type PeersRequest = {
   version: typeof WIRE_VERSION;
   command: "peers";
@@ -93,7 +93,7 @@ export const ENVELOPE_CODES = [
   "internal-error",
 ] as const;
 
-/** `wf result`'s and `wf waiting`'s own refusals. */
+/** `wfa result`'s and `wfa waiting`'s own refusals. */
 export const RESULT_CODES = [
   "unknown-operation",
   "wrong-agent",
@@ -149,7 +149,7 @@ export const TOOL_CODES = [
 /**
  * Why `awf reply` or `awf send` was refused, in the order checked; the first that applies is
  * returned. `expired` is a reply's `--to` naming anything but an open question from that agent to
- * this participant, `--as` included, or no `--to` with none open; like `wf reply`'s, it comes
+ * this participant, `--as` included, or no `--to` with none open; like `wfa reply`'s, it comes
  * before the route's state.
  */
 export const PARTICIPANT_CODES = [
@@ -181,7 +181,7 @@ export type ControlCode = ResultSubmitCode | SendCode | ReplyCode | ToolCode;
 
 /**
  * Leads every response while the agent's open operation owes or awaits an answer: one line, such as
- * "you owe reviewer a reply (wf reply reviewer).", which brings it back after a compaction.
+ * "you owe reviewer a reply (wfa reply reviewer).", which brings it back after a compaction.
  */
 export type Owing = { owing?: string };
 
@@ -189,7 +189,7 @@ export type Rejection<Code extends ControlCode = ControlCode> = {
   version: typeof WIRE_VERSION;
   kind: "rejected";
   code: Code;
-  /** The refusal as `wf` prints it after its code, naming the next action. */
+  /** The refusal as `wfa` prints it after its code, naming the next action. */
   error: string;
 } & Owing;
 
@@ -206,7 +206,7 @@ export type WaitingResponse =
       deadline?: number;
     } & Owing)
   /**
-   * `wf waiting` while the operation awaits `peer`'s answer, which it does until `until`, or, absent,
+   * `wfa waiting` while the operation awaits `peer`'s answer, which it does until `until`, or, absent,
    * until an outside participant answers: it changes nothing, and a `--timeout` given with it is
    * ignored.
    */
@@ -215,12 +215,12 @@ export type WaitingResponse =
       kind: "awaiting-reply";
       peer: string;
       until?: number;
-      /** The acknowledgement as `wf` prints it. */
+      /** The acknowledgement as `wfa` prints it. */
       notice: string;
     } & Owing)
   | Rejection<ResultSubmitCode>;
 
-/** A peer as `wf peers --json` prints it. */
+/** A peer as `wfa peers --json` prints it. */
 export type PeerView = {
   peer: string;
   /** `send` on a route from this agent, `reply` on one only to it, `both` either way. */
@@ -245,7 +245,7 @@ export type PeersResponse =
       owes: string[];
       /** Whose answer it awaits, and until when; no `until` for an outside participant's with no limit. */
       awaits?: { peer: string; until?: number };
-      /** The table `wf peers` prints. */
+      /** The table `wfa peers` prints. */
       text: string;
     } & Owing)
   | Rejection<EnvelopeCode>;
@@ -260,13 +260,13 @@ export type MessageResponse =
       kind: "sent";
       message: number;
       until?: number;
-      /** The acknowledgement as `wf` prints it. */
+      /** The acknowledgement as `wfa` prints it. */
       notice: string;
     } & Owing)
   | Rejection<SendCode | ReplyCode | EnvelopeCode>;
 
 /**
- * A call the handler ended: `tool-result` with what `wf tool` prints, absent when it returned
+ * A call the handler ended: `tool-result` with what `wfa tool` prints, absent when it returned
  * nothing; `tool-failed` when it threw or returned what can't be sent, `failed`, or its budget
  * passed or its operation ended first, so it may have done its work, `timed-out` or `cancelled`.
  */
@@ -276,7 +276,7 @@ export type ToolResponse =
       version: typeof WIRE_VERSION;
       kind: "tool-failed";
       outcome: ToolFailure;
-      /** The failure as `wf` prints it, naming the next action. */
+      /** The failure as `wfa` prints it, naming the next action. */
       error: string;
     } & Owing)
   | Rejection<ToolCode | EnvelopeCode>;

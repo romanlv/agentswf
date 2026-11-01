@@ -92,10 +92,10 @@ const mrReview = defineWorkflow({
   file: import.meta.path,
   events: { "mr.changes": Changes, "mr.closed": Closed, "mr.rereview": Rereview },
   starts: ["mr.changes"],
-  async run(workflow) {
-    const iid = Number(workflow.runId);
+  async run(wf) {
+    const iid = Number(wf.runId);
     const ledger = openLedger(REVIEWS, iid);
-    const reviewer = await workflow.agents.open({
+    const reviewer = await wf.agents.open({
       key: "reviewer",
       runtime: "claude",
       cwd: worktreeOf(iid),
@@ -103,7 +103,7 @@ const mrReview = defineWorkflow({
     });
 
     for (;;) {
-      const events = await workflow.receive({
+      const events = await wf.receive({
         label: `${reviewer.turn ? "reviewing" : "idle"} at ${short(ledger.mr.head)}`,
       });
       for (const e of events) {
@@ -112,21 +112,21 @@ const mrReview = defineWorkflow({
         if (reviewer.is<Ask, Pass>(e)) {
           if (isAnswered(e.data.outcome)) {
             const pass = e.data.outcome.value;
-            await workflow.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
+            await wf.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
           } else if (e.data.outcome.kind !== "cancelled") {
-            workflow.timer(`retry-${e.id}`, ledger.failed(e.id));
-            workflow.log("review pass failed; retried in 15 minutes", {
+            wf.timer(`retry-${e.id}`, ledger.failed(e.id));
+            wf.log("review pass failed; retried in 15 minutes", {
               outcome: e.data.outcome.kind,
             });
           }
         }
         if (e.name === "mr.closed") {
           await reviewer.turn?.cancel();
-          await workflow.stage(`archive-${e.id}`, () => archive(iid, e.data));
+          await wf.stage(`archive-${e.id}`, () => archive(iid, e.data));
           if (e.data.merged) return { merged: true };
         }
       }
-      if (reviewer.turn || ledger.retrying(workflow.now()) || ledger.archived) continue;
+      if (reviewer.turn || ledger.retrying(wf.now()) || ledger.archived) continue;
 
       const threads = await gitlab.threads(iid);
       const ask = nextAsk(ledger, threads);
@@ -134,9 +134,9 @@ const mrReview = defineWorkflow({
         await checkout(iid, ledger.mr.head);
         await reviewer.start({ prompt: fill(REVIEWER[ask.kind], ask), schema: Pass, meta: ask });
       } else if (ledger.mr.authorized) {
-        await publish(workflow, ledger, threads, iid);
+        await publish(wf, ledger, threads, iid);
         if (ledger.passes > 0)
-          await workflow.stage(`compact-after-${ledger.passes}`, async () => {
+          await wf.stage(`compact-after-${ledger.passes}`, async () => {
             await reviewer.compact(REVIEWER.compact);
           });
       }
@@ -145,13 +145,13 @@ const mrReview = defineWorkflow({
 });
 export default mrReview;
 
-async function publish(workflow: WorkflowContext, ledger: Ledger, threads: Thread[], iid: number) {
+async function publish(wf: WorkflowContext, ledger: Ledger, threads: Thread[], iid: number) {
   const plan = postingPlan(ledger, threads);
   const at = short(ledger.head ?? ledger.mr.head);
   for (const f of plan.post) {
     ledger.posted(
       f.id,
-      await workflow.stage(`post-${f.id}@${at}`, { result: Posted }, () =>
+      await wf.stage(`post-${f.id}@${at}`, { result: Posted }, () =>
         gitlab.post(iid, f, `${iid}@${at}/${f.id}`),
       ),
     );
@@ -161,7 +161,7 @@ async function publish(workflow: WorkflowContext, ledger: Ledger, threads: Threa
     if (!thread) continue;
     ledger.resolved(
       f.id,
-      await workflow.stage(`resolve-${f.id}-${f.lastNote}`, { result: Resolved }, () =>
+      await wf.stage(`resolve-${f.id}-${f.lastNote}`, { result: Resolved }, () =>
         gitlab.resolve(iid, thread),
       ),
     );
@@ -169,7 +169,7 @@ async function publish(workflow: WorkflowContext, ledger: Ledger, threads: Threa
   if (plan.summary !== "none") {
     const how = plan.summary;
     ledger.summarised(
-      await workflow.stage(`summary-${ledger.summaryChanges + 1}`, { result: SummaryNote }, () =>
+      await wf.stage(`summary-${ledger.summaryChanges + 1}`, { result: SummaryNote }, () =>
         gitlab.summary(iid, how),
       ),
     );

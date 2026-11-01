@@ -273,7 +273,7 @@ describe("messaging wire", () => {
         kind: "rejected",
         code,
         error: `refused (${code})`,
-        owing: "you owe reviewer a reply (wf reply reviewer).",
+        owing: "you owe reviewer a reply (wfa reply reviewer).",
       } as const;
       expect(decodeControlResponse(JSON.parse(JSON.stringify(response)))).toEqual({
         ok: true,
@@ -300,13 +300,13 @@ describe("messaging wire", () => {
 
   test("acknowledgements: sent, awaiting a reply, peers", () => {
     const responses = [
-      { version: WIRE_VERSION, kind: "sent", message: 3, notice: "wf: sent to fixer." },
+      { version: WIRE_VERSION, kind: "sent", message: 3, notice: "wfa: sent to fixer." },
       {
         version: WIRE_VERSION,
         kind: "sent",
         message: 4,
         until: 1_800_000,
-        notice: "wf: sent to architect.",
+        notice: "wfa: sent to architect.",
         owing: "you await architect's reply.",
       },
       {
@@ -343,7 +343,7 @@ describe("messaging wire", () => {
         text: "peer  you can  state",
       },
     ];
-    // A wait on an outside participant may have no limit, and it shows in `wf peers` as `outside`.
+    // A wait on an outside participant may have no limit, and it shows in `wfa peers` as `outside`.
     const outside: object[] = [
       { version: WIRE_VERSION, kind: "awaiting-reply", peer: "coordinator", notice: "waiting." },
       {

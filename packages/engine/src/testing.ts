@@ -104,7 +104,7 @@ export function future(milliseconds = 60_000): { unixMilliseconds: number } {
   return { unixMilliseconds: Date.now() + milliseconds };
 }
 
-/** Answers a call the way an agent's `wf` does: one framed request over its own socket. */
+/** Answers a call the way an agent's `wfa` does: one framed request over its own socket. */
 export async function submit(
   binding: { endpoint: string; operationId: string },
   value: unknown,

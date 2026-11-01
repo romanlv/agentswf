@@ -53,13 +53,13 @@ export const buildReviewFixtures = defineWorkflow<Args, Result>({
     description: "Freeze GitLab MRs as review fixtures and draft their answer keys.",
     whenToUse: "Use to build or complete a review fixture set from a list of MRs (story 005).",
   },
-  async run(workflow, args) {
+  async run(wf, args) {
     const source = glabSource(args.hostname ? { hostname: args.hostname } : {});
-    const built = await workflow.parallel(
+    const built = await wf.parallel(
       args.mrs,
       async (mr): Promise<Built> => {
         const dir = join(args.out, fixtureId(args.project, mr));
-        const log = (text: string) => workflow.log(`!${mr}: ${text}`);
+        const log = (text: string) => wf.log(`!${mr}: ${text}`);
         let fixture: Built["fixture"] = "existing";
         let keyProblems = "";
         if (existsSync(dir)) {
@@ -114,7 +114,7 @@ export const buildReviewFixtures = defineWorkflow<Args, Result>({
         }
         if (args.keys === "none") return { mr, fixture, key: "none", detail: "" };
         log("Draft the answer key");
-        const drafted = await draftKey(workflow, {
+        const drafted = await draftKey(wf, {
           dir,
           clone: args.clone,
           drafter: args.drafter,
@@ -136,7 +136,7 @@ export const buildReviewFixtures = defineWorkflow<Args, Result>({
       },
       { concurrency: args.concurrency, label: "Build fixtures" },
     );
-    workflow.log("Seal the set");
+    wf.log("Seal the set");
     // An MR that failed to collect is listed too, so the set says what it lacks; its folder
     // replaces the exclusion once a later run collects it.
     const sealed = await sealSet(args.out, {

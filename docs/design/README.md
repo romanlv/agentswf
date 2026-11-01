@@ -3,7 +3,7 @@
 This directory designs the interface; it does not specify an implementation. Stage 0 moved the
 source into `packages/`; what lives here is the map, not the code.
 
-`wf` has three distinct interfaces. Keeping them separate makes it clear which capabilities belong
+agents.wf has three distinct interfaces. Keeping them separate makes it clear which capabilities belong
 to workflow code, which belong to the engine, and which are visible to the agent running inside a
 harness.
 
@@ -181,17 +181,17 @@ description and its flags or schema.
 The engine-owned CLI provides result submission, tool calls, route discovery, and messaging:
 
 ```sh
-wf result <call-id> --verdict 'approve'
-wf result <call-id> <<'WF_JSON'
+wfa result <call-id> --verdict 'approve'
+wfa result <call-id> <<'WF_JSON'
 {"verdict":"approve"}
 WF_JSON
 
-wf tool close_item --id 'a1' --status 'done' --why 'Fixed in src/logo.ts'
+wfa tool close_item --id 'a1' --status 'done' --why 'Fixed in src/logo.ts'
 
-wf peers
-wf send reviewer 'Findings are ready in REVIEW.md'
-wf send --await-reply reviewer 'Please review the revision'
-wf reply implementer 'Fixed in src/page.ts'
+wfa peers
+wfa send reviewer 'Findings are ready in REVIEW.md'
+wfa send --await-reply reviewer 'Please review the revision'
+wfa reply implementer 'Fixed in src/page.ts'
 ```
 
 See [`messaging.md`](messaging.md) for delivery, response, wake-up, and failure semantics.
@@ -214,13 +214,13 @@ earlier operation cannot submit a result for the next queued operation. It is no
 travels in the prompt, and a submission naming a call the connecting agent does not own is refused.
 
 A result comes as flags after the call id, read by the engine by the open schema, or as JSON on
-standard input, which `wf` reads only when nothing follows the call id. Nothing at all is `{}` where
-the schema is an object, and refused, saying to send JSON, where it isn't.
+standard input, which `wfa` reads only when nothing follows the call id. Nothing at all is `{}`
+where the schema is an object, and refused, saying to send JSON, where it isn't.
 
 The engine installs one launcher per agent and puts its path in the prompt; the adapter's whole
 duty is to deliver that prompt and let the agent execute the path. A pane's environment and `PATH`
 are not channels a harness can be relied on to deliver, so nothing the return channel needs may
-depend on one. The engine reads what `wf result` sends, flags or JSON, by the open schema. On rejection it exits
+depend on one. The engine reads what `wfa result` sends, flags or JSON, by the open schema. On rejection it exits
 nonzero with a field-level error; the result slot stays open so the agent can correct the value and
 call it again during the same operation. An accepted value atomically closes the slot. A missing,
 closed, expired, or already-answered call is rejected, as is one belonging to another agent. Normal

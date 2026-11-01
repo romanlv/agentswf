@@ -85,13 +85,13 @@ export default defineWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
     description: "Give agents one probe skill each and ask for what only a probe can make.",
     whenToUse: "Use to check that each harness has exactly the skills a workflow names.",
   },
-  async run(workflow, plan) {
-    const box = await workflow.sandboxes.open({ key: "box", srt: {} });
-    const reports = await workflow.parallel(
+  async run(wf, plan) {
+    const box = await wf.sandboxes.open({ key: "box", srt: {} });
+    const reports = await wf.parallel(
       plan.agents as AgentName[],
       async (name): Promise<SkillsReport> => {
         const given = AGENTS[name];
-        const agent = await workflow.agents.open({
+        const agent = await wf.agents.open({
           key: name,
           runtime: given.runtime,
           skills: [plan.probes[given.probe]],

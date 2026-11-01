@@ -75,11 +75,11 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
     description: "A reviewer asks an implementer for a fix by message and waits for it.",
     whenToUse: "Use to see agent messaging work end to end, for a few cents.",
   },
-  async run(workflow, { runtime }) {
+  async run(wf, { runtime }) {
     const execution = RUNTIMES[runtime];
-    const folder = `/tmp/awf-messaging/${workflow.runId}`;
-    const implementer = await workflow.agents.open({ key: "implementer", runtime: execution });
-    const reviewer = await workflow.agents.open({
+    const folder = `/tmp/awf-messaging/${wf.runId}`;
+    const implementer = await wf.agents.open({ key: "implementer", runtime: execution });
+    const reviewer = await wf.agents.open({
       key: "reviewer",
       runtime: execution,
       instructions: [
@@ -88,7 +88,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
         ...CASES.map(({ title, slug }) => `${JSON.stringify(title)} -> ${slug}`),
       ].join("\n"),
     });
-    await workflow.messages.allow({
+    await wf.messages.allow({
       from: reviewer,
       to: implementer,
       purpose: "Ask the implementer to fix slugify() until it meets the house style.",
@@ -104,7 +104,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
       ].join(" "),
       schema: BUILT,
     });
-    if (!isAnswered(built.outcome)) return workflow.stop(`implementer: ${built.outcome.reason}`);
+    if (!isAnswered(built.outcome)) return wf.stop(`implementer: ${built.outcome.reason}`);
 
     const review = await reviewer.run({
       label: "Review",
@@ -115,7 +115,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
       ].join(" "),
       schema: REVIEW,
     });
-    if (!isAnswered(review.outcome)) return workflow.stop(`reviewer: ${review.outcome.reason}`);
+    if (!isAnswered(review.outcome)) return wf.stop(`reviewer: ${review.outcome.reason}`);
 
     const { approved, outputs } = review.outcome.value;
     return {
@@ -125,7 +125,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
         const got = outputs.find((output) => output.title === title)?.slug;
         return got === undefined ? { title, expected: slug } : { title, expected: slug, got };
       }),
-      revisions: workflow
+      revisions: wf
         .usage()
         .filter((operation) => operation.agent === "implementer" && operation.cause).length,
     };

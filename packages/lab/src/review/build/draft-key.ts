@@ -107,7 +107,7 @@ const label = (runtime: ExecutionConfig) => runtimeName(runtime);
  * most voters agree on. `key/key.json` and `key/evidence/votes.json` are written only at the end.
  */
 export async function draftKey(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   options: {
     dir: string;
     clone: string;
@@ -136,7 +136,7 @@ export async function draftKey(
       JSON.stringify(threads(discussions, versions, mr.author.username), null, 2),
     );
 
-    const agent = await workflow.agents.open({
+    const agent = await wf.agents.open({
       key: `key:${fixture.id}`,
       runtime: drafter,
       cwd: workspace,
@@ -165,7 +165,7 @@ export async function draftKey(
       const checked = await verifyKey(dir, draft, repo);
       if (!checked.ok) {
         detail = checked.problems.map((p) => `${p.path}: ${p.message}`).join("; ");
-        workflow.log(`${fixture.id}: draft ${attempt} failed its checks: ${detail}`);
+        wf.log(`${fixture.id}: draft ${attempt} failed its checks: ${detail}`);
         prompt = retryPrompt(checked.problems, outcome.value);
         continue;
       }
@@ -179,7 +179,7 @@ export async function draftKey(
         base: fixture.snapshot.base,
       });
       copyFileSync(join(dir, "request.md"), join(ballot, "request.md"));
-      const votes = await vote(workflow, draft, fixture, options.graders, ballot);
+      const votes = await vote(wf, draft, fixture, options.graders, ballot);
       const key = settle(draft, votes);
       const final = await verifyKey(dir, key, repo);
       if (!final.ok)
@@ -203,7 +203,7 @@ export async function draftKey(
  * judges every issue and refuted claim from the code alone.
  */
 async function vote(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   key: AnswerKey,
   fixture: Fixture,
   graders: readonly ExecutionConfig[],
@@ -217,7 +217,7 @@ async function vote(
     ? []
     : await Promise.allSettled(
         graders.map((runtime, index) =>
-          castVotes(workflow, voters[index]!, runtime, fixture, key, ballot),
+          castVotes(wf, voters[index]!, runtime, fixture, key, ballot),
         ),
       );
   const failed = settled.find((result) => result.status === "rejected");
@@ -253,14 +253,14 @@ async function vote(
  * answer fails the key rather than leave it settled by fewer voters.
  */
 async function castVotes(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   by: string,
   runtime: ExecutionConfig,
   fixture: Fixture,
   key: AnswerKey,
   ballot: string,
 ): Promise<{ by: string; answer: VoteAnswer }> {
-  const agent = await workflow.agents.open({
+  const agent = await wf.agents.open({
     key: `vote:${fixture.id}:${by}`,
     runtime,
     cwd: ballot,

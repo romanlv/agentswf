@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { $ } from "bun";
 
 /** In dependency order: a package goes up only after the ones it depends on. */
-export const PACKAGES = ["contract", "sandbox", "harness", "wf", "engine", "agentswf"];
+export const PACKAGES = ["contract", "sandbox", "harness", "engine", "agentswf"];
 
 const ROOT = resolve(import.meta.dir, "..");
 const REGISTRY = "https://registry.npmjs.org";

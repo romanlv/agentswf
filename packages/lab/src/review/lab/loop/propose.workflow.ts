@@ -37,14 +37,14 @@ export default defineWorkflow<Args, Hypothesis>({
     name: "loop-proposer",
     description: "Write one changed review workflow from the tuning cases' feedback.",
   },
-  async run(workflow, args) {
-    const agent = await workflow.agents.open({
+  async run(wf, args) {
+    const agent = await wf.agents.open({
       key: "proposer",
       runtime: runtimeOf(args.runtime),
     });
     const { outcome } = await agent.run({ prompt: PROMPT, schema: HypothesisSchema });
     if (!isAnswered(outcome)) throw new Error(`no proposal: ${outcome.kind}: ${outcome.reason}`);
-    // Checked against the schema by `wf result` as it was answered.
+    // Checked against the schema by `wfa result` as it was answered.
     return outcome.value as Hypothesis;
   },
   prepare: (invocation: WorkflowInvocation) => {

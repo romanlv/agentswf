@@ -341,7 +341,7 @@ async function openDoor(servers: Server[], directories: string[]): Promise<Agent
   directories.push(directory);
   const endpoint = join(directory, "s.sock");
   const bundle = join(directory, "door.js");
-  const launcher = join(directory, "wf");
+  const launcher = join(directory, "wfa");
   const server = createServer({ allowHalfOpen: true }, (socket) => {
     let said = "";
     socket.on("data", (data) => {

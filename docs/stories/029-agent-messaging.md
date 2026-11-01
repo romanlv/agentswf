@@ -360,7 +360,7 @@ continues model work and reports what it saw ([[messaging#Agent binding and adap
 ### Settled questions
 
 - **An asker waits between turns, never inside `wf send`**
-  ([[messaging#Q1. Does a sender wait inside `wf send` or across turns?|Q1]]).
+  ([[messaging#Q1. Does a sender wait inside `wfa send` or across turns?|Q1]]).
 - **Answers are text, never typed** ([[messaging#Q4. Can a sender ask for a typed reply?|Q4]]).
 - **An inbox shows counts, in arrival order, and cannot be edited for now**
   ([[messaging#Q5. How much of an inbox can be seen and changed?|Q5]]). A sender withdrawing its
@@ -388,7 +388,7 @@ Each is written out in the design.
   already accepted is still delivered.
 - **Limits.** The limits are engine constants, written into the run's record. An answer counts
   against its route's limit, so a question needs room for itself and its answer.
-- **Checks run in a fixed order,** listed in [[messaging#`wf send`]] and [[messaging#`wf reply`]].
+- **Checks run in a fixed order,** listed in [[messaging#`wfa send`|`wf send`]] and [[messaging#`wfa reply`|`wf reply`]].
   `peer-stopped` comes before `closed`. `no-route` means the route was never granted, so a closed
   route is still known for the rest of the attempt. A reply with `--await-reply` whose question
   fails a check is refused whole.

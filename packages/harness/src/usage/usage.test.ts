@@ -678,7 +678,7 @@ describe("a claude pane's session in a sandbox, which Herdr does not name", () =
     const since = Date.now() - 1000;
     writeFileSync(
       join(directory, "silent.jsonl"),
-      `${JSON.stringify({ timestamp: new Date().toISOString(), message: { role: "user", content: "wf result unanswered-op" } })}\n`,
+      `${JSON.stringify({ timestamp: new Date().toISOString(), message: { role: "user", content: "wfa result unanswered-op" } })}\n`,
     );
     try {
       expect(await findClaudeSession("unanswered-op", since, alias, home)).toBe("silent");
@@ -697,9 +697,9 @@ describe("a claude pane's session in a sandbox, which Herdr does not name", () =
         join(directory, `${id}.jsonl`),
         `${JSON.stringify({ timestamp: new Date(startedAt).toISOString(), text })}\n`,
       );
-    transcript("earlier", since - 1_000, "wf result op-1");
-    transcript("mine", since + 1_000, "wf result op-1");
-    transcript("other", since + 2_000, "wf result op-2");
+    transcript("earlier", since - 1_000, "wfa result op-1");
+    transcript("mine", since + 1_000, "wfa result op-1");
+    transcript("other", since + 2_000, "wfa result op-2");
     try {
       expect(await findClaudeSession("op-1", since, "/repo", home)).toBe("mine");
       expect(await findClaudeSession("op-3", since, "/repo", home)).toBeUndefined();
@@ -722,9 +722,9 @@ describe("a codex pane's session, which Herdr does not name", () => {
         join(day, `rollout-2026-10-03T10-00-00-${id}.jsonl`),
         `${JSON.stringify({ type: "session_meta", payload: { id, timestamp: new Date(startedAt).toISOString(), cwd } })}\n${text}\n`,
       );
-    rollout("operator", since - 1_000, "/repo", "wf result op-1");
-    rollout("elsewhere", since + 1_000, "/other", "wf result op-1");
-    rollout("mine", since + 2_000, "/repo", "wf result op-1");
+    rollout("operator", since - 1_000, "/repo", "wfa result op-1");
+    rollout("elsewhere", since + 1_000, "/other", "wfa result op-1");
+    rollout("mine", since + 2_000, "/repo", "wfa result op-1");
     rollout("subagent", since + 3_000, "/repo", "from op-1");
     try {
       expect(await findCodexSession("op-1", since, "/repo", root)).toBe("mine");
@@ -928,11 +928,11 @@ describe("cursor chats", () => {
 });
 
 describe("a turn still being written", () => {
-  test("claude never waits: an answered agent's session ends on its wf call for good", async () => {
+  test("claude never waits: an answered agent's session ends on its wfa call for good", async () => {
     const root = mkdtempSync(join(tmpdir(), "claude-open-"));
     roots.push(root);
     mkdirSync(join(root, "-repo"), { recursive: true });
-    // The tail every awf-launched claude session has: the `wf result` call, its result, nothing.
+    // The tail every awf-launched claude session has: the `wfa result` call, its result, nothing.
     const rows = [
       {
         type: "assistant",
@@ -1124,7 +1124,7 @@ describe("a sandboxed agent's own home", () => {
         expect(await accounting.read(execution, [session], "/repo")).toBeUndefined();
         const read = await accounting.read(execution, [session], "/repo", home);
         expect(read?.records.length).toBeGreaterThan(0);
-        // No session named at all, as for a pane that never called `wf`: its home names them.
+        // No session named at all, as for a pane that never called `wfa`: its home names them.
         const unnamed = await accounting.read(execution, [], "/repo", home);
         expect(unnamed?.records).toEqual(expect.arrayContaining(read!.records));
       }

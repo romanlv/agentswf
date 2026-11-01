@@ -76,14 +76,14 @@ const caseRun = defineWorkflow({
   file: import.meta.path,
   events: { "dd.changes": Changes, "dd.closed": Closed },
   starts: ["dd.changes"],
-  async run(workflow) {
-    const kase = openCase(DD_CASES, workflow.runId);
-    const thread = await workflow.participants.connect({
+  async run(wf) {
+    const kase = openCase(DD_CASES, wf.runId);
+    const thread = await wf.participants.connect({
       key: "thread",
       to: "code",
       labels: { title: kase.title },
     });
-    const investigator = await workflow.agents.open({
+    const investigator = await wf.agents.open({
       key: "investigator",
       runtime: "claude",
       cwd: AIR,
@@ -96,7 +96,7 @@ const caseRun = defineWorkflow({
           // No id: a call's id changes when a turn runs again after a crash, and the case's own
           // would drop a close after a reopen. A repeated close is the case's to absorb.
           handler: async (input) => {
-            await emitToSelf("dd.closed", { ...input, case: workflow.runId, by: "thread" });
+            await emitToSelf("dd.closed", { ...input, case: wf.runId, by: "thread" });
             return `Closing the case as ${input.status}.`;
           },
         }),
@@ -104,7 +104,7 @@ const caseRun = defineWorkflow({
     });
 
     for (;;) {
-      const events = await workflow.receive({
+      const events = await wf.receive({
         label: investigator.turn ? "investigating" : `${kase.unseen().length} unseen`,
       });
       for (const e of events) {
@@ -114,18 +114,18 @@ const caseRun = defineWorkflow({
             kase.markFailed(e.id);
             // Its timer:due wakes the wait, at the run's time `retrying` reads.
             const retryAt = kase.retryAt();
-            if (retryAt !== undefined) workflow.timer(`retry-${e.id}`, new Date(retryAt));
+            if (retryAt !== undefined) wf.timer(`retry-${e.id}`, new Date(retryAt));
             if (kase.failuresInARow() === 1)
-              await workflow.stage(`failed-${e.id}`, () => thread.post(failedNote(e.data.outcome)));
+              await wf.stage(`failed-${e.id}`, () => thread.post(failedNote(e.data.outcome)));
           }
         }
         if (thread.is(e)) kase.addReply(e.id, e.data);
         if (e.name === "dd.closed") {
           if (e.data.by === "triage") await investigator.turn?.cancel();
-          await workflow.stage(`close-${e.id}`, () => kase.close(e.data, e.at));
+          await wf.stage(`close-${e.id}`, () => kase.close(e.data, e.at));
         }
       }
-      if (!investigator.turn && !kase.retrying(workflow.now()) && needsTurn(kase)) {
+      if (!investigator.turn && !kase.retrying(wf.now()) && needsTurn(kase)) {
         const given = kase.pending();
         await investigator.start({ prompt: promptFor(kase, given), meta: given });
       }

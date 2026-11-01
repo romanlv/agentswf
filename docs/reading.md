@@ -16,7 +16,7 @@ left unmined, and delete it here.
   ([TypeScript](https://github.com/openai/codex/tree/main/sdk/typescript)),
   [Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview)
   ([TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript)). Result channels E2 did
-  not measure: do they replace `wf result` for headless agents, or only duplicate it?
+  not measure: do they replace `wfa result` for headless agents, or only duplicate it?
 %% already looked into, similar performance and restricted only for headless mode %%
 
 ## Before the usage record format hardens

@@ -40,7 +40,7 @@ if (import.meta.main) {
         }
         if (mode === "lost-route" && rows.some((row) => row.kind === "waiting")) {
           const launcher = (await readFile(join(cwd, "route.txt"), "utf8")).trim();
-          if (!/^\/(?:private\/)?tmp\/awf-[A-Za-z0-9]+\/a[A-Za-z0-9]+\/wf$/.test(launcher))
+          if (!/^\/(?:private\/)?tmp\/awf-[A-Za-z0-9]+\/a[A-Za-z0-9]+\/wfa$/.test(launcher))
             throw new Error("unexpected route path");
           const runId = path.split("/").at(-4)!;
           const operationId = path.split("/").at(-2)!;

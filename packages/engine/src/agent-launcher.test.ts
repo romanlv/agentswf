@@ -30,15 +30,15 @@ async function twoAgents() {
     control,
     alice: {
       channel: alice,
-      wf: await installAgentLauncher(dirname(alice.endpoint), alice.endpoint),
+      wfa: await installAgentLauncher(dirname(alice.endpoint), alice.endpoint),
     },
-    bob: { channel: bob, wf: await installAgentLauncher(dirname(bob.endpoint), bob.endpoint) },
+    bob: { channel: bob, wfa: await installAgentLauncher(dirname(bob.endpoint), bob.endpoint) },
   };
 }
 
 /** No environment at all: a Codex pane runs its tool commands in a process we did not set up. */
-async function run(wf: string, args: readonly string[], env: Record<string, string> = {}) {
-  const child = Bun.spawn([wf, ...args], {
+async function run(wfa: string, args: readonly string[], env: Record<string, string> = {}) {
+  const child = Bun.spawn([wfa, ...args], {
     env,
     stdin: "ignore",
     stdout: "pipe",
@@ -64,7 +64,7 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const answered = await run(fixture.alice.wf, [
+      const answered = await run(fixture.alice.wfa, [
         "result",
         "op-1",
         "--count",
@@ -96,7 +96,7 @@ describe("the launcher an agent is told to run", () => {
       // another, and none of them is touched inside a quoted heredoc.
       const note = "it doesn't initialise $sum, so \\n is literal";
       const command = [
-        `'${fixture.alice.wf}' result op-1 <<'WF_JSON'`,
+        `'${fixture.alice.wfa}' result op-1 <<'WF_JSON'`,
         JSON.stringify({ note }),
         "WF_JSON",
       ].join("\n");
@@ -124,7 +124,7 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const stolen = await run(fixture.bob.wf, [
+      const stolen = await run(fixture.bob.wfa, [
         "result",
         "op-1",
         "--count",
@@ -155,17 +155,17 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const wrong = await run(fixture.alice.wf, ["result", "op-1", "--count", "three"]);
-      const missing = await run(fixture.alice.wf, ["result", "op-1", "--even", "false"]);
+      const wrong = await run(fixture.alice.wfa, ["result", "op-1", "--count", "three"]);
+      const missing = await run(fixture.alice.wfa, ["result", "op-1", "--even", "false"]);
 
       expect([wrong.exitCode, missing.exitCode]).toEqual([1, 1]);
       expect(wrong.stderr).toContain('--count takes <integer, at least 0>; got "three"');
       expect(wrong.stderr).toContain("expected: --count <integer, at least 0> --even true|false");
-      expect(wrong.stderr).toContain("run wf result again");
+      expect(wrong.stderr).toContain("run wfa result again");
       expect(missing.stderr).toContain("value.count: required property is missing");
 
       // The slot stays open, so the correction lands on the same call.
-      const corrected = await run(fixture.alice.wf, [
+      const corrected = await run(fixture.alice.wfa, [
         "result",
         "op-1",
         "--count",
@@ -182,11 +182,11 @@ describe("the launcher an agent is told to run", () => {
   test("names the call when the id is wrong, rather than declaring the turn over", async () => {
     const fixture = await twoAgents();
     try {
-      const typo = await run(fixture.alice.wf, ["result", "op-7", "{}"]);
+      const typo = await run(fixture.alice.wfa, ["result", "op-7", "{}"]);
 
       expect(typo.exitCode).toBe(1);
       expect(typo.stderr).toContain("no call named op-7 is open");
-      expect(typo.stderr).toContain("run wf result again");
+      expect(typo.stderr).toContain("run wfa result again");
     } finally {
       await fixture.control.close();
     }
@@ -195,11 +195,11 @@ describe("the launcher an agent is told to run", () => {
   test("is not replaced by an agent that redirects into it", async () => {
     const fixture = await twoAgents();
     try {
-      const overwrite = Bun.spawn(["sh", "-c", 'echo answer > "$0"', fixture.alice.wf], {
+      const overwrite = Bun.spawn(["sh", "-c", 'echo answer > "$0"', fixture.alice.wfa], {
         stderr: "pipe",
       });
       expect(await overwrite.exited).not.toBe(0);
-      const answered = await run(fixture.alice.wf, ["result", "op-7", "{}"]);
+      const answered = await run(fixture.alice.wfa, ["result", "op-7", "{}"]);
       expect(answered.stderr).toContain("no call named op-7 is open");
     } finally {
       await fixture.control.close();
@@ -224,7 +224,7 @@ describe("the launcher an agent is told to run", () => {
     const seen: string[] = [];
     try {
       const channel = await control.openChannel("alice", (id) => seen.push(id));
-      const wf = await installAgentLauncher(
+      const wfa = await installAgentLauncher(
         dirname(channel.endpoint),
         channel.endpoint,
         "CODEX_SESSION_ID",
@@ -237,9 +237,9 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const refused = await run(wf, ["result", "op-7", "{}"], { CODEX_SESSION_ID: "s-1" });
-      const unnamed = await run(wf, ["result", "op-1", "--count", "3", "--even", "false"]);
-      const named = await run(wf, ["result", "op-1", "--count", "3", "--even", "false"], {
+      const refused = await run(wfa, ["result", "op-7", "{}"], { CODEX_SESSION_ID: "s-1" });
+      const unnamed = await run(wfa, ["result", "op-1", "--count", "3", "--even", "false"]);
+      const named = await run(wfa, ["result", "op-1", "--count", "3", "--even", "false"], {
         CODEX_SESSION_ID: "s-2",
       });
 

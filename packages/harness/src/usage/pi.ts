@@ -6,7 +6,7 @@ import type { SessionRead, UsageRecord } from "./records";
 
 /**
  * pi logs each assistant message with its own usage, `input` already excluding the cached part.
- * A pane reports the session as its file path and `wf` as its id, so both resolve to one file; a
+ * A pane reports the session as its file path and `wfa` as its id, so both resolve to one file; a
  * forked session copies its parent's entries under their ids, so one entry is one request.
  */
 export async function readPiUsage(

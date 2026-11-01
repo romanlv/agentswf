@@ -9,7 +9,7 @@ import {
 
 describe("boundary path resolution", () => {
   test("distinguishes internal imports from relative, absolute and file-URL escapes", () => {
-    const packageDirectory = "/repo/packages/wf";
+    const packageDirectory = "/repo/packages/x";
     const source = join(packageDirectory, "src/cli.ts");
     const escaped = "/repo/packages/engine/src/run-dir";
 

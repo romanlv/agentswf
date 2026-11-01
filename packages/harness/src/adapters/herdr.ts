@@ -911,7 +911,7 @@ export function createHerdrRunHostFactory(
 
           /**
            * The harness's own compaction, typed into the pane as `spec.compactPane` says, each
-           * prompt once the agent has settled. Neither Herdr's status nor any `wf result` says it
+           * prompt once the agent has settled. Neither Herdr's status nor any `wfa result` says it
            * ran, so the screen after it does; the summary is read from the harness's record, where
            * this host can read it.
            */

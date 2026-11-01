@@ -5,10 +5,10 @@ export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProper
 
 export default defineWorkflow({
   meta: { name: "hello", description: "Ask one agent a question with a known answer." },
-  async run(workflow) {
+  async run(wf) {
     // A headless agent needs neither Herdr nor a sandbox. Swap in any harness and model your
     // account has: "claude" in a pane, the default placement, runs on a subscription.
-    const agent = await workflow.agents.open({
+    const agent = await wf.agents.open({
       key: "hello",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });

@@ -47,7 +47,7 @@ export interface MessagingHost {
   agent(key: AgentKey): AgentView | undefined;
   /** Whether it may `--await-reply` where it runs. */
   canAwait(key: AgentKey): boolean;
-  /** The launcher it runs `wf` through. */
+  /** The launcher it runs `wfa` through. */
   launcher(key: AgentKey): string;
   /** Something is new for this agent: messages for it, or an end to its wait. */
   changed(key: AgentKey): void;
@@ -207,7 +207,7 @@ type Operation = OperationInfo & {
 /**
  * The messaging logic of one attempt: routes, admission, inboxes and owed answers. It decides every
  * case the design lists and writes the record; it starts nothing. The runner opens and continues
- * operations when it says, and the control plane hands it `wf`'s commands.
+ * operations when it says, and the control plane hands it `wfa`'s commands.
  */
 export class Messaging {
   readonly limits: MessageLimits;
@@ -702,8 +702,8 @@ export class Messaging {
   }
 
   /**
-   * A refusal of `wf result` or `wf waiting` given this call id, or the acknowledgement of a
-   * `wf waiting` while an answer is awaited; null when the command goes on as before.
+   * A refusal of `wfa result` or `wfa waiting` given this call id, or the acknowledgement of a
+   * `wfa waiting` while an answer is awaited; null when the command goes on as before.
    */
   checkFinish(
     agent: AgentKey,
@@ -715,7 +715,7 @@ export class Messaging {
     | null {
     const operation = this.#operations.get(id);
     if (!operation || operation.agent !== agent) return null;
-    const wf = this.#host.launcher(agent);
+    const wfa = this.#host.launcher(agent);
     // A message operation's call takes no result, ended or not.
     if (operation.kind === "message") {
       return {
@@ -733,8 +733,8 @@ export class Messaging {
         code: "owes-reply",
         error:
           command === "result"
-            ? `you owe ${peer} a reply. Send it with ${wf} reply ${peer}, then run ${wf} result ${id} again.`
-            : `you owe ${peer} a reply; send it with ${wf} reply ${peer} first.`,
+            ? `you owe ${peer} a reply. Send it with ${wfa} reply ${peer}, then run ${wfa} result ${id} again.`
+            : `you owe ${peer} a reply; send it with ${wfa} reply ${peer} first.`,
       };
     }
     const waited = operation.awaits;
@@ -743,7 +743,7 @@ export class Messaging {
         kind: "awaiting",
         peer: waited.owedBy,
         ...(waited.until === undefined ? {} : { until: waited.until }),
-        notice: `you already await ${waited.owedBy}'s reply${waited.until === undefined ? "" : `, until ${clock(waited.until, this.#host.now())}`}. End your turn, or finish with ${wf} result ${id}.`,
+        notice: `you already await ${waited.owedBy}'s reply${waited.until === undefined ? "" : `, until ${clock(waited.until, this.#host.now())}`}. End your turn, or finish with ${wfa} result ${id}.`,
       };
     }
     return null;
@@ -815,7 +815,7 @@ export class Messaging {
   ):
     | { kind: "ok"; operation: Operation; route: Route; bytes: number }
     | { kind: "refused"; code: SendCode; error: string } {
-    const wf = this.#host.launcher(from);
+    const wfa = this.#host.launcher(from);
     const operation = this.#current.get(from);
     if (!operation) return refuse("no-operation", "this agent has no open operation.");
     const { peer } = request;
@@ -826,14 +826,14 @@ export class Messaging {
       return refuse(
         "no-route",
         owes
-          ? `your route with ${peer} only answers its requests. Answer it with ${wf} reply ${peer}.`
+          ? `your route with ${peer} only answers its requests. Answer it with ${wfa} reply ${peer}.`
           : `your route with ${peer} only answers its requests, and it asked nothing. Nothing to send; end your turn.`,
       );
     };
     if (initiating.length === 0) {
       return this.#open(peer, from)
         ? replyOnly()
-        : refuse("no-route", `no route to ${peer}. Your routes: ${wf} peers`);
+        : refuse("no-route", `no route to ${peer}. Your routes: ${wfa} peers`);
     }
     const agent = this.#outside.has(peer) ? undefined : this.#host.agent(peer);
     if (agent?.state === "stopped")
@@ -889,7 +889,7 @@ export class Messaging {
   ):
     | { kind: "ok"; operation: Operation; owed: Obligation; bytes: number }
     | { kind: "refused"; code: ReplyCode; error: string } {
-    const wf = this.#host.launcher(from);
+    const wfa = this.#host.launcher(from);
     const operation = this.#current.get(from);
     if (!operation) return refuse("no-operation", "this agent has no open operation.");
     const { peer } = request;
@@ -898,7 +898,7 @@ export class Messaging {
       (each) => each.asker === peer && each.owedBy === from && each.request.shown,
     );
     if (!latest || latest.state === "replied") {
-      return refuse("none-owed", `you owe ${peer} nothing. Send it with ${wf} send ${peer}.`);
+      return refuse("none-owed", `you owe ${peer} nothing. Send it with ${wfa} send ${peer}.`);
     }
     if (latest.state !== "open" || latest.owingOperation !== operation) {
       const agent = this.#host.agent(peer);
@@ -906,7 +906,7 @@ export class Messaging {
         "expired",
         agent?.state === "stopped"
           ? `${peer} has stopped${agent.reason ? ` (${JSON.stringify(agent.reason)})` : ""}; nothing reaches it now.`
-          : `${peer} stopped waiting at ${clock(latest.endedAt ?? this.#host.now(), this.#host.now())}. Send it with ${wf} send ${peer}.`,
+          : `${peer} stopped waiting at ${clock(latest.endedAt ?? this.#host.now(), this.#host.now())}. Send it with ${wfa} send ${peer}.`,
       );
     }
     const route = latest.request.route;
@@ -950,7 +950,7 @@ export class Messaging {
     /** The question a reply answers, which counts as answered here. */
     answering?: Obligation,
   ): { kind: "refused"; code: "awaiting" | "unsupported" | "cycle"; error: string } | undefined {
-    const wf = this.#host.launcher(from);
+    const wfa = this.#host.launcher(from);
     if (operation.awaits?.state === "open") {
       return refuse(
         "awaiting",
@@ -984,7 +984,7 @@ export class Messaging {
         return refuse(
           "cycle",
           owing
-            ? `${who}, and you owe ${last === peer ? "it" : last} a reply. Answer with ${wf} reply ${last}; it may --await-reply.`
+            ? `${who}, and you owe ${last === peer ? "it" : last} a reply. Answer with ${wfa} reply ${last}; it may --await-reply.`
             : `${who}. Send without --await-reply and end your turn; ${last}'s request reaches you then.`,
         );
       }
@@ -1095,7 +1095,7 @@ export class Messaging {
   }
 
   /**
-   * Durable before `wf send` returns: a failed write rejects, and `wf` says it may have been
+   * Durable before `wfa send` returns: a failed write rejects, and `wfa` says it may have been
    * queued. An outside participant's message says what it came through instead of an operation.
    * A question to one carries when it closes unanswered, if it has a limit.
    */
@@ -1134,13 +1134,13 @@ export class Messaging {
   }
 
   #awaitNotice(operation: Operation, { until }: { until?: number }): string {
-    const wf = this.#host.launcher(operation.agent);
+    const wfa = this.#host.launcher(operation.agent);
     return [
       `Its reply starts your next turn (${until === undefined ? "no deadline" : `deadline ${clock(until, this.#host.now())}`}).`,
       "Go on with work that does not need the answer, then end your turn with one line saying what you await; do not poll or sleep.",
       ...(operation.kind === "workflow"
         ? [
-            `If you find the answer first, or decide not to wait, finish with ${wf} result ${operation.id}; the wait is dropped.`,
+            `If you find the answer first, or decide not to wait, finish with ${wfa} result ${operation.id}; the wait is dropped.`,
           ]
         : []),
     ].join("\n");
@@ -1323,7 +1323,7 @@ export class Messaging {
   /**
    * What is held for an operation whose turn has ended, deciding nothing: `continues` when its turn
    * end would go on with it, `held` when messages wait for a later operation or to cut a check-in's
-   * `wf waiting` short, `none` otherwise.
+   * `wfa waiting` short, `none` otherwise.
    */
   pending(id: string): Pending {
     const operation = this.#operations.get(id);
@@ -1405,7 +1405,7 @@ export class Messaging {
     };
   }
 
-  /** The line `wf` leads with while this agent's operation owes or awaits an answer. */
+  /** The line `wfa` leads with while this agent's operation owes or awaits an answer. */
   owing(agent: AgentKey): string | undefined {
     const { owes, awaits } = this.#standing(agent);
     return owingLine(owes, awaits, this.#host.launcher(agent), this.#host.now());
@@ -1476,7 +1476,7 @@ export class Messaging {
 
   /**
    * This agent's open routes, either end, in the order granted; with `stopped`, also those a peer's
-   * stop closed, so `wf peers` can say it stopped.
+   * stop closed, so `wfa peers` can say it stopped.
    */
   #routesOf(agent: AgentKey, stopped = false): Route[] {
     return [...new Set([...this.#routes.values()].flat())]

@@ -37,7 +37,7 @@ import {
   type FakeFork,
   type FakeSet,
 } from "@agentswf/harness/testing";
-import { submitControl, submitResult, submitWaiting } from "@agentswf/wf/client";
+import { submitControl, submitResult, submitWaiting } from "../agent-cli/client";
 import {
   type Message,
   type MessageOutcome,
@@ -192,7 +192,7 @@ export function createScriptedHost(
     return n;
   };
 
-  /** `wf send` or `wf reply` from a running script; with `awaitReply`, resolves with the reply. */
+  /** `wfa send` or `wfa reply` from a running script; with `awaitReply`, resolves with the reply. */
   const message = async (
     invocation: Invocation,
     command: "send" | "reply",
@@ -226,7 +226,7 @@ export function createScriptedHost(
         suspendIfAwaiting(invocation);
         return { kind: "refused", code: response.code as SendCode | ReplyCode };
       }
-      throw new Error(`wf ${command} was refused (${response.code}): ${response.error}`);
+      throw new Error(`wfa ${command} was refused (${response.code}): ${response.error}`);
     }
     if (!options.awaitReply) {
       suspendIfAwaiting(invocation);
@@ -238,7 +238,7 @@ export function createScriptedHost(
     });
   };
 
-  /** `wf tool` from a running script, as JSON or no input; waits as long as the engine takes. */
+  /** `wfa tool` from a running script, as JSON or no input; waits as long as the engine takes. */
   const callTool = async (
     invocation: Invocation,
     name: string,
@@ -278,14 +278,14 @@ export function createScriptedHost(
         return { kind: "failed", outcome: response.outcome, error: response.error };
       default:
         if (response.code === "internal-error" || !TOOL_REFUSALS.has(response.code))
-          throw new Error(`wf tool was refused (${response.code}): ${response.error}`);
+          throw new Error(`wfa tool was refused (${response.code}): ${response.error}`);
         return { kind: "refused", code: response.code as ToolCode, error: response.error };
     }
   };
 
   /**
    * Ends the native turn when its script has gone still awaiting a reply, as an agent ends its turn
-   * after `wf send --await-reply`: nothing of the host's in flight, and no step taken since.
+   * after `wfa send --await-reply`: nothing of the host's in flight, and no step taken since.
    */
   const suspendIfAwaiting = (invocation: Invocation) => {
     setTimeout(() => {
@@ -413,7 +413,7 @@ export function createScriptedHost(
           // Submitted is answered, even though the engine then releases the turn.
           let outcome: TurnOutcome = "cancelled";
           try {
-            // As an agent's `wf send` returns before it can run `wf result`.
+            // As an agent's `wfa send` returns before it can run `wfa result`.
             if (invocation) await Promise.allSettled([...invocation.calls]);
             const { endpoint, operationId } = context.binding!;
             const response = await submitResult(endpoint, {
@@ -782,7 +782,7 @@ type Awaiting = { peer: string; by: Invocation; resolve(outcome: MessageOutcome)
 type Invocation = {
   operation: Operation;
   turn: Turn;
-  /** Its `wf` calls in flight. */
+  /** Its `wfa` calls in flight. */
   calls: Set<Promise<unknown>>;
   state: "running" | "suspended" | "settled" | "cancelled";
   /** Where it stopped in its current native turn. */

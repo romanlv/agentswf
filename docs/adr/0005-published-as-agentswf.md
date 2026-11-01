@@ -54,3 +54,8 @@ Three things above no longer hold ([[009-publish-agentswf|story 009]]):
   private.
 
 The repository is `agentswf/awf`, named for the command.
+
+## Amended, 2026-10-31
+
+The agent's command is `wfa`, not `wf`, and `@agentswf/wf` is folded into the engine as
+`engine/src/agent-cli`: [ADR 0013](0013-the-agent-command-is-wfa.md).

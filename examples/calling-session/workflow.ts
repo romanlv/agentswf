@@ -41,8 +41,8 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
     whenToUse:
       "Use to check that a session can be taken over: run it with awf run --here from claude, codex, pi or cursor in a Herdr pane.",
   },
-  async run(workflow, args) {
-    const author = await workflow.agents.caller({ key: "author" });
+  async run(wf, args) {
+    const author = await wf.agents.caller({ key: "author" });
     if (!author) {
       throw new Error("no calling session: start this workflow with awf run --here from an agent");
     }
@@ -57,7 +57,7 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
     const { number } = picked.value;
     let doubled: number | undefined;
     if (args.helper) {
-      const helper = await workflow.agents.open({ key: "helper", runtime: HELPER });
+      const helper = await wf.agents.open({ key: "helper", runtime: HELPER });
       const { outcome } = await helper.run({
         prompt: `What is ${number} multiplied by 2? Work it out yourself; do not run any code.`,
         schema: DOUBLED,

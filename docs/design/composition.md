@@ -44,7 +44,7 @@ different definition, arguments, participant bindings, or label rejects. Engine 
 bounds nesting depth, including recursive definitions.
 
 The child sees local keys. A bound participant is available through
-`workflow.participants.get(localKey)` and may be used for messaging, but cannot be run merely
+`wf.participants.get(localKey)` and may be used for messaging, but cannot be run merely
 because its parent reference happens to be an `AgentRef`. This keeps the child dependency narrow.
 Child-created agents remain usable for the duration of the call and stop when it returns. Bound
 participants retain their parent's lifecycle.
@@ -73,8 +73,8 @@ export type OperationRecord = {
 The same child can therefore run more than once against one parent participant:
 
 ```ts
-const verdicts = await workflow.parallel(reviewers, (reviewer) =>
-  workflow.call({
+const verdicts = await wf.parallel(reviewers, (reviewer) =>
+  wf.call({
     id: `review:${reviewer.name}`,
     workflow: reviewLoop,
     args: { base: "main", runtime: reviewer.runtime },
@@ -87,8 +87,8 @@ Each `reviewLoop` opens its own reviewer and resolves `author` from its particip
 
 **Peer addresses.** Outside its own call, an agent is named by its address: each call id on its
 call path, outermost first, followed by `/`, then its key, so `review:claude/reviewer`, or
-`outer/review:claude/reviewer` nested one deeper; a root agent's address is its key. `wf peers`
-and `wf send` qualify only when necessary: if two child calls both expose a local `reviewer`, they
+`outer/review:claude/reviewer` nested one deeper; a root agent's address is its key. `wfa peers`
+and `wfa send` qualify only when necessary: if two child calls both expose a local `reviewer`, they
 show and accept `review:claude/reviewer` and `review:codex/reviewer`. A holder's commands
 ([[messaging#Coordinator CLI]]) always print an address qualified, so it never changes once
 printed, and accept a bare key only when one agent in the run has it, else `ambiguous`. Child code
@@ -131,11 +131,11 @@ export interface ParticipantDirectory {
 ```
 
 ```ts
-const coordinator = await workflow.participants.connect({
+const coordinator = await wf.participants.connect({
   key: "coordinator",
   labels: { audience: "operator" },
 });
-await workflow.messages.allow({
+await wf.messages.allow({
   between: [investigator, coordinator],
   purpose: "report findings that hold up; ask when the logs can't settle it",
   timeoutMs: 2 * 60 * 60_000,
@@ -148,7 +148,7 @@ cannot import, so only one the engine issued type-checks (built in story 029). R
 ensures references belong to the current scope. Agents and outside participants share one key
 namespace within that scope, so `connect` rejects an occupied key. A reserved key, `operator`, `awf`, `system` or `user`, which
 an agent could read as authority, is refused from the start, so that no workflow comes to rely on
-it: by `connect`, by `agents.open`, so no agent's `wf send` arrives "from operator", and by a call's
+it: by `connect`, by `agents.open`, so no agent's `wfa send` arrives "from operator", and by a call's
 `participants` map, so a child never sees an `operator` either.
 
 An outside participant is named by the key it was connected under, across the whole run: unlike an
@@ -172,8 +172,8 @@ An outside participant differs from an agent where an agent's behaviour hangs on
 | --- | --- | --- |
 | Messages to it | held in an inbox until a turn boundary; unread ones keep a stage busy, and at most 16 | in the run log only: no inbox in memory, no cap, no busy stage, nothing dropped |
 | Reading | shown at its next turn | `awf inbox`, from the run log with a cursor, both directions, during the run and after it |
-| Answering | `wf reply {peer}` | `awf reply {run} {agent} [--to {id}]`, `--to` needed unless one question from that agent is open |
-| Sending first | `wf send {peer}` | `awf send {run} {agent}`, over a route the workflow allowed |
+| Answering | `wfa reply {peer}` | `awf reply {run} {agent} [--to {id}]`, `--to` needed unless one question from that agent is open |
+| Sending first | `wfa send {peer}` | `awf send {run} {agent}`, over a route the workflow allowed |
 | Message ids | none in the CLI | `{attempt}.{n}` in `awf inbox`, for `--to` |
 | A question to it | the asker waits within its operation's deadline | open once recorded; the asker's clock stops while it waits ([[messaging#Waiting for an outside participant]]) |
 | Asking | `--await-reply`, one at a time | never: it doesn't ask |
@@ -214,10 +214,10 @@ provides the capability, `awf inbox --wait` is the whole mechanism.
 The parent connects an author, held by another session, and passes it into reusable review calls:
 
 ```ts
-const author = await workflow.participants.connect({ key: "author" });
+const author = await wf.participants.connect({ key: "author" });
 
-const verdicts = await workflow.parallel(reviewers, (reviewer) =>
-  workflow.call({
+const verdicts = await wf.parallel(reviewers, (reviewer) =>
+  wf.call({
     id: `review:${reviewer.name}`,
     workflow: reviewLoop,
     args: { base, runtime: reviewer.runtime, findingsPath: reviewer.findingsPath },
@@ -231,16 +231,16 @@ await author.release("reviews complete");
 Inside each child, the reviewer owns the loop:
 
 ```ts
-const author = await workflow.participants.get("author");
+const author = await wf.participants.get("author");
 if (!author) throw new Error("review-loop requires an author participant");
 
-const reviewer = await workflow.agents.open({
+const reviewer = await wf.agents.open({
   key: "reviewer",
   runtime: args.runtime,
   skills: [{ path: new URL("./skills/air-code-review", import.meta.url) }],
 });
 
-await workflow.messages.allow({
+await wf.messages.allow({
   between: [reviewer, author],
   purpose: "Report findings and receive dispositions until the branch is clean.",
 });
@@ -249,7 +249,7 @@ const { outcome } = await reviewer.run({
   prompt: `
 Review the working tree against ${args.base} and keep findings in ${args.findingsPath}.
 
-Send each round to the author with wf send --await-reply, and end your turn: the author's
+Send each round to the author with wfa send --await-reply, and end your turn: the author's
 dispositions start your next turn.
 Return the verdict once nothing is open.
 `,

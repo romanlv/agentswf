@@ -63,7 +63,7 @@ hand-back does; a busy session queues it (E8). Without a pane, `awf wait` is how
 
 ## Later
 
-A pane a workflow writes to with no agent in it, `workflow.panes.open({ key, layout })` and
+A pane a workflow writes to with no agent in it, `wf.panes.open({ key, layout })` and
 `write(text)`, placed and kept like an agent's. The progress pane would be awf's own first one.
 
 ## Not needed

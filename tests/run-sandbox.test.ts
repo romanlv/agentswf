@@ -32,9 +32,9 @@ function passing(provider: Provider = "srt"): Evidence {
     ...Object.values(ran).map(([command, exitCode, output]) => ({ command, exitCode, output })),
     { command: "head -1 /s/request.md", exitCode: 0, output: "# Change app-1" },
     {
-      command: `/t/wf result c1 <<'WF_JSON'\n${JSON.stringify(Object.values(ran))}\nWF_JSON`,
+      command: `/t/wfa result c1 <<'WF_JSON'\n${JSON.stringify(Object.values(ran))}\nWF_JSON`,
       exitCode: 0,
-      output: "wf: result accepted\n",
+      output: "wfa: result accepted\n",
     },
   ];
   const box = (key: string, agents: string[], read: string[]) => ({

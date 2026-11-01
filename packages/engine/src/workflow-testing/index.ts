@@ -102,7 +102,7 @@ export type TestOptions = {
   awaitReply?: "listed" | "anywhere";
   /** Each decision's answers, by its key or a pattern. */
   decisions?: Readonly<Record<string, DecisionScript>>;
-  /** What `workflow.allowance` reads, one per harness; a harness with none here reads `none`. */
+  /** What `wf.allowance` reads, one per harness; a harness with none here reads `none`. */
   allowance?: readonly HarnessAllowance[];
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
   runtimes?: RuntimeAliases;

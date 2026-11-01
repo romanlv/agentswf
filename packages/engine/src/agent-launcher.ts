@@ -1,9 +1,11 @@
-import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { basename, dirname, join, resolve } from "node:path";
+import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type AgentDoor, shellQuote } from "@agentswf/sandbox";
 
-/** bun loads the `.env` of the directory it starts in: an agent's, which is none of `wf`'s. */
+const AGENT_CLI = fileURLToPath(new URL("./agent-cli/cli.ts", import.meta.url));
+
+/** bun loads the `.env` of the directory it starts in: an agent's, which is none of `wfa`'s. */
 const NO_ENV = "--no-env-file";
 
 /**
@@ -27,19 +29,18 @@ export async function installAgentLauncher(
    */
   sessionEnv?: string,
 ): Promise<string> {
-  const command = await resolveAgentCommand();
-  return writeLauncher(directory, [process.execPath, NO_ENV, command], endpoint, sessionEnv);
+  return writeLauncher(directory, [process.execPath, NO_ENV, AGENT_CLI], endpoint, sessionEnv);
 }
 
 /**
- * A sandboxed agent's door: the same launcher, running the bundled `wf` with the host's bun by
+ * A sandboxed agent's door: the same launcher, running the bundled `wfa` with the host's bun by
  * its real path, since a sandbox reads neither the workspace's sources nor bun's links under `~`.
  * A box copies `boxScript` to the launcher's path, which runs the bundle with the box's own bun.
  */
 export async function installSandboxedDoor(
   directory: string,
   endpoint: string,
-  /** The bundled `wf`'s source, written beside the launcher. */
+  /** The bundled `wfa`'s source, written beside the launcher. */
   source: string,
   sessionEnv?: string,
 ): Promise<AgentDoor> {
@@ -50,7 +51,7 @@ export async function installSandboxedDoor(
   const socket = join(real, basename(endpoint));
   // In the agent's own directory: bun will not load a module from the control plane's, which is
   // not listable so that no agent can find another's socket.
-  const bundle = join(real, "wf.js");
+  const bundle = join(real, "wfa.js");
   await writeFile(bundle, source, { mode: 0o500 });
   const launcher = await writeLauncher(real, [bun, NO_ENV, bundle], socket, sessionEnv);
   return {
@@ -64,12 +65,12 @@ export async function installSandboxedDoor(
 }
 
 /**
- * `wf` as one file's source, which a sandbox can read where it cannot read this workspace. Built by
+ * `wfa` as one file's source, which a sandbox can read where it cannot read this workspace. Built by
  * a `bun build` of its own: in process, the bundler resolved packages against the test runner's
  * state and missed the workspace's links.
  */
 export async function buildAgentBundle(): Promise<string> {
-  const entry = await resolveAgentCommand();
+  const entry = AGENT_CLI;
   const built = Bun.spawn({
     cmd: [process.execPath, "build", entry, "--target=bun"],
     cwd: dirname(entry),
@@ -81,7 +82,7 @@ export async function buildAgentBundle(): Promise<string> {
     new Response(built.stdout).text(),
     new Response(built.stderr).text(),
   ]);
-  if (code !== 0) throw new Error(`could not bundle wf: ${stderr.trim().slice(0, 400)}`);
+  if (code !== 0) throw new Error(`could not bundle wfa: ${stderr.trim().slice(0, 400)}`);
   return bundle;
 }
 
@@ -93,7 +94,7 @@ async function writeLauncher(
 ): Promise<string> {
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o700);
-  const path = join(directory, "wf");
+  const path = join(directory, "wfa");
   // Not writable, so an agent that redirects into its own launcher fails rather than replacing its
   // only way to answer. A `chmod` still gets past it; a sandbox denies the write outright.
   await writeFile(path, launcherScript(command, endpoint, sessionEnv, path), { mode: 0o500 });
@@ -105,7 +106,7 @@ function launcherScript(
   command: readonly string[],
   endpoint: string,
   sessionEnv: string | undefined,
-  /** Its own path, which `wf` names in what it prints, as an agent must type it. */
+  /** Its own path, which `wfa` names in what it prints, as an agent must type it. */
   path: string,
 ): string {
   if (sessionEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(sessionEnv)) {
@@ -113,15 +114,4 @@ function launcherScript(
   }
   const session = sessionEnv ? ` --session "\${${sessionEnv}:-}"` : "";
   return `#!/bin/sh\nexec ${command.map(shellQuote).join(" ")} --at ${shellQuote(endpoint)} --as ${shellQuote(path)}${session} "$@"\n`;
-}
-
-async function resolveAgentCommand(): Promise<string> {
-  const require = createRequire(import.meta.url);
-  const manifestPath = require.resolve("@agentswf/wf/package.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-    bin?: string | Record<string, string>;
-  };
-  const relative = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.wf;
-  if (!relative) throw new Error("@agentswf/wf does not publish the wf command");
-  return resolve(dirname(manifestPath), relative);
 }

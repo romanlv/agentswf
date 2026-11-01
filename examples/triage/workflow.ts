@@ -60,11 +60,11 @@ export default defineWorkflow<TriageArgs, TriageResult>({
     whenToUse:
       "Use to see a decision model answer typed questions with probabilities, for well under a cent.",
   },
-  async run(workflow, { tickets }) {
-    const triaged = await workflow.parallel(
+  async run(wf, { tickets }) {
+    const triaged = await wf.parallel(
       tickets,
       async (ticket, index): Promise<Triage> => {
-        const { answers } = await workflow.decisions.decide(triageTicket(`${index + 1}`, ticket));
+        const { answers } = await wf.decisions.decide(triageTicket(`${index + 1}`, ticket));
         const { team, bug, urgency } = answers;
         const unsure = [
           ...(team.probabilities[team.choice] < CONFIDENT ? ["team"] : []),

@@ -42,16 +42,16 @@ export type Turn = {
    */
   readonly messages: readonly Message[];
   /**
-   * `wf send`: resolves once admitted, `sent`; or, with `awaitReply`, with the reply, which arrives
+   * `wfa send`: resolves once admitted, `sent`; or, with `awaitReply`, with the reply, which arrives
    * in a later turn of the same call. Returning a result without awaiting it drops the wait, and it
    * resolves `failed` with reason `dropped`. While a reply is awaited the script awaits only the
    * host's calls: once it is still, its turn ends.
    */
   send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
-  /** `wf reply`: answers the question `peer` asked. A result is refused while one is owed. */
+  /** `wfa reply`: answers the question `peer` asked. A result is refused while one is owed. */
   reply(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
   /**
-   * `wf tool`: calls the agent's tool `name` with `input` as its JSON, or none, through the run's
+   * `wfa tool`: calls the agent's tool `name` with `input` as its JSON, or none, through the run's
    * real checks and handler; resolves with what the agent would read.
    */
   tool(name: string, input?: JsonObject): Promise<ToolOutcome>;
@@ -60,7 +60,7 @@ export type Turn = {
 };
 
 /**
- * How a tool call ended, as `wf tool` reports it; a failure or a refusal is a value to test. A
+ * How a tool call ended, as `wfa tool` reports it; a failure or a refusal is a value to test. A
  * refusal carries what the agent is told, which for `invalid-input` is what it corrects from.
  */
 export type ToolOutcome =

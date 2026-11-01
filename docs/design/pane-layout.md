@@ -91,7 +91,7 @@ Without `layout`, an agent is placed as today: a tab of its own, labelled by its
 workspace.
 
 ```ts
-const lead = await workflow.agents.open({
+const lead = await wf.agents.open({
   key: "lead",
   runtime: "claude",
   layout: { workspace: "origin", tab: "review" },
@@ -102,7 +102,7 @@ await lead.run({ prompt: "Read the change and plan the review." });
 const security = await lead.fork({ key: "security", layout: { beside: "lead", side: "right" } });
 const style = await lead.fork({ key: "style", layout: { beside: "security", side: "below" } });
 
-await workflow.parallel([security, style], (agent) => agent.run({ prompt: "Review it." }));
+await wf.parallel([security, style], (agent) => agent.run({ prompt: "Review it." }));
 ```
 
 `share` is the new pane's part. To stack three panes evenly right of a lead: `a` beside the lead,
@@ -245,7 +245,7 @@ Before it is kept, the agent is **released**:
   waits, bounded, for it to settle. One that does not settle is closed instead, and the output says
   so: a kept agent must not go on editing files. An answered operation already waited for its
   harness to release (ADR 0008).
-- **Its result channel is revoked** at that moment, not when the run ends, so a `wf result` from it
+- **Its result channel is revoked** at that moment, not when the run ends, so a `wfa result` from it
   fails. It is done: its later operations in this run fail. What the operator types into it is in
   nobody's usage or spend.
 
@@ -404,7 +404,7 @@ Each waits for a workflow that needs it:
   is hard to follow, and moving a target has rules of its own.
 - **Arrangements such as columns or a grid.** Each is a sequence of `beside`s a workflow can write;
   a named one is shorthand to add once the same sequence shows up twice.
-- **Child workflows** (`workflow.call`, not built). `beside` names a key in the workflow's own scope.
+- **Child workflows** (`wf.call`, not built). `beside` names a key in the workflow's own scope.
 - **Focus.** awf never takes it.
 
 ## Decided

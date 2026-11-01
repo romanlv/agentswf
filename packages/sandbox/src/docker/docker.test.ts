@@ -307,7 +307,7 @@ describe("the docker provider", () => {
     const { client, calls, relays } = fakeClient();
     const opened = await provider(client).open(spec, context);
     await mkdir(join(root, "door"), { recursive: true });
-    await writeFile(join(root, "door", "wf.js"), "bundle source");
+    await writeFile(join(root, "door", "wfa.js"), "bundle source");
     const agent: AgentContext = {
       cwd: repo,
       home: join(directory, "homes", "h1"),
@@ -323,9 +323,9 @@ describe("the docker provider", () => {
       },
       door: {
         endpoint: join(root, "door", "s.sock"),
-        launcher: join(root, "door", "wf"),
+        launcher: join(root, "door", "wfa"),
         boxScript: "#!/bin/sh\nexec bun ...\n",
-        bundle: join(root, "door", "wf.js"),
+        bundle: join(root, "door", "wfa.js"),
         reads: [],
       },
     };
@@ -342,8 +342,8 @@ describe("the docker provider", () => {
     );
     expect(asRoot.map(({ args }) => args.at(-1))).toEqual([
       join(root, "door"),
-      join(root, "door", "wf.js"),
-      join(root, "door", "wf"),
+      join(root, "door", "wfa.js"),
+      join(root, "door", "wfa"),
     ]);
     expect(asRoot[1]!.stdin).toBe("bundle source");
     expect(asRoot[2]!.stdin).toBe(agent.door.boxScript);
@@ -478,7 +478,7 @@ describe("the docker provider", () => {
         },
         door: {
           endpoint,
-          launcher: join(root, "wf"),
+          launcher: join(root, "wfa"),
           boxScript: "",
           bundle: join(root, "relay.js"),
           reads: [],

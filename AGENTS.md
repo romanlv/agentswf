@@ -22,9 +22,9 @@ what would have to happen first.
 ## Names
 
 The project is agents.wf; its packages are `@agentswf/*`, each named for its directory, and a
-workflow imports `agentswf/workflow`. The commands are `awf` for the operator and `wf` for an
-agent, and what `awf` owns at run time keeps its name (`.awf/runs`, `AWF_*`, `awf-lab`). The
-rule is in `docs/foundation.md`'s naming note and ADR 0005.
+workflow imports `agentswf/workflow`. The commands are `awf` for the operator and `wfa` for an
+agent, a workflow names its context `wf`, and what `awf` owns at run time keeps its name (`.awf/runs`, `AWF_*`, `awf-lab`). The
+rule is in `docs/foundation.md`'s naming note and ADRs 0005 and 0013.
 
 ## Where things go
 
@@ -32,8 +32,7 @@ rule is in `docs/foundation.md`'s naming note and ADR 0005.
 | --- | --- |
 | `packages/contract` | types, schema, record formats. **Pure — no I/O, no `Bun.*`, no `node:`** |
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
-| `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs |
-| `packages/wf` | the in-session `wf` command; imports contract only and talks over wire |
+| `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs; `src/agent-cli` is the agent's `wfa` command |
 | `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
 | `packages/lab` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
@@ -47,7 +46,7 @@ Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API.
 2. `engine/src/accounting` imports contract only, performs no I/O, and uses no runtime-specific API.
-3. `wf` imports contract only and performs no run-directory I/O.
+3. `engine/src/agent-cli`, the `wfa` command, imports contract and itself only, and performs no run-directory I/O.
 4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`. `engine/src/workflow-testing/`, the second composition root a workflow's tests run on, imports the fakes, `@agentswf/harness/testing` and `@agentswf/sandbox/testing/fake`, and never `bun:test` (ADR 0006).
 5. `lab` imports contract only, and runs workflows through `awf run`, never by linking the engine or a harness; its review format stays pure outside the files that do I/O.
 6. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness. A workflow's test beside it, `*.test.ts`, imports the testing surface, `@agentswf/engine/workflow-testing`, and may use runtime built-ins; never the rest of the engine or a harness.

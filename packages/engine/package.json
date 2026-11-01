@@ -29,7 +29,6 @@
     "!src/**/fixtures"
   ],
   "dependencies": {
-    "@agentswf/wf": "workspace:*",
     "@agentswf/contract": "workspace:*",
     "@agentswf/harness": "workspace:*",
     "@agentswf/sandbox": "workspace:*",

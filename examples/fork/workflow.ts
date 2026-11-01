@@ -89,14 +89,14 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
     whenToUse:
       "Use to check that a fork starts from its parent's context, compacted or not, and that neither sees the other's turns after it.",
   },
-  run: async (workflow, args) => ({
+  run: async (wf, args) => ({
     codename: args.codename,
     release: args.release,
-    checks: await workflow.parallel(
+    checks: await wf.parallel(
       args.cases,
       async (item): Promise<ForkCheck> => {
         const name = caseName(item);
-        const worker = await workflow.agents.open({
+        const worker = await wf.agents.open({
           key: `worker:${name}`,
           runtime: RUNTIMES[item.runtime].execution,
           ...(item.sandbox ? { sandbox: {} } : {}),

@@ -221,12 +221,12 @@ activity client common core-bridge worker workflow testing plugin envconfig meta
   carries an optional **validator**, returns a result to its caller through
   `WorkflowUpdateHandle.result()`, and — the decisive part, from the SDK's own implementation
   comment — **an Update with no handler is rejected at the end of the activation, while a Signal
-  with no handler buffers indefinitely**. An approval nobody is listening for must fail loudly. wf
+  with no handler buffers indefinitely**. An approval nobody is listening for must fail loudly. awf
   currently has only the buffering half.
 - **The task token is the operation capability, already solved.** Async activity completion hands an
   out-of-process worker an opaque `taskToken`; that worker calls
   `client.activity.heartbeat(taskToken, details)` or completes against it, and the token identifies
-  exactly one activity invocation. That is `wf result` — an out-of-process agent settling one slot it
+  exactly one activity invocation. That is `wfa result` — an out-of-process agent settling one slot it
   was handed — and it is why `CallEnv` is replaced rather than migrated. `runDir` plus `callId` are
   identifiers; a task token is a capability.
 

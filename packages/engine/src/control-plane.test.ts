@@ -346,7 +346,7 @@ describe("a tool call on the control plane", () => {
     }
   });
 
-  test("refuses wf result while the agent's call runs, saying when it will have answered", async () => {
+  test("refuses wfa result while the agent's call runs, saying when it will have answered", async () => {
     const slots = createResultSlotRegistry({ runDir: tempRunDir() });
     const control = await startResultControlPlane({ socketRoot: tempRunDir(), slots });
     control.attachTools({

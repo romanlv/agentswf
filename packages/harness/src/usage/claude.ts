@@ -65,7 +65,7 @@ export async function readClaudeUsage(
     }
   }
   // Claude writes nothing once its pane or process is gone: an answered agent's session ends on
-  // its `wf result` call for good. There is no turn left to wait for.
+  // its `wfa result` call for good. There is no turn left to wait for.
   return { records: [...requests.values()].map(({ record }) => record), open: false };
 }
 

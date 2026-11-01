@@ -9,7 +9,7 @@ export type CannedResult = { range: string; title: string; findings: CannedFindi
 
 export default defineWorkflow<Args, CannedResult>({
   meta: { name: "canned-review", description: "Return canned findings for a frozen head." },
-  async run(_workflow, args) {
+  async run(_wf, args) {
     const answers: Record<string, CannedFinding[] | "throw"> = await Bun.file(args.answers).json();
     const listed = answers[args.head] ?? [];
     if (listed === "throw") throw new Error("the canned reviewer was told to fail");

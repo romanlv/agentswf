@@ -58,7 +58,7 @@ printed instead of run, a skill listed but not used), 2026-10-01.
 
 What they cover between them:
 
-- `turn-liveness` — story 021's cooperative `wf waiting` path through `awf run`, repeated check-ins,
+- `turn-liveness` — story 021's cooperative `wfa waiting` path through `awf run`, repeated check-ins,
   final answer and a dependent operation in one Claude pane. `bun run eval turn-liveness` runs
   the host case. With explicit live opt-in, `AWF_LIVE_EVAL=1 bun tests/turn-liveness.eval.ts {mode}`
   selects `host`, `srt`, `silent`, `timeout`, `cancel` or `lost-route`. Each invocation has a five-minute outer
@@ -230,7 +230,7 @@ as story 002 did to check accounting against the session files.
   `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
   `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `tools` for workflow tools, the
-  lesson, flags on `wf tool` or `wf result`, or a harness's shell limits; `calling-session` for
+  lesson, flags on `wfa tool` or `wfa result`, or a harness's shell limits; `calling-session` for
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
   activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
   in a pane (`-- pi pi-pane`), and in another shell follow it with the `awf logs` its first line

@@ -6,8 +6,8 @@ import {
 } from "../../packages/contract/src/workflow";
 
 /**
- * Story 029's delivery smoke. The asker asks the keeper a question with `wf send --await-reply` and
- * ends its turn; the question wakes the keeper, which has never run, and its `wf reply` continues
+ * Story 029's delivery smoke. The asker asks the keeper a question with `wfa send --await-reply` and
+ * ends its turn; the question wakes the keeper, which has never run, and its `wfa reply` continues
  * the asker's same call, which then returns what it was told. Headless, both agents run one
  * harness. In a pane, the keeper is the pane; a claude asker waits in its pane too, where the others
  * cannot wait and ask from headless.
@@ -52,19 +52,19 @@ export default defineWorkflow<{ runtimes: RuntimeName[] }, SmokeResult>({
     name: "messaging-smoke",
     description: "One agent asks another, by message, for a codeword only the other knows.",
   },
-  async run(workflow, { runtimes }) {
-    return workflow.parallel(runtimes, async (runtime) => {
+  async run(wf, { runtimes }) {
+    return wf.parallel(runtimes, async (runtime) => {
       const { asker: askerRuntime, keeper: keeperRuntime } = RUNTIMES[runtime]!;
-      const keeper = await workflow.agents.open({
+      const keeper = await wf.agents.open({
         key: `keeper:${runtime}`,
         runtime: keeperRuntime,
         instructions: `You keep a codeword: ${CODEWORD}. Give it to any agent that asks you for it, by replying to its message.`,
       });
-      const asker = await workflow.agents.open({
+      const asker = await wf.agents.open({
         key: `asker:${runtime}`,
         runtime: askerRuntime,
       });
-      await workflow.messages.allow({
+      await wf.messages.allow({
         from: asker,
         to: keeper,
         purpose: "Ask the keeper for the codeword it keeps.",

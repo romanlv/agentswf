@@ -6,10 +6,10 @@ flags in the state for effects owed, and an `act` that can't see the events behi
 
 Chosen instead, keeping today's loop:
 
-- **A time that moves** is a `select` branch read from state, `workflow.at(() => Date | null)`:
+- **A time that moves** is a `select` branch read from state, `wf.at(() => Date | null)`:
   the engine arms, moves or drops the branch's timer to match, and fires once per time. Decided in
   037 Q1; this doc's level 1, as a source rather than a `Date` in a function.
-- **State the engine saves** is a named handle, `workflow.state(name, initial)`, saved with the
+- **State the engine saves** is a named handle, `wf.state(name, initial)`, saved with the
   acks, its times plugged in as `handle.at(selector)`: [[workflow-state]], for later.
 - **Work running while events arrive**, this doc's level 2, waits for a workflow that needs it.
 
@@ -29,9 +29,9 @@ unless it's not their turn.* The code doesn't fit in a sentence. awf's timers ca
 change of plan makes a new one:
 
 ```ts
-workflow.timer(`nudge-${view.nudgeTimers}`, new Date(view.nextNudge));  // a new name for every move
+wf.timer(`nudge-${view.nudgeTimers}`, new Date(view.nextNudge));  // a new name for every move
 …
-for await (const next of workflow.select({ …, timer: workflow.timers() })) {  // catch them all: a select's branches are fixed at the start
+for await (const next of wf.select({ …, timer: wf.timers() })) {  // catch them all: a select's branches are fixed at the start
   if (next.timer?.name.startsWith("nudge-")) {
     if (next.timer.name !== `nudge-${view.nudgeTimers}`) return;          // an old one: still fires, ignored
     …
@@ -292,15 +292,15 @@ with actions, its `on` becomes a list of `s.commented(…)`, `s.pushed(…)`, `s
 Slots aren't only for event runs. approval-reminders, a sequence, counts its reminders:
 
 ```ts
-async run(workflow) {
-  const s = workflow.state;                                   // the same declared slots
+async run(wf) {
+  const s = wf.state;                                         // the same declared slots
   for (;;) {
-    const next = await workflow.race(`answer-${s.reminders}`, {
+    const next = await wf.race(`answer-${s.reminders}`, {
       reply: thread,
-      remind: workflow.timer(`remind-${s.reminders}`, "2d"),
+      remind: wf.timer(`remind-${s.reminders}`, "2d"),
     });
     if (next.reply) return decide(next.reply);
-    await workflow.stage(`remind-${s.reminders}`, () => thread.post(REMINDER));
+    await wf.stage(`remind-${s.reminders}`, () => thread.post(REMINDER));
     s.reminders += 1;                                         // saved at the next wait or stage
   }
 }
@@ -342,14 +342,14 @@ counter, the name check, the catch-all and both `*Timer()` functions go, about t
 closes 037 Q1.
 
 ```ts
-for await (const next of workflow.select(() => {
+for await (const next of wf.select(() => {
   const v = run.ledger.view();
   return { …signals, reply: run.engineer, nudge: v.closed ? null : v.nextNudge, retry: v.retryAt };
 })) {
   if (next.nudge) await nudge(run, next.nudge.at);    // fires only for the time read last
   …
 }
-run.ledger.nudgePutOff(workflow.after("3h"));          // moving the nudge is writing the ledger
+run.ledger.nudgePutOff(wf.after("3h"));                // moving the nudge is writing the ledger
 ```
 
 **Level 2: work read from state.** A turn becomes a branch value, keyed. dd-case loses its turn flag,
@@ -369,7 +369,7 @@ a push comes, so its key is the pass, `pass-{n}`; a workflow that wants a push t
 it by the head.
 
 review-loop3's review isn't one turn, though: it's a part that may run several agents. So level 2
-also needs keyed **work**, `workflow.work({ key, run })`, an async function the engine starts, keeps
+also needs keyed **work**, `wf.work({ key, run })`, an async function the engine starts, keeps
 and cancels by key (Q5). dd-case can take level 2 without it; review-loop3 can't.
 
 **Level 3: the engine keeps the state, as slots, and saves it with the acks.** The babysitter above.
@@ -503,7 +503,7 @@ could come earlier, since they don't need the model. Both reviews agree with thi
 
 `wants` rather than `waits`, since it holds running work as well as times. `setup` rather than
 `open`, which clashes with `agents.open` and reads as once per run, though it runs at every process
-start. `on` and `act`. `workflow.state` for the slots.
+start. `on` and `act`. `wf.state` for the slots.
 
 ### Q3. `setup`, and agents
 
@@ -518,7 +518,7 @@ print, or a file `act` writes.
 
 ### Q5. Keyed work
 
-`workflow.work({ key, run })`: an async function started, kept, cancelled and restarted by key, its
+`wf.work({ key, run })`: an async function started, kept, cancelled and restarted by key, its
 value its end. What it may do inside (stages, agents, its own waits), and how a cancel reaches it.
 
 ### Q6. Slots in a sequence

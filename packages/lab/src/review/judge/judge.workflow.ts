@@ -23,12 +23,12 @@ export const panelJudge = defineWorkflow<Args, ScorerResult>({
     description: "Label a review's findings against a fixture's answer key with a panel of judges.",
     whenToUse: "Run by a scorer that names the panel; match first is awf-lab's own.",
   },
-  async run(workflow, args) {
+  async run(wf, args) {
     const input = await readJudgedCase(args.fixture, args.findings);
     if (input.findings.length === 0) {
       return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
     }
-    const { labels, votes, missed } = await voteOnRest(workflow, input, new Map(), args);
+    const { labels, votes, missed } = await voteOnRest(wf, input, new Map(), args);
     const judgement: ScorerResult = {
       format: SCORER_RESULT_FORMAT,
       labels: input.findings.map((_, index) => labels.get(index)!),

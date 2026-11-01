@@ -16,7 +16,7 @@ export default defineWorkflow<Args, ReviewFinding[]>({
     name: "review-oracle",
     description: "Return the answer key's issues as findings: the full-recall sanity bound.",
   },
-  async run(_workflow, { set, head }) {
+  async run(_wf, { set, head }) {
     for (const entry of readdirSync(set, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const dir = join(set, entry.name);

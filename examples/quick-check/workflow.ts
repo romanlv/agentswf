@@ -67,12 +67,12 @@ export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
     whenToUse:
       "Use to smoke-test a harness, its result channel, a follow-up in the same session, and the run's accounting, for a few cents.",
   },
-  async run(workflow, args) {
-    const checks = await workflow.parallel(
+  async run(wf, args) {
+    const checks = await wf.parallel(
       args.runtimes,
       async (runtime): Promise<QuickCheck> => {
         const execution: ExecutionConfig = RUNTIMES[runtime];
-        const agent = await workflow.agents.open({ key: `check:${runtime}`, runtime: execution });
+        const agent = await wf.agents.open({ key: `check:${runtime}`, runtime: execution });
         const answers: QuickAnswer[] = [];
         for (const { prompt, expected } of QUESTIONS) {
           const { outcome } = await agent.run({

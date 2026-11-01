@@ -49,7 +49,7 @@ const TEXT: OutputSchema<string> = { type: "string" };
 type Ran = { exitCode: number; stdout: string; stderr: string };
 
 /** The launcher the turn's prompt names, run as the agent's shell would, with no environment. */
-async function wf(launcher: string, args: readonly string[], stdin?: string): Promise<Ran> {
+async function wfa(launcher: string, args: readonly string[], stdin?: string): Promise<Ran> {
   const child = Bun.spawn([launcher, ...args], {
     env: {},
     stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
@@ -66,7 +66,7 @@ async function wf(launcher: string, args: readonly string[], stdin?: string): Pr
 
 /** The launcher's full path, from the result line, or a message turn's routes lesson. */
 function launcherOf(context: FakeAdapterTurnContext): string {
-  const path = /(\/\S+\/wf) (?:result|send|reply|peers)/.exec(context.prompt)?.[1];
+  const path = /(\/\S+\/wfa) (?:result|send|reply|peers)/.exec(context.prompt)?.[1];
   if (!path) throw new Error(`no launcher in the prompt: ${context.prompt}`);
   return path;
 }
@@ -83,7 +83,7 @@ function callIdOf(context: FakeAdapterTurnContext): string {
 async function withTools(
   tools: AgentTools,
   act: (
-    wf: (args: readonly string[], stdin?: string) => Promise<Ran>,
+    wfa: (args: readonly string[], stdin?: string) => Promise<Ran>,
     context: FakeAdapterTurnContext,
   ) => Promise<unknown>,
   options: {
@@ -96,8 +96,8 @@ async function withTools(
     script: (context) => ({
       act: async () => {
         const launcher = launcherOf(context);
-        seen = await act((args, stdin) => wf(launcher, args, stdin), context);
-        await wf(launcher, ["result", callIdOf(context)], '"done"');
+        seen = await act((args, stdin) => wfa(launcher, args, stdin), context);
+        await wfa(launcher, ["result", callIdOf(context)], '"done"');
       },
     }),
   });
@@ -145,7 +145,7 @@ describe("a tool call", () => {
           },
         }),
       },
-      (wf) => wf(["tool", "close", "--id", "a1", "--status", "done", "--why", "it's $HOME"]),
+      (wfa) => wfa(["tool", "close", "--id", "a1", "--status", "done", "--why", "it's $HOME"]),
     );
     expect(seen).toEqual({ exitCode: 0, stdout: "Closed a1.", stderr: "" });
     expect(calls).toEqual([{ id: "a1", status: "done", why: "it's $HOME", agent: "triager" }]);
@@ -160,9 +160,9 @@ describe("a tool call", () => {
           handler: (input) => (Object.keys(input).length === 0 ? undefined : "x"),
         }),
       },
-      async (wf) => [
-        await wf(["tool", "close"], '{"id":"a1","status":"wontfix"}'),
-        await wf(["tool", "list"]),
+      async (wfa) => [
+        await wfa(["tool", "close"], '{"id":"a1","status":"wontfix"}'),
+        await wfa(["tool", "list"]),
       ],
     );
     expect(seen).toEqual([
@@ -178,7 +178,7 @@ describe("a tool call", () => {
         close: tool({ description: "Close.", input: CLOSE, handler: () => void ran++ }),
         list: tool({ description: "List.", handler: () => void ran++ }),
       },
-      async (wf) => {
+      async (wfa) => {
         const answers: Ran[] = [];
         for (const [args, stdin] of [
           [["tool", "open_it"]],
@@ -188,7 +188,7 @@ describe("a tool call", () => {
           [["tool", "close"], "[1]"],
           [["tool", "list", "--now", "1"]],
         ] as [string[], string?][])
-          answers.push(await wf(args, stdin));
+          answers.push(await wfa(args, stdin));
         return answers;
       },
     );
@@ -217,7 +217,7 @@ describe("a tool call", () => {
         }),
         date: tool({ description: "A Date.", handler: () => new Date() as never }),
       },
-      async (wf) => [await wf(["tool", "boom"]), await wf(["tool", "date"])],
+      async (wfa) => [await wfa(["tool", "boom"]), await wfa(["tool", "date"])],
     );
     const [boom, date] = seen as Ran[];
     expect(boom!.exitCode).toBe(1);
@@ -227,7 +227,7 @@ describe("a tool call", () => {
     expect(value).toBeNull();
   });
 
-  test("the same call made again while it runs joins it once; another is refused tool-busy, and wf result tool-running", async () => {
+  test("the same call made again while it runs joins it once; another is refused tool-busy, and wfa result tool-running", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -252,16 +252,16 @@ describe("a tool call", () => {
           },
         }),
       },
-      async (wf, context) => {
-        const first = wf(["tool", "slow", "--id", "a1"]);
+      async (wfa, context) => {
+        const first = wfa(["tool", "slow", "--id", "a1"]);
         await entered.promise;
-        const other = await wf(["tool", "slow", "--id", "b2"]);
+        const other = await wfa(["tool", "slow", "--id", "b2"]);
         // The same input, sent as JSON this time.
-        const again = wf(["tool", "slow"], '{ "id": "a1" }');
-        const third = wf(["tool", "slow", "--id=a1"]);
+        const again = wfa(["tool", "slow"], '{ "id": "a1" }');
+        const third = wfa(["tool", "slow", "--id=a1"]);
         // Whichever of the two came second is refused, which ends it before the handler can.
         const refused = await Promise.race([again, third]);
-        const result = await wf(["result", callIdOf(context)], '"early"');
+        const result = await wfa(["result", callIdOf(context)], '"early"');
         release();
         const joined = refused === (await again) ? await third : await again;
         return [await first, joined, other, refused, result];
@@ -279,7 +279,7 @@ describe("a tool call", () => {
     expect(result!.stderr).toContain("tool-running");
   });
 
-  test("past its budget the signal aborts and wf tool exits 4, saying it may have run", async () => {
+  test("past its budget the signal aborts and wfa tool exits 4, saying it may have run", async () => {
     let aborted = false;
     const { seen } = await withTools(
       {
@@ -295,7 +295,7 @@ describe("a tool call", () => {
             }),
         }),
       },
-      (wf) => wf(["tool", "stuck"]),
+      (wfa) => wfa(["tool", "stuck"]),
     );
     expect(aborted).toBe(true);
     expect(seen).toMatchObject({ exitCode: 4, stdout: "" });
@@ -306,15 +306,15 @@ describe("a tool call", () => {
     let launcher = "";
     const { seen } = await withTools(
       { list: tool({ description: "List.", handler: () => "x" }) },
-      async (wf, context) => {
+      async (wfa, context) => {
         launcher = launcherOf(context);
-        await wf(["result", callIdOf(context)], '"done"');
-        return wf(["tool", "list"]);
+        await wfa(["result", callIdOf(context)], '"done"');
+        return wfa(["tool", "list"]);
       },
       {
         around: async (agent) => {
           await agent.run({ prompt: "work", schema: TEXT, deadline: future(), nudge: false });
-          const after = await wf(launcher, ["tool", "list"]);
+          const after = await wfa(launcher, ["tool", "list"]);
           expect(after.exitCode).toBe(3);
           expect(after.stderr).toContain("(no-operation)");
         },
@@ -332,8 +332,8 @@ describe("a handler", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          if (context.activation.key === "triager") await wf(launcher, ["tool", "ask"]);
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          if (context.activation.key === "triager") await wfa(launcher, ["tool", "ask"]);
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -428,9 +428,9 @@ describe("tools on a spec", () => {
         act: async () => {
           const launcher = launcherOf(context);
           said.push(
-            (await wf(launcher, ["tool", "close", "--id", "a", "--status", "done"])).stdout,
+            (await wfa(launcher, ["tool", "close", "--id", "a", "--status", "done"])).stdout,
           );
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -477,11 +477,11 @@ describe("tools on a spec", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          const answer = await wf(launcher, ["tool", "who"]);
+          const answer = await wfa(launcher, ["tool", "who"]);
           said.push(
             `${context.activation.key}: ${answer.stdout || answer.stderr.split("\n").at(-1)}`,
           );
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -513,7 +513,7 @@ describe("tools on a spec", () => {
       "parent: parent's parent",
       "inherits: parent's inherits",
       "own: own own",
-      expect.stringContaining("none: wf: who refused (unknown-tool)"),
+      expect.stringContaining("none: wfa: who refused (unknown-tool)"),
     ]);
   });
 });
@@ -527,18 +527,18 @@ describe("a call in a message turn, and at an operation's end", () => {
         act: async () => {
           const launcher = launcherOf(context);
           if (context.activation.key === "asker") {
-            await wf(launcher, ["send", "peer", "go"]);
-            await wf(launcher, ["result", callIdOf(context)], '"done"');
+            await wfa(launcher, ["send", "peer", "go"]);
+            await wfa(launcher, ["result", callIdOf(context)], '"done"');
             return;
           }
           if (context.kind !== "turn" || context.prompt.includes("return it by running")) {
             order.push("peer's next turn");
-            await wf(launcher, ["result", callIdOf(context)], '"done"');
+            await wfa(launcher, ["result", callIdOf(context)], '"done"');
             return;
           }
-          order.push((await wf(launcher, ["tool", "quick"])).stdout);
+          order.push((await wfa(launcher, ["tool", "quick"])).stdout);
           // Left running as the turn ends, as a command backgrounded by its harness would be.
-          void wf(launcher, ["tool", "stuck"]).then((ran) =>
+          void wfa(launcher, ["tool", "stuck"]).then((ran) =>
             order.push(`stuck exited ${ran.exitCode}`),
           );
           await stuckEntered.promise;
@@ -602,8 +602,8 @@ describe("a call in a message turn, and at an operation's end", () => {
           handler: () => new Promise(() => {}),
         }),
       },
-      async (wf) => {
-        answered = await wf(["tool", "never"]);
+      async (wfa) => {
+        answered = await wfa(["tool", "never"]);
       },
     );
     expect(answered?.exitCode).toBe(4);
@@ -622,7 +622,7 @@ describe("a call in a message turn, and at an operation's end", () => {
           },
         }),
       },
-      (wf) => wf(["tool", "slow"]),
+      (wfa) => wfa(["tool", "slow"]),
       {
         around: async (agent) => {
           await agent.run({ prompt: "work", schema: TEXT, timeoutMs: 1_500, nudge: false });
@@ -641,8 +641,8 @@ describe("a call in a message turn, and at an operation's end", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          if (context.activation.key === "triager") await wf(launcher, ["tool", "help"]);
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          if (context.activation.key === "triager") await wfa(launcher, ["tool", "help"]);
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -733,7 +733,7 @@ describe("ToolCalls", () => {
     deadline: () => undefined,
   };
 
-  test("a record it can't write is an internal error, which wf tool reads as unknown", async () => {
+  test("a record it can't write is an internal error, which wfa tool reads as unknown", async () => {
     let writes = 0;
     const calls = new ToolCalls<undefined>({
       record: async () => ++writes === 1,
@@ -874,9 +874,9 @@ describe("more of a handler's limits", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          if (context.activation.key === "a") await wf(launcher, ["tool", "own"]);
-          if (context.activation.key === "b") await wf(launcher, ["tool", "back"]);
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          if (context.activation.key === "a") await wfa(launcher, ["tool", "own"]);
+          if (context.activation.key === "b") await wfa(launcher, ["tool", "back"]);
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -945,10 +945,10 @@ describe("more of a handler's limits", () => {
         loop: tool({ description: "Loop.", handler: () => cycle as never }),
         close: tool({ description: "Close.", input: CLOSE, handler: () => "closed" }),
       },
-      async (wf) => [
-        await wf(["tool", "big"]),
-        await wf(["tool", "loop"]),
-        await wf(
+      async (wfa) => [
+        await wfa(["tool", "big"]),
+        await wfa(["tool", "loop"]),
+        await wfa(
           ["tool", "close"],
           JSON.stringify({ id: "a", status: "done", why: "y".repeat(70_000) }),
         ),
@@ -979,7 +979,7 @@ describe("more of a handler's limits", () => {
             }),
         }),
       },
-      (wf) => wf(["tool", "wait"]),
+      (wfa) => wfa(["tool", "wait"]),
       {
         around: async (agent, context) => {
           const running = agent.run({ prompt: "work", schema: TEXT, nudge: false });
@@ -999,8 +999,8 @@ describe("more of a handler's limits", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          if (context.activation.key === "triager") await wf(launcher, ["tool", "help"]);
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          if (context.activation.key === "triager") await wfa(launcher, ["tool", "help"]);
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -1047,9 +1047,9 @@ describe("more of tools on a spec", () => {
         act: async () => {
           const launcher = launcherOf(context);
           said.push(
-            `${context.activation.key}: ${(await wf(launcher, ["tool", "who", "--id", "x"])).stdout}`,
+            `${context.activation.key}: ${(await wfa(launcher, ["tool", "who", "--id", "x"])).stdout}`,
           );
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });
@@ -1120,16 +1120,16 @@ describe("the tools lesson", () => {
   const list = { name: "list_open", description: "The cases still open, one per line." };
 
   test("is the story's: the call form, then each tool's description and usage line", () => {
-    expect(toolsLesson([close, list], "wf", true)).toBe(
+    expect(toolsLesson([close, list], "wfa", true)).toBe(
       [
         "You have tools the workflow runs for you. Call one with:",
         "",
-        "wf tool <name> --<option> '<value>' ...",
+        "wfa tool <name> --<option> '<value>' ...",
         "",
         "- close_case: Close the case when the engineer says it's fixed or noise.",
-        "  wf tool close_case --status closed|noise --why <text>",
+        "  wfa tool close_case --status closed|noise --why <text>",
         "- list_open: The cases still open, one per line.",
-        "  wf tool list_open",
+        "  wfa tool list_open",
       ].join("\n"),
     );
   });
@@ -1143,29 +1143,29 @@ describe("the tools lesson", () => {
         properties: { items: { type: "array", items: { type: "string" } } },
       },
     };
-    expect(toolsLesson([close, nested], "wf", false)).toBe(
+    expect(toolsLesson([close, nested], "wfa", false)).toBe(
       [
         "You have tools the workflow runs for you. Call one with:",
         "",
-        "wf tool <name> --<option> '<value>' ...",
-        "wf tool <name> <<'WF_JSON'",
+        "wfa tool <name> --<option> '<value>' ...",
+        "wfa tool <name> <<'WF_JSON'",
         "<json>",
         "WF_JSON",
         "",
         "Put every value in single quotes; a ' inside a value is written '\\''.",
         "",
         "- close_case: Close the case when the engineer says it's fixed or noise.",
-        "  wf tool close_case --status closed|noise --why <text>",
+        "  wfa tool close_case --status closed|noise --why <text>",
         `- file: File items.\n  input: ${JSON.stringify(nested.input)}`,
       ].join("\n"),
     );
     // A description's own lines stay under its tool.
     expect(
-      toolsLesson([{ name: "two", description: "First.\n- not a tool" }], "wf", true),
-    ).toContain("- two: First.\n  - not a tool\n  wf tool two");
+      toolsLesson([{ name: "two", description: "First.\n- not a tool" }], "wfa", true),
+    ).toContain("- two: First.\n  - not a tool\n  wfa tool two");
     // Nothing to quote with no flags; no lesson with no tools.
-    expect(toolsLesson([list], "wf", false)).not.toContain("single quotes");
-    expect(toolsLesson([], "wf", false)).toBeUndefined();
+    expect(toolsLesson([list], "wfa", false)).not.toContain("single quotes");
+    expect(toolsLesson([], "wfa", false)).toBeUndefined();
   });
 
   test("comes after the result block in a turn, with the quoting rule said once; none without tools", async () => {
@@ -1174,7 +1174,7 @@ describe("the tools lesson", () => {
       script: (context) => ({
         act: async () => {
           prompts.push(context.prompt);
-          await wf(launcherOf(context), ["result", callIdOf(context), "--answer", "x"]);
+          await wfa(launcherOf(context), ["result", callIdOf(context), "--answer", "x"]);
         },
       }),
     });
@@ -1211,7 +1211,7 @@ describe("the tools lesson", () => {
       runtime: runtime(adapter),
     });
     const [withTools, without] = prompts;
-    const launcher = /(\/\S+\/wf) result/.exec(withTools!)![1]!;
+    const launcher = /(\/\S+\/wfa) result/.exec(withTools!)![1]!;
     expect(withTools).toEndWith(
       [
         `${launcher} result ${/result (\S+)/.exec(withTools!)![1]} --answer <text>`,
@@ -1237,8 +1237,8 @@ describe("the tools lesson", () => {
         act: async () => {
           const launcher = launcherOf(context);
           if (context.activation.key === "asker") {
-            await wf(launcher, ["send", "peer", "go"]);
-            await wf(launcher, ["result", callIdOf(context)], '"done"');
+            await wfa(launcher, ["send", "peer", "go"]);
+            await wfa(launcher, ["result", callIdOf(context)], '"done"');
           } else prompts.push(context.prompt);
         },
       }),
@@ -1287,18 +1287,18 @@ describe("tool records and awf logs", () => {
       script: (context) => ({
         act: async () => {
           const launcher = launcherOf(context);
-          await wf(launcher, ["tool", "close", "--id", "a1", "--status", "done"]);
-          await wf(launcher, ["tool", "nope"]);
-          await wf(launcher, ["tool", "close", "--id", "a1"]);
-          await wf(launcher, ["tool", "boom"]);
-          await wf(launcher, ["tool", "slow"]);
-          // An envelope wf would never send: refused before it is a call, and not recorded.
+          await wfa(launcher, ["tool", "close", "--id", "a1", "--status", "done"]);
+          await wfa(launcher, ["tool", "nope"]);
+          await wfa(launcher, ["tool", "close", "--id", "a1"]);
+          await wfa(launcher, ["tool", "boom"]);
+          await wfa(launcher, ["tool", "slow"]);
+          // An envelope wfa would never send: refused before it is a call, and not recorded.
           const socket = /--at '?([^' ]+)/.exec(await Bun.file(launcher).text())?.[1];
           envelope = await exchange(
             socket!,
             `${JSON.stringify({ version: WIRE_VERSION, command: "tool", tool: "close", operationId: "x" })}\n`,
           );
-          await wf(launcher, ["result", callIdOf(context)], '"done"');
+          await wfa(launcher, ["result", callIdOf(context)], '"done"');
         },
       }),
     });

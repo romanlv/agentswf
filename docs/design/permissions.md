@@ -89,23 +89,23 @@ A coder and a tester share a container; a reviewer gets a private reader; a lead
 ```ts
 const headless = { placement: "headless" } as const;
 
-const box = await workflow.sandboxes.open({
+const box = await wf.sandboxes.open({
   key: "build",
   write: ["."],
   network: ["registry.npmjs.org"],
   docker: { image: "awf-agent:node22" },
 });
-const coder = await workflow.agents.open({ key: "coder", runtime: codex, ...headless, sandbox: box });
-const tester = await workflow.agents.open({
+const coder = await wf.agents.open({ key: "coder", runtime: codex, ...headless, sandbox: box });
+const tester = await wf.agents.open({
   key: "tester", runtime: claude, ...headless, metered: true, sandbox: box,
 });
 
 // A spec instead of a ref: a private sandbox on the default provider.
-const reviewer = await workflow.agents.open({ key: "reviewer", runtime: codex, ...headless, sandbox: {} });
+const reviewer = await wf.agents.open({ key: "reviewer", runtime: codex, ...headless, sandbox: {} });
 
 // srt: the host's toolchain instead of an image. Only the environment key differs.
-const lint = await workflow.sandboxes.open({ key: "lint", write: ["."], srt: {} });
-const lead = await workflow.agents.open({ key: "lead", runtime: claude, placement: "pane", sandbox: lint });
+const lint = await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });
+const lead = await wf.agents.open({ key: "lead", runtime: claude, placement: "pane", sandbox: lint });
 ```
 
 The types are `SandboxSpec`, `SandboxOpenSpec`, `SandboxRef` and `InlineSandboxSpec` in
@@ -233,16 +233,16 @@ is opened on purpose.
 
 **The control plane is the one door every provider opens.** The endpoint is a unix socket per
 agent under `/tmp`, not the run directory, because `sun_path` is 104 bytes on macOS. The launcher
-beside it runs the `wf` command, bundled into one file so it runs in any sandbox that has bun. srt
+beside it runs the `wfa` command, bundled into one file so it runs in any sandbox that has bun. srt
 lists the agent's socket in its profile. A container cannot connect to a host socket (X6), so
 docker relays each connection over `docker exec -i`. A provider that cannot open the door cannot
-hold an agent, because an agent that cannot call `wf result` cannot answer.
+hold an agent, because an agent that cannot call `wfa result` cannot answer.
 
 **The connection says who is answering, between sandboxes.** Within one docker box, agents share a
 uid and can reach each other's doors, as the trust boundary allows. Confining agents against each
 other takes separate sandboxes.
 
-**Messaging crosses sandboxes for free.** A message goes `wf send`, engine, then
+**Messaging crosses sandboxes for free.** A message goes `wfa send`, engine, then
 `HarnessSession.start` for a new message operation or `HarnessTurn.deliver` to continue one. The
 engine owns the inbox and the peer's provider presents the prompt. Two agents in different sandboxes
 talk exactly as well as two on the host, through the same door. There is no agent-to-agent channel
@@ -358,7 +358,7 @@ shell command. A host claude on sonnet, as the evals run since 2026-10-01, does 
 **Nobody asks a human.** There is no person at the pane, and a prompt is a stalled turn. Human
 approval is a checkpoint that stops dispatch, not a per-session permission field.
 
-**Nothing an agent runs raises its own authority.** No `wf` verb opens a sandbox or widens one. A
+**Nothing an agent runs raises its own authority.** No `wfa` verb opens a sandbox or widens one. A
 running box cannot gain mounts, so an agent whose working directory lies outside its sandbox's
 reach is refused.
 
@@ -366,7 +366,7 @@ reach is refused.
 by construction. Answering must not be: the launcher is a path anything in the sandbox can run —
 see [[design/README#What an agent inside a session sees|README]] — so a result race and an
 impersonation are available to every subagent that sees the prompt. A subagent that does not call
-`wf` is right. Making that a rule the engine enforces needs a per-process distinction the
+`wfa` is right. Making that a rule the engine enforces needs a per-process distinction the
 filesystem does not give.
 
 **A skill is code.** A workflow names each agent's skills, by a path or as a public skill in a git
@@ -387,8 +387,7 @@ existing paths read-only and moves one the agent creates into `quarantine/` at t
 | `contract` | the author surface (`workflow/sandboxes.ts`, `AgentOpenSpec.sandbox`, `WorkflowContext.sandboxes`) and `OutputRecord.sandboxes`; later `Grant` and `CapabilityRef` |
 | `sandbox` | `@agentswf/sandbox`: the seam and resolution. `@agentswf/sandbox/srt`, `@agentswf/sandbox/docker`: the providers. `@agentswf/sandbox/testing`: the conformance suite and a fake. Imports contract only |
 | `harness` | each harness's sandbox needs; `runProcess` running a sandboxed command; adapters launching through an occupant; the Herdr host's typed start; later, each adapter's grant translation |
-| `engine` | a run's sandboxes, homes and write-back, admission and close, the bundled launcher, the record. Only `operator-runtime.ts` imports a provider, to install it |
-| `wf` | nothing: it is bundled, not changed |
+| `engine` | a run's sandboxes, homes and write-back, admission and close, the bundled launcher, the record; the bundled `wfa` (`src/agent-cli`), unchanged. Only `operator-runtime.ts` imports a provider, to install it |
 
 Providers know nothing about harnesses; harness knows the seam and no provider;
 `scripts/check-boundaries.ts` holds both. A provider's unit tests fix its profile or its `docker`
@@ -470,7 +469,7 @@ door, credentials, the default provider and where the providers live. Of the res
 5. **Sandboxed is not disposable.** The worktree, a shared git object store and a shared package
    cache all outlive the agent, and a worktree's store holds later commits. A private store per
    agent is the cheap win; the history-free fixture repository is [[010-eval-isolation|story 010]]'s.
-6. **No shell, no return channel.** `wf result` is a shell command. E2 measured a delimited-line
+6. **No shell, no return channel.** `wfa result` is a shell command. E2 measured a delimited-line
    channel at full delivery, so a no-shell agent is buildable, but it is a different channel.
 7. **A ceiling, and one per provider?** A container and a host sandbox share the host
    differently. Needed once workflows come from someone else.

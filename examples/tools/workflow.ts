@@ -81,8 +81,8 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
     description: "An agent closes backlog items through the workflow's tools.",
     whenToUse: "Use to check that agents call a workflow's tools from their prompt alone.",
   },
-  async run(workflow, args) {
-    const triages = await workflow.parallel(
+  async run(wf, args) {
+    const triages = await wf.parallel(
       args.runtimes,
       async (runtime): Promise<Triage> => {
         const items: Item[] = ITEMS.map((item) => ({ ...item, status: "open" }));
@@ -91,7 +91,7 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
           if (!item) throw new Error(`no open item ${id}; list_open shows the open ones`);
           return item;
         };
-        const agent = await workflow.agents.open({
+        const agent = await wf.agents.open({
           key: `triager:${runtime}`,
           runtime: RUNTIMES[runtime],
           tools: {

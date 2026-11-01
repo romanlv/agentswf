@@ -33,7 +33,7 @@ workflow   implement-ticket                 the meta.name in the file; the file'
 ```
 
 A **reused** stage is not run: its work isn't called, no agent is asked anything, and
-`workflow.stage(…)` returns the value recorded when it last ran. The code goes on to the next line
+`wf.stage(…)` returns the value recorded when it last ran. The code goes on to the next line
 as if the stage had just finished.
 
 Five things, each with one job:
@@ -47,7 +47,7 @@ Five things, each with one job:
   - Its status is read off its attempts.
 - **Attempt.** One `awf run` of a run: the code it ran, its flags, which stages it ran or reused,
   and its outcome.
-- **Stage.** A named step the workflow marks with `workflow.stage(name, options?, work)`. It
+- **Stage.** A named step the workflow marks with `wf.stage(name, options?, work)`. It
   returns a value its `result` schema checks, or nothing, when it only has to happen. In an attempt
   a stage is `ran` or `reused`.
 - **Stage record.** The run's current result of a stage: its outcome, the attempt that ran it,
@@ -108,26 +108,26 @@ type StageSummary = { stage: string; source: "ran" | "reused"; outcome: StageOut
 ### An example
 
 ```ts
-run: async (workflow, { ticket }) => {
-  const worker = await openWorker(workflow);                 // between stages: runs every attempt
+run: async (wf, { ticket }) => {
+  const worker = await openWorker(wf);                       // between stages: runs every attempt
 
-  const doc = await workflow.stage("doc-review", { result: DOC, summary: (d) => d.path }, async () => {
+  const doc = await wf.stage("doc-review", { result: DOC, summary: (d) => d.path }, async () => {
     const doc = await worker.ask(DOC, md`Review the ticket doc for ${ticket}`);
-    if (doc.kind === "no-doc") workflow.stop(doc.reason);    // inside: a continue redoes doc-review
+    if (doc.kind === "no-doc") wf.stop(doc.reason);          // inside: a continue redoes doc-review
     return doc;
   });
 
   const branch = `feat/${ticket}-${doc.slug}`;               // between: plain code over a value
-  if (!(await exists(doc.path))) workflow.stop("doc moved"); // between: checked on every attempt
+  if (!(await exists(doc.path))) wf.stop("doc moved");       // between: checked on every attempt
 
-  const impl = await workflow.stage("implement", { result: IMPL }, () =>
+  const impl = await wf.stage("implement", { result: IMPL }, () =>
     worker.ask(IMPL, md`Implement ${doc.path} on ${branch}`));
 
-  await workflow.stage("notify", async () => {               // no value: it only has to happen
+  await wf.stage("notify", async () => {                     // no value: it only has to happen
     await postToSlack(`${ticket}: implemented on ${impl.branch}`);
   });
 
-  const review = await workflow.stage("review", { result: REVIEW }, async () => {
+  const review = await wf.stage("review", { result: REVIEW }, async () => {
     const [a, b] = await Promise.all([codex.ask(…), opus.ask(…)]); // parallel work inside a stage
     return merge(a, b);
   });
@@ -150,7 +150,7 @@ one just returned. Three things follow:
    the stage is reused:
    ```ts
    let branch;
-   await workflow.stage("implement", async () => { branch = …; }); // reused: branch stays undefined
+   await wf.stage("implement", async () => { branch = …; }); // reused: branch stays undefined
    ```
    awf can't see a closure. `testWorkflow(…, { fromStage, recorded })` runs the workflow over
    recorded stages, so a test catches it.
@@ -293,7 +293,7 @@ Written twice, each time whole, and only by its own attempt:
 - When a later attempt redoes the stage, the file is moved, unchanged, to
   `replaced/{stage}.{attempt}.json` ([[#The stage plan]]). A redone stage's old value often names a
   worktree, branch or MR left behind; that is where it is still found.
-- `outcome`: `succeeded`, `stopped` (`workflow.stop`) or `failed` (a throw, a value that fails its
+- `outcome`: `succeeded`, `stopped` (`wf.stop`) or `failed` (a throw, a value that fails its
   check, a timeout, a cancellation), with a `reason` string for the last two. Only a succeeded
   record is reused.
 - `attempt`: the attempt that ran it.
@@ -541,7 +541,7 @@ awf run flow.ts --id PROJ-1234 --continue --from-stage qa-local --values v.json 
 
 Where a stop happens decides what a continue redoes:
 
-- **Inside a stage** (`workflow.stop`, a throw, a cancellation): the stage is a cancellation scope.
+- **Inside a stage** (`wf.stop`, a throw, a cancellation): the stage is a cancellation scope.
   Turns still open in it are cancelled, then its record is written `stopped` or `failed`. The
   stage has no succeeded record, so a plain continue starts there.
 - **Between stages:** no record changes. A continue runs the code between stages again, so a check
@@ -559,7 +559,7 @@ named is the last one reused before the stop.
 | Outcome | When | Exit code |
 | --- | --- | --- |
 | `completed` | the workflow returned | 0 |
-| `stopped` | `workflow.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage` and no value given, a `--from-stage` never reached | 3 |
+| `stopped` | `wf.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage` and no value given, a `--from-stage` never reached | 3 |
 | `failed` | an exception | 1 |
 | `timed-out` | the attempt's deadline (`--timeout`) | 1 |
 | `cancelled` | a signal | 128 + signal |
@@ -688,7 +688,7 @@ Each is a reader of the same files, or a row in the stage plan:
   [[021-turn-liveness-and-limits]]: `stop` records whether a retry could help, as Restate's
   `TerminalError` and Temporal's `nonRetryable` do.
 - A status the workflow sets (parked, 2026-10-04): "waiting on CI", "MR open", where the work is in
-  the workflow's words. Likely a declared `meta.statuses` with a typed `workflow.status(…)`, shown
+  the workflow's words. Likely a declared `meta.statuses` with a typed `wf.status(…)`, shown
   in the view, `awf logs`, `awf runs` and the report. Prior art: Temporal's `setCurrentDetails`.
 - A lint rule for workflows: a turn between stages, a variable assigned inside a stage and read
   after it.

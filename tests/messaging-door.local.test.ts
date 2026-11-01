@@ -17,7 +17,7 @@ const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".
 const found = await findSrt(process.env, harnessState);
 const provider = found && createSrtProvider(found);
 
-/** `wf`'s messaging commands from inside an srt sandbox, through the agent's door. */
+/** `wfa`'s messaging commands from inside an srt sandbox, through the agent's door. */
 describe.skipIf(!provider)("messaging through the srt door", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-door-")));
   const runRoot = join(root, "runs");
@@ -120,7 +120,7 @@ describe.skipIf(!provider)("messaging through the srt door", () => {
     });
     const sent = await sh(`${launcher} send implementer <<'EOF'\nWhich queue?\nEOF`);
     expect(sent).toMatchObject({ exitCode: 0 });
-    expect(sent.stdout).toContain("wf: sent to implementer");
+    expect(sent.stdout).toContain("wfa: sent to implementer");
     const refused = await sh(`${launcher} reply implementer 'nothing owed'`);
     expect(refused.exitCode).toBe(1);
     expect(refused.stderr).toContain("reply refused (none-owed)");

@@ -195,7 +195,7 @@ export class ToolCalls<Scope> {
     if (operation) operation.deadline = () => deadline;
   }
 
-  /** The call this agent has running, which holds back its `wf result` and `wf waiting`. */
+  /** The call this agent has running, which holds back its `wfa result` and `wfa waiting`. */
   running(agent: AgentKey): { tool: string; settledBy?: number } | undefined {
     const running = this.#current.get(agent)?.running;
     return running && { tool: running.tool, ...optional("settledBy", running.settledBy) };
@@ -204,7 +204,7 @@ export class ToolCalls<Scope> {
   // Calls
 
   /**
-   * `wf tool`'s request from `agent`'s socket. `lifetime` sets how long its connection may stay
+   * `wfa tool`'s request from `agent`'s socket. `lifetime` sets how long its connection may stay
    * open, from now: undefined for as long as the call takes.
    */
   async call(

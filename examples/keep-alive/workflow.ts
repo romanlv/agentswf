@@ -19,8 +19,8 @@ export default defineWorkflow({
   meta: { name: "keep-alive", description: "Notes kept by one claude kept alive between them." },
   file: import.meta.path,
   events: { note: Note },
-  async run(workflow) {
-    const noter = await workflow.agents.open({
+  async run(wf) {
+    const noter = await wf.agents.open({
       key: "noter",
       runtime: { harness: "claude", model: "claude-haiku-5-5" },
       instructions: "You keep notes. Each turn gives you one; remember every one you are given.",
@@ -32,7 +32,7 @@ export default defineWorkflow({
       },
     });
     for (;;)
-      for (const e of await workflow.receive({ label: "notes" }))
+      for (const e of await wf.receive({ label: "notes" }))
         if (e.name === "note")
           await noter.run({
             prompt: `A new note: ${e.data.text}\nAnswer with every note you have, in the order given, one per line, and nothing else.`,

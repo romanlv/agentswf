@@ -131,15 +131,15 @@ test("a read is refused what would never come due, and a race refuses a time rea
     startCase,
   );
   const errors = run.value as string[];
-  expect(errors[0]).toContain("workflow.now() in workflow.at's read");
-  expect(errors[1]).toContain("workflow.after() in workflow.at's read");
+  expect(errors[0]).toContain("wf.now() in wf.at's read");
+  expect(errors[1]).toContain("wf.after() in wf.at's read");
   expect(errors[2]).toContain("not an invalid Date");
   expect(errors[3]).toContain('not "2026-10-31T09:00:00Z"');
   expect(errors[4]).toBe("the ledger is torn");
-  expect(errors[5]).toContain("race r's due is workflow.at(), a select's");
-  expect(errors[6]).toContain("workflow.at() is a select's branch");
-  expect(errors[7]).toContain('workflow.after takes days, hours or minutes, "1d"');
-  expect(errors[8]).toContain("workflow.at takes a function");
+  expect(errors[5]).toContain("race r's due is wf.at(), a select's");
+  expect(errors[6]).toContain("wf.at() is a select's branch");
+  expect(errors[7]).toContain('wf.after takes days, hours or minutes, "1d"');
+  expect(errors[8]).toContain("wf.at takes a function");
 });
 
 const at = "2026-10-25T12:00:00.000Z";

@@ -11,7 +11,7 @@ import { NotSentError } from "./client";
 const ENDPOINT = "/private/control.sock";
 const at = (...args: readonly string[]) => ["--at", ENDPOINT, ...args];
 
-describe("wf result", () => {
+describe("wfa result", () => {
   test("sends the flags as given, for the engine to read by the schema", async () => {
     const seen: Array<{ endpoint: string; request: ControlRequest }> = [];
     const outcome = await runCli(
@@ -23,7 +23,7 @@ describe("wf result", () => {
       },
     );
 
-    expect(outcome).toEqual({ exitCode: 0, stdout: "wf: result accepted", stderr: "" });
+    expect(outcome).toEqual({ exitCode: 0, stdout: "wfa: result accepted", stderr: "" });
     expect(seen).toEqual([
       {
         endpoint: ENDPOINT,
@@ -136,7 +136,7 @@ describe("wf result", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.stderr).toContain("value.count: expected an integer");
-    expect(outcome.stderr).toContain("run wf result again");
+    expect(outcome.stderr).toContain("run wfa result again");
   });
 
   test("a transport failure reports the reason it was given", async () => {
@@ -186,7 +186,7 @@ function stream(text: string): ReadableStream<Uint8Array> {
   return new Response(text).body!;
 }
 
-describe("wf waiting", () => {
+describe("wfa waiting", () => {
   test("submits the timeout in milliseconds and prints the actual capped grant", async () => {
     let seen: ControlRequest | undefined;
     const result = await runCli(
@@ -297,8 +297,8 @@ describe("wf waiting", () => {
   });
 });
 
-describe("wf peers, send and reply", () => {
-  const LAUNCHER = "/tmp/awf-x/a1/wf";
+describe("wfa peers, send and reply", () => {
+  const LAUNCHER = "/tmp/awf-x/a1/wfa";
   const as = (...args: readonly string[]) => ["--at", ENDPOINT, "--as", LAUNCHER, ...args];
   const answer =
     (response: ControlResponse, seen: ControlRequest[] = []) =>
@@ -317,7 +317,7 @@ describe("wf peers, send and reply", () => {
     } as const;
     expect(await runCli(as("send", "fixer"), "Off-by-one\n", answer(sent, seen))).toEqual({
       exitCode: 0,
-      stdout: "wf: sent to fixer; it reads this when its current turn ends.",
+      stdout: "wfa: sent to fixer; it reads this when its current turn ends.",
       stderr: "",
     });
     expect(
@@ -342,7 +342,7 @@ describe("wf peers, send and reply", () => {
   });
 
   test("what is owed leads every response, a refusal's included", async () => {
-    const owing = "you owe reviewer a reply (/tmp/awf-x/a1/wf reply reviewer).";
+    const owing = "you owe reviewer a reply (/tmp/awf-x/a1/wfa reply reviewer).";
     expect(
       await runCli(
         as("reply", "reviewer", "Done."),
@@ -355,7 +355,7 @@ describe("wf peers, send and reply", () => {
           owing,
         }),
       ),
-    ).toEqual({ exitCode: 0, stdout: `wf: ${owing}\nwf: replied to reviewer.`, stderr: "" });
+    ).toEqual({ exitCode: 0, stdout: `wfa: ${owing}\nwfa: replied to reviewer.`, stderr: "" });
     expect(
       await runCli(
         as("send", "tester", "hi"),
@@ -371,7 +371,7 @@ describe("wf peers, send and reply", () => {
     ).toEqual({
       exitCode: 1,
       stdout: "",
-      stderr: `wf: ${owing}\nwf: send refused (no-route): no route to tester. Your routes: ${LAUNCHER} peers`,
+      stderr: `wfa: ${owing}\nwfa: send refused (no-route): no route to tester. Your routes: ${LAUNCHER} peers`,
     });
     expect(
       await runCli(
@@ -381,7 +381,7 @@ describe("wf peers, send and reply", () => {
       ),
     ).toEqual({
       exitCode: 0,
-      stdout: "wf: you await architect's reply.\nwf: result accepted",
+      stdout: "wfa: you await architect's reply.\nwfa: result accepted",
       stderr: "",
     });
     expect(
@@ -398,7 +398,7 @@ describe("wf peers, send and reply", () => {
     ).toEqual({
       exitCode: 1,
       stdout: "",
-      stderr: `wf: result refused (owes-reply): you owe reviewer a reply. Send it with ${LAUNCHER} reply reviewer, then run ${LAUNCHER} result op-1 again.`,
+      stderr: `wfa: result refused (owes-reply): you owe reviewer a reply. Send it with ${LAUNCHER} reply reviewer, then run ${LAUNCHER} result op-1 again.`,
     });
   });
 
@@ -413,7 +413,7 @@ describe("wf peers, send and reply", () => {
       exitCode: 1,
       stdout: "",
       stderr:
-        "wf: the engine did not confirm this message, so it may have been queued. Nothing was retried: do not send it again.\ncontrol plane response timed out",
+        "wfa: the engine did not confirm this message, so it may have been queued. Nothing was retried: do not send it again.\ncontrol plane response timed out",
     });
   });
 
@@ -463,12 +463,12 @@ describe("wf peers, send and reply", () => {
     // One after the message would otherwise go as its text.
     const late = await runCli(as("send", "fixer", "the question", "--await-reply"), null, never);
     expect(late.exitCode).toBe(2);
-    expect(late.stderr).toStartWith("wf: send: flags go before the message");
+    expect(late.stderr).toStartWith("wfa: send: flags go before the message");
     // A message that starts with -- is not taken for a flag, nor sent as one.
     const dashed = await runCli(as("reply", "fixer", "--force is risky"), null, never);
     expect(dashed.exitCode).toBe(2);
     expect(dashed.stderr).toStartWith(
-      "wf: reply: --force is risky is not a flag; a message that starts with -- goes in a heredoc",
+      "wfa: reply: --force is risky is not a flag; a message that starts with -- goes in a heredoc",
     );
     expect((await runCli(as("bogus"), null, never)).stderr).toContain(`${LAUNCHER} peers [--json]`);
   });
@@ -485,7 +485,7 @@ describe("wf peers, send and reply", () => {
   });
 });
 
-describe("wf tool", () => {
+describe("wfa tool", () => {
   const answering =
     (response: ControlResponse | Error, seen: ControlRequest[] = []) =>
     async (_endpoint: string, request: ControlRequest, timeoutSeconds?: number | null) => {
@@ -522,33 +522,33 @@ describe("wf tool", () => {
         { version, kind: "tool-result", output: "Closed.", owing: "you owe x a reply." },
         0,
         "Closed.",
-        "wf: you owe x a reply.",
+        "wfa: you owe x a reply.",
       ],
       [{ version, kind: "tool-result" }, 0, "", ""],
-      [{ version, kind: "tool-failed", outcome: "failed", error: "locked" }, 1, "", "wf: locked"],
+      [{ version, kind: "tool-failed", outcome: "failed", error: "locked" }, 1, "", "wfa: locked"],
       [
         { version, kind: "tool-failed", outcome: "timed-out", error: "may have run" },
         4,
         "",
-        "wf: may have run",
+        "wfa: may have run",
       ],
       [
         { version, kind: "tool-failed", outcome: "cancelled", error: "may have run" },
         4,
         "",
-        "wf: may have run",
+        "wfa: may have run",
       ],
       [
         { version, kind: "rejected", code: "unknown-tool", error: "no such tool" },
         3,
         "",
-        "wf: close refused (unknown-tool): no such tool",
+        "wfa: close refused (unknown-tool): no such tool",
       ],
       [
         { version, kind: "rejected", code: "internal-error", error: "lost" },
         4,
         "",
-        "wf: close refused (internal-error): lost",
+        "wfa: close refused (internal-error): lost",
       ],
     ];
     for (const [response, exitCode, stdout, stderr] of cases) {

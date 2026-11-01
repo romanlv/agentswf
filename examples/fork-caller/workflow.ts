@@ -19,8 +19,8 @@ export const forkCaller = defineWorkflow<null, ForkCallerResult>({
     whenToUse:
       "Use to check forkCaller live: run it with awf run, not --here, from a claude, codex or pi session.",
   },
-  async run(workflow) {
-    const fork = await workflow.agents.forkCaller({ key: "fork" });
+  async run(wf) {
+    const fork = await wf.agents.forkCaller({ key: "fork" });
     if (!fork) {
       throw new Error("no session to fork; the run's output says why");
     }

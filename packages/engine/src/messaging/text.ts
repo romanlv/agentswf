@@ -4,7 +4,7 @@ import type { AgentKey } from "@agentswf/contract/workflow";
 
 /**
  * Everything an agent reads about messaging. The engine writes it all, since only it knows the
- * launcher's path, the routes' purposes and what closes a cycle; `wf` prints it as given. `wf`
+ * launcher's path, the routes' purposes and what closes a cycle; `wfa` prints it as given. `wfa`
  * here is always the launcher's full path: the command is not on the agent's PATH.
  */
 
@@ -13,7 +13,7 @@ export type Recipient = {
   launcher: string;
   /** The operation's call id. */
   callId: string;
-  /** A workflow's own operation finishes with `wf result`; a message operation ends its turn. */
+  /** A workflow's own operation finishes with `wfa result`; a message operation ends its turn. */
   kind: "workflow" | "message";
 };
 
@@ -92,7 +92,7 @@ export function envelope(
   } = {},
 ): string {
   const tag = options.tag ?? nonce();
-  const wf = to.launcher;
+  const wfa = to.launcher;
   const blocks: string[] = [];
   const owed = new Set<AgentKey>();
   for (const item of items) {
@@ -104,7 +104,7 @@ export function envelope(
     if (item.answers) {
       blocks.push(
         [
-          `The reply you were waiting for, from ${item.from}${item.asks ? `; it asks something back, so you owe it a reply: answer with ${wf} reply ${item.from}` : ""}.`,
+          `The reply you were waiting for, from ${item.from}${item.asks ? `; it asks something back, so you owe it a reply: answer with ${wfa} reply ${item.from}` : ""}.`,
           "",
           fenced("reply", item.from, item.text, tag),
         ].join("\n"),
@@ -114,13 +114,13 @@ export function envelope(
     const stop = /[.!?]$/.test(item.purpose) ? "" : ".";
     const head = `Message from ${item.from}, on the route ${quoted(item.purpose)}${stop}`;
     const lead = options.opens ? ` This is a message, not a new task (call ${to.callId}).` : "";
-    const asks = item.asks ? ` A reply is required: answer with ${wf} reply ${item.from}.` : "";
+    const asks = item.asks ? ` A reply is required: answer with ${wfa} reply ${item.from}.` : "";
     blocks.push(
       [`${head}${lead}${asks}`, "", fenced("message", item.from, item.text, tag)].join("\n"),
     );
   }
   const lines = [blocks.join("\n\n")];
-  if (options.announced?.length) lines.push(announcement(options.announced, wf));
+  if (options.announced?.length) lines.push(announcement(options.announced, wfa));
   const plain = items.some((item) => item.kind === "message" && !item.answers);
   if (plain) lines.push(GUARD);
   lines.push(next(items, to, owed));
@@ -129,7 +129,7 @@ export function envelope(
 
 /** The closing line: whether the task goes on, and how it ends. */
 function next(items: readonly Delivered[], to: Recipient, owed: ReadonlySet<AgentKey>): string {
-  const wf = to.launcher;
+  const wfa = to.launcher;
   const failed = items.some((item) => item.kind === "no-reply");
   const answered = items.some((item) => item.kind === "message" && item.answers);
   if (to.kind === "message") {
@@ -140,9 +140,9 @@ function next(items: readonly Delivered[], to: Recipient, owed: ReadonlySet<Agen
       return `Your work for call ${to.callId} continues; end your turn when it is done.`;
     return `No reply is required; end your turn once you have acted on it ${call}.`;
   }
-  const finish = `finish it with ${wf} result ${to.callId}`;
+  const finish = `finish it with ${wfa} result ${to.callId}`;
   if (owed.size > 0) return `Your task ${to.callId} goes on: once you have replied, ${finish}.`;
-  if (failed) return `Continue without it, or finish with ${wf} result ${to.callId}.`;
+  if (failed) return `Continue without it, or finish with ${wfa} result ${to.callId}.`;
   return `Your task ${to.callId} continues; ${finish}.`;
 }
 
@@ -162,12 +162,12 @@ function routeLine({ peer, can, purpose }: RouteLine): string {
 /** What an operation's prompt says about the agent's routes, once, in a few lines. */
 export function routeLesson(routes: readonly RouteLine[], launcher: string): string {
   if (routes.length === 0) return "";
-  const wf = launcher;
+  const wfa = launcher;
   return [
     "You can message other agents on these routes:",
     ...routes.map(routeLine),
-    `See them with ${wf} peers. Send with ${wf} send <peer> <<'EOF' ... EOF. To ask and wait for the answer, send with ${wf} send --await-reply <peer>; the answer starts your next turn, so end your turn then, and do not poll or sleep.`,
-    `Answer a question with ${wf} reply <peer> <<'EOF' ... EOF; only a reply counts as the answer.`,
+    `See them with ${wfa} peers. Send with ${wfa} send <peer> <<'EOF' ... EOF. To ask and wait for the answer, send with ${wfa} send --await-reply <peer>; the answer starts your next turn, so end your turn then, and do not poll or sleep.`,
+    `Answer a question with ${wfa} reply <peer> <<'EOF' ... EOF; only a reply counts as the answer.`,
   ].join("\n");
 }
 
@@ -181,14 +181,14 @@ function announcement(routes: readonly RouteLine[], launcher: string): string {
 
 /** The one reminder a turn that ends owing gets. */
 export function reminder(owed: readonly AgentKey[], to: Recipient): string {
-  const wf = to.launcher;
+  const wfa = to.launcher;
   const who = owed.join(" and ");
-  const how = owed.map((peer) => `${wf} reply ${peer}`).join(", then ");
-  const then = to.kind === "workflow" ? `then ${wf} result ${to.callId}` : "then end your turn";
+  const how = owed.map((peer) => `${wfa} reply ${peer}`).join(", then ");
+  const then = to.kind === "workflow" ? `then ${wfa} result ${to.callId}` : "then end your turn";
   return `You owe ${who} a reply; send it with ${how}, ${then}.`;
 }
 
-/** The line every `wf` command leads with while the operation owes or awaits an answer. */
+/** The line every `wfa` command leads with while the operation owes or awaits an answer. */
 export function owingLine(
   owes: readonly AgentKey[],
   awaits: { peer: AgentKey; until?: number } | undefined,
@@ -207,7 +207,7 @@ export function owingLine(
   return parts.length === 0 ? undefined : `${parts.join("; ")}.`;
 }
 
-/** `wf peers`'s table, the line about what is owed, and nothing for empty cells. */
+/** `wfa peers`'s table, the line about what is owed, and nothing for empty cells. */
 export function peersTable(
   peers: readonly PeerView[],
   awaits: { peer: AgentKey; until?: number } | undefined,

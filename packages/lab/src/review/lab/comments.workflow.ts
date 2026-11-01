@@ -15,7 +15,7 @@ export default defineWorkflow<Args, ReviewFinding[]>({
     name: "review-comments",
     description: "Return the review comments a fixture's key cites, as findings.",
   },
-  async run(_workflow, { set, head }) {
+  async run(_wf, { set, head }) {
     for (const entry of readdirSync(set, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const dir = join(set, entry.name);

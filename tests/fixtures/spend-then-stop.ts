@@ -22,8 +22,8 @@ export default defineWorkflow<{ mode: Mode }, null>({
     name: "spend-then-stop",
     description: "Spend on one agent, then fail or wait to be cancelled.",
   },
-  async run(workflow, { mode }) {
-    const agent = await workflow.agents.open({
+  async run(wf, { mode }) {
+    const agent = await wf.agents.open({
       key: "spender",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });
@@ -33,7 +33,7 @@ export default defineWorkflow<{ mode: Mode }, null>({
       timeoutMs: 3 * 60_000,
     });
     if (!isAnswered(first.outcome)) throw new Error(`no first answer: ${first.outcome.reason}`);
-    workflow.log("answered");
+    wf.log("answered");
     if (mode === "crash") throw new Error("variant crashed after spending");
     await agent.run({
       prompt:

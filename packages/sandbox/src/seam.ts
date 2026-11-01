@@ -159,7 +159,7 @@ export type AgentDoor = {
   launcher: string;
   /** The launcher's contents for a box, copied to `launcher` inside it: `bundle` run by `bun` from `PATH`. */
   boxScript: string;
-  /** The bundled `wf` command, a host file copied to the same path inside a box. */
+  /** The bundled `wfa` command, a host file copied to the same path inside a box. */
   bundle: string;
   /** Host paths the host launcher reads: its interpreter and the bundle. */
   reads: readonly string[];

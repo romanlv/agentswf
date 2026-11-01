@@ -9,7 +9,7 @@ import { assertLiveOptIn, interruption } from "./live";
 /**
  * Every harness awf runs, live, on its cheapest model: codex, pi and cursor headless, and claude, pi
  * and cursor in a Herdr pane, each answering a follow-up in the same session. Each must answer right
- * through `wf result`, and each agent's spend must be read on its subscription, but cursor's: what
+ * through `wfa result`, and each agent's spend must be read on its subscription, but cursor's: what
  * it bills is unknown, and in a pane it prints no usage. One run of six agents, about 40 s and $0.07
  * at list prices.
  */

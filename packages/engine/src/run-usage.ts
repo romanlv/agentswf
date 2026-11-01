@@ -31,7 +31,7 @@ export type AccountedAgent = {
   cwd: string;
   /** A sandboxed agent's own harness home, where its sessions are. */
   home?: string;
-  /** Every native session id seen for the agent so far, from its `wf` calls and its adapter. */
+  /** Every native session id seen for the agent so far, from its `wfa` calls and its adapter. */
   sessions(): readonly string[];
   /** When its host first prompted it, where that waits on the agent first; see `window`. */
   promptedAt?(): number | undefined;

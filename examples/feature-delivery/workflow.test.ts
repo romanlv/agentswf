@@ -89,7 +89,7 @@ describe("feature-delivery", () => {
         "- LRU",
         "Inspect the actual changes and return ready only when they are correct and complete.",
         "You own the revision loop. When changes are needed, send them with",
-        "`wf send --await-reply implementer` and end your turn; review the revision",
+        "`wfa send --await-reply implementer` and end your turn; review the revision",
         "it reports. Return your verdict when it is ready, or the changes still needed once",
         "the route's limit is reached.",
       ].join("\n"),

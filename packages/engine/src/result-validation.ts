@@ -8,7 +8,7 @@ export type CandidateEvaluation =
   | { kind: "rejected"; error: string };
 
 /**
- * A result as `wf` sent it, validated without repairing or persisting; the result-slot transition
+ * A result as `wfa` sent it, validated without repairing or persisting; the result-slot transition
  * owns acceptance.
  */
 export async function evaluateGiven(

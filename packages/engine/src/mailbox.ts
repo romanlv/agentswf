@@ -972,6 +972,6 @@ function checked(options: ReceiveOptions | undefined): {
     throw new Error("receive's label is a string");
   if (take !== "all" && take !== "oldest") throw new Error('receive\'s take is "all" or "oldest"');
   if ("until" in (options ?? {}))
-    throw new Error("receive has no until: a timer, workflow.timer(name, when), wakes it");
+    throw new Error("receive has no until: a timer, wf.timer(name, when), wakes it");
   return { ...(label === undefined ? {} : { label }), take };
 }

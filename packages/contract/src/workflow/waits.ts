@@ -33,7 +33,7 @@ export type TimerDueEvent = WorkflowEvent<"timer:due", TimerDue>;
 export type TimeDue = Taken<Record<never, never>>;
 
 /**
- * A select's branch that comes due at a time the run's state holds: `workflow.at(() => …)`. Not a
+ * A select's branch that comes due at a time the run's state holds: `wf.at(() => …)`. Not a
  * timer: nothing is recorded under a name, and it lives as long as its loop.
  */
 export interface TimeRead extends Source<TimeDue> {

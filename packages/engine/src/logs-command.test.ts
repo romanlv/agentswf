@@ -351,7 +351,7 @@ describe("awf logs", () => {
 
   test("a page's JSON carries each activity's native text, masked, the line its short cut", async () => {
     const f = await fixture();
-    const argument = `wf result op-1 <<'WF_JSON'\n{"approved":false,"note":"${"z".repeat(200)}"}\nWF_JSON`;
+    const argument = `wfa result op-1 <<'WF_JSON'\n{"approved":false,"note":"${"z".repeat(200)}"}\nWF_JSON`;
     addActivity(f, T(2), [
       { type: "text", text: "Sending the verdict with API_TOKEN=s3cr3t" },
       { type: "tool_use", id: "t1", name: "Bash", input: { command: argument } },

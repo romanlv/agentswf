@@ -30,7 +30,7 @@ previous occurrence's run is still live.
 Prior art in this repo:
 
 - [`workflow-styles.md`](../../research/workflow-styles.md) §5: `schedule: "0 9 * * MON"`, each
-  occurrence a new run "so no run's record grows forever", and `workflow.timer(name, "2d")`, a
+  occurrence a new run "so no run's record grows forever", and `wf.timer(name, "2d")`, a
   wait recorded by its name. "Loops, the inbox and the core": every wake-up, timers and schedules
   included, is a message in the inbox.
 - [[034-event-driven-runs|Story 034]] defers "schedules … and a scheduler, which can come later on
@@ -54,7 +54,7 @@ Notes, to settle when it is refined:
   would run `awf tick --all`, since a bare tick wakes only its own project's runs (034 task 12),
   or a long-running `awf` process; and how often, since that sets the latency of every schedule.
 - **Unattended turns:** an occurrence at 03:00 may open panes (`workflow-styles.md` §5, point 5).
-- **Recurring timers inside one run**, `workflow.timer("remind", { every: "2d" })` with `n` on
+- **Recurring timers inside one run**, `wf.timer("remind", { every: "2d" })` with `n` on
   each firing, were left out of [[037-workflow-timers|story 037]]: a reminder per round is a timer
   per round. A daily digest inside one run, named from `Date.now()`, can skip a day on a rerun
   after midnight; an occurrence per run, or `every`, would fix it.

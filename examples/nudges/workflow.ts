@@ -33,28 +33,27 @@ export default defineWorkflow({
   file: import.meta.path,
   events: { "question.asked": Asked },
   starts: ["question.asked"],
-  async run(workflow) {
-    const asked = workflow.started;
-    if (asked?.name !== "question.asked")
-      return workflow.stop("started by hand: send question.asked");
+  async run(wf) {
+    const asked = wf.started;
+    if (asked?.name !== "question.asked") return wf.stop("started by hand: send question.asked");
     const { question, nudgeAfter, putOff, maxNudges } = asked.data;
-    const ledger = await Ledger.open(`${workflow.cwd}/.nudges/${workflow.runId}.json`, () =>
-      workflow.after(nudgeAfter as Duration),
+    const ledger = await Ledger.open(`${wf.cwd}/.nudges/${wf.runId}.json`, () =>
+      wf.after(nudgeAfter as Duration),
     );
-    const engineer = await workflow.participants.connect({ key: "engineer", to: "code" });
-    await workflow.stage("ask", () => engineer.post(question));
-    const writer = await workflow.agents.open({
+    const engineer = await wf.participants.connect({ key: "engineer", to: "code" });
+    await wf.stage("ask", () => engineer.post(question));
+    const writer = await wf.agents.open({
       key: "writer",
       runtime: { harness: "codex", model: "gpt-6-luna", effort: "low", placement: "headless" },
     });
-    for await (const next of workflow.select(
-      { reply: engineer, nudge: workflow.at(() => ledger.nextNudge()) },
+    for await (const next of wf.select(
+      { reply: engineer, nudge: wf.at(() => ledger.nextNudge()) },
       { label: () => `awaiting an answer, ${ledger.nudges} nudged` },
     )) {
       if (next.reply) {
         // A stand-in for reading a reply: one that starts "later" asks for time.
         if (/^later\b/i.test(next.reply.text.trim())) {
-          await ledger.putOff(workflow.after(putOff as Duration));
+          await ledger.putOff(wf.after(putOff as Duration));
           continue;
         }
         await ledger.answered();
@@ -62,7 +61,7 @@ export default defineWorkflow({
       }
       if (next.nudge) {
         const n = ledger.nudges + 1;
-        await workflow.stage(`nudge-${n}`, async () => {
+        await wf.stage(`nudge-${n}`, async () => {
           const drafted = await writer.run({
             prompt: `Write one short, friendly sentence nudging an engineer to answer this question: "${question}". This is nudge ${n} of ${maxNudges}.`,
             schema: Nudge,
@@ -75,7 +74,7 @@ export default defineWorkflow({
           await ledger.nudged(null);
           return { answer: null, nudges: n };
         }
-        await ledger.nudged(workflow.after(nudgeAfter as Duration));
+        await ledger.nudged(wf.after(nudgeAfter as Duration));
       }
     }
     return { answer: null, nudges: ledger.nudges };

@@ -45,7 +45,7 @@ export type WorkflowEvent<Name extends string = string, Data = JsonValue> = {
   readonly data: Data;
   /**
    * Who it is from: the agent's or participant's key for awf's events, the timer's name for
-   * `timer:due`, the sending run's ref (`{workflow}/{id}`) for `workflow.emit`, `operator` for
+   * `timer:due`, the sending run's ref (`{workflow}/{id}`) for `wf.emit`, `operator` for
    * `awf emit`.
    */
   readonly from: string;

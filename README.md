@@ -7,7 +7,7 @@ agents that never answer, answer in prose, hang, or quietly run up a bill.
 
 ```ts
 // Inside a workflow: open an agent, give it work, get a typed answer back.
-const reviewer = await workflow.agents.open({ key: "reviewer", runtime: { harness: "codex", model: "gpt-6-luna" } });
+const reviewer = await wf.agents.open({ key: "reviewer", runtime: { harness: "codex", model: "gpt-6-luna" } });
 const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", schema: FINDINGS });
 if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
 ```
@@ -32,7 +32,7 @@ your Claude subscription, with no API key and no credits to buy.
  ────────────────                 ───────                         ──────
  agents.open(...)       ──▶  starts claude / codex / pi   ──▶  pane in Herdr, or headless
  agent.run({ prompt,    ──▶  sends the prompt, plus how   ──▶  works in your repo as usual,
-             schema })        to answer                        then runs `wf result '{...}'`
+             schema })        to answer                        then runs `wfa result '{...}'`
  await outcome          ◀──  validates against the schema ◀──  over a socket just for that agent
  parallel / loops / ifs      deadlines, nudges, cleanup,
  return result               usage and cost for the record
@@ -54,31 +54,31 @@ step is a [stage](#runs-stages-and-continuing), so a run that stops part-way goe
 beside it.
 
 ```ts
-async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
+async function deliverFeature(wf: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
   const { ticket } = args;
-  const team = await openTeam(workflow, args);
+  const team = await openTeam(wf, args);
   const { planner, reviewer } = team;
-  const reviewUntilApproved = reviewLoop(workflow, reviewer, args.maxRevisions);
+  const reviewUntilApproved = reviewLoop(wf, reviewer, args.maxRevisions);
 
-  const plan = await workflow.stage("ticket-doc", { result: WORK }, () =>
+  const plan = await wf.stage("ticket-doc", { result: WORK }, () =>
     planner.ask(WORK, {
       label: "Create ticket doc",
       prompt: md`Create an implementation-ready ticket doc for ${ticket}.`,
     }),
   );
-  const approvedPlan = await workflow.stage("doc-review", { result: REVIEWED }, () =>
+  const approvedPlan = await wf.stage("doc-review", { result: REVIEWED }, () =>
     reviewUntilApproved(planner, plan, ticketDoc(ticket)),
   );
   const { docPath } = approvedPlan.work;
 
   const implementer = await team.implementer();
-  const built = await workflow.stage("implementation", { result: WORK }, () =>
+  const built = await wf.stage("implementation", { result: WORK }, () =>
     workOn(implementer, docPath, {
       label: "Implement feature",
       prompt: md`Implement ${ticket} from ${docPath}.`,
     }),
   );
-  const approvedBuild = await workflow.stage("implementation-review", { result: REVIEWED }, () =>
+  const approvedBuild = await wf.stage("implementation-review", { result: REVIEWED }, () =>
     reviewUntilApproved(implementer, built, implementation(ticket)),
   );
   // …then an optional round of extra reviewers, and the handoff
@@ -180,8 +180,8 @@ export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProper
 
 export default defineWorkflow({
   meta: { name: "hello", description: "Ask one agent a question with a known answer." },
-  async run(workflow) {
-    const agent = await workflow.agents.open({
+  async run(wf) {
+    const agent = await wf.agents.open({
       key: "hello",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });
@@ -300,7 +300,7 @@ route, triage or gate, and hand only the uncertain cases to an agent or a person
 ```ts
 import { choice, yesNo } from "agentswf/workflow";
 
-const { answers } = await workflow.decisions.decide({
+const { answers } = await wf.decisions.decide({
   key: "triage:42",
   model: "jev",
   state: { ticket },

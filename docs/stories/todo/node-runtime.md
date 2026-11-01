@@ -39,7 +39,7 @@ Measured on 2026-09-28, with Node 22.20 and Bun 1.4.0:
   | `harness/src/usage/*.ts`, `harness/src/sandbox-needs.ts` | `Bun.file` |
   | `sandbox/src/docker/index.ts` | `Bun.spawn`, `Bun.which`, `Bun.sleep` |
   | `sandbox/src/srt/index.ts`, `sandbox/src/groups.ts` | `Bun.spawn`, `Bun.spawnSync` |
-  | `wf/src/cli.ts` | `Bun.stdin` |
+  | `engine/src/agent-cli/cli.ts` | `Bun.stdin` |
 
   `testing/` files use `bun:test` and more of the same; they would publish as Bun-only or move.
 
@@ -48,7 +48,7 @@ Notes:
 - **The cheapest step is `@agentswf/contract`.** It is pure, uses no Bun API (boundary 1), and
   only needs a build. That alone lets any Node tool read run records and type-check workflows.
 - **The engine has three things of its own to replace:**
-  - The `bun build` of `wf` at run time would be built at pack time instead.
+  - The `bun build` of `wfa` at run time would be built at pack time instead.
   - The Bun virtual modules that serve `agentswf/workflow` and `typebox` would become
     `node:module` resolve hooks. pi uses jiti aliases for the same job.
   - The shebang `bun --no-env-file` would become `node`. Node loads no `.env` unless asked.

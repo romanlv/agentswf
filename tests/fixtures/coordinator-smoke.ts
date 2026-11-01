@@ -7,7 +7,7 @@ import {
 
 /**
  * Story 032's coordinator smoke. Each investigator reports to a coordinator outside the run, then
- * asks it for a codeword with `wf send --await-reply` and ends its turn; the coordinator's answer
+ * asks it for a codeword with `wfa send --await-reply` and ends its turn; the coordinator's answer
  * continues the same call, which returns what it was told. Headless, one agent per harness.
  */
 const HEADLESS = {
@@ -38,17 +38,17 @@ export default defineWorkflow<
     name: "coordinator-smoke",
     description: "Agents report to a coordinator outside the run and ask it for a codeword.",
   },
-  async run(workflow, { runtimes, timeoutMs }) {
-    const coordinator = await workflow.participants.connect({
+  async run(wf, { runtimes, timeoutMs }) {
+    const coordinator = await wf.participants.connect({
       key: "coordinator",
       labels: { audience: "eval" },
     });
-    return workflow.parallel(runtimes, async (runtime) => {
-      const investigator = await workflow.agents.open({
+    return wf.parallel(runtimes, async (runtime) => {
+      const investigator = await wf.agents.open({
         key: `investigator:${runtime}`,
         runtime: HEADLESS[runtime as keyof typeof HEADLESS],
       });
-      await workflow.messages.allow({
+      await wf.messages.allow({
         between: [investigator, coordinator],
         purpose: "Report what you find; ask the coordinator what only it knows.",
         timeoutMs: 5 * 60_000,

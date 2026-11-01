@@ -73,10 +73,10 @@ The engine validates a grant before anything else:
 
 **Purpose.** The purpose is the route's permanent description, not the current instruction; that
 belongs in prompts. It is one line, at most 200 characters, with no control characters, rendered
-quoted in every envelope and in `wf peers`. Since it sits outside the quoted message, never build it
+quoted in every envelope and in `wfa peers`. Since it sits outside the quoted message, never build it
 from untrusted input such as ticket text.
 
-**Scope.** A route granted inside `workflow.stage` closes when the stage ends; one granted outside
+**Scope.** A route granted inside `wf.stage` closes when the stage ends; one granted outside
 any stage lasts the attempt. A stage's value is recorded only after the message operations its
 routes opened have settled and every reply owed on its routes has been sent or has failed, whatever
 operation owes it; new sends on them, a reply's `--await-reply` included, are refused (`closed`)
@@ -105,9 +105,9 @@ can open an agent, grant routes to it, and leave it to be started only if a peer
 held for an agent join its next operation, a workflow's `run` or a message operation, so the two
 never race: a message operation opens only when nothing else is queued for that agent. `compact` and
 `set` carry no messages. A request shown in a workflow's `run` becomes that operation's obligation,
-so its `wf result` is refused until it replies. A message operation is attributed to the scope, and
+so its `wfa result` is refused until it replies. A message operation is attributed to the scope, and
 so the stage, of the route that woke it. It has a call id, named in every envelope it receives, and
-no result slot and no check-in, so `wf result` and `wf waiting` with it are refused (`no-result`).
+no result slot and no check-in, so `wfa result` and `wfa waiting` with it are refused (`no-result`).
 The call id keeps a late command from a settled operation off the next one.
 
 ### Routes by shape
@@ -118,7 +118,7 @@ In these sketches `agents.open`, `run`, `parallel`, `stage` and `agents.stop` ar
 **Both ways.** The implementer and the reviewer revise until both agree.
 
 ```ts
-await workflow.messages.allow({
+await wf.messages.allow({
   between: [implementer, reviewer],
   purpose: "Review and revise the implementation until both agree it is ready.",
 });
@@ -128,18 +128,18 @@ await workflow.messages.allow({
 `done` last, since nothing tells the fixer when a lens has finished. A lens cannot message another
 lens, and the fixer cannot start a conversation with a lens. Messages arrive at turn boundaries:
 when the fixer's turn ends without a result, the findings held for it continue its operation, and
-with none held it gets the check-in, where it runs `wf waiting` until the next one arrives. That
-needs a claude pane, the one placement with `wf waiting`; elsewhere an empty turn end is a nudge
-and then `unanswered`. A finding sent after the fixer's `wf result` wakes a message operation, whose
+with none held it gets the check-in, where it runs `wfa waiting` until the next one arrives. That
+needs a claude pane, the one placement with `wfa waiting`; elsewhere an empty turn end is a nudge
+and then `unanswered`. A finding sent after the fixer's `wfa result` wakes a message operation, whose
 fix is not in `FIX_REPORT`. Folding each finding into the running turn is [[mid-turn-messages]].
 
 ```ts
-const fixer = await workflow.agents.open({ key: "fixer", runtime });
-const lenses = await workflow.parallel(LENSES, (lens) =>
-  workflow.agents.open({ key: lens.key, runtime }),
+const fixer = await wf.agents.open({ key: "fixer", runtime });
+const lenses = await wf.parallel(LENSES, (lens) =>
+  wf.agents.open({ key: lens.key, runtime }),
 );
 for (const lens of lenses) {
-  await workflow.messages.allow({
+  await wf.messages.allow({
     from: lens,
     to: fixer,
     purpose: "Report each finding as you confirm it, then `done`; the fixer does not reply.",
@@ -151,7 +151,7 @@ const [fixed] = await Promise.all([
     prompt: "Fix each finding the lenses send; when every lens has said done, report what changed.",
     schema: FIX_REPORT,
   }),
-  workflow.parallel(lenses, (lens) => lens.run({ prompt: lensPrompt(lens.key), schema: FINDINGS })),
+  wf.parallel(lenses, (lens) => lens.run({ prompt: lensPrompt(lens.key), schema: FINDINGS })),
 ]);
 ```
 
@@ -159,7 +159,7 @@ const [fixed] = await Promise.all([
 travels back over the same route. The architect can never start a conversation.
 
 ```ts
-await workflow.messages.allow({
+await wf.messages.allow({
   from: implementer,
   to: architect,
   purpose: "Ask about the design when the ticket document does not settle it.",
@@ -173,7 +173,7 @@ answer. Three agents agree a plan in `PLAN.md` and may each ask either of the ot
 const members = [planner, critic, tester];
 for (const [i, a] of members.entries()) {
   for (const b of members.slice(i + 1)) {
-    await workflow.messages.allow({
+    await wf.messages.allow({
       between: [a, b],
       purpose: "Agree the plan in PLAN.md; ask when an entry there is unclear.",
     });
@@ -189,7 +189,7 @@ changed until it reads the file or is asked. A first-class room is out of this d
 40: five findings and five replies.
 
 ```ts
-await workflow.messages.allow({
+await wf.messages.allow({
   between: [implementer, reviewer],
   purpose: "Review and revise the implementation until both agree it is ready.",
   maxMessages: 10,
@@ -201,14 +201,14 @@ continue that reuses the stage grants nothing. The architect need not have run: 
 request starts it.
 
 ```ts
-const plan = await workflow.stage("plan", { result: PLAN }, async () => {
-  await workflow.messages.allow({
+const plan = await wf.stage("plan", { result: PLAN }, async () => {
+  await wf.messages.allow({
     from: planner,
     to: architect,
     purpose: "Ask about the design while drafting the plan.",
   });
   const { outcome } = await planner.run({ prompt: planPrompt(ticket), schema: PLAN });
-  return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason);
+  return isAnswered(outcome) ? outcome.value : wf.stop(outcome.reason);
 });
 ```
 
@@ -216,7 +216,7 @@ const plan = await workflow.stage("plan", { result: PLAN }, async () => {
 continued with a failure; a reply it had already sent still arrives.
 
 ```ts
-await workflow.agents.stop("architect", "design questions are settled");
+await wf.agents.stop("architect", "design questions are settled");
 ```
 
 **Ending a route while both agents go on.** There is no call that closes a route: grant it inside
@@ -230,7 +230,7 @@ close in the middle of a stage, `allow` can return a handle with `close()`; chan
 
 Code never reads message text. It sees messaging through the operations it causes: each operation
 record carries a `cause`, absent for a workflow's own `run` and `{ message: { from } }` for a
-message operation, beside its usage, so `workflow.usage()` and the run's record show what messaging
+message operation, beside its usage, so `wf.usage()` and the run's record show what messaging
 cost and on whose behalf. The run's record keeps every message and obligation; see
 [[#The record]].
 
@@ -336,19 +336,19 @@ messages as an agent's: a plain one `delivered` once recorded, a question `repli
 ## Agent CLI
 
 ```sh
-wf peers
+wfa peers
 
-wf send fixer 'Off-by-one in src/page.ts:42; see FINDINGS.md#3'
-wf send --await-reply architect <<'EOF'
+wfa send fixer 'Off-by-one in src/page.ts:42; see FINDINGS.md#3'
+wfa send --await-reply architect <<'EOF'
 Should retries live in the client or the queue? The ticket does not say.
 EOF
-wf send --await-reply --timeout 5m reviewer < note.md
+wfa send --await-reply --timeout 5m reviewer < note.md
 
-wf reply implementer <<'EOF'
+wfa reply implementer <<'EOF'
 In the queue: the client is shared with the batch path.
 EOF
 
-wf result {call-id} --verdict 'approve'
+wfa result {call-id} --verdict 'approve'
 ```
 
 The message comes from a quoted heredoc, standard input or the final argument; given an argument,
@@ -357,33 +357,33 @@ command, and an apostrophe ends single quotes. Flags go before the message, befo
 the peer; one after the message is refused rather than sent as its text, and so is a message
 argument that starts with `--`, which goes in a heredoc instead.
 
-Agents run `wf` through the launcher the engine installed. Every envelope, refusal, nudge and
-acknowledgement spells out the launcher's full path; this doc writes it as `wf`. When an agent has
+Agents run `wfa` through the launcher the engine installed. Every envelope, refusal, nudge and
+acknowledgement spells out the launcher's full path; this doc writes it as `wfa`. When an agent has
 routes, its operation prompt says how to use them, once, in a few lines; a route granted after an
-operation started is announced in the next envelope that operation receives. `wf`'s usage text
+operation started is announced in the next envelope that operation receives. `wfa`'s usage text
 lists `peers`, `send` and `reply` with the heredoc form.
 
-While the current operation owes or awaits a reply, every `wf` command prints one line about it
+While the current operation owes or awaits a reply, every `wfa` command prints one line about it
 first, which also brings it back after a compaction:
 
 ```text
-wf: you owe reviewer a reply (wf reply reviewer).
+wfa: you owe reviewer a reply (wfa reply reviewer).
 ```
 
 A send needs an open operation: an agent with none is refused. Output and exit codes follow the
-existing `wf` convention: lines start `wf:`, a refusal goes to standard error with a code in
+existing `wfa` convention: lines start `wfa:`, a refusal goes to standard error with a code in
 parentheses, exit 0 on success, 1 on a refusal, 2 on a usage error. A refusal names the next action.
 An acknowledgement the engine could not confirm says the message may have been queued and that
 nothing was retried, so the agent does not send it twice.
 
-### `wf peers`
+### `wfa peers`
 
 Lists the agent's routes, each peer's state, the agent's own messages not yet shown to that peer,
 and what the current operation owes or awaits. It covers only peers the agent has a route to and
 is advisory: `send` and `reply` make the authoritative check. `--json` prints the same as data.
 
 ```text
-$ wf peers
+$ wfa peers
 peer       you can  state          queued  purpose
 reviewer   both     awaiting you           “Review and revise the implementation until both agree it is ready.”
 architect  send     working             1  “Ask about the design when the ticket document does not settle it.”
@@ -401,31 +401,31 @@ peer is `stopped` with the failure as its reason. Empty cells stay empty. With n
 it. Nothing about a peer's state is pushed: a wait already ends with a failure when its peer fails
 or stops, and any other notice would wake the agent for a model operation.
 
-### `wf send`
+### `wfa send`
 
 `send` returns once the message is durably recorded, which is not the peer reading it.
 
 ```text
-$ wf send fixer <<'EOF'
+$ wfa send fixer <<'EOF'
 Off-by-one in src/page.ts:42; see FINDINGS.md#3
 EOF
-wf: sent to fixer; it reads this when its current turn ends.
+wfa: sent to fixer; it reads this when its current turn ends.
 ```
 
 With `--await-reply`, accepting the message and creating the obligation are atomic, and the reply
 arrives as the agent's next message:
 
 ```text
-$ wf send --await-reply architect <<'EOF'
+$ wfa send --await-reply architect <<'EOF'
 Should retries live in the client or the queue?
 EOF
-wf: sent to architect. Its reply starts your next turn (deadline 14:32 UTC, in 20m).
+wfa: sent to architect. Its reply starts your next turn (deadline 14:32 UTC, in 20m).
 Go on with work that does not need the answer, then end your turn with one line saying what you
 await; do not poll or sleep.
-If you find the answer first, or decide not to wait, finish with wf result; the wait is dropped.
+If you find the answer first, or decide not to wait, finish with wfa result; the wait is dropped.
 ```
 
-A message operation has no `wf result`, so its acknowledgement leaves out the last line, and it
+A message operation has no `wfa result`, so its acknowledgement leaves out the last line, and it
 stops waiting only by its reply, a failure or its own `--timeout`.
 
 Sending is a tool call and does not end the turn: the sender may go on with work that does not need
@@ -434,13 +434,13 @@ waiting, not unanswered: no nudge, nothing runs, a pane stays open, a headless p
 reply or a failure then continues the same operation, with the same call id and result slot. Nothing
 has to be set to keep the sender open: its operation is open, the workflow's `run` on it has not
 settled, and that operation's `timeoutMs` bounds the wait, except a wait on an outside
-participant, which it does not ([[#Waiting for an outside participant]]). On a claude pane this uses `wf waiting`'s
+participant, which it does not ([[#Waiting for an outside participant]]). On a claude pane this uses `wfa waiting`'s
 waiting state ([[021-turn-liveness-and-limits|story 021]]), ended by a reply instead of a timer. A
-headless agent, claude, codex, pi or cursor, is new support, since `wf waiting` is refused headless:
+headless agent, claude, codex, pi or cursor, is new support, since `wfa waiting` is refused headless:
 its process exits, and the reply resumes its session with `resumeTurn` as a fresh working turn.
 Codex, pi and cursor panes refuse `--await-reply` until their receipt is proved.
 
-`--timeout` takes `wf waiting`'s durations and only shortens the wait, which defaults to the
+`--timeout` takes `wfa waiting`'s durations and only shortens the wait, which defaults to the
 earliest of the operation's deadline and its scope's; a longer value is clamped to it, and the
 acknowledgement prints the deadline that applies. On an outside participant the wait defaults to the
 route's `timeoutMs`, or none, within the deadlines the workflow set around the operation; with none
@@ -454,49 +454,49 @@ ring of waits would hold until a deadline stopped its agents.
 Refusals:
 
 ```text
-wf: send refused (no-route): no route to tester. Your routes: wf peers
-wf: send refused (no-route): your route with lens-perf only answers its requests, and it asked nothing. Nothing to send; end your turn.
-wf: send refused (awaiting): you already await architect. End your turn, or send without --await-reply.
-wf: send refused (cycle): architect already waits, through tester, on you. Send without --await-reply and end your turn; tester's request reaches you then.
-wf: send refused (cycle): architect already waits on you, and you owe it a reply. Answer with wf reply architect; it may --await-reply.
-wf: send refused (limit): 10 messages with reviewer, this route's limit. Say so in your result.
-wf: send refused (unsupported): this agent cannot await a reply here. Send without
+wfa: send refused (no-route): no route to tester. Your routes: wfa peers
+wfa: send refused (no-route): your route with lens-perf only answers its requests, and it asked nothing. Nothing to send; end your turn.
+wfa: send refused (awaiting): you already await architect. End your turn, or send without --await-reply.
+wfa: send refused (cycle): architect already waits, through tester, on you. Send without --await-reply and end your turn; tester's request reaches you then.
+wfa: send refused (cycle): architect already waits on you, and you owe it a reply. Answer with wfa reply architect; it may --await-reply.
+wfa: send refused (limit): 10 messages with reviewer, this route's limit. Say so in your result.
+wfa: send refused (unsupported): this agent cannot await a reply here. Send without
 --await-reply and say where the answer should go, such as a file.
-wf: send refused (no-operation): this agent has no open operation.
-wf: send refused (closed): the route to architect closed when its stage plan ended.
-wf: send refused (closed): stage plan is finishing; it takes no new messages. Say so in your result.
-wf: send refused (peer-stopped): architect has stopped ("design questions are settled").
-wf: send refused (too-large): 21 KB; the limit is 16 KB. Put it in a file and send its path.
-wf: send refused (inbox-full): fixer has 16 unread messages. Try again after its turn ends, or say so in your result.
+wfa: send refused (no-operation): this agent has no open operation.
+wfa: send refused (closed): the route to architect closed when its stage plan ended.
+wfa: send refused (closed): stage plan is finishing; it takes no new messages. Say so in your result.
+wfa: send refused (peer-stopped): architect has stopped ("design questions are settled").
+wfa: send refused (too-large): 21 KB; the limit is 16 KB. Put it in a file and send its path.
+wfa: send refused (inbox-full): fixer has 16 unread messages. Try again after its turn ends, or say so in your result.
 ```
 
 The `cycle` refusal names what breaks the ring: while the request that closes it is still held for
-the sender, ending the turn shows it; once the sender owes it, `wf reply`, which may itself
+the sender, ending the turn shows it; once the sender owes it, `wfa reply`, which may itself
 `--await-reply` and is not checked for a cycle against the request it answers. `closed` covers a
 route that has closed and a send after its stage's function returned, while the stage waits for its
 operations; the text says which. A send is checked in this order: `no-operation`, `no-route`,
 `peer-stopped`, `closed`, `too-large`, `awaiting`, `unsupported`, `cycle`, `limit`, `inbox-full`. A
 stop closes the route too, so `peer-stopped` comes first and names the reason.
 
-### `wf reply`
+### `wfa reply`
 
-An agent owing a reply answers with `wf reply {peer}`. Only a reply satisfies the obligation: a
-`wf send` to the same peer first, such as "looking into it", is an ordinary message, and the
+An agent owing a reply answers with `wfa reply {peer}`. Only a reply satisfies the obligation: a
+`wfa send` to the same peer first, such as "looking into it", is an ordinary message, and the
 obligation stays open. A reply may itself `--await-reply`, asking something back. A second reply to
 the same request, or a reply after the waiter's deadline, is refused and recorded.
 
 ```text
-$ wf reply implementer <<'EOF'
+$ wfa reply implementer <<'EOF'
 In the queue: the client is shared with the batch path.
 EOF
-wf: replied to implementer.
+wfa: replied to implementer.
 
-$ wf reply implementer 'Also: the queue retries are capped at 3.'
-wf: reply refused (none-owed): you owe implementer nothing. Send it with wf send implementer.
+$ wfa reply implementer 'Also: the queue retries are capped at 3.'
+wfa: reply refused (none-owed): you owe implementer nothing. Send it with wfa send implementer.
 
-$ wf reply implementer < late.md
-wf: reply refused (expired): implementer stopped waiting at 14:32 UTC. Send it with wf send implementer.
-wf: reply refused (expired): implementer has stopped ("revision done"); nothing reaches it now.
+$ wfa reply implementer < late.md
+wfa: reply refused (expired): implementer stopped waiting at 14:32 UTC. Send it with wfa send implementer.
+wfa: reply refused (expired): implementer has stopped ("revision done"); nothing reaches it now.
 ```
 
 A reply needs an open operation (`no-operation`), and travels on a route that is still open
@@ -518,23 +518,23 @@ checked against a schema ([[#Not in this design]]).
 
 ### Finishing
 
-A workflow's operation finishes with `wf result {call-id}`, refused while it owes a reply
-(`owes-reply`); `wf waiting` is refused then too. Awaiting a reply never blocks a result: the agent
+A workflow's operation finishes with `wfa result {call-id}`, refused while it owes a reply
+(`owes-reply`); `wfa waiting` is refused then too. Awaiting a reply never blocks a result: the agent
 chose to wait, and may find the answer itself or decide it is not worth waiting for. A result while
 it awaits settles the operation and drops the wait, as cancelling it would
 ([[#Delivery and failure]]):
 
 ```text
-$ wf result c-41 --verdict 'approve'
-wf: result refused (owes-reply): you owe implementer a reply. Send it with wf reply implementer,
-then run wf result c-41 again.
+$ wfa result c-41 --verdict 'approve'
+wfa: result refused (owes-reply): you owe implementer a reply. Send it with wfa reply implementer,
+then run wfa result c-41 again.
 ```
 
-Given a message operation's call id, `wf result` and `wf waiting` are refused `no-result` before
+Given a message operation's call id, `wfa result` and `wfa waiting` are refused `no-result` before
 any other check. Otherwise `owes-reply` comes before the acknowledgement of an awaited reply.
 
-A message operation needs no `wf result`, and nothing shown to it mentions one: where a workflow
-operation's text says "finish with wf result" or "say so in your result", a message operation's says
+A message operation needs no `wfa result`, and nothing shown to it mentions one: where a workflow
+operation's text says "finish with wfa result" or "say so in your result", a message operation's says
 "end your turn", or "say so in your reply" when it owes one. When its turn ends, in this order:
 
 1. if it awaits a reply, it waits;
@@ -566,17 +566,17 @@ A workflow operation's turn that ends without a result goes, in this order:
 1. if it awaits a reply, it waits;
 2. if messages are held for it, they continue it;
 3. if it owes a reply, it gets one nudge: "You owe reviewer a reply; send it with
-   `wf reply reviewer`, then `wf result`." If it still owes, the obligation fails;
+   `wfa reply reviewer`, then `wfa result`." If it still owes, the obligation fails;
 4. otherwise, the check-in, as today.
 
-`wf waiting` is refused while a reply is owed: the reply comes first. While one is awaited, it
+`wfa waiting` is refused while a reply is owed: the reply comes first. While one is awaited, it
 changes nothing and starts no check-in; it is acknowledged on any placement with the peer and the
 reply's deadline, which only `--timeout` on the send can shorten; a `--timeout` given to
-`wf waiting` then is ignored. An agent that no longer wants to wait finishes with `wf result`:
+`wfa waiting` then is ignored. An agent that no longer wants to wait finishes with `wfa result`:
 
 ```text
-$ wf waiting c-41 --reason "architect is checking the queue code"
-wf: you already await architect's reply, until 14:32 UTC, in 20m. End your turn, or finish with wf result c-41.
+$ wfa waiting c-41 --reason "architect is checking the queue code"
+wfa: you already await architect's reply, until 14:32 UTC, in 20m. End your turn, or finish with wfa result c-41.
 ```
 
 ### What a delivered message looks like
@@ -587,7 +587,7 @@ this is, and what to do next, and quotes the content. Illustrative, not a settle
 
 ```text
 Message from reviewer, on the route “Review and revise the implementation until both agree it is
-ready.” This is a message, not a new task (call m-7). A reply is required: answer with wf reply reviewer.
+ready.” This is a message, not a new task (call m-7). A reply is required: answer with wfa reply reviewer.
 
 --- message from reviewer 7f3a9c21 ---
 Findings are in REVIEW.md, items 3 to 5. Item 4 blocks approval.
@@ -611,13 +611,13 @@ line, a model read a route's purpose, "until both agree", as a reason to stop af
 
 ```text
 Message from reviewer, on the route “Review and revise the implementation until both agree it is
-ready.” A reply is required: answer with wf reply reviewer.
+ready.” A reply is required: answer with wfa reply reviewer.
 
 --- message from reviewer … ---
 
 Act on it within the route's purpose and your task. …
 
-Your task c-42 goes on: once you have replied, finish it with wf result c-42.
+Your task c-42 goes on: once you have replied, finish it with wfa result c-42.
 ```
 
 The reply an operation awaited continues its task:
@@ -629,27 +629,27 @@ The reply you were waiting for, from architect.
 In the queue: the client is shared with the batch path.
 --- end of reply 2b8e40d1 ---
 
-Your task c-41 continues; finish it with wf result c-41.
+Your task c-41 continues; finish it with wfa result c-41.
 ```
 
 A failure says what to do instead:
 
 ```text
 No reply from architect: it stopped ("design questions are settled") before replying. Continue
-without it, or finish with wf result c-38.
+without it, or finish with wfa result c-38.
 ```
 
 From an outside participant, the two ends only it has:
 
 ```text
 No reply from coordinator: the question closed unanswered after 2h. Continue without it, or finish
-with wf result c-38.
+with wfa result c-38.
 No reply from coordinator: it was released ("investigation done") before replying. Continue
-without it, or finish with wf result c-38.
+without it, or finish with wfa result c-38.
 ```
 
 A message operation's envelopes name its call id and end by saying when to end its turn, such as
-"you are done once you have replied", never `wf result`.
+"you are done once you have replied", never `wfa result`.
 
 The fence is hygiene, not authentication: every path into a harness is user-role text, and a model
 can be talked out of any delimiter. The engine escapes lines in peer content that resemble a fence
@@ -659,7 +659,7 @@ message is the route, the sandbox and the agent's permissions ([[permissions]]).
 ## Coordinator CLI
 
 Whatever answers for an outside participant ([[composition#Connecting an outside participant]]),
-the holder, uses three commands on `awf`, matching `wf`'s verbs: `awf inbox` to read, `awf reply`
+the holder, uses three commands on `awf`, matching `wfa`'s verbs: `awf inbox` to read, `awf reply`
 and `awf send` to talk back. They are the interface apps build on, so `awf inbox`'s items and
 cursor, and the two commands' arguments, stdin and result codes, are published; the run log's
 format and the socket folder are not. Built in [[032-run-coordinator|story 032]]; the reference
@@ -669,7 +669,7 @@ All three take a run as `{workflow}/{id}`, found under `.awf/runs` in the curren
 `--cwd` or `--run-root` given, as `awf run --continue` finds it. No two runs in one folder share
 it. A holder runs in the folder where runs start, so an app and the cron it serves share a folder;
 one serving several folders runs a loop in each. An agent is named by its peer address, as
-[[composition#Calling a child workflow|composition]] defines it (`review:claude/reviewer`); unlike `wf peers`, an agent in a child call
+[[composition#Calling a child workflow|composition]] defines it (`review:claude/reviewer`); unlike `wfa peers`, an agent in a child call
 is always qualified, so an address never changes once printed. Every command has `--json`.
 
 ### `awf inbox`
@@ -737,7 +737,7 @@ An attempt whose process died wrote no end, and reads as `interrupted`, as `awf 
 holder never waits on an answer no one can take; the cursor counts them read, and a continue's
 attempt reads on after them.
 
-Every message is in the run log before `wf send` returns, and `awf inbox` reads from there, so a
+Every message is in the run log before `wfa send` returns, and `awf inbox` reads from there, so a
 holder that starts late still sees everything, and a run that has ended stays readable.
 
 It fails, in this order (`INBOX_CODES`), `not-found` for no such run, `no-participant` for a run that ended without connecting a participant, or
@@ -762,7 +762,7 @@ Neither waits for an answer: the agent's reply comes back as a `message` item.
 question to this participant; with more it is `ambiguous`, with none `expired`. A `--to` naming
 anything but an open question from that agent to this participant is `expired`, whatever it names:
 a report, a closed question, another agent's question, an id that never existed. A late answer to
-an old chat message therefore never lands on a newer question, as `wf reply` would, which answers
+an old chat message therefore never lands on a newer question, as `wfa reply` would, which answers
 the latest.
 
 `awf send` messages an agent first, over a route the workflow allowed. As any peer's message, one to
@@ -807,7 +807,7 @@ this order (`HOLDER_CODES`), is returned:
 | `inbox-full` | the agent has 16 unread messages |
 
 A reply with `--to` and an `--as` other than the participant the question went to is `expired`. As
-with `wf reply`, a question's own state is checked before its route's, so a `--to` naming a
+with `wfa reply`, a question's own state is checked before its route's, so a `--to` naming a
 question that closed with its route is `expired`, not `closed`. `awf send` is `ended` as soon as the workflow returns, since new
 sends are refused from then on; a reply to a question still open is delivered until the run ends.
 
@@ -899,7 +899,7 @@ harness's delivery evidence confirms the model read it: `claude-receipt` on a cl
 resumed turn's session record headless. Without that evidence it stays `unconfirmed`.
 
 When a workflow operation's turn ends without a result and messages are held for it, they continue
-it before any check-in ([[#Finishing]]). A message also ends a check-in's `wf waiting` interval
+it before any check-in ([[#Finishing]]). A message also ends a check-in's `wfa waiting` interval
 early. An operation awaiting a reply is continued only by its reply, a failure or a request; plain
 messages held for it come with whichever continues it. Held messages that join a workflow's `run`
 follow its prompt, each in its envelope, and the operation keeps no `cause`.
@@ -911,7 +911,7 @@ the waiter, not when it is accepted from the replier. The wait itself ends when 
 accepted: accepting it satisfies the obligation in one compare-and-set, so a `--timeout` that passes
 afterwards changes nothing and the reply is delivered. A timeout that wins fails the obligation
 first, and the reply is refused `expired`. Inbox and obligation state live outside model context and
-survive compaction; after a harness compacts on its own, the obligation line on the next `wf`
+survive compaction; after a harness compacts on its own, the obligation line on the next `wfa`
 command restores what the agent owes and awaits.
 
 A message to an outside participant is not held anywhere but the run log, read through
@@ -967,7 +967,7 @@ It keeps, for each message: its id and attempt; the sender's agent and call id; 
 route and its purpose; whether it awaits a reply or is a reply, and to which request; each state from `admitted` to `offered` to `observed` or `unconfirmed`; its end
 (`replied`, `refused`, `expired`, `undelivered`, with a reason); and the message operation it woke.
 Refused sends are kept too. For each obligation: the waiting operation, the agent that owes it, its
-deadline, and how it ended. `admitted` is written before `wf send` returns. A presentation the
+deadline, and how it ended. `admitted` is written before `wfa send` returns. A presentation the
 adapter cannot confirm stays `unconfirmed`; it never becomes a success on timeout. The format is
 internal: holders read `awf inbox`, never the log ([[#Coordinator CLI]]).
 
@@ -996,11 +996,11 @@ author only when it has changes to ask for. This is `reviewLoop` in
 rewritten:
 
 ```ts
-export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevisions = 3) {
+export function reviewLoop(wf: WorkflowContext, reviewer: Session, maxRevisions = 3) {
   return async (author: Session, work: WorkUpdate, subject: Subject): Promise<Reviewed> => {
     const revising = maxRevisions > 0;
     if (revising) {
-      await workflow.messages.allow({
+      await wf.messages.allow({
         from: reviewer.agent,
         to: author.agent,
         purpose: `Revise the ${subject.name} until the reviewer approves it.`,
@@ -1013,7 +1013,7 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
         ? md`
             ${subject.review(work)}
             You own the revision loop. When changes are needed, send them with
-            \`wf send --await-reply ${author.agent.key}\` and end your turn; review the revision
+            \`wfa send --await-reply ${author.agent.key}\` and end your turn; review the revision
             it reports. Return your verdict when it is ready, or the changes still needed once
             the route's limit is reached.
           `
@@ -1021,7 +1021,7 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
     });
     if (verdict.kind === "inconclusive") return reviewer.stop(verdict.reason);
     if (verdict.kind === "changes-requested") {
-      return workflow.stop(`${subject.name}: not approved; ${verdict.feedback.length} changes open`);
+      return wf.stop(`${subject.name}: not approved; ${verdict.feedback.length} changes open`);
     }
     const final = await workOn(author, work.docPath, {
       label: `Record ${subject.name}`,
@@ -1036,17 +1036,17 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
 author                               reviewer
 ------                               --------
                                      reviews the work
-                          <--------- wf send --await-reply {author} {changes}
+                          <--------- wfa send --await-reply {author} {changes}
                                      ends its turn, waiting
 wakes (message operation), revises,
-wf reply reviewer {what changed} --> reviews the revision
-                                     wf result {verdict}
+wfa reply reviewer {what changed} -> reviews the revision
+                                     wfa result {verdict}
 reports the work as it stands
 ```
 
 Each revision is a request and its reply, so `maxMessages` is twice `maxRevisions`, clamped to the
 engine's ceiling. The route runs from the reviewer to the author: the author answers each request
-with `wf reply`, and cannot reopen the review once it is approved, as its `Record` turn could on a
+with `wfa reply`, and cannot reopen the review once it is approved, as its `Record` turn could on a
 route both ways (story 029's live run). Code cannot tell whether anything was revised, so an approval with no revision
 still takes the `Record` turn; that cost is accepted for a typed value. The reviewer has to be able
 to await: headless, as feature-delivery runs, or a claude pane that confirms delivery. Elsewhere its
@@ -1060,7 +1060,7 @@ agents run concurrently. Message traffic cannot prove convergence; the verdict d
 
 An agent runs a launcher the engine installed and names the call it was given; why the socket
 behind that launcher is the authority is argued in
-[[design/README#What an agent inside a session sees|README]]. The binding every `wf` verb relies
+[[design/README#What an agent inside a session sees|README]]. The binding every `wfa` verb relies
 on:
 
 ```text
@@ -1176,18 +1176,18 @@ What awf does with it:
 
 - **No `ask`, `tell`, visible message id in agent commands (a holder's `awf inbox` and `--to` use
   `{attempt}.{n}`), channel, team, broadcast, dynamic grant, or automatic
-  convergence primitive.** Known fan-out uses `workflow.parallel`.
+  convergence primitive.** Known fan-out uses `wf.parallel`.
 - **No pushed room.** One post would be a model operation for every member it wakes, and invites
   echo loops. A room is a shared file plus `between` routes.
 - **No typed replies.** A schema earns its cost where code reads the value, and code never reads a
-  reply. A typed value out of an exchange comes from the operation's own `wf result`, as the
+  reply. A typed value out of an exchange comes from the operation's own `wfa result`, as the
   reviewer's verdict does; typed work from another agent is a workflow turn with a schema.
 - **No cancelling, editing or reordering queued messages, for now.** Once typed into a pane or
   given to a resumed turn, a message is in the model's context and cannot be taken back. A sender
   withdrawing its own unshown messages would need no message id ("what I sent X that X has not
   seen"); editing or reordering would be the operator's.
 - **No reading another agent's context or transcript.** That is access, not messaging. A fork
-  starts a new agent on a copy of a session, and `wf send --await-reply` asks the agent that owns
+  starts a new agent on a copy of a session, and `wfa send --await-reply` asks the agent that owns
   the context. A transcript holds raw tool output, so reading one would skip the envelope, and peers
   reading each other would break the independence review and voting depend on. If a read is ever
   needed, it is a directed, read-only grant with a purpose over an engine-written, redacted export
@@ -1195,18 +1195,18 @@ What awf does with it:
 - **No queue-only send.** Codex has one (`trigger_turn: false`); here every message wakes its
   recipient, one that has not run yet included, and anything not worth a wake belongs in a file.
 - **No interrupting delivery** (steer). See [[#Prior art]].
-- **No call id on `wf send`.** A send binds to the operation open when it is accepted, and is
+- **No call id on `wfa send`.** A send binds to the operation open when it is accepted, and is
   refused when none is, so agents have nothing to remember.
-- **No `wf receive`.** Delivery already wakes an idle agent. An outside participant's holder reads
+- **No `wfa receive`.** Delivery already wakes an idle agent. An outside participant's holder reads
   with `awf inbox` ([[#Coordinator CLI]]).
 
 ## Decisions
 
-### Q1. Does a sender wait inside `wf send` or across turns?
+### Q1. Does a sender wait inside `wfa send` or across turns?
 
-Decided, written into [[#`wf send`]]: across turns.
+Decided, written into [[#`wfa send`]]: across turns.
 
-- A blocked `wf send` runs inside the agent's own tool call, and every harness bounds that. Codex
+- A blocked `wfa send` runs inside the agent's own tool call, and every harness bounds that. Codex
   stops a command after 10 s unless the model asks for longer (`DEFAULT_EXEC_COMMAND_TIMEOUT_MS`);
   Claude Code's Bash tool stops at 2 minutes by default and 10 at most. A peer's reply is a model
   operation measured in minutes.
@@ -1215,7 +1215,7 @@ Decided, written into [[#`wf send`]]: across turns.
   against provider capacity while an agent waits.
 - Codex's own sub-agents and Claude Code's agent teams have the same shape: a mailbox, delivery
   between turns, and a wait that returns a summary.
-- It inherits `wf waiting`'s support boundary
+- It inherits `wfa waiting`'s support boundary
   ([[021-implementation-proof#Current support boundary]]). [[#To measure|M2]] checks how agents
   behave when told to end their turn.
 
@@ -1253,7 +1253,7 @@ structured data as artifacts, not replies.
 
 ### Q5. How much of an inbox can be seen and changed?
 
-Decided, for now: counts are shown (`wf peers`, the progress view); order is acceptance
+Decided, for now: counts are shown (`wfa peers`, the progress view); order is acceptance
 order, an awaited reply delivered with what its sender sent before it; cancelling and editing wait
 (see [[#Not in this design]]). Codex's app-server has an experimental queue
 (`thread/queue/add|list|update|delete|reorder`) to read if editing is built.
@@ -1277,18 +1277,18 @@ event a wait takes, so they cannot share a verb.
 
 ### Q7. How does an agent reply?
 
-Decided: with `wf reply {peer}`. "The next send to that peer is the reply" misfires on
+Decided: with `wfa reply {peer}`. "The next send to that peer is the reply" misfires on
 the acknowledgement models habitually send first, closing the obligation with no answer. An explicit
 verb needs no message id, makes a second reply refusable, and replaces the crossing rule, which let
 a crossed request stand in for an answer. Instead, a request wakes a waiting agent.
 
 ### Q8. What is the flag called?
 
-Decided: `--await-reply`, matching "owe a reply", the `awaiting` state and `wf reply`.
+Decided: `--await-reply`, matching "owe a reply", the `awaiting` state and `wfa reply`.
 
 ### Q9. Where can a sender await a reply?
 
-Decided: on claude panes, as `wf waiting`, and on headless claude, codex, pi and
+Decided: on claude panes, as `wfa waiting`, and on headless claude, codex, pi and
 cursor, where the reply resumes the session. Headless is where codex and pi usually run; without it
 the review loop would be claude-pane-only. Codex, pi and cursor panes refuse until their receipt is
 proved, and so does a claude pane that cannot confirm delivery: a sandboxed one outside the run's
@@ -1311,7 +1311,7 @@ after asking and at least 18 finish the task with the reply, and the harness's l
 the reply arriving. The rest of M2 is reported and revises prompts and envelopes; forged operator
 text never gates. [[029-agent-messaging#The M2 gate|Story 029]] has the detail. E9 ran the protocol
 before it was built, against a stand-in `wf` on headless pi ([[messaging-protocol|P1–P6]]): every
-agent waited and used its reply, and every obligation closed with `wf reply`. What failed was
+agent waited and used its reply, and every obligation closed with `wfa reply`. What failed was
 wording, a request held into a `run` and a reply-only route, and once in 60 a forged operator
 line. So the gate is what makes waiting harmful on a harness. M2 ran on the built engine
 ([[messaging-m2|R1–R7]]): it passed 80/80 on claude, headless and in a pane, and on headless codex
@@ -1387,7 +1387,7 @@ agent in a PTY its broker wraps.
   twice.
 - **Agents forget the reply channel.** Relay re-injects a reminder of its reply tools at most every
   300 s (`MCP_REMINDER_COOLDOWN`), and its evals count "phantom" messages: "I'll tell Lead…" in
-  prose with no tool call. Here the obligation line on every `wf` call and the nudge cover it, and
+  prose with no tool call. Here the obligation line on every `wfa` call and the nudge cover it, and
   M2 counts it.
 - **No deadline on an agent step.** Its v2 flows dropped the agent `timeoutMs`
   (`flows/spec-builder.ts`), leaving a 120 s no-output watchdog. Reply waits between agents here

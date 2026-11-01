@@ -45,7 +45,7 @@ they do.
 2. **A debug mode.** With `awf run --keep-on-failure` (name open), a turn that ends unanswered, blocked
    or failed doesn't close its agent:
    - The pane stays open with the session live. A person can talk to the agent, finish the step, and
-     have it submit the result with `wf result`, or answer it themselves.
+     have it submit the result with `wfa result`, or answer it themselves.
    - The run waits on that open turn, and continues when an answer is accepted. It uses the same
      open-turn mechanism [[021-turn-liveness-and-limits]] needs for background work, here answered by a
      person.

@@ -273,7 +273,7 @@ describe("runWorkflow", () => {
     });
   }
 
-  test("the first prompt offers only wf result; a check-in adds wf waiting and the deadline", async () => {
+  test("the first prompt offers only wfa result; a check-in adds wfa waiting and the deadline", async () => {
     const adapter = createFakeAdapter({
       supportsWaiting: true,
       script: (context) => ({
@@ -709,7 +709,7 @@ describe("runWorkflow", () => {
           ]);
           expect({ exitCode, stdout, stderr }).toEqual({
             exitCode: 0,
-            stdout: "wf: result accepted\n",
+            stdout: "wfa: result accepted\n",
             stderr: "",
           });
         },
@@ -1025,7 +1025,7 @@ describe("runWorkflow", () => {
     expect(result.usage[0]!.settledAt).toBe(new Date(deadline.unixMilliseconds).toISOString());
   });
 
-  test("an agent's sessions join what its wf calls report with what its adapter saw", async () => {
+  test("an agent's sessions join what its wfa calls report with what its adapter saw", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         sessionRef: "from-adapter",

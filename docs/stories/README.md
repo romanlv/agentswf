@@ -125,8 +125,8 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   an agent can watch another agent's run: its event log merged with each agent's own session
   files; the run's events are span-shaped.
 - [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
-  `done` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
-  [--await-reply]` and `wf reply`; a message arrives at a turn boundary and wakes an idle agent,
+  `done` — `wf.messages.allow` grants routes with a purpose; agents use `wfa peers`, `wfa send
+  [--await-reply]` and `wfa reply`; a message arrives at a turn boundary and wakes an idle agent,
   and the engine owns delivery, obligations, limits and the record.
 - [`030` — A run shows up as one trace in the operator's OTel backend](030-otel-export.md) —
   `draft` — each attempt sends its part of the event log as OTLP JSON spans when an endpoint is
@@ -136,7 +136,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awf test` passes at once.
 - [`032` — A coordinator outside the run talks with its agents](032-run-coordinator.md) —
   `in-progress` (M2 and M3 open) — a workflow connects a coordinator, and the agents it grants a route tell it things
-  and ask it questions with `wf send`; `awf run`'s terminal, another session or an app (a Slack
+  and ask it questions with `wfa send`; `awf run`'s terminal, another session or an app (a Slack
   bridge, outside this repository) reads them from the run's record and replies.
 - [`033` — An agent learns awf from its help](033-cli-help.md) —
   `done` — `awf -h` lists every command from one table that also feeds the dispatch, with
@@ -146,7 +146,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   run or lands in its mailbox, and the code takes events at a wait and starts turns it doesn't
   await.
 - [`035` — An agent calls a tool the workflow's code handles](035-workflow-tools.md) —
-  `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wf tool`
+  `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wfa tool`
   mid-turn, and the handler's return value is the tool's result.
 - [`036` — An agent stays live after its turn, and compacts before the run parks](036-agent-keep-alive.md) —
   `in-progress` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a

@@ -29,7 +29,7 @@ export type Route = {
   open: boolean;
   /** Why it closed. */
   closed?: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
-  /** Its place among the attempt's grants, which `wf peers` lists in. */
+  /** Its place among the attempt's grants, which `wfa peers` lists in. */
   readonly order: number;
 };
 

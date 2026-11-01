@@ -141,7 +141,7 @@ export class RunSandboxes {
     return this.options.sandboxes?.run !== undefined;
   }
 
-  /** `workflow.sandboxes.open`. */
+  /** `wf.sandboxes.open`. */
   async open(spec: unknown): Promise<SandboxRef> {
     if (this.hasRunSandbox) throw new Error(RUN_SANDBOX_ONLY);
     const key = (spec as { key?: unknown } | null)?.key;

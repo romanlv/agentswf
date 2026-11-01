@@ -21,11 +21,11 @@ const ROLES = {
  * Opens the planner and the reviewer, and returns how to open the implementer, not needed until the
  * plan is approved, and each additional reviewer. Each attempt opens its agents afresh.
  */
-export async function openTeam(workflow: WorkflowContext, args: FeatureArgs) {
+export async function openTeam(wf: WorkflowContext, args: FeatureArgs) {
   const open = async (role: Role) =>
     session(
-      workflow,
-      await workflow.agents.open({
+      wf,
+      await wf.agents.open({
         ...ROLES[role],
         key: role,
         runtime: args.runtimes[role],
@@ -44,8 +44,8 @@ export async function openTeam(workflow: WorkflowContext, args: FeatureArgs) {
     implementer: () => open("implementer"),
     additionalReviewer: async ({ name, runtime }: AdditionalReviewer) =>
       session(
-        workflow,
-        await workflow.agents.open({
+        wf,
+        await wf.agents.open({
           key: `additional-reviewer:${name}`,
           runtime,
           instructions:

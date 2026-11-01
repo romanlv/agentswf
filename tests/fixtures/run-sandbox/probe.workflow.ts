@@ -41,12 +41,12 @@ const LINE = {
 
 export default defineWorkflow({
   meta: { name: "run-sandbox-probe", description: "Probe the run's sandbox from two agents." },
-  async run(workflow, args: { request: string; commands: string[] }): Promise<ProbeResult> {
-    const prober = await workflow.agents.open({
+  async run(wf, args: { request: string; commands: string[] }): Promise<ProbeResult> {
+    const prober = await wf.agents.open({
       key: "prober",
       runtime: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
     });
-    const reader = await workflow.agents.open({
+    const reader = await wf.agents.open({
       key: "reader",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });

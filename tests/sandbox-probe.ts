@@ -74,7 +74,7 @@ export function problems(evidence: ProbeEvidence): string[] {
   for (const agent of AGENTS) {
     const report = reports.find((candidate) => candidate.agent === agent);
     if (!report?.results) {
-      say(`${agent} did not answer through wf result: ${report?.outcome} ${report?.reason}`);
+      say(`${agent} did not answer through wfa result: ${report?.outcome} ${report?.reason}`);
       continue;
     }
     const output = (fragment: string) =>

@@ -38,14 +38,14 @@ Candidates, worst first, from [`workflow-api.md`](../../workflow-api.md)'s "At a
 7. **`testWorkflow`**: two signatures, and an options bag of about twenty fields, several for one
    feature each (`awaitReply`, `compactions`, `participants`, `decisions`, `allowance`).
 8. **Smaller**: "label" means four things (`receive`, `agent.run`, `parallel`, participants);
-   `workflow.decisions` (Jev), a niche provider, sits on the core context; `workflow.usage()` and
-   `workflow.allowance()` are two reads of accounting.
+   `wf.decisions` (Jev), a niche provider, sits on the core context; `wf.usage()` and
+   `wf.allowance()` are two reads of accounting.
 9. **Testing's `reply` means not replying.** `reply.silent()`, `reply.fail()` and the like end a
    scripted turn without an answer, while `event.reply(...)` answers; `message.silent()` and
    `message.fail()` repeat them. One namespace for how a scripted turn ends (`ending.*`, type
    `Ending`) and no duplicates.
-10. **`wf` and `awf` name one state two ways**: `peer-stopped` and `stopped` for the same refusal,
-    `awaiting` and `awaiting-reply` for an agent waiting on a reply. `wf peers` reports an outside
+10. **`wfa` and `awf` name one state two ways**: `peer-stopped` and `stopped` for the same refusal,
+    `awaiting` and `awaiting-reply` for an agent waiting on a reply. `wfa peers` reports an outside
     participant as `state: "outside"`, which is a kind of peer, not a state.
 11. **`awf send` is two commands.** Without `--event-id` it messages an agent over a route; with
     it, it is a reply on a participant routed to the code, prints as `awf emit` does, and has its

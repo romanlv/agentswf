@@ -1,4 +1,3 @@
-#!/usr/bin/env -S bun --no-env-file
 import {
   type ControlRequest,
   type ControlResponse,
@@ -8,35 +7,35 @@ import {
 } from "@agentswf/contract/wire";
 import { NotSentError, submitControl } from "./client";
 
-/** `wf` is its launcher's full path, as an agent must type it; `wf` alone when it is not known. */
-function usage(wf: string): string {
+/** `wfa` is its launcher's full path, as an agent must type it; `wfa` alone when it is not known. */
+function usage(wfa: string): string {
   return [
-    `usage: ${wf} result <call-id> --<name> '<value>' ...`,
-    `       ${wf} result <call-id> <<'WF_JSON'`,
+    `usage: ${wfa} result <call-id> --<name> '<value>' ...`,
+    `       ${wfa} result <call-id> <<'WF_JSON'`,
     "       <json>",
     "       WF_JSON",
-    `       ${wf} tool <name> --<option> '<value>' ...`,
-    `       ${wf} tool <name> <<'WF_JSON'`,
+    `       ${wfa} tool <name> --<option> '<value>' ...`,
+    `       ${wfa} tool <name> <<'WF_JSON'`,
     "       <json>",
     "       WF_JSON",
-    `       ${wf} waiting <call-id> --reason <text> [--timeout <duration>]`,
-    `       ${wf} peers [--json]`,
-    ...messageUsage(wf, "       "),
+    `       ${wfa} waiting <call-id> --reason <text> [--timeout <duration>]`,
+    `       ${wfa} peers [--json]`,
+    ...messageUsage(wfa, "       "),
     "",
     "The call id is the one named in the request. Give the result as the flags the request names,",
     "each value in single quotes, or as JSON on standard input, as a quoted heredoc. A tool takes",
-    "its input the same way, or nothing for one that takes none. wf tool exits 0 with the tool's",
+    "its input the same way, or nothing for one that takes none. wfa tool exits 0 with the tool's",
     "result, 1 when the tool failed, 3 when the call was refused and didn't run, and 4 when its",
     "answer is unknown, so it may have run.",
   ].join("\n");
 }
 
-function messageUsage(wf: string, indent = "usage: "): string[] {
+function messageUsage(wfa: string, indent = "usage: "): string[] {
   return [
-    `${indent}${wf} send [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
+    `${indent}${wfa} send [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
     "       <message>",
     "       EOF",
-    `       ${wf} reply [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
+    `       ${wfa} reply [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
     "       <answer>",
     "       EOF",
     "",
@@ -68,9 +67,9 @@ export async function runCli(
     launcher,
     command: [command, ...args],
   } = launched(argv);
-  const wf = launcher ?? "wf";
+  const wfa = launcher ?? "wfa";
   if (!endpoint) {
-    return usageError("wf must be run through the launcher the workflow engine installed");
+    return usageError("wfa must be run through the launcher the workflow engine installed");
   }
   switch (command) {
     case "waiting":
@@ -83,9 +82,9 @@ export async function runCli(
       return runPeers(endpoint, session, args, submit);
     case "send":
     case "reply":
-      return runMessage(endpoint, session, command, args, stdin, wf, submit);
+      return runMessage(endpoint, session, command, args, stdin, wfa, submit);
     default:
-      return usageError(usage(wf));
+      return usageError(usage(wfa));
   }
 }
 
@@ -98,8 +97,8 @@ async function runResult(
 ): Promise<CliOutcome> {
   const [operationId, ...flags] = args;
   if (!operationId?.trim() || operationId.startsWith("--"))
-    return usageError("wf result needs the call id it is answering");
-  // The engine reads the flags by the schema, which wf doesn't know. Standard input was read only
+    return usageError("wfa result needs the call id it is answering");
+  // The engine reads the flags by the schema, which wfa doesn't know. Standard input was read only
   // with nothing after the call id; with nothing there either, the result is no input.
   const given = givenInput(flags, stdin);
 
@@ -114,15 +113,19 @@ async function runResult(
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `wf: result submission failed.\n${reason}` };
+    return { exitCode: 1, stdout: "", stderr: `wfa: result submission failed.\n${reason}` };
   }
 
   if (response.kind === "rejected") {
-    return refused(response, `wf: ${rejection(response, operationId)}`);
+    return refused(response, `wfa: ${rejection(response, operationId)}`);
   }
   if (response.kind !== "accepted")
-    return { exitCode: 1, stdout: "", stderr: "wf: unexpected waiting acknowledgement for result" };
-  return succeeded(response, "wf: result accepted");
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "wfa: unexpected waiting acknowledgement for result",
+    };
+  return succeeded(response, "wfa: result accepted");
 }
 
 /** Standard input was read only with nothing after the name or call id; with nothing there, no input. */
@@ -144,7 +147,7 @@ async function runTool(
 ): Promise<CliOutcome> {
   const [tool, ...words] = args;
   if (!tool?.trim() || tool.startsWith("--")) {
-    return usageError("wf tool needs the name of the tool to call");
+    return usageError("wfa tool needs the name of the tool to call");
   }
   let response: ControlResponse;
   try {
@@ -166,15 +169,15 @@ async function runTool(
       ? {
           exitCode: 3,
           stdout: "",
-          stderr: `wf: the call of ${tool} didn't reach the workflow, so it didn't run.\n${reason}`,
+          stderr: `wfa: the call of ${tool} didn't reach the workflow, so it didn't run.\n${reason}`,
         }
       : {
           exitCode: 4,
           stdout: "",
-          stderr: `wf: the answer to the call of ${tool} was lost (${reason}); it may have run, so check before calling it again.`,
+          stderr: `wfa: the answer to the call of ${tool} was lost (${reason}); it may have run, so check before calling it again.`,
         };
   }
-  const owing = response.owing ? `wf: ${response.owing}\n` : "";
+  const owing = response.owing ? `wfa: ${response.owing}\n` : "";
   switch (response.kind) {
     case "tool-result":
       return { exitCode: 0, stdout: response.output ?? "", stderr: owing.trimEnd() };
@@ -182,20 +185,20 @@ async function runTool(
       return {
         exitCode: response.outcome === "failed" ? 1 : 4,
         stdout: "",
-        stderr: `${owing}wf: ${response.error}`,
+        stderr: `${owing}wfa: ${response.error}`,
       };
     case "rejected":
       return {
         // The code says nothing of whether the handler ran: its end's record may be what failed.
         exitCode: response.code === "internal-error" ? 4 : 3,
         stdout: "",
-        stderr: `${owing}wf: ${tool} refused (${response.code}): ${response.error}`,
+        stderr: `${owing}wfa: ${tool} refused (${response.code}): ${response.error}`,
       };
     default:
       return {
         exitCode: 4,
         stdout: "",
-        stderr: `wf: an unexpected answer to the call of ${tool}; it may have run`,
+        stderr: `wfa: an unexpected answer to the call of ${tool}; it may have run`,
       };
   }
 }
@@ -208,24 +211,24 @@ async function runWaiting(
 ): Promise<CliOutcome> {
   const [operationId, ...flags] = args;
   if (!operationId?.trim() || operationId.startsWith("--"))
-    return usageError("wf waiting needs the call id it is waiting on");
+    return usageError("wfa waiting needs the call id it is waiting on");
   const values = new Map<string, string>();
   for (let i = 0; i < flags.length; i += 2) {
     const flag = flags[i]!;
     const value = flags[i + 1];
     if ((flag !== "--reason" && flag !== "--timeout") || values.has(flag) || value === undefined)
-      return usageError("wf waiting accepts --reason once and optional --timeout once");
+      return usageError("wfa waiting accepts --reason once and optional --timeout once");
     values.set(flag, value);
   }
   const reason = values.get("--reason");
   if (!validWaitingReason(reason))
-    return usageError("wf waiting --reason must be non-blank and at most 2048 UTF-8 bytes");
+    return usageError("wfa waiting --reason must be non-blank and at most 2048 UTF-8 bytes");
   const duration = values.get("--timeout");
   let timeoutMs: number | undefined;
   if (duration !== undefined) {
     timeoutMs = durationOf(duration);
     if (timeoutMs === undefined)
-      return usageError("wf waiting --timeout must be a positive integer with ms, s, m or h");
+      return usageError("wfa waiting --timeout must be a positive integer with ms, s, m or h");
   }
   let response: ControlResponse;
   try {
@@ -242,28 +245,28 @@ async function runWaiting(
     return {
       exitCode: 1,
       stdout: "",
-      stderr: `wf: waiting acknowledgement is uncertain; the engine may have granted the wait. No retry was sent.\n${detail}`,
+      stderr: `wfa: waiting acknowledgement is uncertain; the engine may have granted the wait. No retry was sent.\n${detail}`,
     };
   }
   if (response.kind === "rejected")
     return refused(
       response,
       response.code === "owes-reply" || response.code === "no-result"
-        ? `wf: waiting refused (${response.code}): ${response.error}`
-        : `wf: waiting rejected (${response.code}).\n${response.error}`,
+        ? `wfa: waiting refused (${response.code}): ${response.error}`
+        : `wfa: waiting rejected (${response.code}).\n${response.error}`,
     );
-  if (response.kind === "awaiting-reply") return succeeded(response, `wf: ${response.notice}`);
+  if (response.kind === "awaiting-reply") return succeeded(response, `wfa: ${response.notice}`);
   if (response.kind !== "waiting")
     return {
       exitCode: 1,
       stdout: "",
-      stderr: "wf: unexpected acknowledgement for waiting; wait is uncertain",
+      stderr: "wfa: unexpected acknowledgement for waiting; wait is uncertain",
     };
   return succeeded(
     response,
     response.deadline === undefined
-      ? `wf: waiting granted until ${response.waitUntil}; the operation has no deadline (Unix milliseconds)`
-      : `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
+      ? `wfa: waiting granted until ${response.waitUntil}; the operation has no deadline (Unix milliseconds)`
+      : `wfa: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
   );
 }
 
@@ -274,7 +277,7 @@ async function runPeers(
   submit: Submit,
 ): Promise<CliOutcome> {
   if (args.length > 1 || (args.length === 1 && args[0] !== "--json"))
-    return usageError("wf peers takes only --json");
+    return usageError("wfa peers takes only --json");
   let response: ControlResponse;
   try {
     response = await submit(endpoint, {
@@ -284,12 +287,12 @@ async function runPeers(
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `wf: peers failed; nothing changed.\n${detail}` };
+    return { exitCode: 1, stdout: "", stderr: `wfa: peers failed; nothing changed.\n${detail}` };
   }
   if (response.kind === "rejected")
-    return refused(response, `wf: peers refused (${response.code}): ${response.error}`);
+    return refused(response, `wfa: peers refused (${response.code}): ${response.error}`);
   if (response.kind !== "peers")
-    return { exitCode: 1, stdout: "", stderr: "wf: unexpected acknowledgement for peers" };
+    return { exitCode: 1, stdout: "", stderr: "wfa: unexpected acknowledgement for peers" };
   // The table says what is owed itself, so the owed-answer line does not lead it.
   if (args[0] === "--json") {
     const { peers, owes, awaits } = response;
@@ -308,12 +311,12 @@ async function runMessage(
   command: "send" | "reply",
   args: readonly string[],
   stdin: string | null,
-  wf: string,
+  wfa: string,
   submit: Submit,
 ): Promise<CliOutcome> {
   const parsed = messageArgs(args);
   const wrong = (problem: string) =>
-    usageError(`wf: ${command}: ${problem}\n\n${messageUsage(wf).join("\n")}`);
+    usageError(`wfa: ${command}: ${problem}\n\n${messageUsage(wfa).join("\n")}`);
   if ("error" in parsed) return wrong(parsed.error);
   const { peer, message, awaitReply, timeoutMs } = parsed;
   // A heredoc ends with a newline the agent did not mean as part of the message.
@@ -339,20 +342,20 @@ async function runMessage(
       return {
         exitCode: 1,
         stdout: "",
-        stderr: `wf: the ${what} was not sent: the engine could not be reached. Try again.\n${detail}`,
+        stderr: `wfa: the ${what} was not sent: the engine could not be reached. Try again.\n${detail}`,
       };
     }
     return {
       exitCode: 1,
       stdout: "",
-      stderr: `wf: the engine did not confirm this ${what}, so it may have been queued. Nothing was retried: do not send it again.\n${detail}`,
+      stderr: `wfa: the engine did not confirm this ${what}, so it may have been queued. Nothing was retried: do not send it again.\n${detail}`,
     };
   }
   if (response.kind === "rejected")
-    return refused(response, `wf: ${command} refused (${response.code}): ${response.error}`);
+    return refused(response, `wfa: ${command} refused (${response.code}): ${response.error}`);
   if (response.kind !== "sent")
-    return { exitCode: 1, stdout: "", stderr: `wf: unexpected acknowledgement for ${command}` };
-  return succeeded(response, `wf: ${response.notice}`);
+    return { exitCode: 1, stdout: "", stderr: `wfa: unexpected acknowledgement for ${command}` };
+  return succeeded(response, `wfa: ${response.notice}`);
 }
 
 /**
@@ -407,7 +410,7 @@ function durationOf(text: string): number | undefined {
 function succeeded(response: { owing?: string }, line: string): CliOutcome {
   return {
     exitCode: 0,
-    stdout: response.owing ? `wf: ${response.owing}\n${line}` : line,
+    stdout: response.owing ? `wfa: ${response.owing}\n${line}` : line,
     stderr: "",
   };
 }
@@ -416,7 +419,7 @@ function refused(response: { owing?: string }, line: string): CliOutcome {
   return {
     exitCode: 1,
     stdout: "",
-    stderr: response.owing ? `wf: ${response.owing}\n${line}` : line,
+    stderr: response.owing ? `wfa: ${response.owing}\n${line}` : line,
   };
 }
 
@@ -431,7 +434,7 @@ function rejection(
 ): string {
   switch (response.code) {
     case "invalid-result":
-      return `result rejected.\n${response.error}\nFix the value and run wf result again.`;
+      return `result rejected.\n${response.error}\nFix the value and run wfa result again.`;
     case "wrong-agent":
       return `${operationId} is another agent's call, not yours to answer`;
     case "unknown-operation":
@@ -439,7 +442,7 @@ function rejection(
       // and the JSON lands here, and telling the agent to give up would end a live turn.
       return (
         `no call named ${operationId} is open. ` +
-        "Check the id in the request and run wf result again."
+        "Check the id in the request and run wfa result again."
       );
     case "expired-operation":
     case "closed-operation":
@@ -493,7 +496,7 @@ if (import.meta.main) {
       Bun.stdin.stream(),
     );
   } catch (error) {
-    console.error(`wf: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`wfa: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(2);
   }
   const outcome = await runCli(process.argv.slice(2), stdinText);

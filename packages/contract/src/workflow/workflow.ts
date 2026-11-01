@@ -72,7 +72,7 @@ export interface ParallelOptions {
 }
 
 /**
- * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
+ * A stage's end: `stopped` is `wf.stop` inside it; `failed` covers a throw, a value its
  * schema rejects, and a cancellation.
  */
 export type StageOutcome = "succeeded" | "stopped" | "failed";
@@ -123,7 +123,7 @@ export interface WorkflowContext {
   /**
    * Ends the attempt `stopped`, apart from failed: in the stage it is called from, which a continue
    * then redoes, or between stages, where a continue checks again. Caught, it fails the stage that
-   * caught it, or the attempt when the workflow returns. `return workflow.stop(…)` narrows where a
+   * caught it, or the attempt when the workflow returns. `return wf.stop(…)` narrows where a
    * bare call doesn't.
    */
   stop(reason: string): never;
@@ -186,7 +186,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
   readonly agents: EventAgentDirectory;
   readonly participants: CodeParticipantDirectory;
   /**
-   * As `WorkflowContext.stage`, and a stage around a wait: `stage(name, () => workflow.receive(…))`
+   * As `WorkflowContext.stage`, and a stage around a wait: `stage(name, () => wf.receive(…))`
    * returns the batch that wait took, then and on every rerun, read back from the mailbox, so a
    * wait in straight-line code takes no later events. The batch counts as acknowledged. Its work is
    * the wait alone: one that returns other events than one wait took fails the stage.
@@ -214,7 +214,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * `name`, so a rerun gets the same answer back. It takes only what it names: the rest stays in
    * the mailbox for a later wait, and doesn't wake a run parked here. Of two ready, the earlier
    * wins. A duration as a branch is a timer of the race's own, `{name}@{branch}`, cancelled when
-   * another branch wins; a `workflow.timer()` passed in is the code's to cancel.
+   * another branch wins; a `wf.timer()` passed in is the code's to cancel.
    */
   race<B extends RaceBranches>(
     name: string,
@@ -249,7 +249,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
   at(read: () => Date | null): TimeRead;
 
   /**
-   * `now()` plus `duration`: a time for the run's state to keep, as `workflow.at` reads it. Kept
+   * `now()` plus `duration`: a time for the run's state to keep, as `wf.at` reads it. Kept
    * where it is written, it doesn't move on a rerun; made at a read, it would never come due.
    */
   after(duration: Duration): Date;

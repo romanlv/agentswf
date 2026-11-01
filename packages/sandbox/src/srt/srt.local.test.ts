@@ -56,9 +56,9 @@ describe.skipIf(!provider)("srt on this machine", () => {
     home: join(directory, "homes", name),
     door: {
       endpoint: join(root, `${name}.sock`),
-      launcher: join(root, `door-${name}`, "wf"),
+      launcher: join(root, `door-${name}`, "wfa"),
       boxScript: "",
-      bundle: join(root, `door-${name}`, "wf.js"),
+      bundle: join(root, `door-${name}`, "wfa.js"),
       reads: [],
     },
     harness: {
@@ -102,9 +102,9 @@ describe.skipIf(!provider)("srt on this machine", () => {
       home: join(directory, "homes", "a1"),
       door: {
         endpoint: join(root, "none.sock"),
-        launcher: join(root, "door", "wf"),
+        launcher: join(root, "door", "wfa"),
         boxScript: "",
-        bundle: join(root, "door", "wf.js"),
+        bundle: join(root, "door", "wfa.js"),
         reads: [],
       },
       harness: {
@@ -162,7 +162,7 @@ describe.skipIf(!provider)("srt on this machine", () => {
     for (const name of set) expect(names).toContain(name);
   });
 
-  test("a zsh heredoc, as an agent's `wf result` is written, works from a read-only directory", async () => {
+  test("a zsh heredoc, as an agent's `wfa result` is written, works from a read-only directory", async () => {
     // The working directory here is writable, where bash would fall back to it: `out` is not.
     const { stdout } = await sh(
       `cd '${join(repo, "..")}' && $SHELL -c "cat <<'EOF'\nheredoc-ok\nEOF"`,

@@ -80,11 +80,11 @@ export function createMinimumReview(
       whenToUse: "Use as the minimum end-to-end proof of isolated structured review turns.",
     },
 
-    async run(workflow, args) {
-      const reviews = await workflow.parallel(
+    async run(wf, args) {
+      const reviews = await wf.parallel(
         LENSES,
         async (lens): Promise<ReviewOutcome> => {
-          const reviewer = await workflow.agents.open({
+          const reviewer = await wf.agents.open({
             key: `reviewer:${lens}`,
             instructions: instructionFor(lens),
             runtime: runtimes[lens],
@@ -125,8 +125,8 @@ export function defineReviewWorkflow(
   return defineWorkflow<MinimumReviewArgs, MinimumReviewResult>({
     meta,
     prepare: (invocation) => ({ target: parseReviewTarget(meta.name, invocation) }),
-    async run(workflow, args) {
-      const result = await minimumReview.run(workflow, args);
+    async run(wf, args) {
+      const result = await minimumReview.run(wf, args);
       const incomplete = result.reviews.filter((review) => review.kind === "incomplete");
       if (incomplete.length > 0) {
         throw new Error(

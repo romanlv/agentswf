@@ -70,7 +70,7 @@ bun awf run examples/quick-check/workflow.ts -- codex pi
 
 `messaging/` has an implementer write `slugify()` in a fresh folder under `/tmp/awf-messaging`, and
 a reviewer who knows a house style the implementer was not told run it, ask for the fix with
-`wf send --await-reply`, and check again. Codex by default, or `pi`, `claude` (headless, billed per
+`wfa send --await-reply`, and check again. Codex by default, or `pi`, `claude` (headless, billed per
 token) or `claude-pane`; under a minute and a cent on codex:
 
 ```sh

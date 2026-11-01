@@ -31,8 +31,8 @@ export type CallerSteps = {
 
 export default defineWorkflow<null, CallerSteps>({
   meta: { name: "caller-steps", description: "The calling-session eval's three steps." },
-  async run(workflow) {
-    const author = await workflow.agents.caller({ key: "author" });
+  async run(wf) {
+    const author = await wf.agents.caller({ key: "author" });
     if (!author) throw new Error("start this with awf run --here");
     const timeoutMs = 4 * 60_000;
     const { outcome: picked } = await author.run({
@@ -46,7 +46,7 @@ export default defineWorkflow<null, CallerSteps>({
       timeoutMs,
     });
     const { outcome: recalled } = await author.run({
-      prompt: "The previous essay step was cancelled. Do not resume or complete it. What number did you pick two steps ago? Answer from memory using wf result, then end your turn immediately. No other work.",
+      prompt: "The previous essay step was cancelled. Do not resume or complete it. What number did you pick two steps ago? Answer from memory using wfa result, then end your turn immediately. No other work.",
       schema: RECALLED,
       timeoutMs,
     });

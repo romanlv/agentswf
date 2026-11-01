@@ -48,11 +48,11 @@ export const applyFeedback = (ticket: string, work: WorkUpdate, feedback: string
  * needs and reviews each revision the author replies with, until it approves. Code cannot read the
  * revisions, so the work as it stands after review comes from one more turn of the author's.
  */
-export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevisions = 3) {
+export function reviewLoop(wf: WorkflowContext, reviewer: Session, maxRevisions = 3) {
   return async (author: Session, work: WorkUpdate, subject: Subject): Promise<Reviewed> => {
     const revising = maxRevisions > 0;
     if (revising) {
-      await workflow.messages.allow({
+      await wf.messages.allow({
         from: reviewer.agent,
         to: author.agent,
         purpose: `Revise the ${subject.name} until the reviewer approves it.`,
@@ -65,7 +65,7 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
         ? md`
             ${subject.review(work)}
             You own the revision loop. When changes are needed, send them with
-            \`wf send --await-reply ${author.agent.key}\` and end your turn; review the revision
+            \`wfa send --await-reply ${author.agent.key}\` and end your turn; review the revision
             it reports. Return your verdict when it is ready, or the changes still needed once
             the route's limit is reached.
           `
@@ -73,9 +73,7 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
     });
     if (verdict.kind === "inconclusive") return reviewer.stop(verdict.reason);
     if (verdict.kind === "changes-requested") {
-      return workflow.stop(
-        `${subject.name}: not approved; ${verdict.feedback.length} changes open`,
-      );
+      return wf.stop(`${subject.name}: not approved; ${verdict.feedback.length} changes open`);
     }
     const final = await workOn(author, work.docPath, {
       label: `Record ${subject.name}`,
@@ -97,12 +95,12 @@ export async function workOn(
 
 /** Each additional reviewer on its own, all at once; the first to stop the run stops the rest. */
 export function additionalReviews(
-  workflow: WorkflowContext,
+  wf: WorkflowContext,
   { ticket, additionalReviewers = [] }: FeatureArgs,
   openReviewer: (extra: AdditionalReviewer) => Promise<Session>,
   work: WorkUpdate,
 ): Promise<AdditionalReview[]> {
-  return workflow.parallel(
+  return wf.parallel(
     additionalReviewers,
     async (extra): Promise<AdditionalReview> => {
       const reviewer = await openReviewer(extra);

@@ -36,7 +36,7 @@ export const COMMANDS = {
 } as const;
 
 /**
- * Each command once its placeholders are filled, anchored at its start: the agent's `wf result`
+ * Each command once its placeholders are filled, anchored at its start: the agent's `wfa result`
  * is a command too, and quotes all of them.
  */
 const MARKS: Record<keyof typeof COMMANDS, RegExp> = {

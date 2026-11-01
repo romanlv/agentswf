@@ -17,7 +17,7 @@ import {
   type FakeAdapterTurn,
   type FakeAdapterTurnContext,
 } from "@agentswf/harness/testing";
-import { submitControl } from "@agentswf/wf/client";
+import { submitControl } from "./agent-cli/client";
 import { createTempRunDirs, future, runNew } from "./testing";
 import type { WorkflowRunError } from "./workflow-runner";
 
@@ -88,8 +88,8 @@ async function logOf(runRoot: string): Promise<RunLogLine[]> {
     .map((line) => JSON.parse(line) as RunLogLine);
 }
 
-/** What an agent's `wf` sends, over its own socket. */
-function wf(turn: Turn, request: Record<string, unknown>) {
+/** What an agent's `wfa` sends, over its own socket. */
+function wfa(turn: Turn, request: Record<string, unknown>) {
   return submitControl(turn.binding!.endpoint, {
     version: WIRE_VERSION,
     ...request,
@@ -97,7 +97,7 @@ function wf(turn: Turn, request: Record<string, unknown>) {
 }
 
 const result = (turn: Turn, value: JsonValue) =>
-  wf(turn, {
+  wfa(turn, {
     command: "result",
     operationId: turn.binding!.operationId,
     raw: JSON.stringify(value),
@@ -131,7 +131,7 @@ describe("messaging through the runner", () => {
           async (turn) => {
             call = turn.binding!.operationId;
             expect(turn.prompt).toContain("You can message other agents on these routes:");
-            const sent = await wf(turn, {
+            const sent = await wfa(turn, {
               command: "send",
               peer: "implementer",
               text: "Handle a cache miss.",
@@ -168,7 +168,11 @@ describe("messaging through the runner", () => {
               code: "no-result",
             });
             expect(
-              await wf(turn, { command: "reply", peer: "reviewer", text: "A miss falls through." }),
+              await wfa(turn, {
+                command: "reply",
+                peer: "reviewer",
+                text: "A miss falls through.",
+              }),
             ).toMatchObject({ kind: "sent" });
             return {};
           },
@@ -225,10 +229,10 @@ describe("messaging through the runner", () => {
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
             // Acknowledged headless too, where there is no wait of 021's to grant.
             expect(
-              await wf(turn, {
+              await wfa(turn, {
                 command: "waiting",
                 operationId: turn.binding!.operationId,
                 reason: "waiting on peer",
@@ -248,7 +252,7 @@ describe("messaging through the runner", () => {
           async (turn) => {
             expect(turn.previousSessionRef).toBeUndefined();
             await asked.promise;
-            await wf(turn, { command: "reply", peer: "asker", text: "A." });
+            await wfa(turn, { command: "reply", peer: "asker", text: "A." });
             return { observed: true };
           },
         ],
@@ -282,7 +286,7 @@ describe("messaging through the runner", () => {
       {
         lens: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "fixer", text: "Finding." });
+            await wfa(turn, { command: "send", peer: "fixer", text: "Finding." });
             reported.resolve();
             await result(turn, { verdict: "sent" });
             return {};
@@ -325,8 +329,8 @@ describe("messaging through the runner", () => {
       {
         lens: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "fixer", text: "Off-by-one in page.ts" });
-            await wf(turn, { command: "send", peer: "fixer", text: "done" });
+            await wfa(turn, { command: "send", peer: "fixer", text: "Off-by-one in page.ts" });
+            await wfa(turn, { command: "send", peer: "fixer", text: "done" });
             reported.resolve();
             await result(turn, { verdict: "sent" });
             return {};
@@ -372,7 +376,7 @@ describe("messaging through the runner", () => {
       {
         lens: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "fixer", text: "Finding." });
+            await wfa(turn, { command: "send", peer: "fixer", text: "Finding." });
             reported.resolve();
             await result(turn, { verdict: "sent" });
             return {};
@@ -417,7 +421,7 @@ describe("messaging through the runner", () => {
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "owner", text: "Why?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "owner", text: "Why?", awaitReply: true });
             asked.resolve();
             return {};
           },
@@ -479,12 +483,12 @@ describe("messaging through the runner", () => {
       {
         planner: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "architect", text: "Queue or client?" });
+            await wfa(turn, { command: "send", peer: "architect", text: "Queue or client?" });
             await result(turn, { verdict: "planned" });
             return {};
           },
           async (turn) => {
-            afterStage = await wf(turn, { command: "send", peer: "architect", text: "Again?" });
+            afterStage = await wfa(turn, { command: "send", peer: "architect", text: "Again?" });
             await result(turn, { verdict: "late" });
             return {};
           },
@@ -522,7 +526,7 @@ describe("messaging through the runner", () => {
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
             return {};
           },
           async (turn) => {
@@ -557,7 +561,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "broken", text: "hi" });
+            await wfa(turn, { command: "send", peer: "broken", text: "hi" });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -586,7 +590,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "listener", text: "note" });
+            await wfa(turn, { command: "send", peer: "listener", text: "note" });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -616,7 +620,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "broken", text: "hi" });
+            await wfa(turn, { command: "send", peer: "broken", text: "hi" });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -634,7 +638,7 @@ describe("messaging through the runner", () => {
     expect(outcome.ok).toBe(false);
   });
 
-  test("a message cuts a check-in's wf waiting short", async () => {
+  test("a message cuts a check-in's wfa waiting short", async () => {
     const started = Date.now();
     const { outcome } = await run(
       {
@@ -643,7 +647,7 @@ describe("messaging through the runner", () => {
           async (turn) => {
             // The check-in: it asks for time, then a message continues it long before then.
             expect(turn.kind).toBe("nudge");
-            await wf(turn, {
+            await wfa(turn, {
               command: "waiting",
               operationId: turn.binding!.operationId,
               reason: "deploying",
@@ -660,7 +664,7 @@ describe("messaging through the runner", () => {
         notifier: [
           async (turn) => {
             await new Promise((resolve) => setTimeout(resolve, 150));
-            await wf(turn, { command: "send", peer: "worker", text: "Deploy is done." });
+            await wfa(turn, { command: "send", peer: "worker", text: "Deploy is done." });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -692,7 +696,7 @@ describe("messaging through the runner", () => {
       {
         a: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "b", text: "Q-a?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "b", text: "Q-a?", awaitReply: true });
             return {};
           },
           async (turn) => {
@@ -700,7 +704,7 @@ describe("messaging through the runner", () => {
             expect(turn.authored?.messages).toEqual([
               { kind: "message", from: "c", text: "Q-c?", asks: true },
             ]);
-            await wf(turn, { command: "reply", peer: "c", text: "A-c." });
+            await wfa(turn, { command: "reply", peer: "c", text: "A-c." });
             answered.resolve();
             return {};
           },
@@ -716,14 +720,14 @@ describe("messaging through the runner", () => {
           async (turn) => {
             // b answers only once a has answered c, so a waits again in between.
             await answered.promise;
-            await wf(turn, { command: "reply", peer: "a", text: "A-a." });
+            await wfa(turn, { command: "reply", peer: "a", text: "A-a." });
             return {};
           },
         ],
         c: [
           async (turn) => {
             await new Promise((resolve) => setTimeout(resolve, 50));
-            await wf(turn, { command: "send", peer: "a", text: "Q-c?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "a", text: "Q-c?", awaitReply: true });
             return {};
           },
           async (turn) => {
@@ -762,7 +766,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "slow", text: "Take your time." });
+            await wfa(turn, { command: "send", peer: "slow", text: "Take your time." });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -799,7 +803,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "listener", text: "Work on this." });
+            await wfa(turn, { command: "send", peer: "listener", text: "Work on this." });
             await result(turn, { verdict: "sent" });
             return {};
           },
@@ -836,7 +840,7 @@ describe("messaging through the runner", () => {
       {
         sender: [
           async (turn) => {
-            refused = await wf(turn, { command: "send", peer: "gone", text: "Still there?" });
+            refused = await wfa(turn, { command: "send", peer: "gone", text: "Still there?" });
             await result(turn, { verdict: "done" });
             return {};
           },
@@ -863,7 +867,7 @@ describe("messaging through the runner", () => {
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "owner", text: "Why?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "owner", text: "Why?", awaitReply: true });
             asked.resolve();
             return {};
           },
@@ -880,7 +884,7 @@ describe("messaging through the runner", () => {
           async () => ({}),
           async (turn) => {
             expect(turn.prompt).toStartWith("You owe asker a reply");
-            await wf(turn, { command: "reply", peer: "asker", text: "Because." });
+            await wfa(turn, { command: "reply", peer: "asker", text: "Because." });
             await result(turn, { verdict: "done" });
             return {};
           },
@@ -907,7 +911,7 @@ describe("messaging through the runner", () => {
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "busy", text: "Q?", awaitReply: true });
+            await wfa(turn, { command: "send", peer: "busy", text: "Q?", awaitReply: true });
             await result(turn, { verdict: "found it myself" });
             return {};
           },
@@ -950,14 +954,14 @@ describe("messaging through the runner", () => {
     });
   });
 
-  test("wf waiting while an answer is awaited is acknowledged and changes nothing", async () => {
+  test("wfa waiting while an answer is awaited is acknowledged and changes nothing", async () => {
     const asked = Promise.withResolvers<void>();
     const { outcome } = await run(
       {
         asker: [
           async (turn) => {
-            await wf(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
-            const waiting = await wf(turn, {
+            await wfa(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
+            const waiting = await wfa(turn, {
               command: "waiting",
               operationId: turn.binding!.operationId,
               reason: "waiting on peer",
@@ -979,7 +983,7 @@ describe("messaging through the runner", () => {
         peer: [
           async (turn) => {
             await asked.promise;
-            await wf(turn, { command: "reply", peer: "asker", text: "A." });
+            await wfa(turn, { command: "reply", peer: "asker", text: "A." });
             return {};
           },
         ],

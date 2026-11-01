@@ -174,7 +174,7 @@ export class StageLedger {
   }
 
   /**
-   * `workflow.stop`, called in `stage` or between stages: what to throw. The first stop is kept,
+   * `wf.stop`, called in `stage` or between stages: what to throw. The first stop is kept,
    * and any later stop throws it again; once it was found caught, that instead. After the
    * workflow's body ended, a stop ends nothing.
    */

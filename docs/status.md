@@ -22,8 +22,8 @@ exists, the code is right, then this page.
   (story 027). The session waits on the run as on any command.
 - A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
   directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
-  `workflow.stage`, and `awf run {file} --id {id} --continue` reuses the stages that succeeded and runs
-  the rest, or redoes from one with `--from-stage`. `workflow.stop` ends an attempt `stopped`.
+  `wf.stage`, and `awf run {file} --id {id} --continue` reuses the stages that succeeded and runs
+  the rest, or redoes from one with `--from-stage`. `wf.stop` ends an attempt `stopped`.
 - While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
   turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Another agent watches a run from the command line (story 028): `awf run`
@@ -31,7 +31,7 @@ exists, the code is right, then this page.
   shows one in depth; `awf logs` reads its event log, `turns.jsonl`, merged with what each agent did,
   read from its own claude, codex or pi session files (cursor's cannot be read from an offset), bounded, with a cursor, `--wait`, `--follow`,
   one event `--full`, and `--json`.
-- Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
+- Each agent answers through `wfa result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema. Quiet agents receive
   recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
   the same deadline.
@@ -64,7 +64,7 @@ exists, the code is right, then this page.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session. It is the cheap smoke test for a harness and its accounting.
 - A workflow opens sandboxes and puts agents in them, shared or private, with
-  `workflow.sandboxes.open` or `sandbox` on an agent (story 004). A sandbox's agents see the paths
+  `wf.sandboxes.open` or `sandbox` on an agent (story 004). A sandbox's agents see the paths
   it names, their git directories and the provider's base (srt: the host system and toolchain
   outside the denied regions; docker: the image), and reach the domains it names plus their
   models'. They get exactly the environment variables the provider sets, and each has a fresh
@@ -72,29 +72,29 @@ exists, the code is right, then this page.
   `output.json` lists each sandbox and its agents. The providers:
   - **srt**, the default where installed: headless claude, codex and pi, and claude, codex and pi
     in panes of the run's Herdr, all verified live;
-  - **docker**: headless agents in a container, with a filtering proxy and a relay for `wf`, and
+  - **docker**: headless agents in a container, with a filtering proxy and a relay for `wfa`, and
     claude, codex and pi in panes of the box's own Herdr, all verified live.
 - A workflow names each agent's skills, `{ path }` or a public `{ repo, skill, ref? }`, and the
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
-- Agents message each other on routes a workflow grants with `workflow.messages.allow` (story
-  029): `wf peers`, `wf send` and `wf reply`, and `wf send --await-reply` to ask and wait, where M2
+- Agents message each other on routes a workflow grants with `wf.messages.allow` (story
+  029): `wfa peers`, `wfa send` and `wfa reply`, and `wfa send --await-reply` to ask and wait, where M2
   measured it: claude headless and in a pane that confirms delivery, headless codex and pi. A
   message reaches an agent between turns; one for an idle agent starts a message operation, whose
-  `cause` is in `workflow.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
+  `cause` is in `wf.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
   messages, waits and queues, and a workflow's tests script them for free.
-- A workflow connects a coordinator outside the run with `workflow.participants.connect` (story
+- A workflow connects a coordinator outside the run with `wf.participants.connect` (story
   032), and its agents report to it and ask it over routes like any peer's, a route's `timeoutMs`
   bounding a question. Whatever holds it answers: `awf run`'s terminal asks each question there;
   another session or an app reads `awf inbox` from a saved cursor and answers with `awf reply` or
   messages first with `awf send` ([`holder-cli.md`](holder-cli.md), the `awf-coordinator` skill).
   The asker waits hours if need be, in the same session; a workflow's tests script the coordinator.
 - An agent calls its workflow's code mid-turn through `tools` on `agents.open` and `fork` (story
-  035): `wf tool {name}`, with flags for a simple input and JSON for any other, and the handler's
+  035): `wfa tool {name}`, with flags for a simple input and JSON for any other, and the handler's
   answer printed back. Each call's budget is 30 s by default, its own, or none; calls settle before
   their turn ends, and `awf logs` shows each on one line. A simple result schema is taught as flags
-  on `wf result` too. Live on codex, cursor and pi, headless and in panes, and claude in a pane.
+  on `wfa result` too. Live on codex, cursor and pi, headless and in panes, and claude in a pane.
 - `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
   live on 2026-10-10, all five stages on a small ticket in a scratch repo, and a continue from
   `additional-review` reused the four before it. Its reviewers now own the revisions, asking the
@@ -155,7 +155,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   repository as accurate as the panel at a fifth of its time and list price, replaced it in
   [story 011](stories/011-compare-variants.md).
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
-  rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`); `awf run` serves `agentswf/workflow` and
+  rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, now `wfa`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
   from a clone. Left: tag v0.0.1 and run it on the operator's second machine, and reserve the
   names.
@@ -226,10 +226,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `/usage`, codex's app-server (what `/status` shows), cursor's `/usage` in a Herdr pane; pi has
   none. It names each plan and its list price from a dated table. `awf-lab run` and `loop` hold a
   run while a plan window it draws on is at `--allowance` (90%), until the window resets. A workflow
-  reads the same with `workflow.allowance(harness)` (2026-10-26).
+  reads the same with `wf.allowance(harness)` (2026-10-26).
 
 - [[021-turn-liveness-and-limits|021 — Turn liveness and limits]]: done, approved 2026-10-05.
-  An idle agent no longer ends its operation: check-ins offer `wf waiting`, and repeated
+  An idle agent no longer ends its operation: check-ins offer `wfa waiting`, and repeated
   check-ins keep one fixed deadline and result slot; an answer returns only after the native
   turn is released. Host Claude and SRT acceptance runs passed; Cursor-dependent full live
   matrices remain blocked by authentication.
@@ -266,7 +266,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   built, awaiting human review. Named timers that fire into the mailbox as `timer:due`; sources
   (timers, signals, participants, agents, turns); `race`, recorded by name; `select`, a loop beside
   `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer. A
-  select's branch can be a time read from state, `workflow.at(() => date)`, that follows the state
+  select's branch can be a time read from state, `wf.at(() => date)`, that follows the state
   as it moves (`examples/nudges`).
 
 ## Next

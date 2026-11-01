@@ -11,7 +11,7 @@ depends_on: ["037"]
 # A workflow keeps state the engine saves
 
 A workflow can keep values across a wake, a restart and a crash without writing files of its own:
-`workflow.state(name, initial)` is a durable value, read and written in the run's code, saved by
+`wf.state(name, initial)` is a durable value, read and written in the run's code, saved by
 the engine with the acks of the events that changed it.
 
 Why it matters: state lives in files today (034's Q9), so every event workflow that remembers
@@ -24,14 +24,14 @@ method has to tolerate that.
 The shape, as sketched:
 
 ```ts
-const handover = workflow.state("handover", { nextNudge: null as Date | null, nudges: 0 });
+const handover = wf.state("handover", { nextNudge: null as Date | null, nudges: 0 });
 
 handover.value.nudges;                                      // read
 handover.set((s) => { s.nudges++; s.nextNudge = next; });   // write
 
-for await (const next of workflow.select({
+for await (const next of wf.select({
   reply: engineer,
-  nudge: handover.at((s) => s.nextNudge),                   // 037's workflow.at over this state
+  nudge: handover.at((s) => s.nextNudge),                   // 037's wf.at over this state
 })) { … }
 ```
 
@@ -41,7 +41,7 @@ for await (const next of workflow.select({
 - **Saved with the acks.** In a loop, when it asks for the next event: the state and the acks of
   the events that changed it go in one mailbox write, so after a crash both happened or neither.
   In straight-line code, at the next stage or wait.
-- **A source of times.** `handle.at(selector)` is 037's `workflow.at(() => selector(handle.value))`.
+- **A source of times.** `handle.at(selector)` is 037's `wf.at(() => selector(handle.value))`.
 - **A stage never writes state.** Its value is returned and set outside it: a stage reused after a
   crash doesn't run, so a write inside it would be lost with the unsaved state.
 
@@ -60,7 +60,7 @@ Notes:
   engine owning the loop and reconciling timers and work by key. It reads well on paper and asks
   too much of an author: four handlers, to-do flags in the state, and effects that can't see the
   events behind them. This story keeps today's loop and adds only the state.
-- **Not here:** work running while events arrive (a keyed `workflow.work`), which the reconciled
+- **Not here:** work running while events arrive (a keyed `wf.work`), which the reconciled
   model had and review-loop3's review would use; a story of its own when a workflow needs it.
 - [[timers-waits-and-state]] has how Elm, Vue, Svelte, Zustand, Restate and Akka keep and save
   state.

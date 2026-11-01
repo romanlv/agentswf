@@ -67,7 +67,7 @@ describe.skipIf(!provider)("docker on this machine", () => {
     await writeFile(join(outside, "canary.txt"), "canary-outside");
     await mkdir(runRoot, { recursive: true });
     await mkdir(join(root, "door"), { recursive: true });
-    await writeFile(join(root, "door", "wf.js"), "console.log('bundle')\n");
+    await writeFile(join(root, "door", "wfa.js"), "console.log('bundle')\n");
     const { sandbox } = await resolveSandbox(
       { write: ["out"], network: ["registry.npmjs.org"], docker: {} },
       {
@@ -92,9 +92,9 @@ describe.skipIf(!provider)("docker on this machine", () => {
       home: join(directory, "homes", "a1"),
       door: {
         endpoint: join(root, "none.sock"),
-        launcher: join(root, "door", "wf"),
+        launcher: join(root, "door", "wfa"),
         boxScript: "#!/bin/sh\necho door\n",
-        bundle: join(root, "door", "wf.js"),
+        bundle: join(root, "door", "wfa.js"),
         reads: [],
       },
       harness: {
@@ -187,9 +187,9 @@ describe.skipIf(!provider)("docker on this machine", () => {
       home,
       door: {
         endpoint: join(root, "none-p1.sock"),
-        launcher: join(root, "door-p1", "wf"),
+        launcher: join(root, "door-p1", "wfa"),
         boxScript: "#!/bin/sh\necho door\n",
-        bundle: join(root, "door", "wf.js"),
+        bundle: join(root, "door", "wfa.js"),
         reads: [],
       },
       harness: {
@@ -266,7 +266,7 @@ describe.skipIf(!provider)("docker on this machine", () => {
 
   test("doors: the launcher's directory is root's, and neither launcher nor bundle is writable", async () => {
     const { stdout } = await sh(
-      `stat -c %U '${join(root, "door")}'; echo x > '${join(root, "door", "wf")}' 2>/dev/null || echo launcher-denied; echo x > '${join(root, "door", "wf.js")}' 2>/dev/null || echo bundle-denied; '${join(root, "door", "wf")}'`,
+      `stat -c %U '${join(root, "door")}'; echo x > '${join(root, "door", "wfa")}' 2>/dev/null || echo launcher-denied; echo x > '${join(root, "door", "wfa.js")}' 2>/dev/null || echo bundle-denied; '${join(root, "door", "wfa")}'`,
     );
     expect(stdout).toContain("root");
     expect(stdout).toContain("launcher-denied");

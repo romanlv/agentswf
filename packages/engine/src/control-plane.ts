@@ -21,7 +21,7 @@ export type MessagingHandler = Pick<
   "checkFinish" | "peers" | "send" | "reply" | "owing"
 >;
 
-/** `wf` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
+/** `wfa` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
 const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;
 const MAX_CONTROL_CONNECTIONS = 64;
 const CONNECTION_TIMEOUT_SECONDS = 30;

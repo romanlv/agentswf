@@ -204,7 +204,7 @@ export type RunWorkflowOptions = {
   livenessPolicy?: LivenessPolicy;
   /** A `keepAlive` window that gives no `timeoutMs`; absent, an hour. A test's is short. */
   defaultWindowMs?: number;
-  /** The run's time, which its timers and `workflow.now()` read; absent, the clock's. A test's is virtual. */
+  /** The run's time, which its timers and `wf.now()` read; absent, the clock's. A test's is virtual. */
   now?: () => number;
   runRoot: string;
   /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
@@ -253,7 +253,7 @@ export type RunWorkflowOptions = {
   skillCache?: string;
   /** The decision models workflows may ask; without them, `decisions.decide` is refused. */
   decisions?: DecisionInstallation;
-  /** How `workflow.allowance` reads a harness's plan; without it, every harness reads `none`. */
+  /** How `wf.allowance` reads a harness's plan; without it, every harness reads `none`. */
   allowance?: (harness: Harness) => Promise<HarnessAllowance>;
   /**
    * Where an agent may `--await-reply`: the engine's list by harness and placement unless given. A
@@ -267,7 +267,7 @@ export type RunWorkflowOptions = {
    */
   coordinators?: readonly CoordinatorPort[];
   /**
-   * Sends `workflow.emit`'s event through the one way in; absent, `emitEvent` on this machine. A
+   * Sends `wf.emit`'s event through the one way in; absent, `emitEvent` on this machine. A
    * test records them instead.
    */
   emit?: Emitter;
@@ -891,7 +891,7 @@ class WorkflowOwner {
   readonly #inFlight = new Set<Promise<unknown>>();
   #closed = false;
   #closing: Promise<unknown[]> | undefined;
-  /** The bundled `wf`'s source, built once, at the first sandboxed agent. */
+  /** The bundled `wfa`'s source, built once, at the first sandboxed agent. */
   #bundle: Promise<string> | undefined;
   /** The calling session, once the workflow has asked for it (ADR 0010). */
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
@@ -957,7 +957,7 @@ class WorkflowOwner {
         if (!agent || agent.hasStartedTurn) return false;
         return options.awaitReply(agent.execution, agent.confirmsDelivery);
       },
-      launcher: (key) => this.#logical.get(key)?.launcher ?? "wf",
+      launcher: (key) => this.#logical.get(key)?.launcher ?? "wfa",
       changed: (key) => {
         this.#messagesChanged();
         this.#logical.get(key)?.messagesChanged();
@@ -1142,7 +1142,7 @@ class WorkflowOwner {
       },
       log: (message, fields) => options.log(message, fields),
       now: () => {
-        this.#notReading("workflow.now()");
+        this.#notReading("wf.now()");
         return new Date(options.now());
       },
       sleep: async (name, when) => {
@@ -1168,10 +1168,10 @@ class WorkflowOwner {
             timers: () => source({}, { name: "timer:due" }),
             at: (read: () => Date | null) => timeRead(read),
             after: (duration: Duration) => {
-              this.#notReading("workflow.after()");
+              this.#notReading("wf.after()");
               if (typeof duration !== "string" || !/^\d+(?:\.\d+)?[dhm]$/.test(duration))
                 throw new Error(
-                  `workflow.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
+                  `wf.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
                 );
               return new Date(parseWhen(duration, options.now()).due);
             },
@@ -1189,7 +1189,7 @@ class WorkflowOwner {
   #notReading(what: string): void {
     if (this.#reading)
       throw new Error(
-        `${what} in workflow.at's read: a time made at the read moves with every wait and never comes due; keep the time in the run's state where it is set`,
+        `${what} in wf.at's read: a time made at the read moves with every wait and never comes due; keep the time in the run's state where it is set`,
       );
   }
 
@@ -1205,7 +1205,7 @@ class WorkflowOwner {
     if (value === null) return undefined;
     if (!(value instanceof Date) || !Number.isFinite(value.getTime()))
       throw new Error(
-        `select's ${branch}: workflow.at reads a valid Date or null from the run's state, not ${
+        `select's ${branch}: wf.at reads a valid Date or null from the run's state, not ${
           value instanceof Date ? "an invalid Date" : (JSON.stringify(value) ?? String(value))
         }`,
       );
@@ -3607,7 +3607,7 @@ class LogicalAgent implements AgentRef {
     const recoveryPrompt =
       nudge?.prompt ??
       (waitingSupported
-        ? "Report the result now, or use wf waiting with a reason if you still need time."
+        ? "Report the result now, or use wfa waiting with a reason if you still need time."
         : "You finished without reporting the requested result. Report it now.");
     // The first prompt carries only the result command; waiting is rare, so it is offered only
     // once a check-in finds the agent idle without an answer.
@@ -4156,7 +4156,7 @@ function checkedWhen(when: unknown): string | Date {
   if (when instanceof Date || typeof when === "string") return when;
   if (readOf(when))
     throw new Error(
-      "sleep is for a duration or a Date; workflow.at() is a select's branch, read at each of its waits",
+      "sleep is for a duration or a Date; wf.at() is a select's branch, read at each of its waits",
     );
   throw new Error('sleep is for a duration, "2h", or until a Date');
 }
@@ -4176,18 +4176,18 @@ function branchesOf(what: string, branches: unknown, durations: boolean): [strin
   if ("key" in branches) throw new Error(`${what}: no branch is named key, which the answer uses`);
   for (const [branch, source] of entries)
     if (typeof source === "string" && !durations)
-      throw new Error(`${what}'s ${branch} is a duration: a timer in a loop is workflow.timer()'s`);
+      throw new Error(`${what}'s ${branch} is a duration: a timer in a loop is wf.timer()'s`);
   return entries;
 }
 
 /** What a time read from state reads, by its source. */
 const timeReads = new WeakMap<object, () => Date | null>();
 
-/** `workflow.at(read)`: a select's branch, due at the time `read` returns. */
+/** `wf.at(read)`: a select's branch, due at the time `read` returns. */
 function timeRead(read: () => Date | null): TimeRead {
   if (typeof read !== "function")
     throw new Error(
-      "workflow.at takes a function that reads a Date or null from the run's state, as () => ledger.nextNudge()",
+      "wf.at takes a function that reads a Date or null from the run's state, as () => ledger.nextNudge()",
     );
   const value = Object.freeze({});
   timeReads.set(value, read);
@@ -4205,7 +4205,7 @@ function sourceTake(what: string, branch: string, source: unknown): WaitTake {
   if (take) return take;
   if (readOf(source))
     throw new Error(
-      `${what}'s ${branch} is workflow.at(), a select's: a race answers once, so it takes a timer, workflow.timer(name, date)`,
+      `${what}'s ${branch} is wf.at(), a select's: a race answers once, so it takes a timer, wf.timer(name, date)`,
     );
   throw new Error(
     `${what}'s ${branch} is not a source: a timer, a signal, a participant routed to the code, an agent, or a started turn`,
@@ -4576,7 +4576,7 @@ function operationPrompt(
   // A quoted heredoc passes the JSON through untouched: a quoted argument broke on shell quoting
   // (story 002). Not indented: a copied terminator with leading spaces never closes the heredoc.
   // The schema itself, not a rendering of it: without its bounds, first answers were 0/160 valid
-  // (E5). `wf` says what to do about a rejection, so the prompt does not. A simple schema is taught
+  // (E5). `wfa` says what to do about a rejection, so the prompt does not. A simple schema is taught
   // as flags instead, its usage line carrying every bound, which held them as well (story 035, M1).
   const simple = simpleInput(schema);
   if (simple) {

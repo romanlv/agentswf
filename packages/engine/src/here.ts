@@ -198,7 +198,7 @@ function passedSession(
 }
 
 /**
- * What lets a sandboxed session reach Herdr's socket, which `--here` and every `wf` call need: its
+ * What lets a sandboxed session reach Herdr's socket, which `--here` and every `wfa` call need: its
  * harness's own advice, for the harness whose session variable this shell has.
  */
 function sandboxFix(env: Readonly<Record<string, string | undefined>>): string {

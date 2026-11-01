@@ -34,7 +34,7 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
 - **Launch and resume.** The headless command, its output format, where the session id is printed,
   and a resume that keeps the context. Whether it takes a session id we choose.
 - **Its session in the agent's shell.** The variable it sets for commands it runs (`sessionEnv`),
-  which `wf` reports back; and what else it sets (`callingSessionEnv`).
+  which `wfa` reports back; and what else it sets (`callingSessionEnv`).
 - **Usage.** Where it logs each request's tokens and cache reads, whether a resumed or forked
   session's log repeats its parent's, and whether its subagents log apart. A dollar figure, if it
   prints one, per turn (`readCharge`) or as a running total (`readCostTotal`). Then its models in

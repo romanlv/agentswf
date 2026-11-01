@@ -25,20 +25,19 @@ export default defineWorkflow({
   file: import.meta.path,
   events: { "doc.submitted": Submitted },
   starts: ["doc.submitted"],
-  async run(workflow) {
-    const submitted = workflow.started;
-    if (submitted?.name !== "doc.submitted")
-      return workflow.stop("started by hand: send doc.submitted");
+  async run(wf) {
+    const submitted = wf.started;
+    if (submitted?.name !== "doc.submitted") return wf.stop("started by hand: send doc.submitted");
     const { doc, remindEvery, expiresIn } = submitted.data;
-    const approvals = await workflow.participants.connect({ key: "approvals", to: "code" });
-    await workflow.stage("ask", () => approvals.post(`Please approve ${doc}.`));
-    const writer = await workflow.agents.open({
+    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    await wf.stage("ask", () => approvals.post(`Please approve ${doc}.`));
+    const writer = await wf.agents.open({
       key: "writer",
       runtime: { harness: "codex", model: "gpt-6-luna", effort: "low", placement: "headless" },
     });
-    const expiry = workflow.timer("doc-expires", expiresIn as Duration);
+    const expiry = wf.timer("doc-expires", expiresIn as Duration);
     for (let round = 1; ; round++) {
-      const next = await workflow.race(
+      const next = await wf.race(
         `approval-${round}`,
         { reply: approvals, remind: remindEvery as Duration, expiry },
         { label: `awaiting approval of ${doc}, round ${round}` },
@@ -48,7 +47,7 @@ export default defineWorkflow({
       if (next.reply && /^approved\b/i.test(next.reply.text.trim()))
         return { doc, ended: "approved", round, by: next.reply.author ?? null };
       if (next.remind)
-        await workflow.stage(`remind-${round}`, async () => {
+        await wf.stage(`remind-${round}`, async () => {
           const drafted = await writer.run({
             prompt: `Write one short, polite sentence reminding the approver that ${doc} still awaits approval. This is reminder ${round}.`,
             schema: Reminder,

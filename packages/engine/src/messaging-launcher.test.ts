@@ -13,7 +13,7 @@ afterAll(() => runDirs.cleanup());
  * The chain an agent walks for messaging: the launcher's path from its prompt, a heredoc typed in a
  * shell, the real control plane and the run's messaging behind it.
  */
-test("wf peers, send and reply through the launcher an agent is told to run", async () => {
+test("wfa peers, send and reply through the launcher an agent is told to run", async () => {
   const runDir = runDirs.tempRunDir();
   const control = await startResultControlPlane({
     slots: createResultSlotRegistry({ runDir }),
@@ -85,7 +85,7 @@ test("wf peers, send and reply through the launcher an agent is told to run", as
     ).toEqual({
       exitCode: 0,
       stdout: [
-        "wf: sent to implementer. Its reply starts your next turn (deadline 14:30 UTC, in 30m).",
+        "wfa: sent to implementer. Its reply starts your next turn (deadline 14:30 UTC, in 30m).",
         "Go on with work that does not need the answer, then end your turn with one line saying what you await; do not poll or sleep.",
         `If you find the answer first, or decide not to wait, finish with ${reviewer} result op-reviewer; the wait is dropped.`,
       ].join("\n"),
@@ -129,18 +129,18 @@ test("wf peers, send and reply through the launcher an agent is told to run", as
     });
     expect(await sh(`echo 'A miss falls through.' | ${implementer} reply reviewer`)).toEqual({
       exitCode: 0,
-      stdout: "wf: replied to reviewer.",
+      stdout: "wfa: replied to reviewer.",
       stderr: "",
     });
     expect(await sh(`${implementer} reply reviewer 'Also this.'`)).toEqual({
       exitCode: 1,
       stdout: "",
-      stderr: `wf: reply refused (none-owed): you owe reviewer nothing. Send it with ${implementer} send reviewer.`,
+      stderr: `wfa: reply refused (none-owed): you owe reviewer nothing. Send it with ${implementer} send reviewer.`,
     });
     expect(await sh(`${reviewer} send nobody hi`)).toEqual({
       exitCode: 1,
       stdout: "",
-      stderr: `wf: send refused (no-route): no route to nobody. Your routes: ${reviewer} peers`,
+      stderr: `wfa: send refused (no-route): no route to nobody. Your routes: ${reviewer} peers`,
     });
     // Usage names the launcher by its full path, as the agent must type it.
     expect((await sh(`${reviewer} send`)).stderr).toContain(`${reviewer} reply [--await-reply`);
@@ -185,7 +185,7 @@ test("the design's acknowledgements and refusals, as an agent's launcher prints 
     messaging.grant({ between: ["asker", "peer"] }, { purpose: "Talk.", scope: messaging.attempt });
     messaging.grant({ from: "solo", to: "peer" }, { purpose: "Notes.", scope: messaging.attempt });
     messaging.grant({ from: "late", to: "peer" }, { purpose: "Plan.", scope: plan });
-    const wf = (key: (typeof keys)[number]) => launchers.get(key)!;
+    const wfa = (key: (typeof keys)[number]) => launchers.get(key)!;
     const sh = async (script: string) => {
       const child = Bun.spawn(["/bin/sh", "-c", script], {
         env: {},
@@ -202,34 +202,34 @@ test("the design's acknowledgements and refusals, as an agent's launcher prints 
 
     const rows: [string, number, string][] = [
       [
-        `${wf("solo")} send peer 'A note.'`,
+        `${wfa("solo")} send peer 'A note.'`,
         0,
-        "wf: sent to peer; it reads this when its current turn ends.",
+        "wfa: sent to peer; it reads this when its current turn ends.",
       ],
       [
-        `${wf("solo")} send --await-reply peer 'Why?'`,
+        `${wfa("solo")} send --await-reply peer 'Why?'`,
         1,
-        "wf: send refused (unsupported): this agent cannot await a reply here. Send without --await-reply and say where the answer should go, such as a file.",
+        "wfa: send refused (unsupported): this agent cannot await a reply here. Send without --await-reply and say where the answer should go, such as a file.",
       ],
       [
-        `${wf("asker")} send --await-reply peer 'Q?'`,
+        `${wfa("asker")} send --await-reply peer 'Q?'`,
         0,
-        "wf: sent to peer. Its reply starts your next turn",
+        "wfa: sent to peer. Its reply starts your next turn",
       ],
       [
-        `${wf("asker")} waiting op-asker --reason 'peer is checking'`,
+        `${wfa("asker")} waiting op-asker --reason 'peer is checking'`,
         0,
-        `wf: you already await peer's reply, until 14:30 UTC, in 30m. End your turn, or finish with ${wf("asker")} result op-asker.`,
+        `wfa: you already await peer's reply, until 14:30 UTC, in 30m. End your turn, or finish with ${wfa("asker")} result op-asker.`,
       ],
       [
-        `${wf("asker")} peers`,
+        `${wfa("asker")} peers`,
         0,
         "You await peer's reply, until 14:30 UTC, in 30m; checking again does not speed it.",
       ],
       [
-        `${wf("asker")} send --await-reply peer 'Again?'`,
+        `${wfa("asker")} send --await-reply peer 'Again?'`,
         1,
-        "wf: send refused (awaiting): you already await peer. End your turn, or send without --await-reply.",
+        "wfa: send refused (awaiting): you already await peer. End your turn, or send without --await-reply.",
       ],
     ];
     for (const [script, exitCode, line] of rows) {
@@ -238,9 +238,9 @@ test("the design's acknowledgements and refusals, as an agent's launcher prints 
       expect(outcome.out.split("\n")[0]).toStartWith(line);
     }
     messaging.finishing(plan);
-    expect(await sh(`${wf("late")} send peer 'One more.'`)).toEqual({
+    expect(await sh(`${wfa("late")} send peer 'One more.'`)).toEqual({
       exitCode: 1,
-      out: "wf: send refused (closed): stage plan is finishing; it takes no new messages. Say so in your result.",
+      out: "wfa: send refused (closed): stage plan is finishing; it takes no new messages. Say so in your result.",
     });
   } finally {
     await control.close();

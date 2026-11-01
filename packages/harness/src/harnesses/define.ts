@@ -174,7 +174,7 @@ export type HarnessSpec = {
   /**
    * Every session in a harness home the agent had alone, as `readSessionUsage` takes them: a
    * sandboxed agent's own home holds nothing else, and a pane's harness names its session to
-   * nobody when it never calls `wf` (story 004, "Panes").
+   * nobody when it never calls `wfa` (story 004, "Panes").
    */
   homeSessions?(home: string): Promise<string[]>;
   /**
@@ -227,7 +227,7 @@ export type HarnessSpec = {
     ended?(screen: string, before: string): boolean;
   };
   /**
-   * How to let its sandbox reach local sockets, which `awf run --here` and every `wf` call need,
+   * How to let its sandbox reach local sockets, which `awf run --here` and every `wfa` call need,
    * where its default sandbox does not (E8).
    */
   localSockets?: string;

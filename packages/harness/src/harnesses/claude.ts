@@ -21,7 +21,7 @@ import {
 import { claudeLogin } from "./login";
 import { after, lastJson, resuming } from "./shared";
 
-/** `Bash` has to be allowed or the agent cannot run `wf` at all. */
+/** `Bash` has to be allowed or the agent cannot run `wfa` at all. */
 function claudeInteractive(
   settings: LaunchSettings = {},
   launchArgs: readonly string[] = [],
@@ -85,7 +85,7 @@ const CLAUDE = {
   // Sonnet declined about one in eight pasted prompts alone, none of 36 with this typed before.
   promptLead: "Do what the pasted text below asks. ",
   login: claudeLogin,
-  // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
+  // `Bash` has to be allowed or the agent cannot run `wfa` at all, which would measure the
   // permission prompt rather than the return channel.
   interactive: claudeInteractive,
   interactiveResume: (sessionId, settings, launchArgs) =>

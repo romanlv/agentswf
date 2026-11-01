@@ -107,7 +107,7 @@ export async function keepRecords(
     const unacknowledged =
       ending.kind === "completed" && attempt.run.record.events
         ? await readMailbox(dir).then(
-            // The event that started the run is `workflow.started`'s, taken or not.
+            // The event that started the run is `wf.started`'s, taken or not.
             (records) => {
               const state = foldMailbox(records);
               return state.unacknowledged.filter((id) => id !== state.started?.id).length;

@@ -141,7 +141,7 @@ function openSandbox(
         HOME: options.home,
         PATH: [...options.path, ...SYSTEM_PATH].join(":"),
         CLAUDE_CODE_TMPDIR: temp,
-        // The `wf result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file. zsh
+        // The `wfa result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file. zsh
         // writes it under `TMPPREFIX`, `/tmp/zsh` by default, which is denied; macOS's bash 3.2
         // writes it in `/var/tmp` whatever `TMPDIR` says, which is denied too (X22). So the
         // harnesses' shell is zsh, its heredocs in the sandbox's temp.

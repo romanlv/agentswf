@@ -34,23 +34,20 @@ import {
 import { ADDITIONAL, type FeatureArgs, type Handoff, REVIEWED, WORK } from "./schema";
 import { openTeam } from "./team";
 
-async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
+async function deliverFeature(wf: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
   const { ticket } = args;
-  const team = await openTeam(workflow, args);
+  const team = await openTeam(wf, args);
   const { planner, reviewer } = team;
-  const reviewUntilApproved = reviewLoop(workflow, reviewer, args.maxRevisions);
+  const reviewUntilApproved = reviewLoop(wf, reviewer, args.maxRevisions);
 
-  const plan = await workflow.stage(
-    "ticket-doc",
-    { result: WORK, summary: (work) => work.docPath },
-    () =>
-      planner.ask(WORK, {
-        label: "Create ticket doc",
-        prompt: md`Create an implementation-ready ticket doc for ${ticket}.`,
-      }),
+  const plan = await wf.stage("ticket-doc", { result: WORK, summary: (work) => work.docPath }, () =>
+    planner.ask(WORK, {
+      label: "Create ticket doc",
+      prompt: md`Create an implementation-ready ticket doc for ${ticket}.`,
+    }),
   );
 
-  const approvedPlan = await workflow.stage(
+  const approvedPlan = await wf.stage(
     "doc-review",
     { result: REVIEWED, summary: (review) => review.summary },
     () => reviewUntilApproved(planner, plan, ticketDoc(ticket)),
@@ -58,7 +55,7 @@ async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Pro
   const { docPath } = approvedPlan.work;
 
   const implementer = await team.implementer();
-  const built = await workflow.stage(
+  const built = await wf.stage(
     "implementation",
     { result: WORK, summary: (work) => work.summary },
     () =>
@@ -71,18 +68,18 @@ async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Pro
       }),
   );
 
-  const approvedBuild = await workflow.stage(
+  const approvedBuild = await wf.stage(
     "implementation-review",
     { result: REVIEWED, summary: (review) => review.summary },
     () => reviewUntilApproved(implementer, built, implementation(ticket)),
   );
 
-  const { final, additional } = await workflow.stage(
+  const { final, additional } = await wf.stage(
     "additional-review",
     { result: ADDITIONAL, summary: ({ additional }) => tally(additional) },
     async () => {
       const additional = await additionalReviews(
-        workflow,
+        wf,
         args,
         team.additionalReviewer,
         approvedBuild.work,

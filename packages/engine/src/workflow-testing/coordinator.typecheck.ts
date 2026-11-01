@@ -11,13 +11,13 @@ declare const runtime: string;
 
 const investigate: WorkflowDefinition<null, string> = {
   meta: { name: "investigate", description: "watches checkout-api" },
-  async run(workflow: WorkflowContext) {
-    const investigator = await workflow.agents.open({ key: "investigator", runtime });
-    const coordinator: ParticipantRef = await workflow.participants.connect({
+  async run(wf: WorkflowContext) {
+    const investigator = await wf.agents.open({ key: "investigator", runtime });
+    const coordinator: ParticipantRef = await wf.participants.connect({
       key: "coordinator",
       labels: { audience: "operator" },
     });
-    await workflow.messages.allow({
+    await wf.messages.allow({
       between: [investigator, coordinator],
       purpose: "report findings that hold up; ask when the logs can't settle it",
       timeoutMs: 2 * 60 * 60_000,
@@ -25,7 +25,7 @@ const investigate: WorkflowDefinition<null, string> = {
     const { outcome } = await investigator.run({ prompt: "Check the checkout-api logs." });
     await coordinator.release("investigation done");
     // A run has no deadline unless `awf run --timeout` gives it one.
-    const left = workflow.deadline ? workflow.deadline.unixMilliseconds - Date.now() : undefined;
+    const left = wf.deadline ? wf.deadline.unixMilliseconds - Date.now() : undefined;
     return isAnswered(outcome) ? `${outcome.value} (${left ?? "no"} ms left)` : outcome.kind;
   },
 };
@@ -49,7 +49,7 @@ export const sendsFirst: ParticipantScript = async (event) => {
   if (sent.code !== "delivered") throw new Error(sent.code);
 };
 
-export async function refused(workflow: WorkflowContext): Promise<void> {
+export async function refused(wf: WorkflowContext): Promise<void> {
   // @ts-expect-error bindingPath is gone: the socket's place is fixed.
-  await workflow.participants.connect({ key: "coordinator", bindingPath: "/tmp/x" });
+  await wf.participants.connect({ key: "coordinator", bindingPath: "/tmp/x" });
 }
