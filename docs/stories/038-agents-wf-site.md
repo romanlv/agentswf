@@ -78,10 +78,12 @@ In scope:
   main, whose header names the released version.
 - The site map below, written from the README, `docs/workflow-api.md`, `docs/holder-cli.md`,
   `docs/status.md` and the examples.
-- `docs/workflow-api.md` moves to `site/reference/workflow-api.md`, and `docs/holder-cli.md` into
-  `/guide/people`; links to them in `docs/` and the README point at their new home. The old
-  `workflow-api.md` path keeps one line pointing at the site, for folders `awf init` already set
-  up.
+- Reorganizing the existing docs so each user-facing fact has one home: `docs/workflow-api.md`
+  moves to `site/reference/workflow-api.md`, its testing section to `/reference/testing-api`, and
+  `docs/holder-cli.md` into `/guide/people`; links to them in `docs/`, `examples/README.md` and the
+  README point at their new home. The old `workflow-api.md` path keeps one line pointing at the
+  site, for folders `awf init` already set up. `examples/README.md` becomes an index whose guide
+  prose moves to the site.
 - Agent support: `{page}.md`, `/llms.txt`, `/llms-full.txt`, and a pointer from `awf init`'s
   `AGENTS.md` template.
 - A CI job that builds `site/` and deploys it to Cloudflare at agents.wf on every push to main.
@@ -196,12 +198,15 @@ Read from each site's `llms.txt` (Hono, Vitest, Elysia, Herdr, Mastra, Trigger.d
   writing rules, the pages.
 - `biome.json` — `!site` in `files.includes`.
 - `README.md` — keeps its own purpose; only its three links to `docs/workflow-api.md` change.
-- `docs/workflow-api.md` — moves (`git mv`) to `site/reference/workflow-api.md`; the old path
-  keeps one line pointing at the site.
+- `docs/workflow-api.md` — moves (`git mv`) to `site/reference/workflow-api.md`, its "Testing a
+  workflow" section to `site/reference/testing-api.md`; the old path keeps one line pointing at
+  the site.
 - `docs/holder-cli.md` — moves into `site/guide/people.md` and is deleted.
-- `tests/workflow-api-samples.test.ts` — reads the page at its new path.
-- `docs/status.md`, `docs/testing.md`, `docs/adding-a-harness.md`, `docs/design/messaging.md` —
-  links to the moved files point at their site pages.
+- `tests/workflow-api-samples.test.ts` — reads both pages at their new paths.
+- `docs/status.md`, `docs/testing.md`, `docs/adding-a-harness.md`, `docs/design/messaging.md`,
+  `examples/README.md` — links to the moved files point at their new home.
+- `examples/README.md` — becomes the examples' index: what each shows and the page that explains
+  it; its guide prose (run deadline, default nudge) is replaced by links.
 - `examples/` — stay as they are, for running from a clone. The Patterns pages link them, and
   page samples are imported from checked `.ts` files here or in a snippets folder (M3).
 - `packages/*/package.json` — `homepage: https://agents.wf`.
@@ -373,7 +378,7 @@ runnable, tested example
 Reference
   /reference/workflow-api   every call, its options and defaults; one page, an anchor per call
                             (docs/workflow-api.md, moved here)
-  /reference/testing-api    agentswf/testing
+  /reference/testing-api    agentswf/testing (the API page's "Testing a workflow", moved here)
   /reference/awf            every awf command, options, exit codes, from its help file
   /reference/data           where awf keeps what: .awf/runs and a run's record (output.json,
                             events), ~/.awf (projects, coordinator), what is safe to delete
@@ -450,10 +455,24 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [ ] 1. `site/` builds locally with VitePress, standalone, with the version in its header
-- [ ] 2. The landing page, Get started, Build with AI and Learn are written
-- [ ] 3. In depth, Running, Patterns and Reference are written; the user docs move into `site/`
-- [ ] 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`
-- [ ] 5. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
+- [ ] 2. The existing docs are reorganized: the user docs and each command's help move into their
+  one home, and every link follows
+- [ ] 3. The landing page and Get started are written
+- [ ] 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`;
+  Build with AI is written
+- [ ] 5. Learn: agents — agents, harnesses, sandboxes, tools
+- [ ] 6. Learn: workflows — workflows, parallel, loops, deadlines, messaging, decisions, testing
+- [ ] 7. Learn: runs — runs, durability, following runs
+- [ ] 8. In depth — events, people, hosting events, calling session
+- [ ] 9. Running — cost, security, troubleshooting
+- [ ] 10. Patterns — review loop, plan-implement, review on event; the examples' README follows
+- [ ] 11. Reference — workflow API edited for the site, testing API, awf, data, configuration
+- [ ] 12. The whole site is reviewed locally for content and UX, with the operator, before it is
+  public
+- [ ] 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
+
+Nothing is public until task 13: the site is built and read locally first, so content and UX are
+settled before agents.wf, npm's `homepage` and `awf init`'s template point at it.
 
 ## Open questions
 
@@ -475,7 +494,8 @@ Settled 2026-10-31 and 2026-11-01:
 - Q8. The site documents no skill: no new one for writing workflows, and not the two in
   `packages/engine/skills/`.
 - Q9. The site deploys on a push to main, so docs evolve on their own; the header names the
-  released version. It goes live with the pages written so far.
+  released version. It goes live once, after the whole site is read and approved locally
+  (2026-11-01); deploying is the last task.
 - Q10. One release line, beta, and the header names its version. Docs for other lines (a
   `beta.agents.wf`) wait for a stable release.
 - Q11. This story writes the landing page's content on VitePress's home layout (above); its
@@ -522,7 +542,9 @@ Work:
 - `site/package.json` (private, not a workspace), `bun.lock`, `.vitepress/config.ts` with the
   default theme, title, nav with the version, sidebar, local search, `lastUpdated` and
   `editLink`; `site/.gitignore` for `dist` and `cache`.
-- One sample imported with `<<<` from a checked `.ts` file (M3).
+- `site/AGENTS.md` with the writing rules and the guide page's shape from Proposed design.
+- One sample imported with `<<<` from a checked `.ts` file (M3), and one help file included from
+  outside `site/` (M5).
 - `!site` in `biome.json`; `site/` in AGENTS.md's table with how to build it.
 
 Done when:
@@ -530,60 +552,78 @@ Done when:
 - The build passes and fails on a deliberately dead link.
 - Root `bun install` leaves `bun.lock` unchanged; `bun run check` passes.
 
-### 2. The landing page, Get started, Build with AI and Learn are written
+### 2. The existing docs are reorganized: the user docs and each command's help move into their one home, and every link follows
 
-Outcome: a newcomer can go from the landing page through install and the quick start to any
-Learn page, and from each to its reference.
+Outcome: every user-facing fact that will be on the site has one home before any page is
+written, so no page is written from a copy that then drifts. `docs/` holds only what is for
+developing awf.
 
-Execution: the template's steps, a section at a time. Each section's review is two fresh agents
-with different lenses: one checks every claim and option against the code, not only the old
-docs; one reads as a newcomer who has never seen awf and marks every place it had to guess, every
-word used before it was explained, and every page it couldn't finish. Their findings are fixed
-before the next section.
+Execution: the template's steps. Content is moved, not rewritten: the edit for the site happens
+in the task that owns the page (8 for people, 11 for the API page).
 
 Work:
 
-- The pages in the site map's first five groups, each in the guide page's shape, from the
-  README, `docs/workflow-api.md`, the examples and `docs/status.md`.
-- Samples as checked `.ts` files, imported.
+- `git mv docs/workflow-api.md site/reference/workflow-api.md`. Its "Testing a workflow" section
+  moves to `site/reference/testing-api.md`: it documents `agentswf/testing`, its own import. The
+  old path keeps one line pointing at the new file on GitHub, for folders `awf init` already set
+  up. `tests/workflow-api-samples.test.ts` reads both pages.
+- `git mv docs/holder-cli.md site/guide/people.md`, as is; task 9 writes the page around it.
+- Each command's help, `emitUsage` and the ten more in `packages/engine/src/*-command.ts`,
+  moves to `packages/engine/src/help/{command}.txt`, imported as text; `commands.ts` and its tests
+  read the same strings.
+- Links to the moved files follow, as repository paths so they work in a clone and on GitHub:
+  the README's three, `docs/status.md`, `docs/testing.md`, `docs/adding-a-harness.md`,
+  `docs/design/messaging.md`, `examples/README.md`, and the moved files' links to each other. The
+  moved files' links into `docs/` and the repository become full GitHub URLs, per the writing
+  rules. Mentions in `docs/design/pane-layout.md`, `docs/research/` and the stories
+  are history and stay.
+- `docs/status.md` keeps "What runs today" and "Known gaps": they are the state of development,
+  which Limits links; the site's pages say what a user can do, not what changed when.
 
 Done when:
 
-- The build passes; `/guide/durability` is checked against the code, not only
-  `docs/design/runs-and-stages.md`; every `awf` refusal named on `/guide/troubleshooting` is one
-  the code prints.
-- The quick start, followed word for word in an empty directory with `agentswf@beta` from npm,
-  ends with the result it shows, in the time it claims.
+- `grep` finds no link to `docs/workflow-api.md` or `holder-cli.md` outside stories, research and
+  design history; the samples test passes on both pages; `awf {command} -h` and
+  `awf help reference` print exactly what they did and the help tests pass unchanged;
+  `bun run check` and the site build pass.
 
-### 3. In depth, Running, Patterns and Reference are written; the user docs move into `site/`
+### Writing a section: tasks 3, 4's `/ai/`, and 5–11
 
-Outcome: every page in the site map exists.
+Each writing task lists its pages and what each is written from. The sources are inputs, not
+copies: a page says what a user needs, in the site's words, and is checked against the code,
+because the design docs describe intent and may be behind it. Every page is in the guide page's
+shape, has a `description`, and its samples are checked `.ts` files, imported.
 
-Execution: the template's steps, with task 2's two reviews. A pattern's cost and time come from
-a recorded run of its example; where none exists, the task stops and asks the operator before a
-live run, which spends their login.
+Execution: the template's steps, a section at a time. Its review is two fresh agents with
+different lenses: one checks every claim and option against the code; one reads as a newcomer who
+has never seen awf and marks every place it had to guess, every word used before it was
+explained, and every page it couldn't finish. Their findings are fixed before the section is
+committed.
 
-Work:
+Every writing task is done when the build passes, both reviews have no open finding, and the
+sidebar shows the section's pages.
 
-- The pages, from `docs/holder-cli.md`, `docs/status.md` and the examples' recorded runs.
-- `git mv docs/workflow-api.md site/reference/workflow-api.md`, edited for the site; the old path
-  keeps one line pointing at the page. `docs/holder-cli.md` folded into `/guide/people` and
-  deleted. The samples test reads the new path; links in `docs/` and the README's three point at
-  the site.
-- Each command's help moved to `packages/engine/src/help/{command}.txt`, imported as text;
-  `awf {command} -h` and `awf help reference` print exactly what they did. `/reference/awf`
-  includes every file.
+### 3. The landing page and Get started are written
 
-Done when:
+Outcome: a newcomer can go from the landing page through install and the quick start to a first
+run, and knows what awf is, how it works and what it doesn't do.
 
-- The build passes; every call in `workflow-api.md`'s "At a glance" has an anchor on
-  `/reference/workflow-api`, and every command in `COMMANDS` has its help file included on
-  `/reference/awf`; the help tests pass unchanged; the samples test passes on the moved page;
-  `grep` finds no link to `holder-cli.md` outside stories.
+| Page | Written from |
+| --- | --- |
+| `/` | the landing page plan above; the README; the review loop from `examples/minimum-review/` |
+| `/guide/` | the README's opening; `docs/foundation.md` §1; `docs/design/writing.md`'s motivation |
+| `/guide/install` | the README's install; each harness's requirements in `packages/harness/`; `docs/findings/` for metered claude |
+| `/guide/quick-start` | `awf init` and its template; `examples/quick-check/` |
+| `/guide/how-it-works` | the README's diagram; `docs/design/README.md`'s three interfaces; `engine/src/agent-cli` for the `wfa` commands |
+| `/guide/limits` | `docs/status.md`'s "Known gaps"; the API page's "Not built yet"; `docs/foundation.md` §10 |
 
-### 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`
+Done when, beyond the shared bar: the quick start, followed word for word in an empty directory
+with `agentswf@beta` from npm, ends with the result it shows, in the time it claims.
 
-Outcome: the build output has the agent files described in Proposed design.
+### 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`; Build with AI is written
+
+Outcome: the build output has the agent files described in Proposed design, and `/ai/` tells a
+reader how to point their agent at them.
 
 Execution: the template's steps; M1 settles plugin or script first.
 
@@ -591,15 +631,119 @@ Work:
 
 - The llms plugin or a build step; the written preamble; frontmatter `description` on every
   page; the `rel="alternate"` link.
+- `/ai/`, a writing task (below), from `awf init`'s `AGENTS.md.template` and the files this task
+  builds.
 
 Done when:
 
 - A build check asserts every HTML page has its `.md`, no `.md` holds a `<<<` or `@include`
   directive, and `/llms.txt` lists every page with its description.
 
-### 5. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
+### 5. Learn: agents, who does the work
 
-Outcome: a push to main updates agents.wf.
+| Page | Written from |
+| --- | --- |
+| `/guide/agents` | the API page's "Agents"; `examples/output-schema/`, `single-agent-review/`, `compaction/`, `fork/`, `skills-probe/` |
+| `/guide/harnesses` | the API page's harness options; `packages/harness/`; `docs/design/pane-layout.md`; `examples/effort/`, `pane-layout/`; `docs/findings/` for subscription and metered |
+| `/guide/sandboxes` | the API page's "Sandboxes"; `docs/design/permissions.md`; `examples/sandboxes/` |
+| `/guide/tools` | the API page's "Tools"; `examples/tools/` |
+
+### 6. Learn: workflows, orchestrating agents
+
+| Page | Written from |
+| --- | --- |
+| `/guide/workflows` | the API page's "A workflow file"; `examples/minimum-review/` |
+| `/guide/parallel` | the API page's `parallel`; `examples/catalogue-review/` |
+| `/guide/loops` | `examples/minimum-review/`, `single-agent-review/`, `triage/` |
+| `/guide/deadlines` | the API page's "Deadlines"; `examples/nudges/` |
+| `/guide/messaging` | the API page's "Messaging"; `docs/design/messaging.md`; `examples/messaging/` |
+| `/guide/decisions` | the API page's "Decisions"; `examples/triage/` |
+| `/guide/testing` | the testing API page; the examples' `workflow.test.ts` |
+
+### 7. Learn: runs, durable, named, resumable
+
+| Page | Written from |
+| --- | --- |
+| `/guide/runs` | the API page's "Stages"; `docs/design/runs-and-stages.md`; `examples/feature-delivery/`; `awf run`'s help |
+| `/guide/durability` | `docs/design/runs-and-stages.md` and `reconciled-runs.md`, checked against the engine's code for each claim |
+| `/guide/following-runs` | `awf runs` and `awf logs` help |
+
+### 8. In depth
+
+| Page | Written from |
+| --- | --- |
+| `/guide/events` | the API page's "Events"; `examples/event-sketches/`, `approval-reminders/` |
+| `/guide/people` | the moved holder page; the API page's coordinator; `docs/design/messaging.md`; `examples/keep-alive/`; a Slack sketch, prose only |
+| `/guide/hosting-events` | `awf tick` and `awf emit` help; `examples/event-sketches/*-tick.ts` |
+| `/guide/calling-session` | `examples/calling-session/`, `fork-caller/`; `awf run --here`'s help |
+
+### 9. Running: the operator's side
+
+| Page | Written from |
+| --- | --- |
+| `/guide/cost` | the API page's "Logging and usage" and "Plan allowance"; `awf allowance`'s help; `docs/findings/`; never "charged" or "spent" from awf's records |
+| `/guide/security` | `docs/design/permissions.md`; `docs/status.md`'s "Known gaps"; `docs/foundation.md` on trusted code |
+| `/guide/troubleshooting` | the refusals the engine and harnesses print, found in the code |
+
+Done when, beyond the shared bar: every refusal named on `/guide/troubleshooting` is one the code
+prints.
+
+### 10. Patterns: one problem, one workflow
+
+| Page | Written from |
+| --- | --- |
+| `/patterns/review-loop` | `examples/minimum-review/` and its recorded runs |
+| `/patterns/plan-implement` | `examples/feature-delivery/` and its recorded runs |
+| `/patterns/review-on-event` | `examples/event-sketches/mr-review.ts` |
+
+A pattern's cost and time come from a recorded run of its example; where none exists, the task
+stops and asks the operator before a live run, which spends their login.
+
+`examples/README.md` becomes the examples' index for running from a clone: what each example
+shows and the page that explains it. Its guide prose, such as the run deadline and the default
+nudge, is now on the site and is replaced by links.
+
+### 11. Reference
+
+| Page | Written from |
+| --- | --- |
+| `/reference/workflow-api` | the moved page, edited for the site: an anchor per call, links into the guide, no repository-relative links |
+| `/reference/testing-api` | the moved "Testing a workflow", edited the same way |
+| `/reference/awf` | the help files, included, with prose between them |
+| `/reference/data` | `docs/design/runs-and-stages.md`; the record formats in `packages/contract/`; the engine's run-directory code |
+| `/reference/configuration` | every `AWF_*` variable and file the code reads, found in the code |
+
+Done when, beyond the shared bar: every call in the API page's "At a glance" has an anchor, and
+every command in `COMMANDS` has its help file included on `/reference/awf`.
+
+### 12. The whole site is reviewed locally for content and UX, with the operator, before it is public
+
+Outcome: the operator has read the site on `bun run dev` and approved it; every finding below is
+fixed or recorded as out of scope.
+
+Execution: fresh agents first, the operator last.
+
+Work:
+
+- An editor agent reads the whole site in order, as one text: one word per idea across pages, no
+  fact with two homes, every page reachable from the sidebar and linked to its neighbours, the
+  writing rules in `site/AGENTS.md` kept.
+- A UX pass in a browser on the dev server, desktop and mobile widths: navigation, search finds
+  each page by its obvious word, code blocks fit, the landing page reads in one scroll, nothing
+  rendered wrong (Vue, tables, anchors). Screenshots go to the operator.
+- An examples pass: every sample on every page is traced to a checked file or the samples test;
+  any that isn't is fixed.
+- M2 run locally: a fresh claude or codex session pointed at the preview's `llms.txt` writes a
+  working workflow, checked by `awf test`.
+- The operator reads the site and lists changes; they are made and read again.
+
+Done when:
+
+- The operator approves the site, recorded here with the date.
+
+### 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
+
+Outcome: a push to main updates agents.wf, with the site task 12 approved.
 
 Execution: the template's steps; M4 settles the Cloudflare product first. The operator adds the
 domain and the API token secret; the story says exactly which.
@@ -610,11 +754,13 @@ Work:
   concurrency group that cancels an older run; a `_headers` file if M4 needs one.
 - `homepage: https://agents.wf` in every `packages/*/package.json`; the `awf init` template points
   at `https://agents.wf/llms.txt` and the API page's `.md` (no test reads its links).
+- The README's three links and the old `docs/workflow-api.md` pointer move to agents.wf URLs: the
+  README is also npm's page, where a repository path doesn't resolve.
 
 Done when:
 
 - agents.wf serves the landing page, a docs page and its `.md` over HTTPS, with the released
-  version in the header; a docs-only push redeploys it; M2 run once.
+  version in the header; a docs-only push redeploys it; M2 run once more against agents.wf.
 
 ## Verification
 
