@@ -29,7 +29,8 @@ test("a continue reuses plan and implement, and only the review runs again", asy
     agents: { reviewer: answer(VERDICT, { approved: true, findings: [] }) },
   });
   expect(run.value).toEqual({ approved: true, findings: [] });
-  expect(run.agents.map((agent) => agent.key)).toEqual(["reviewer"]); // reused stages open no agent
+  // Reused stages open no agent.
+  expect(run.agents.map((agent) => agent.key)).toEqual(["reviewer"]);
   expect(run.turnsOf("reviewer")[0]!.prompt).toContain("4be1c07 on fix/212");
 });
 // #endregion continue

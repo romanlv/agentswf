@@ -1,4 +1,8 @@
-import { defineWorkflow, isAnswered, type RuntimeSelection } from "@agentswf/contract/workflow";
+import {
+  defineWorkflow,
+  isAnswered,
+  type RuntimeSelection,
+} from "@agentswf/contract/workflow";
 
 // #region cheap
 export const SMALL = {
@@ -12,24 +16,39 @@ export const SMALL = {
 export default defineWorkflow({
   meta: {
     name: "summarize",
-    description: "Summarize the branch's change on claude while its plan has room, else on codex.",
+    description:
+      "Summarize the branch's change on claude while its plan has room, else on codex.",
   },
   async run(wf) {
     // #region allowance
     const plan = await wf.allowance("claude");
     // counts the windows every model draws on, not one of some models' only; `none` is unknown
-    const roomy = plan.read === "plan" && plan.windows.every((w) => w.models || w.usedPercent < 80);
-    const writer = await wf.agents.open({ key: "writer", runtime: roomy ? "claude" : SMALL });
+    const roomy =
+      plan.read === "plan" &&
+      plan.windows.every((w) => w.models || w.usedPercent < 80);
+    const writer = await wf.agents.open({
+      key: "writer",
+      runtime: roomy ? "claude" : SMALL,
+    });
     // #endregion allowance
-    const summary = await writer.run({ prompt: "Summarize the change on this branch in a line." });
+    const summary = await writer.run({
+      prompt: "Summarize the change on this branch in a line.",
+    });
     // #region usage
     for (const turn of wf.usage()) {
       if (turn.deliveredAt && turn.settledAt) {
-        const seconds = (Date.parse(turn.settledAt) - Date.parse(turn.deliveredAt)) / 1000;
-        wf.log("turn", { agent: turn.agent, model: turn.execution.model, seconds });
+        const seconds =
+          (Date.parse(turn.settledAt) - Date.parse(turn.deliveredAt)) / 1000;
+        wf.log("turn", {
+          agent: turn.agent,
+          model: turn.execution.model,
+          seconds,
+        });
       }
     }
     // #endregion usage
-    return isAnswered(summary.outcome) ? summary.outcome.value : summary.outcome.kind;
+    return isAnswered(summary.outcome)
+      ? summary.outcome.value
+      : summary.outcome.kind;
   },
 });

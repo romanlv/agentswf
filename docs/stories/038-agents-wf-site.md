@@ -458,16 +458,16 @@ Alternatives rejected:
 - [x] 1. `site/` builds locally with VitePress, standalone, with the version in its header
 - [x] 2. The existing docs are reorganized: the user docs and each command's help move into their
   one home, and every link follows
-- [ ] 3. The landing page and Get started are written
-- [ ] 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`;
+- [x] 3. The landing page and Get started are written
+- [x] 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`;
   Build with AI is written
-- [ ] 5. Learn: agents — agents, harnesses, sandboxes, tools
-- [ ] 6. Learn: workflows — workflows, parallel, loops, deadlines, messaging, decisions, testing
-- [ ] 7. Learn: runs — runs, durability, following runs
-- [ ] 8. In depth — events, people, hosting events, calling session
-- [ ] 9. Running — cost, security, troubleshooting
-- [ ] 10. Patterns — review loop, plan-implement, review on event; the examples' README follows
-- [ ] 11. Reference — workflow API edited for the site, testing API, awf, data, configuration
+- [x] 5. Learn: agents — agents, harnesses, sandboxes, tools
+- [x] 6. Learn: workflows — workflows, parallel, loops, deadlines, messaging, decisions, testing
+- [x] 7. Learn: runs — runs, durability, following runs
+- [x] 8. In depth — events, people, hosting events, calling session
+- [x] 9. Running — cost, security, troubleshooting
+- [x] 10. Patterns — review loop, plan-implement, review on event; the examples' README follows
+- [x] 11. Reference — workflow API edited for the site, testing API, awf, data, configuration
 - [ ] 12. The whole site is reviewed locally for content and UX, with the operator, before it is
   public
 - [ ] 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
@@ -834,6 +834,29 @@ Manual or live evaluation:
   review round with no implementer and no revision; it is linked as the review step on its own.
   The messaging reviewer's prompt now sends the rule and each wrong slug with the expected one:
   its only recorded run sent the route's purpose alone, and the slugs stayed wrong.
+- 2026-11-01, how the pages were made: one writer agent per page, from the sources in its task's
+  table, checked against the code; then per page an accuracy reviewer (every claim, option and
+  sample against the code) and per section a newcomer reviewer (reads cold, in sidebar order);
+  the writer fixed every finding. Then an editor read the whole site in order, an examples pass
+  traced every sample to a checked file or test (91 `<<<` imports; inline TypeScript only on the
+  two reference pages, run by the samples test, and one-liners), and a UX pass in a browser at
+  desktop and mobile widths. The reviews found and fixed, among others: a run without `present`
+  prints its whole `output.json` record, not the value; claude runs any shell command
+  (`--allowed-tools Bash`); a crashed run's panes are closed by the next pane run; npm's `beta`
+  tag is stale, so the site installs `agentswf`.
+- 2026-11-01, added to the site map: `/reference/wfa`, every `wfa` command's flags, exit codes,
+  refusal codes and limits, so the Tools and Messaging guides teach and link instead of listing.
+  `site/AGENTS.md` gained a "Where each fact lives" table and a schema-typing rule, the reviews'
+  main finding being one fact on several pages.
+- 2026-11-01, the help files were corrected where the reviews found them wrong (tick, emit, init
+  and run exit codes; allowance's readers; reply's `accepted`); their tests updated where they
+  pinned the old words. The root `.gitignore`'s `reference/` ignored `site/reference/`; it is now
+  `/reference/`.
+- 2026-11-01, the build also checks every internal link's `#anchor` and the landing page's
+  frontmatter links (`site/scripts/check-links.ts`); VitePress checks neither.
+- 2026-11-01, Patterns carry no cost or time yet: no recorded run of the current examples exists
+  (the messaging run on disk predates the prompt fix; plan-implement's figures were for an older
+  route). Each page marks the spot `TODO(operator)`; recording needs the operator's live runs.
 
 ## Human review
 

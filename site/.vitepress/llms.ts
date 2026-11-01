@@ -56,7 +56,7 @@ function toMarkdown(
     lines.splice(start, end - start, ...replacement);
   }
   let markdown = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  // The landing page keeps its hero and features in frontmatter, which the Markdown would lose.
+  // The landing page keeps its hero and cards in frontmatter, which the Markdown would lose.
   if (frontmatter.layout === "home") markdown = `${homeMarkdown(frontmatter)}\n\n${markdown}`;
   return `${markdown}\n`;
 }
@@ -71,10 +71,10 @@ type Frontmatter = {
   title?: string;
   description?: string;
   hero?: { name?: string; text?: string; tagline?: string; actions?: Link[] };
-  features?: { title?: string; details?: string; link?: string }[];
+  cards?: { title?: string; details?: string; link?: string }[];
 };
 
-function homeMarkdown({ hero = {}, features = [], title, description }: Frontmatter): string {
+function homeMarkdown({ hero = {}, cards = [], title, description }: Frontmatter): string {
   const parts = [`# ${hero.name ?? title ?? ""}`];
   if (hero.text) parts.push(`**${hero.text}**`);
   parts.push(hero.tagline ?? description ?? "");
@@ -82,8 +82,8 @@ function homeMarkdown({ hero = {}, features = [], title, description }: Frontmat
   if (actions.length > 0) {
     parts.push(actions.map((a) => `- [${a.text}](${toMarkdownLink(a.link!)})`).join("\n"));
   }
-  if (features.length > 0) {
-    const items = features.map(({ title, details, link }) => {
+  if (cards.length > 0) {
+    const items = cards.map(({ title, details, link }) => {
       const name = link ? `[${title}](${toMarkdownLink(link)})` : title;
       return `- **${name}.** ${details ?? ""}`.trimEnd();
     });

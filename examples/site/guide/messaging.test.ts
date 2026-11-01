@@ -9,11 +9,17 @@ test("a question starts the architect's first turn, and its reply continues the 
   const run = await testWorkflow(askTheArchitect, null, {
     agents: {
       implementer: answer(CHANGE, async (turn) => {
-        const answered = await turn.send("architect", "Client or queue?", { awaitReply: true });
-        return answered.kind === "replied" ? change : { summary: answered.kind, files: [] };
+        const answered = await turn.send("architect", "Client or queue?", {
+          awaitReply: true,
+        });
+        return answered.kind === "replied"
+          ? change
+          : { summary: answered.kind, files: [] };
       }),
     },
-    messages: { architect: (message) => message.reply("The queue: the client is shared.") },
+    messages: {
+      architect: (message) => message.reply("The queue: the client is shared."),
+    },
   });
   // #endregion script
   expect(run.value).toEqual({ ...change, questions: 1 });
@@ -39,13 +45,21 @@ test("the route is one way: the architect answers, but can't start a conversatio
   const run = await testWorkflow(askTheArchitect, null, {
     agents: {
       implementer: answer(CHANGE, async (turn) => {
-        const answered = await turn.send("architect", "Client or queue?", { awaitReply: true });
-        return { summary: answered.kind === "replied" ? answered.text : answered.kind, files: [] };
+        const answered = await turn.send("architect", "Client or queue?", {
+          awaitReply: true,
+        });
+        return {
+          summary: answered.kind === "replied" ? answered.text : answered.kind,
+          files: [],
+        };
       }),
     },
     messages: {
       architect: async (message) => {
-        const sent = await message.send("implementer", "Also, rename the file.");
+        const sent = await message.send(
+          "implementer",
+          "Also, rename the file.",
+        );
         return message.reply(sent.kind === "refused" ? sent.code : sent.kind);
       },
     },

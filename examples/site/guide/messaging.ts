@@ -9,7 +9,8 @@ export const CHANGE = Type.Object(
 export default defineWorkflow({
   meta: {
     name: "ask-the-architect",
-    description: "An implementer adds retries, and may ask an architect about the design.",
+    description:
+      "An implementer adds retries, and may ask an architect about the design.",
   },
   async run(wf) {
     // #region open
@@ -19,7 +20,8 @@ export default defineWorkflow({
     const architect = await wf.agents.open({
       key: "architect",
       runtime,
-      instructions: "You own this service's design. Answer questions about it in a few lines.",
+      instructions:
+        "You own this service's design. Answer questions about it in a few lines.",
     });
 
     await wf.messages.allow({
@@ -39,7 +41,9 @@ export default defineWorkflow({
 
     const questions = wf
       .usage()
-      .filter((operation) => operation.agent === "architect" && operation.cause).length;
+      .filter(
+        (operation) => operation.agent === "architect" && operation.cause,
+      ).length;
     return { ...outcome.value, questions };
     // #endregion run
   },

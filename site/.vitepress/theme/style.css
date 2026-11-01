@@ -1,0 +1,25 @@
+/* A command's help is prose as well as usage lines: wrap it rather than scroll it sideways. */
+.wrap-text-blocks .vp-doc div.language-text pre,
+.wrap-text-blocks .vp-doc div.language-text code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The landing's cards sit in its body, after the install line, so undo the body's styles on them. */
+.VPHome .vp-doc .VPFeatures {
+  margin-top: 32px;
+  padding: 0;
+}
+.VPHome .vp-doc .VPFeatures h2 {
+  margin: 0;
+  border-top: none;
+  padding-top: 0;
+  letter-spacing: normal;
+}
+.VPHome .vp-doc .VPFeatures p {
+  margin: 0;
+}
+.VPHome .vp-doc .VPFeatures a {
+  text-decoration: none;
+  color: inherit;
+}

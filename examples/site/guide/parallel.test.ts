@@ -35,7 +35,10 @@ test("a lens that doesn't answer is recorded, and the others' findings are kept"
       "review:*": answer(FINDINGS, finding("sum.ts", "low")),
     },
   });
-  expect(run.value.findings.map(({ lens }) => lens)).toEqual(["correctness", "tests"]);
+  expect(run.value.findings.map(({ lens }) => lens)).toEqual([
+    "correctness",
+    "tests",
+  ]);
   expect(run.value.failed.map(({ lens }) => lens)).toEqual(["security"]);
 });
 
@@ -48,7 +51,9 @@ test("a branch that throws cancels the turn still running, and parallel rejects"
         FINDINGS,
         (turn) =>
           new Promise((resolve) =>
-            turn.signal.addEventListener("abort", () => resolve(finding("sum.ts", "low"))),
+            turn.signal.addEventListener("abort", () =>
+              resolve(finding("sum.ts", "low")),
+            ),
           ),
       ),
       "review:tests": answer(FINDINGS, finding("sum.test.ts", "low")),

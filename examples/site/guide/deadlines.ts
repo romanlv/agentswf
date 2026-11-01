@@ -19,7 +19,8 @@ export const LENSES = ["correctness", "tests"] as const;
 export default defineWorkflow({
   meta: {
     name: "timed-review",
-    description: "Two reviews, one after the other, within a budget in minutes; 20 by default.",
+    description:
+      "Two reviews, one after the other, within a budget in minutes; 20 by default.",
   },
   prepare: ({ argv }) => ({ minutes: Number(argv[0] ?? 20) }),
 
@@ -30,13 +31,19 @@ export default defineWorkflow({
       reviews = await wf.parallel(
         LENSES,
         async (lens) => {
-          const reviewer = await wf.agents.open({ key: `review:${lens}`, runtime: "claude" });
+          const reviewer = await wf.agents.open({
+            key: `review:${lens}`,
+            runtime: "claude",
+          });
           // #region turn
           const { outcome } = await reviewer.run<Findings>({
             prompt: `Review the diff on this branch against main, for ${lens} only.`,
             schema: FINDINGS,
             timeoutMs: 10 * MINUTE,
-            nudge: { prompt: "Send the findings you have so far, even if the review isn't done." },
+            nudge: {
+              prompt:
+                "Send the findings you have so far, even if the review isn't done.",
+            },
           });
           // #endregion turn
           return outcome;
@@ -59,7 +66,9 @@ export default defineWorkflow({
     // #region stop
     const answered = reviews.filter(isAnswered);
     if (answered.length === 0) {
-      return wf.stop(`no review answered: ${reviews.map((o) => o.kind).join(", ")}`);
+      return wf.stop(
+        `no review answered: ${reviews.map((o) => o.kind).join(", ")}`,
+      );
     }
     return { findings: answered.flatMap((o) => o.value.findings) };
     // #endregion stop

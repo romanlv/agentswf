@@ -1,6 +1,8 @@
 ---
 title: awf commands
 description: Every awf command, with its usage, options and exit codes, as the command itself prints them.
+outline: [2, 3]
+pageClass: wrap-text-blocks
 ---
 
 # awf commands
@@ -15,9 +17,9 @@ teaches it.
 ## Help {#help}
 
 ```sh
-awf -h                  # the commands, grouped; also awf, awf help and awf --help
-awf help run            # one command's usage, options and exit codes; also awf run -h
-awf help reference      # every command's usage lines, on one page
+awf -h               # the commands, grouped; also awf, awf help, awf --help
+awf help run         # one command's usage, options, exit codes; awf run -h
+awf help reference   # every command's usage lines, on one page
 awf --version
 ```
 

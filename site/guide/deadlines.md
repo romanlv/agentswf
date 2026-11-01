@@ -1,13 +1,13 @@
 ---
 title: Deadlines and nudges
-description: Bounding how long a run, a group of agents or one turn may take, nudging an agent that goes quiet for its answer, and stopping a run on purpose.
+description: "Timeouts: bounding how long a run, a group of agents or one turn may take, nudging an agent that goes quiet for its answer, and stopping a run on purpose."
 ---
 
 # Deadlines and nudges
 
 An agent can work for an hour, stop without answering, or never finish. Two things keep a run in
-hand: **deadlines**, which bound how long work may take, and **nudges**, which ask an agent that
-went quiet for its answer. Either way the turn still ends with an
+hand: **deadlines**, the timeouts that bound how long work may take, and **nudges**, which ask an
+agent that went quiet for its answer. Either way the turn still ends with an
 [outcome](/guide/how-it-works), so the workflow decides what happens next, and when there's no
 point going on, it stops the run on purpose.
 

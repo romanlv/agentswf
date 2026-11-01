@@ -1,4 +1,8 @@
-import { defineWorkflow, isAnswered, type OutputSchema } from "@agentswf/contract/workflow";
+import {
+  defineWorkflow,
+  isAnswered,
+  type OutputSchema,
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 // #region schemas
@@ -14,32 +18,45 @@ const Closed = Type.Object(
   { additionalProperties: false },
 );
 export const CLOSED: OutputSchema<Type.Static<typeof Closed>> = Closed;
-export const FIX = Type.Object({ commit: Type.String() }, { additionalProperties: false });
+export const FIX = Type.Object(
+  { commit: Type.String() },
+  { additionalProperties: false },
+);
 
 // #region workflow
 export default defineWorkflow({
-  meta: { name: "ci-fix", description: "Fix a pull request's failing CI until it closes." },
+  meta: {
+    name: "ci-fix",
+    description: "Fix a pull request's failing CI until it closes.",
+  },
   file: import.meta.path, // where senders find the workflow, and its runs live
   events: { "ci.failed": FAILED, "pr.closed": CLOSED }, // a schema per event
   starts: ["ci.failed"], // the events that may start a run
   async run(wf) {
     const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
     for (;;) {
-      const events = await wf.receive({ label: `waiting on CI for #${wf.runId}` });
+      const events = await wf.receive({
+        label: `waiting on CI for #${wf.runId}`,
+      });
       let latest: { id: string; job: string; url: string } | undefined;
       for (const e of events) {
-        if (e.name === "pr.closed") return { pr: e.data.pr, merged: e.data.merged };
+        if (e.name === "pr.closed")
+          return { pr: e.data.pr, merged: e.data.merged };
         // Several failures in one batch: only the latest needs a fix.
-        if (e.name === "ci.failed") latest = { id: e.id, job: e.data.job, url: e.data.url };
+        if (e.name === "ci.failed")
+          latest = { id: e.id, job: e.data.job, url: e.data.url };
       }
       if (!latest) continue;
       const { id, job, url } = latest;
       await wf.stage(`fix-${id}`, async () => {
         const { outcome } = await fixer.run<Type.Static<typeof FIX>>({
-          prompt: `CI job ${job} failed on this pull request: ${url}. Fix it, commit and push.`,
+          prompt:
+            `CI job ${job} failed on this pull request: ${url}. ` +
+            "Fix it, commit and push.",
           schema: FIX,
         });
-        if (isAnswered(outcome)) wf.log("pushed a fix", { commit: outcome.value.commit });
+        if (isAnswered(outcome))
+          wf.log("pushed a fix", { commit: outcome.value.commit });
         else wf.log("no fix", { reason: outcome.reason });
       });
     }
@@ -48,7 +65,10 @@ export default defineWorkflow({
 // #endregion workflow
 
 export const ciFixBySelect = defineWorkflow({
-  meta: { name: "ci-fix-select", description: "The same loop, one event at a time." },
+  meta: {
+    name: "ci-fix-select",
+    description: "The same loop, one event at a time.",
+  },
   file: import.meta.path,
   events: { "ci.failed": FAILED, "pr.closed": CLOSED },
   starts: ["ci.failed"],
@@ -59,11 +79,14 @@ export const ciFixBySelect = defineWorkflow({
       { failed: wf.signal("ci.failed"), closed: wf.signal("pr.closed") },
       { label: `waiting on CI for #${wf.runId}` },
     )) {
-      if (next.closed) return { pr: next.closed.data.pr, merged: next.closed.data.merged };
+      if (next.closed)
+        return { pr: next.closed.data.pr, merged: next.closed.data.merged };
       if (next.failed) {
         const { job, url } = next.failed.data;
         await wf.stage(`fix-${next.failed.id}`, async () => {
-          await fixer.run({ prompt: `CI job ${job} failed: ${url}. Fix it, commit and push.` });
+          await fixer.run({
+            prompt: `CI job ${job} failed: ${url}. Fix it, commit and push.`,
+          });
         });
       }
     }

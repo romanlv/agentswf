@@ -8,7 +8,9 @@ test("both reviews answer within the budget", async () => {
     { minutes: 20 },
     {
       agents: {
-        "review:correctness": answer(FINDINGS, { findings: ["off by one in paging"] }),
+        "review:correctness": answer(FINDINGS, {
+          findings: ["off by one in paging"],
+        }),
         "review:tests": answer(FINDINGS, { findings: [] }),
       },
     },
@@ -55,7 +57,9 @@ test("no answer at all stops the run on purpose, saying why", async () => {
     { minutes: 20 },
     { agents: { "review:*": reply.silent() } },
   );
-  expect(run.stopped?.reason).toBe("no review answered: unanswered, unanswered");
+  expect(run.stopped?.reason).toBe(
+    "no review answered: unanswered, unanswered",
+  );
 });
 
 test("past the parallel deadline, the review stops instead of failing", async () => {

@@ -13,8 +13,13 @@ test("the reviewer's checked answer is the run's result, kept as the review stag
 });
 
 test("a reviewer that never answers is checked in on once, then the run stops with why", async () => {
-  const run = await testWorkflow(checkReadme, null, { agents: { reviewer: reply.silent() } });
-  expect(run.turnsOf("reviewer").map((turn) => turn.nudge)).toEqual([false, true]);
+  const run = await testWorkflow(checkReadme, null, {
+    agents: { reviewer: reply.silent() },
+  });
+  expect(run.turnsOf("reviewer").map((turn) => turn.nudge)).toEqual([
+    false,
+    true,
+  ]);
   expect(run.stopped?.reason).toStartWith("unanswered:");
   expect(run.stopped?.stage).toBe("review");
 });

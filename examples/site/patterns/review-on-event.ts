@@ -1,7 +1,11 @@
-import { defineWorkflow, isAnswered, type OutputSchema } from "@agentswf/contract/workflow";
+// #region open
+import {
+  defineWorkflow,
+  isAnswered,
+  type OutputSchema,
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 
-// #region open
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */
 const ChangesData = Type.Object(
   { mr: Type.Number(), base: Type.String(), head: Type.String() },
@@ -63,7 +67,10 @@ export default defineWorkflow({
           const { outcome, meta } = e.data;
           if (next?.head === meta.head) next = null;
           if (!isAnswered(outcome)) {
-            wf.log("review failed", { head: meta.head, reason: outcome.reason });
+            wf.log("review failed", {
+              head: meta.head,
+              reason: outcome.reason,
+            });
             // A failed or timed-out turn closes its agent, so the next push gets a new one.
             if (outcome.kind === "failed" || outcome.kind === "timed-out") {
               reviewer = await openReviewer(++opened);
@@ -74,7 +81,8 @@ export default defineWorkflow({
             `review-${meta.head}`,
             {
               result: Review,
-              summary: (r) => (r.approved ? "approved" : `${r.findings.length} findings`),
+              summary: (r) =>
+                r.approved ? "approved" : `${r.findings.length} findings`,
             },
             async () => outcome.value, // post it to the merge request here, once per head
           );
@@ -84,12 +92,15 @@ export default defineWorkflow({
       // #region start
       if (next && !reviewer.turn) {
         await reviewer.start({
-          prompt: `Review merge request !${next.mr}: \`git diff ${next.base}...${next.head}\`. Fetch the commit if you don't have it.`,
+          prompt:
+            `Review merge request !${next.mr}: ` +
+            `\`git diff ${next.base}...${next.head}\`. ` +
+            "Fetch the commit if you don't have it.",
           schema: Review,
           meta: next,
         });
       }
-      // #endregion start
     }
   },
 });
+// #endregion start

@@ -13,7 +13,9 @@ request can stay open.
 sends it an event on each push and one when it closes. The run reviews the newest head, records
 the review, and between events it parks: its process exits, and the next event continues it.
 
-The workflow opens its reviewer and waits for events:
+The workflow,
+[`examples/site/patterns/review-on-event.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/patterns/review-on-event.ts),
+opens its reviewer and waits for events:
 
 <<< @/../examples/site/patterns/review-on-event.ts#open
 
@@ -22,7 +24,8 @@ review's end is recorded in a stage named by its head:
 
 <<< @/../examples/site/patterns/review-on-event.ts#take
 
-Then, if a head is waiting and the reviewer is free, it starts a review without awaiting it:
+Then, if a head is waiting and the reviewer is free, it starts a review without awaiting it, and
+goes back to waiting:
 
 <<< @/../examples/site/patterns/review-on-event.ts#start
 

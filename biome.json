@@ -45,5 +45,13 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["examples/site/**"],
+      "formatter": {
+        "lineWidth": 80
+      }
+    }
+  ]
 }

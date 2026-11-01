@@ -1,6 +1,7 @@
 ---
 title: wfa
 description: "The agent's command: every wfa command an agent runs in its session, its flags, exit codes, refusal codes and limits."
+outline: [2, 3]
 ---
 
 # wfa

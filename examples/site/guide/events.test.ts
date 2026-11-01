@@ -9,7 +9,11 @@ const failed = (job: string) => ({
 const fixer = answer(FIX, { commit: "4be1c07" });
 
 test("a failure starts the run, the fixer pushes a fix, and the run parks", async () => {
-  const run = await testWorkflow(ciFix, { id: "212", event: failed("unit"), agents: { fixer } });
+  const run = await testWorkflow(ciFix, {
+    id: "212",
+    event: failed("unit"),
+    agents: { fixer },
+  });
   expect(run.turnsOf("fixer")).toHaveLength(1);
   expect(run.turnsOf("fixer")[0]!.prompt).toContain("CI job unit failed");
   expect(run.parked?.label).toBe("waiting on CI for #212");
@@ -25,10 +29,9 @@ test("failures that arrive during a fix are one batch: the latest gets the next 
       { during: "fixer#1", ...failed("e2e") },
     ],
   });
-  expect(run.turnsOf("fixer").map((t) => t.prompt.match(/job (\w+)/)?.[1])).toEqual([
-    "unit",
-    "e2e",
-  ]);
+  expect(
+    run.turnsOf("fixer").map((t) => t.prompt.match(/job (\w+)/)?.[1]),
+  ).toEqual(["unit", "e2e"]);
   expect(run.parked).toBeDefined();
 });
 
@@ -37,7 +40,9 @@ test("the pull request closing ends the run for good", async () => {
     id: "212",
     event: failed("unit"),
     agents: { fixer },
-    events: [{ during: "fixer#1", name: "pr.closed", data: { pr: 212, merged: true } }],
+    events: [
+      { during: "fixer#1", name: "pr.closed", data: { pr: 212, merged: true } },
+    ],
   });
   expect(run.value).toEqual({ pr: 212, merged: true });
 });

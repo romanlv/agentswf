@@ -7,9 +7,15 @@ const args = { range: "v1.2.0...HEAD" };
 
 test("notes with no breaking change take one agent and one turn", async () => {
   const run = await testWorkflow(releaseNotes, args, {
-    agents: { writer: answer(NOTES, { notes: "Faster startup.", breaking: false }) },
+    agents: {
+      writer: answer(NOTES, { notes: "Faster startup.", breaking: false }),
+    },
   });
-  expect(run.value).toEqual({ notes: "Faster startup.", breaking: false, checked: false });
+  expect(run.value).toEqual({
+    notes: "Faster startup.",
+    breaking: false,
+    checked: false,
+  });
   expect(run.agents.map((agent) => agent.key)).toEqual(["writer"]);
   expect(run.turnsOf("writer")[0]!.prompt).toContain("v1.2.0...HEAD");
 });
@@ -26,15 +32,24 @@ test("a claimed breaking change goes to a checker on codex, which can overrule i
       })),
     },
   });
-  expect(run.value).toEqual({ notes: "Removed --legacy.", breaking: false, checked: true });
+  expect(run.value).toEqual({
+    notes: "Removed --legacy.",
+    breaking: false,
+    checked: true,
+  });
   expect(run.agentOf("checker").execution.alias).toBe("codex");
 });
 // #endregion checker
 
 // #region outcomes
 test("a writer that never answers is nudged once, then the run stops with why", async () => {
-  const run = await testWorkflow(releaseNotes, args, { agents: { writer: reply.silent() } });
-  expect(run.turnsOf("writer").map((turn) => turn.nudge)).toEqual([false, true]);
+  const run = await testWorkflow(releaseNotes, args, {
+    agents: { writer: reply.silent() },
+  });
+  expect(run.turnsOf("writer").map((turn) => turn.nudge)).toEqual([
+    false,
+    true,
+  ]);
   expect(run.stopped?.reason).toStartWith("no notes: ");
   expect(() => run.value).toThrow();
 });
@@ -53,7 +68,11 @@ test("a checker whose harness fails leaves the writer's word, marked unchecked",
 
 // #region prepare
 test("the range is the first argument, origin/main...HEAD without one", () => {
-  expect(releaseNotes.prepare({ argv: [], cwd: "/repo" })).toEqual({ range: "origin/main...HEAD" });
-  expect(releaseNotes.prepare({ argv: ["v1.2.0...HEAD"], cwd: "/repo" })).toEqual(args);
+  expect(releaseNotes.prepare({ argv: [], cwd: "/repo" })).toEqual({
+    range: "origin/main...HEAD",
+  });
+  expect(
+    releaseNotes.prepare({ argv: ["v1.2.0...HEAD"], cwd: "/repo" }),
+  ).toEqual(args);
 });
 // #endregion prepare

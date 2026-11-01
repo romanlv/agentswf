@@ -1,6 +1,7 @@
 ---
 title: Workflow API
 description: "Every call a workflow can make today, from agentswf/workflow, with its options and defaults."
+outline: [2, 3]
 ---
 
 # Workflow API

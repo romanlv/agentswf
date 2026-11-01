@@ -9,7 +9,12 @@ const claude = (sessionPercent: number): HarnessAllowance => ({
   source: "claude /usage",
   windows: [
     { id: "session", label: "session", usedPercent: sessionPercent },
-    { id: "week-fable", label: "week (Fable)", usedPercent: 95, models: ["Fable"] },
+    {
+      id: "week-fable",
+      label: "week (Fable)",
+      usedPercent: 95,
+      models: ["Fable"],
+    },
   ],
 });
 
@@ -19,7 +24,10 @@ test("claude writes while its plan has room; a window of other models' doesn't c
     allowance: [claude(40)],
   });
   expect(run.value).toBe("adds a --verbose flag");
-  expect(run.agentOf("writer").execution).toMatchObject({ harness: "claude", alias: "claude" });
+  expect(run.agentOf("writer").execution).toMatchObject({
+    harness: "claude",
+    alias: "claude",
+  });
 });
 
 test("a plan past 80%, or one that can't be read, sends the job to a small codex model", async () => {
@@ -44,7 +52,11 @@ test("each finished turn is logged with its model and how long it took", async (
   expect(run.logs).toEqual([
     {
       message: "turn",
-      fields: { agent: "writer", model: "gpt-6-luna", seconds: expect.any(Number) },
+      fields: {
+        agent: "writer",
+        model: "gpt-6-luna",
+        seconds: expect.any(Number),
+      },
     },
   ]);
 });

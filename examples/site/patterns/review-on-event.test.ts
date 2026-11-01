@@ -2,8 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
 import reviewOnEvent, { Review } from "./review-on-event";
 
-const opened = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "aaa1111" } };
-const pushed = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "bbb2222" } };
+const opened = {
+  name: "mr.changes" as const,
+  data: { mr: 42, base: "main", head: "aaa1111" },
+};
+const pushed = {
+  name: "mr.changes" as const,
+  data: { mr: 42, base: "main", head: "bbb2222" },
+};
 const approved = answer(Review, { approved: true, findings: [] });
 
 describe("review on event", () => {
@@ -13,7 +19,9 @@ describe("review on event", () => {
       event: opened,
       agents: { reviewer: approved },
     });
-    expect(run.turnsOf("reviewer")[0]?.prompt).toContain("git diff main...aaa1111");
+    expect(run.turnsOf("reviewer")[0]?.prompt).toContain(
+      "git diff main...aaa1111",
+    );
     expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
       ["review-aaa1111", "succeeded"],
     ]);
@@ -25,7 +33,10 @@ describe("review on event", () => {
       id: "42",
       event: opened,
       agents: {
-        reviewer: [answer(Review, { approved: false, findings: ["off by one"] }), approved],
+        reviewer: [
+          answer(Review, { approved: false, findings: ["off by one"] }),
+          approved,
+        ],
       },
       events: [{ during: "reviewer#1", ...pushed }],
     });
@@ -33,7 +44,10 @@ describe("review on event", () => {
       expect.stringContaining("aaa1111"),
       expect.stringContaining("bbb2222"),
     ]);
-    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-aaa1111", "review-bbb2222"]);
+    expect(run.stages.map(({ stage }) => stage)).toEqual([
+      "review-aaa1111",
+      "review-bbb2222",
+    ]);
   });
 
   test("closing the merge request cancels the review under way and ends the run", async () => {
@@ -41,7 +55,13 @@ describe("review on event", () => {
       id: "42",
       event: opened,
       agents: { reviewer: reply.hang() },
-      events: [{ during: "reviewer#1", name: "mr.closed", data: { mr: 42, merged: true } }],
+      events: [
+        {
+          during: "reviewer#1",
+          name: "mr.closed",
+          data: { mr: 42, merged: true },
+        },
+      ],
     });
     expect(run.value).toEqual({ mr: 42, merged: true });
     expect(run.stages).toEqual([]);
@@ -62,7 +82,10 @@ describe("review on event", () => {
   test("a head that isn't a commit hash is logged and not reviewed", async () => {
     const run = await testWorkflow(reviewOnEvent, {
       id: "42",
-      event: { name: "mr.changes", data: { mr: 42, base: "main", head: "Feature/X" } },
+      event: {
+        name: "mr.changes",
+        data: { mr: 42, base: "main", head: "Feature/X" },
+      },
     });
     expect(run.logs.map((log) => log.message)).toEqual(["not a commit hash"]);
     expect(run.turns).toEqual([]);

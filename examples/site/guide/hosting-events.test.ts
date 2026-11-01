@@ -2,16 +2,27 @@ import { expect, test } from "bun:test";
 import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
 import postDeploy, { CHECK } from "./hosting-events";
 
-const deployed = { name: "deploy.done" as const, data: { service: "api", version: "v42" } };
+const deployed = {
+  name: "deploy.done" as const,
+  data: { service: "api", version: "v42" },
+};
 const checker = answer(CHECK, { healthy: true, notes: "error rate flat" });
 
 const parked = () =>
-  testWorkflow(postDeploy, { id: "api-v42", event: deployed, agents: { checker }, maxTimers: 0 });
+  testWorkflow(postDeploy, {
+    id: "api-v42",
+    event: deployed,
+    agents: { checker },
+    maxTimers: 0,
+  });
 
 test("it parks at the race, due an hour after the deploy", async () => {
   const run = await parked();
   const settled = run.timers.find((t) => t.name === "settle@settled");
-  expect(run.parked).toEqual({ label: "api v42 settling", until: settled?.due });
+  expect(run.parked).toEqual({
+    label: "api v42 settling",
+    until: settled?.due,
+  });
   expect(run.turnsOf("checker")).toHaveLength(0);
 });
 
@@ -28,7 +39,9 @@ test("once the hour is due, the checker runs and the run returns", async () => {
     healthy: true,
     notes: "error rate flat",
   });
-  expect(run.timers.map(({ name, state }) => [name, state])).toEqual([["settle@settled", "fired"]]);
+  expect(run.timers.map(({ name, state }) => [name, state])).toEqual([
+    ["settle@settled", "fired"],
+  ]);
 });
 
 test("a rollback while it is parked continues it, and nothing is checked", async () => {

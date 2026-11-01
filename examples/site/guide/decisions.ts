@@ -20,7 +20,11 @@ export const ROUTE = Type.Object(
       Type.Literal("frontend"),
     ]),
     bug: Type.Boolean(),
-    urgency: Type.Union([Type.Literal("later"), Type.Literal("this week"), Type.Literal("now")]),
+    urgency: Type.Union([
+      Type.Literal("later"),
+      Type.Literal("this week"),
+      Type.Literal("now"),
+    ]),
   },
   { additionalProperties: false },
 );
@@ -50,7 +54,12 @@ export default defineWorkflow<{ ticket: string }, Routed>({
   async run(wf, { ticket }) {
     // #region route
     const decided = await wf.decisions
-      .decide({ key: "route", model: "jev", state: { ticket }, questions: QUESTIONS })
+      .decide({
+        key: "route",
+        model: "jev",
+        state: { ticket },
+        questions: QUESTIONS,
+      })
       .catch((error: unknown) => {
         if (error instanceof DecisionError) return undefined; // the agent decides instead
         throw error;
@@ -58,20 +67,31 @@ export default defineWorkflow<{ ticket: string }, Routed>({
 
     if (decided) {
       const { team, bug, urgency } = decided.answers;
-      const sure = team.probabilities[team.choice] >= 0.9 && Math.abs(bug.yes - 0.5) >= 0.4;
+      const sure =
+        team.probabilities[team.choice] >= 0.9 &&
+        Math.abs(bug.yes - 0.5) >= 0.4;
       if (sure) {
         // `expected` is the probability-weighted level, 0 to 2 here.
-        const level = urgency.expected >= 1.5 ? 2 : urgency.expected >= 0.5 ? 1 : 0;
-        return { team: team.choice, bug: bug.yes >= 0.5, urgency: URGENCY[level], by: "decision" };
+        const level =
+          urgency.expected >= 1.5 ? 2 : urgency.expected >= 0.5 ? 1 : 0;
+        return {
+          team: team.choice,
+          bug: bug.yes >= 0.5,
+          urgency: URGENCY[level],
+          by: "decision",
+        };
       }
     }
 
     const router = await wf.agents.open({ key: "router", runtime: "codex" });
     const { outcome } = await router.run<Type.Static<typeof ROUTE>>({
-      prompt: `Find the code this ticket is about. Which team owns it, is it a bug, how urgent?\n\n${ticket}`,
+      prompt:
+        "Find the code this ticket is about. " +
+        `Which team owns it, is it a bug, how urgent?\n\n${ticket}`,
       schema: ROUTE,
     });
-    if (!isAnswered(outcome)) return wf.stop(`${outcome.kind}: ${outcome.reason}`);
+    if (!isAnswered(outcome))
+      return wf.stop(`${outcome.kind}: ${outcome.reason}`);
     return { ...outcome.value, by: "agent" };
     // #endregion route
   },

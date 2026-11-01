@@ -16,7 +16,8 @@ hero:
     - theme: alt
       text: GitHub
       link: https://github.com/romanlv/agentswf
-features:
+# The cards come after the install line, in the body, rather than before it as `features` would.
+cards:
   - title: Typed answers
     details: A schema in, a validated value or a reason out. Never prose to parse.
     link: /guide/agents
@@ -25,7 +26,7 @@ features:
     link: /guide/harnesses
   - title: Watch them work
     details: Each agent in a terminal pane in Herdr, a terminal multiplexer, that you can read and type into; or headless, as a plain process.
-    link: /guide/harnesses
+    link: /guide/harnesses#where-panes-go
   - title: Runs that survive
     details: Every run has an id and named steps, its stages. A continue reuses the stages that finished, after a crash or a closed laptop.
     link: /guide/durability
@@ -37,9 +38,15 @@ features:
     link: /guide/testing
 ---
 
+<script setup>
+import { VPFeatures } from "vitepress/theme";
+</script>
+
 ```sh
 bun add -g agentswf
 ```
+
+<VPFeatures :features="$frontmatter.cards" />
 
 ## The code first
 
@@ -77,11 +84,9 @@ schemas and plain `for` and `if`, so you can review it in a minute.
 - **Open source.** MIT licensed, on [GitHub](https://github.com/romanlv/agentswf).
 - **Beta.** Interfaces change between versions. [Limits](/guide/limits) says what that means
   and what awf doesn't do.
-- **What runs today and what is next:**
-  [status](https://github.com/romanlv/agentswf/blob/main/docs/status.md).
+- **What runs today and what is next:** [status](https://github.com/romanlv/agentswf/blob/main/docs/status.md).
 - **How it is tested:** [the test levels](https://github.com/romanlv/agentswf/blob/main/docs/testing.md),
-  from free to live agents. **What was measured:**
-  [findings](https://github.com/romanlv/agentswf/tree/main/docs/findings).
+  from free to live agents. **What was measured:** [findings](https://github.com/romanlv/agentswf/tree/main/docs/findings).
 
 ## Your first workflow in 10 minutes
 

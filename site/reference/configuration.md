@@ -1,6 +1,7 @@
 ---
 title: Configuration
 description: Every environment variable and file awf reads, what each means, and its default.
+outline: [2, 3]
 ---
 
 # Configuration

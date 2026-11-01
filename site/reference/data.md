@@ -1,6 +1,7 @@
 ---
 title: Data
 description: "Where awf keeps what: a run's folder in .awf/runs and each file in it, what awf keeps per machine in ~/.awf, and what is safe to delete."
+outline: [2, 3]
 ---
 
 # Data

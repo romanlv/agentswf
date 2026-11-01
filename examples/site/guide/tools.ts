@@ -10,7 +10,10 @@ export const Finding = Type.Object({
 export type Finding = Type.Static<typeof Finding>;
 
 export default defineWorkflow({
-  meta: { name: "dead-code", description: "An agent records each finding through a tool." },
+  meta: {
+    name: "dead-code",
+    description: "An agent records each finding through a tool.",
+  },
   async run(wf) {
     const findings: Finding[] = [];
     const reviewer = await wf.agents.open({
@@ -21,8 +24,14 @@ export default defineWorkflow({
           description: "Record one finding as soon as you are sure of it.",
           input: Finding,
           handler: (finding) => {
-            if (findings.some((f) => f.file === finding.file && f.line === finding.line)) {
-              throw new Error(`${finding.file}:${finding.line} is already recorded`);
+            if (
+              findings.some(
+                (f) => f.file === finding.file && f.line === finding.line,
+              )
+            ) {
+              throw new Error(
+                `${finding.file}:${finding.line} is already recorded`,
+              );
             }
             findings.push(finding);
             return `Recorded; ${findings.length} so far.`;
@@ -31,16 +40,22 @@ export default defineWorkflow({
         list_findings: tool({
           description: "The findings recorded so far, one per line.",
           handler: () =>
-            findings.map((f) => `${f.file}:${f.line}  ${f.problem}`).join("\n") || "None yet.",
+            findings
+              .map((f) => `${f.file}:${f.line}  ${f.problem}`)
+              .join("\n") || "None yet.",
         }),
       },
     });
     const { outcome } = await reviewer.run({
-      prompt: "Find dead code in src/. Record each finding with add_finding as you go.",
+      prompt:
+        "Find dead code in src/. Record each finding with add_finding as you go.",
       timeoutMs: 20 * 60_000,
     });
     // What the agent recorded is kept, however its turn ended.
-    return { findings, ended: isAnswered(outcome) ? "answered" : outcome.reason };
+    return {
+      findings,
+      ended: isAnswered(outcome) ? "answered" : outcome.reason,
+    };
   },
 });
 // #endregion open

@@ -4,13 +4,17 @@ import reviewLoop, { DONE, VERDICT } from "./loops";
 
 const args = { task: "Accept ISO week dates" };
 const done = answer(DONE, { summary: "Parses 2026-W05" });
-const rejected = (change: string) => answer(VERDICT, { approved: false, changes: [change] });
+const rejected = (change: string) =>
+  answer(VERDICT, { approved: false, changes: [change] });
 const approved = answer(VERDICT, { approved: true, changes: [] });
 
 describe("the loops page's review loop", () => {
   test("makes the reviewer's changes, in the same sessions, until it approves", async () => {
     const run = await testWorkflow(reviewLoop, args, {
-      agents: { implementer: done, reviewer: [rejected("Accept week 53"), approved] },
+      agents: {
+        implementer: done,
+        reviewer: [rejected("Accept week 53"), approved],
+      },
     });
     expect(run.value).toEqual({ approved: true, rounds: 2 });
     expect(run.turnsOf("implementer").map((turn) => turn.prompt)).toEqual([
@@ -24,7 +28,11 @@ describe("the loops page's review loop", () => {
     const run = await testWorkflow(reviewLoop, args, {
       agents: { implementer: done, reviewer: rejected("Still no week 53") },
     });
-    expect(run.value).toEqual({ approved: false, rounds: 3, open: ["Still no week 53"] });
+    expect(run.value).toEqual({
+      approved: false,
+      rounds: 3,
+      open: ["Still no week 53"],
+    });
     expect(run.turnsOf("implementer")).toHaveLength(3);
   });
 

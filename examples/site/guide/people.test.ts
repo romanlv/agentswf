@@ -27,7 +27,10 @@ test("the investigator reports, asks, and its next turn has the coordinator's an
     },
   });
   // #endregion script
-  expect(run.value).toEqual({ cause: "pool exhaustion", incidents: ["Keep two, and link them."] });
+  expect(run.value).toEqual({
+    cause: "pool exhaustion",
+    incidents: ["Keep two, and link them."],
+  });
   expect(run.messagesOf("coordinator")).toEqual([
     { from: "investigator", awaitReply: false, end: "delivered" },
     { from: "investigator", awaitReply: true, end: "replied" },

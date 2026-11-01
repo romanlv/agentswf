@@ -9,13 +9,19 @@ describe("test-my-change", () => {
       caller: { harness: "claude" },
       agents: {
         author: [
-          answer(CHANGED, { files: ["src/cache.ts"], summary: "The cache expires entries." }),
+          answer(CHANGED, {
+            files: ["src/cache.ts"],
+            summary: "The cache expires entries.",
+          }),
           answer("Fixed: expiry used seconds, not milliseconds."),
         ],
         tester: answer(TESTED, { failing: ["expires after ttl"] }),
       },
     });
-    expect(run.value).toEqual({ files: ["src/cache.ts"], failing: ["expires after ttl"] });
+    expect(run.value).toEqual({
+      files: ["src/cache.ts"],
+      failing: ["expires after ttl"],
+    });
     expect(run.turnsOf("tester")[0]?.prompt).toContain("src/cache.ts");
     expect(run.turnsOf("author")[1]?.prompt).toContain("expires after ttl");
   });
@@ -33,7 +39,10 @@ describe("describe-change", () => {
       agents: { writer: answer("Expire cache entries after their ttl.") },
     });
     expect(run.value).toBe("Expire cache entries after their ttl.");
-    expect(run.agentOf("writer").forkedFrom).toEqual({ caller: true, turns: 0 });
+    expect(run.agentOf("writer").forkedFrom).toEqual({
+      caller: true,
+      turns: 0,
+    });
   });
 
   test("with no session to fork, forkCaller answers null", async () => {

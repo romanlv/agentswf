@@ -32,7 +32,10 @@ test("a continue reuses plan without opening the planner, and runs build", async
 });
 
 test("--from-stage build with no plan recorded stops, naming the value it needs", async () => {
-  const run = await testWorkflow(shipTicket, args, { fromStage: "build", agents: {} });
+  const run = await testWorkflow(shipTicket, args, {
+    fromStage: "build",
+    agents: {},
+  });
   expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["plan"]);
 });
 

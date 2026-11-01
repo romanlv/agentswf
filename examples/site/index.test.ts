@@ -13,7 +13,10 @@ describe("the landing page's review loop", () => {
         implementer: done,
         reviewer: answer(VERDICT, () =>
           ++reviews === 1
-            ? { approved: false, changes: ["Print what would change", "Test the flag"] }
+            ? {
+                approved: false,
+                changes: ["Print what would change", "Test the flag"],
+              }
             : { approved: true, changes: [] },
         ),
       },
