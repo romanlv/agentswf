@@ -50,9 +50,11 @@ page gives a reader.
 ```md
 ---
 title: Agents
-description: Calling an agent: opening one, giving it work, and getting a typed answer back.
+description: "Calling an agent: opening one, giving it work, and getting a typed answer back."
 ---
 ```
+
+Quote a `description` (or `title`) that holds a `: `, or YAML fails the whole build.
 
 A new page shows in the sidebar once its `.md` exists, if it is in `SITE_MAP` in
 `.vitepress/config.ts`; the dev server picks up a new page after a restart.

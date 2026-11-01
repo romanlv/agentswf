@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type DefaultTheme, defineConfig } from "vitepress";
+import { captureMarkdown, markdownHref, writeAgentFiles } from "./llms";
 
 const SITE = resolve(import.meta.dirname, "..");
 const REPO = "https://github.com/romanlv/agentswf";
@@ -130,7 +131,7 @@ export default defineConfig({
   lang: "en-US",
   cleanUrls: true,
   lastUpdated: true,
-  srcExclude: ["**/AGENTS.md", "**/README.md"],
+  srcExclude: ["**/AGENTS.md", "**/README.md", "parts/**"],
   sitemap: { hostname: "https://agents.wf" },
   markdown: {
     // Before VitePress's own plugins, so this fence runs innermost: after `<<<` has read the file.
@@ -150,7 +151,17 @@ export default defineConfig({
           throw new Error(`${state.env.relativePath}: cannot include ${unresolved[1]}`);
         }
       });
+      captureMarkdown(md);
     },
+  },
+  transformHead({ pageData }) {
+    if (pageData.isNotFound) return;
+    return [
+      ["link", { rel: "alternate", type: "text/markdown", href: markdownHref(pageData.relativePath) }],
+    ];
+  },
+  buildEnd(siteConfig) {
+    writeAgentFiles(siteConfig, SITE_MAP);
   },
   themeConfig: {
     nav,

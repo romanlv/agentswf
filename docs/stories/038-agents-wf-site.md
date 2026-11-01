@@ -817,6 +817,17 @@ Manual or live evaluation:
   VitePress's recommended form; links into the repository are GitHub URLs on main. The API page's
   intro gained one sentence linking the testing page. `docs/design/messaging.md`'s Obsidian
   `[[workflow-api#Outcomes]]` became a Markdown path.
+- 2026-11-01, M1 settled: a build step of our own, not `vitepress-plugin-llms` (1.14.0, tried on
+  this site). The plugin reimplements `<<<` and `@include` itself: it left an `@include` inside a
+  fence unexpanded, skipped the config's import rewrite, served `/guide/` as `/guide.md`, kept a
+  frontmatter block and added no `rel="alternate"` link, each needing a workaround. Instead
+  `site/.vitepress/llms.ts` wraps the Markdown renderer and records each page as VitePress renders
+  it: the source after `@include`, with every fence's content as rendered (the `<<<` sample read,
+  imports rewritten) and Vue components and SFC blocks dropped. `buildEnd` writes `{page}.md`,
+  `/llms.txt` (`.vitepress/llms-preamble.md`, then the pages by site-map section, links
+  root-relative so a local preview works) and `/llms-full.txt`; `transformHead` adds the
+  alternate link. `bun run build` then runs `scripts/check-agent-files.ts`. No copy-as-Markdown
+  button: it needs a custom theme component, not free.
 
 ## Human review
 
