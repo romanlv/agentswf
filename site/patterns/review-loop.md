@@ -21,44 +21,33 @@ bun awf run examples/messaging/workflow.ts            # both agents on codex
 bun awf run examples/messaging/workflow.ts -- claude-pane
 ```
 
-**Cost and time:** a recorded run on codex's `gpt-6-luna`, both agents headless, took 50 s: the
-implementer's turn, the reviewer's, and one revision the reviewer asked for by message. The
-estimate at list prices is about $0.01. Codex runs on a ChatGPT subscription, so that prices the
-tokens, it isn't a bill: [Cost](/guide/cost) has where the estimate comes from.
-
-That run is also why the workflow checks the reviewer's work. It printed:
-
-```text
-not approved after 1 revision by message; code in /tmp/awf-messaging/20261012-2309-a2e5
-wrong  "Hello, World!" -> hello-world
-wrong  "  Crème Brûlée Recipes " -> creme-brulee-recipes
-wrong  "awf 2.0: Agents Talk" -> awf-2-0-agents-talk
-```
-
-The reviewer asked for a fix once and returned without approving; the slugs it got on its last
-run still used hyphens. The result says so plainly, instead of a run that looks finished.
+<!-- TODO(operator): record a run -->
+**Cost and time:** not recorded yet. They come from a recorded run of the example, priced at list
+prices; [Cost](/guide/cost) has where an estimate comes from.
 
 ## The workflow
 
-<<< @/../examples/messaging/workflow.ts#run
+<<< @/../examples/messaging/workflow.ts
 
-The whole file, with its runtimes, schemas and argument parsing, is
-[`workflow.ts`](https://github.com/romanlv/agentswf/blob/main/examples/messaging/workflow.ts), and
-its test is [`workflow.test.ts`](https://github.com/romanlv/agentswf/blob/main/examples/messaging/workflow.test.ts).
+Its test is [`workflow.test.ts`](https://github.com/romanlv/agentswf/blob/main/examples/messaging/workflow.test.ts).
 
 ## Why it's shaped this way
 
-- **The reviewer owns the loop.** The code makes two calls: one turn for the implementer, one for
-  the reviewer. Each round of review and fix happens inside the reviewer's turn: it runs
-  `wfa send --await-reply implementer` with the fixes, ends its turn, and the implementer's reply
-  starts its next one. Your code doesn't count rounds or carry findings between prompts; the
-  reviewer keeps them in its session. [Messaging](/guide/messaging) has how a route works.
+- **The reviewer owns the loop.** The code makes two calls, `implementer.run` and
+  `reviewer.run`, and every round of review and fix happens before `reviewer.run` resolves. The
+  reviewer sends the fixes with `wfa send --await-reply implementer` and ends its turn; the
+  message starts an implementer turn, and the implementer's reply starts the reviewer's next turn,
+  in the same session. `reviewer.run` resolves when the reviewer hands back its answer. Your code
+  doesn't count rounds or carry findings between prompts. [Messaging](/guide/messaging) has how a route works.
 - **The route is the bound.** `wf.messages.allow` lets only the reviewer start a message, and
   `maxMessages: 4` caps the conversation, replies included: two rounds of fix and answer. Past
   that the reviewer can't ask again and has to return what it has.
 - **The reviewer knows what the implementer doesn't.** The house style is in the reviewer's
   `instructions` only. A reviewer that holds the acceptance criteria, ideally on another model,
   doesn't share the implementer's blind spots.
+- **The message carries the evidence.** The prompt has the reviewer send the rule and, for each
+  wrong slug, the title, the slug it got and the one expected. The implementer was never told the
+  house style, so a message that only says "fix it" leaves it guessing.
 - **The reviewer checks evidence, not prose.** It runs the code and reports the slugs it got. The
   workflow then compares them with `CASES` itself, so `approved` is the reviewer's opinion and
   `checks` is the fact, and a wrong slug the reviewer let through still shows `wrong`.

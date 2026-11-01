@@ -13,10 +13,22 @@ request can stay open.
 sends it an event on each push and one when it closes. The run reviews the newest head, records
 the review, and between events it parks: its process exits, and the next event continues it.
 
-<<< @/../examples/site/patterns/review-on-event.ts
+The workflow opens its reviewer and waits for events:
+
+<<< @/../examples/site/patterns/review-on-event.ts#open
+
+It handles each event in code: a push records the head to review, a close ends the run, and a
+review's end is recorded in a stage named by its head:
+
+<<< @/../examples/site/patterns/review-on-event.ts#take
+
+Then, if a head is waiting and the reviewer is free, it starts a review without awaiting it:
+
+<<< @/../examples/site/patterns/review-on-event.ts#start
 
 The sample's [test](https://github.com/romanlv/agentswf/blob/main/examples/site/patterns/review-on-event.test.ts)
-covers a review, a push during a review, a close that cancels one, and a failed review.
+covers a review, a push during a review, a close that cancels one, a failed review, and a head
+that isn't a commit hash.
 
 Save it in the repository it reviews. A run of a workflow with events works in its file's
 project, the nearest directory at or above the file that holds `.awf/`, so the reviewer reads that
@@ -36,9 +48,10 @@ awf emit --target workflows/review-on-event.ts --id 42 mr.closed '{"mr":42,"merg
 The first `mr.changes` for 42 starts the run `review-on-event/42`; later ones wake it.
 `awf runs review-on-event/42` shows what it is doing, or what it waits for.
 
-<!-- TODO(operator): cost and time from a recorded run; none exists yet. -->
-**Cost and time:** not measured yet. Between events the run has no process and opens no agent,
-so it costs nothing while it waits; each push costs one reviewer turn.
+<!-- TODO(operator): record a run -->
+**Cost and time:** not recorded yet. They come from a recorded run of the example, priced at list
+prices; [Cost](/guide/cost) has where an estimate comes from. Between events the run has no
+process and runs no turn.
 
 ## Why it's shaped this way
 
@@ -71,8 +84,10 @@ so it costs nothing while it waits; each push costs one reviewer turn.
   the next push; the failed head isn't reviewed again. Retry it on a timer, as the fuller sketch
   below does, if a missed review matters.
 - **Event ids deduplicate.** `--event-id` names one occurrence: a webhook delivered twice is
-  accepted once. Without one, nothing deduplicates. Ids and stage names are lowercase letters,
-  digits, `.`, `_`, `@` and `-`, which a commit hash is.
+  accepted once. Without one, nothing deduplicates.
+- **Check what becomes a name.** Event ids and stage names are lowercase letters, digits, `.`,
+  `_`, `@` and `-`. An event's schema can't hold a `pattern`, so the code checks that `head` is a
+  commit hash before it names a stage with it, and logs one that isn't.
 - **Something has to send the events.** A webhook handler, a CI step or a scheduled poller runs
   `awf emit` on the machine that holds the repository. A failed or crashed run is woken by
   `awf tick`, which you run on a schedule. [Hosting events](/guide/hosting-events) sets both up.

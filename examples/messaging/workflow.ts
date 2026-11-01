@@ -75,7 +75,6 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
     description: "A reviewer asks an implementer for a fix by message and waits for it.",
     whenToUse: "Use to see agent messaging work end to end, for a few cents.",
   },
-  // #region run
   async run(wf, { runtime }) {
     const execution = RUNTIMES[runtime];
     const folder = `/tmp/awf-messaging/${wf.runId}`;
@@ -111,8 +110,9 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
       label: "Review",
       prompt: [
         `Review ${built.outcome.value.file}. Run slugify() on each title in your instructions`,
-        "with node. If any slug is wrong, ask the implementer to fix it by message and wait for",
-        "its reply, then run them again. Return the slugs you got on your last run.",
+        "with node. If any slug is wrong, message the implementer the house style's rule and, for",
+        "each wrong slug, its title, the slug it got and the slug expected; wait for its reply,",
+        "then run them all again. Return the slugs you got on your last run.",
       ].join(" "),
       schema: REVIEW,
     });
@@ -131,7 +131,6 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
         .filter((operation) => operation.agent === "implementer" && operation.cause).length,
     };
   },
-  // #endregion run
   prepare: parseRuntime,
   present: ({ folder, approved, checks, revisions }) =>
     [

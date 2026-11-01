@@ -829,6 +829,11 @@ Manual or live evaluation:
   root-relative so a local preview works) and `/llms-full.txt`; `transformHead` adds the
   alternate link. `bun run build` then runs `scripts/check-agent-files.ts`. No copy-as-Markdown
   button: it needs a custom theme component, not free.
+- 2026-11-01, task 10: `/patterns/review-loop` walks `examples/messaging`, not `minimum-review`.
+  The page's problem is implement, review, revise until approved, and `minimum-review` is one
+  review round with no implementer and no revision; it is linked as the review step on its own.
+  The messaging reviewer's prompt now sends the rule and each wrong slug with the expected one:
+  its only recorded run sent the route's purpose alone, and the slugs stayed wrong.
 
 ## Human review
 

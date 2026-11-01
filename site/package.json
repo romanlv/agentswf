@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev",
-    "build": "vitepress build && bun scripts/check-agent-files.ts",
+    "build": "vitepress build && bun scripts/check-agent-files.ts && bun scripts/check-links.ts",
     "preview": "vitepress preview"
   },
   "devDependencies": {

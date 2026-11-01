@@ -34,6 +34,7 @@ import {
 import { ADDITIONAL, type FeatureArgs, type Handoff, REVIEWED, WORK } from "./schema";
 import { openTeam } from "./team";
 
+// #region workflow
 async function deliverFeature(wf: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
   const { ticket } = args;
   const team = await openTeam(wf, args);
@@ -119,3 +120,4 @@ export const featureDelivery = defineWorkflow<FeatureArgs, Handoff>({
 });
 
 export default featureDelivery;
+// #endregion workflow

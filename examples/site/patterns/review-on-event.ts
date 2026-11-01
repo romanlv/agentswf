@@ -1,31 +1,29 @@
 import { defineWorkflow, isAnswered, type OutputSchema } from "@agentswf/contract/workflow";
+import Type from "typebox";
 
-export type Change = { mr: number; base: string; head: string };
-
+// #region open
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */
-export const Changes: OutputSchema<Change> = {
-  type: "object",
-  properties: { mr: { type: "number" }, base: { type: "string" }, head: { type: "string" } },
-  required: ["mr", "base", "head"],
-  additionalProperties: false,
-};
-export const Closed: OutputSchema<{ mr: number; merged: boolean }> = {
-  type: "object",
-  properties: { mr: { type: "number" }, merged: { type: "boolean" } },
-  required: ["mr", "merged"],
-  additionalProperties: false,
-};
+const ChangesData = Type.Object(
+  { mr: Type.Number(), base: Type.String(), head: Type.String() },
+  { additionalProperties: false },
+);
+export type Change = Type.Static<typeof ChangesData>;
+export const Changes: OutputSchema<Change> = ChangesData;
 
-export type ReviewValue = { approved: boolean; findings: string[] };
-export const Review: OutputSchema<ReviewValue> = {
-  type: "object",
-  properties: {
-    approved: { type: "boolean" },
-    findings: { type: "array", items: { type: "string" } },
-  },
-  required: ["approved", "findings"],
-  additionalProperties: false,
-};
+const ClosedData = Type.Object(
+  { mr: Type.Number(), merged: Type.Boolean() },
+  { additionalProperties: false },
+);
+export const Closed: OutputSchema<Type.Static<typeof ClosedData>> = ClosedData;
+
+export const Review = Type.Object(
+  { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
+  { additionalProperties: false },
+);
+export type ReviewValue = Type.Static<typeof Review>;
+
+/** A commit hash, which also fits a stage's name. */
+const COMMIT = /^[0-9a-f]{7,40}$/;
 
 export default defineWorkflow({
   meta: {
@@ -50,8 +48,13 @@ export default defineWorkflow({
       const events = await wf.receive({
         label: reviewer.turn ? "reviewing" : "waiting for a push",
       });
+      // #endregion open
+      // #region take
       for (const e of events) {
-        if (e.name === "mr.changes") next = e.data;
+        if (e.name === "mr.changes") {
+          if (COMMIT.test(e.data.head)) next = e.data;
+          else wf.log("not a commit hash", { head: e.data.head });
+        }
         if (e.name === "mr.closed") {
           await reviewer.turn?.cancel();
           return { mr: e.data.mr, merged: e.data.merged };
@@ -77,6 +80,8 @@ export default defineWorkflow({
           );
         }
       }
+      // #endregion take
+      // #region start
       if (next && !reviewer.turn) {
         await reviewer.start({
           prompt: `Review merge request !${next.mr}: \`git diff ${next.base}...${next.head}\`. Fetch the commit if you don't have it.`,
@@ -84,6 +89,7 @@ export default defineWorkflow({
           meta: next,
         });
       }
+      // #endregion start
     }
   },
 });

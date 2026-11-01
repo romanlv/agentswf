@@ -20,8 +20,9 @@ Five [stages](/guide/runs), one after the other:
 | `implementation-review` | reviewer | gates the change the same way |
 | `additional-review` | one per `--reviewer` | more reviewers at once; the implementer fixes what they ask, and the reviewer checks again |
 
-From a clone of the repository, after `bun install`, with `--cwd` at the repository the ticket is
-for:
+It needs claude and codex logged in, and Herdr, since the planner and the
+implementer run in panes; [Install](/guide/install) has both. From a clone of the repository,
+after `bun install`, with `--cwd` at the repository the ticket is for:
 
 ```sh
 bun awf run --cwd ../my-app --run-root ~/awf-runs examples/feature-delivery/workflow.ts -- ABC-1
@@ -29,24 +30,28 @@ bun awf run --cwd ../my-app --run-root ~/awf-runs examples/feature-delivery/work
 ```
 
 `--revisions {n}` bounds each review's revisions, 3 by default, and `--reviewer {name}={runtime}`,
-given once per reviewer, adds an additional reviewer: `--reviewer security=claude`.
+given once per reviewer, adds an additional reviewer: `--reviewer security=claude`. The
+workflow's `id: (args) => args.ticket` names the run after the ticket, so the continue finds it
+with `--id ABC-1`.
 
-**Cost and time:** a recorded run on a one-file repository with a two-line ticket went through all
-five stages in 3 min 26 s, about $0.82 at list prices. In the implementation review the reviewer
-asked for one correction by message, got it, and approved. A real ticket takes longer and costs
-more, mostly in the implementation stage. The planner, a claude in a pane, and codex run on
-subscriptions, so the estimate prices tokens and isn't a bill: [Cost](/guide/cost).
+<!-- TODO(operator): record a run -->
+**Cost and time:** not recorded yet. They come from a recorded run of the example, priced at list
+prices; [Cost](/guide/cost) has where an estimate comes from.
 
 ## The workflow
 
-<<< @/../examples/feature-delivery/workflow.ts
+<<< @/../examples/feature-delivery/workflow.ts#workflow
+
+`planner`, `reviewer` and `team.implementer()` come from `team.ts`; each is a small wrapper from
+`session.ts` whose `ask` returns the typed answer or stops the run, and whose `stop` names the
+agent in the reason. `md` and `list`, from `prompt.ts`, write a prompt inline.
 
 The review loop it runs at each gate:
 
 <<< @/../examples/feature-delivery/reviews.ts#loop
 
-The rest is in the folder: `team.ts` opens the agents, `cli.ts` reads the arguments, `schema.ts`
-holds the answers' schemas, and `session.ts` and `prompt.ts` are small helpers to copy. Its
+The rest is in the folder: `cli.ts` reads the arguments and `schema.ts` holds the answers'
+schemas. Its
 [test](https://github.com/romanlv/agentswf/blob/main/examples/feature-delivery/workflow.test.ts)
 covers a full run, each kind of stop, and continues.
 

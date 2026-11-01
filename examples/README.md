@@ -22,8 +22,10 @@ deadlines, nudges, where the records go and what the exit codes mean are on the 
 which login each agent needs. A workflow file is trusted code: it runs with your filesystem and
 process authority.
 
-Each workflow's logic is tested beside it, every agent's answers scripted, through the real
-engine, for free: `bun test examples`, or one folder's, `bun test examples/feature-delivery`.
+Most workflows are tested beside their file, every agent's answers scripted, through the real
+engine, for free. `quick-check/`, `keep-alive/` and `sandbox-probe/` have no test, as they exist
+to watch real agents, and `event-sketches/`' tests are placeholders until the sketches run. Run them
+with `bun test examples`, or one folder's, `bun test examples/feature-delivery`.
 Outside this repository `awf test` does the same; [Testing](../site/guide/testing.md) says how to
 write one.
 

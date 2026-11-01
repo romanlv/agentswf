@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
 import reviewOnEvent, { Review } from "./review-on-event";
 
-const opened = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "aaa111" } };
-const pushed = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "bbb222" } };
+const opened = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "aaa1111" } };
+const pushed = { name: "mr.changes" as const, data: { mr: 42, base: "main", head: "bbb2222" } };
 const approved = answer(Review, { approved: true, findings: [] });
 
 describe("review on event", () => {
@@ -13,9 +13,9 @@ describe("review on event", () => {
       event: opened,
       agents: { reviewer: approved },
     });
-    expect(run.turnsOf("reviewer")[0]?.prompt).toContain("git diff main...aaa111");
+    expect(run.turnsOf("reviewer")[0]?.prompt).toContain("git diff main...aaa1111");
     expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
-      ["review-aaa111", "succeeded"],
+      ["review-aaa1111", "succeeded"],
     ]);
     expect(run.parked?.label).toBe("waiting for a push");
   });
@@ -30,10 +30,10 @@ describe("review on event", () => {
       events: [{ during: "reviewer#1", ...pushed }],
     });
     expect(run.turnsOf("reviewer").map((turn) => turn.prompt)).toEqual([
-      expect.stringContaining("aaa111"),
-      expect.stringContaining("bbb222"),
+      expect.stringContaining("aaa1111"),
+      expect.stringContaining("bbb2222"),
     ]);
-    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-aaa111", "review-bbb222"]);
+    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-aaa1111", "review-bbb2222"]);
   });
 
   test("closing the merge request cancels the review under way and ends the run", async () => {
@@ -55,7 +55,17 @@ describe("review on event", () => {
       events: [{ during: "reviewer#1", ...pushed }],
     });
     expect(run.logs.map((log) => log.message)).toEqual(["review failed"]);
-    expect(run.turnsOf("reviewer#2")[0]?.prompt).toContain("bbb222");
-    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-bbb222"]);
+    expect(run.turnsOf("reviewer#2")[0]?.prompt).toContain("bbb2222");
+    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-bbb2222"]);
+  });
+
+  test("a head that isn't a commit hash is logged and not reviewed", async () => {
+    const run = await testWorkflow(reviewOnEvent, {
+      id: "42",
+      event: { name: "mr.changes", data: { mr: 42, base: "main", head: "Feature/X" } },
+    });
+    expect(run.logs.map((log) => log.message)).toEqual(["not a commit hash"]);
+    expect(run.turns).toEqual([]);
+    expect(run.parked?.label).toBe("waiting for a push");
   });
 });
