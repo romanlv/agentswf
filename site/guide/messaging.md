@@ -12,13 +12,11 @@ them ask each other directly. Your workflow decides who may message whom, and wh
 conversation is for. The agents decide what to say.
 
 Here an implementer adds retries and may ask an architect when the code doesn't settle a design
-question:
+question. First it opens both agents and grants the route:
 
 <<< @/../examples/site/guide/messaging.ts#open
 
-```ts
-// still in run()
-```
+Then, still in `run()`, it gives the implementer its work and counts the architect's turns:
 
 <<< @/../examples/site/guide/messaging.ts#run
 
@@ -84,12 +82,10 @@ In the queue: the client is shared with the batch path.
 EOF
 ```
 
-- **`wfa peers`** lists the agent's routes: each peer, whether it can `send`, only `reply`, or
-  `both`, the peer's state (`not-started`, `working`, `idle`, `awaiting {peer}`, `stopped`), the
-  agent's messages it hasn't read yet, and the route's purpose. It ends with any reply the agent
-  owes. `--json` prints the same as data.
-- **`wfa send {peer}`** returns once the message is recorded, and the agent goes on working. The
-  reply says when the peer reads it: when its current turn ends, or now, in a turn of its own,
+- **`wfa peers`** lists the agent's routes: each peer, what the agent can do on the route, the
+  peer's state, and the route's purpose, then any reply the agent owes.
+- **`wfa send {peer}`** returns once the message is recorded, and the agent goes on working. Its
+  acknowledgement says when the peer reads it: when its current turn ends, or now, in a turn of its own,
   when it is idle or hasn't run.
 - **`wfa send --await-reply {peer}`** asks a question. It doesn't block: the agent goes on with
   work that doesn't need the answer and ends its turn, and the answer starts its next one.
@@ -99,14 +95,10 @@ EOF
   until it replies: `wfa result` is refused (`owes-reply`) until then. A reply can itself
   `--await-reply` to ask something back.
 
-The message is a quoted heredoc, standard input, or one final argument. Flags go before it. A
-message is at most 16 KB; for more, the agent writes a file and sends its path.
-
-A send that can't go through is refused with a code and what to do next, and the agent carries on:
-`no-route`, `closed` (the route's stage ended), `peer-stopped`, `limit`, `too-large`, `inbox-full`
-(the peer has 16 unread messages), `awaiting` (it already awaits a reply), `cycle` (the peer is
-already waiting, directly or through others, on this agent), and `unsupported` (it can't wait for
-a reply where it runs).
+The message is a quoted heredoc, standard input, or one final argument, after the flags. A send
+or reply that can't go through, such as one with no route or past the route's `maxMessages`, is
+refused with a code and what to do next, and the agent carries on. [`wfa`](/reference/wfa) has
+every flag, refusal code and limit.
 
 ## When a message arrives
 
@@ -148,18 +140,16 @@ shifts an agent's scripted turns. [Testing](/guide/testing) covers the rest, and
 ## Catches
 
 - **Not every placement can wait for a reply.** `--await-reply` works on headless claude, codex
-  and pi, and on a claude pane. A codex or pi pane, and cursor anywhere, is refused
-  (`unsupported`) and told to send without waiting and say where the answer should go, such as a
+  and pi, and on a claude pane outside a sandbox. Anywhere else, such as a codex pane or cursor,
+  the agent is refused and told to send without waiting and say where the answer should go, such as a
   file. That's why the sample opens its agents headless.
 - **A woken agent is a turn of model work**, at that agent's cost, which the route authorizes when
   you grant it. `maxMessages` is how you bound a conversation; a lower value than 40 suits most
   loops.
 - **Messages are for coordination, not state.** Something the agents must agree on and keep, such
   as a plan or a list of findings, belongs in a file they both read; a message points at it.
-- **The calling session can't take part.** A route to or from `wf.agents.caller` is rejected.
-- **claude's own messaging between sessions is a different thing.** It is on by default, outside
-  routes; [`design/messaging.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/messaging.md#claudes-own-messaging)
-  says what it reaches.
+- **The [calling session](/guide/calling-session) can't take part.** A route to or from it is
+  rejected.
 
 A person or an app outside the run, such as a coordinator an agent reports to and asks, takes part
 through the same routes and the same `wfa send`. Connecting one, and answering for it with

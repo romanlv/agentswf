@@ -40,13 +40,20 @@ test("a lens that doesn't answer is recorded, and the others' findings are kept"
 });
 
 test("a branch that throws cancels the turn still running, and parallel rejects", async () => {
-  // review:correctness would hold its turn forever: the run ends because parallel cancels it.
   const run = await testWorkflow(strictReview, null, {
     agents: {
       "review:security": reply.failed(),
-      "review:correctness": reply.hang(),
+      // Answers only once its turn is cancelled, which is too late to count.
+      "review:correctness": answer(
+        FINDINGS,
+        (turn) =>
+          new Promise((resolve) =>
+            turn.signal.addEventListener("abort", () => resolve(finding("sum.ts", "low"))),
+          ),
+      ),
       "review:tests": answer(FINDINGS, finding("sum.test.ts", "low")),
     },
   });
   expect(() => run.value).toThrow("security: failed");
+  expect(run.turnsOf("review:correctness")[0]?.outcome).toBe("cancelled");
 });

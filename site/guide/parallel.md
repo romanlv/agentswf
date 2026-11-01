@@ -35,12 +35,23 @@ wf.parallel(items, (item, index) => …, { concurrency?, label?, deadline? })
 - **`concurrency`** is how many items run at once. It defaults to all of them, and must be a
   positive integer. Each call has its own limit, so a `parallel` of 4 inside a `parallel` of 3
   can have 12 agents working.
-- **`label`** names the group in the progress view, where it shows as `lenses 1/3 · 1 queued`
-  while it runs, with how many of its agents failed. An unlabelled `parallel` inside a labelled one counts as part of it.
+- **`label`** names the group in the run's [progress view](/guide/following-runs), where it shows
+  as `lenses 0/3 · 1 queued` while the first two work, then `lenses 1/3`, with how many of its
+  agents failed. An unlabelled `parallel` inside a labelled one counts as part of it.
 - **`deadline`**, `{ unixMilliseconds }`, bounds the whole group. It can only be earlier than the
-  one around it, the run's included; a later one is ignored. When it passes, the turns still
-  running end `timed-out`, and `parallel` rejects with `DeadlineExceededError`.
-  [Deadlines](/guide/deadlines) covers how they nest.
+  one around it, the run's included; a later one is ignored. [Deadlines](/guide/deadlines) covers
+  how they nest.
+
+## When the deadline passes
+
+When the group's deadline passes, its own or the run's, the turns still running end `timed-out`,
+and `parallel` rejects with `DeadlineExceededError`, which you import from `agentswf/workflow`.
+The results of the branches that had already finished are dropped with it: `parallel` returns all
+of its results or none.
+
+To keep what finished, bound each turn instead of the group, with `timeoutMs` on `agent.run`. A
+turn that runs out then ends with the outcome `timed-out`, which the branch returns as data, as
+the fan-out above does.
 
 The function gets each item and its index. An empty list resolves to `[]` at once.
 
@@ -55,7 +66,7 @@ A branch that throws is different. `parallel` is fail-fast:
 <<< @/../examples/site/guide/parallel.ts#strict
 
 When one branch throws, `parallel` cancels the turns still running in the others (they end
-`cancelled`), starts no more items, waits for those agents to stop, and then rejects with that
+`cancelled`), starts no more items, waits for those turns to end, and then rejects with that
 first error. The results of the branches that had finished are lost with it.
 
 So choose per workflow. Return the outcome as data when the other agents' work is still worth

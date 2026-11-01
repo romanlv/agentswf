@@ -8,4 +8,5 @@ as they are. --all wakes them in every project awf has started one in, as ~/.awf
 them. Run it on any schedule; a run is continued once however many wakers come at once.
 
 Prints a line for each run it woke, and nothing when it woke none. --json prints one document.
-Exits 0, or 1 when a project is gone or a run could not be woken; the others are still woken.
+Exits 0; 1 when a project is gone or a run could not be woken, the others still woken; 2 on a
+usage error.

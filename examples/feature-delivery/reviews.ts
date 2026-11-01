@@ -43,6 +43,7 @@ export const applyFeedback = (ticket: string, work: WorkUpdate, feedback: string
   Update ${work.docPath} with any resulting decisions or deviations.
 `;
 
+// #region loop
 /**
  * Returns the loop where the reviewer owns the revisions: it messages the author the changes it
  * needs and reviews each revision the author replies with, until it approves. Code cannot read the
@@ -82,6 +83,7 @@ export function reviewLoop(wf: WorkflowContext, reviewer: Session, maxRevisions 
     return { summary: verdict.summary, work: final };
   };
 }
+// #endregion loop
 
 /** An author's turn on the ticket doc; an answer naming another doc stops the run. */
 export async function workOn(

@@ -1,85 +1,107 @@
 ---
 title: Workflow API
-description: "Every call a workflow can make today, its options and defaults, on one page."
+description: "Every call a workflow can make today, from agentswf/workflow, with its options and defaults."
 ---
 
-# The workflow API
+# Workflow API
 
-A workflow is a TypeScript file whose `run` is an ordinary async function. You open agents, give
-them work, and get typed answers back. Loops, branches and `Promise`s are plain TypeScript. The
-engine owns the rest: agent processes, sessions, deadlines, sandboxes, cleanup and the run's
-record.
+Every call a workflow can make today, its options, defaults and refusals. A workflow imports them
+from `agentswf/workflow`. This page specifies; the guide teaches. Start at
+[How it works](/guide/how-it-works) for the words (workflow, run, agent, turn, outcome, harness,
+pane, stage, nudge), and follow each section's link to the guide page that explains the idea.
 
-This page covers every call you can make today. [README](https://github.com/romanlv/agentswf/blob/main/README.md) shows what they add up
-to, [`examples/`](https://github.com/romanlv/agentswf/tree/main/examples) has complete workflows, and
-[`packages/contract/src/workflow`](https://github.com/romanlv/agentswf/tree/main/packages/contract/src/workflow) has the types, with every
-field documented. [Testing a workflow](./testing-api) covers its tests.
+The types, with every field documented, are in
+[`packages/contract/src/workflow`](https://github.com/romanlv/agentswf/tree/main/packages/contract/src/workflow),
+and [`examples/`](https://github.com/romanlv/agentswf/tree/main/examples) has complete workflows.
+A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 
 ## At a glance
 
-```ts
-wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools? })  // → agent
-agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
-agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
-agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
-agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane?, tools? })  // → a new agent on a copy of this one's session
-wf.agents.stop(key, reason?)                                // → boolean; true once done, false if absent or already stopped
-wf.agents.caller({ key })                                    // → the session `awf run --here` was typed in, or null
-wf.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of the session awf run was started from, or null
-isAnswered(outcome)                                          // narrows to { kind: "answered", value }
-tool({ description, input?, handler, timeoutMs? })           // → a tool the agent calls mid-turn with `wfa tool`
+**The workflow file**
 
-wf.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
-wf.sandboxes.open({ key, write?, read?, network?, sockets?, webSearch?, srt? | docker? }) // → pass as { sandbox }
-wf.decisions.decide({ key, model: "jev", state, questions })                    // → { answers } in ~200 ms
-wf.messages.allow({ from, to, purpose, maxMessages?, timeoutMs? } | { between: [a, b], purpose, … })  // agents may message
-wf.participants.connect({ key, labels? })                     // → a participant outside the run, a route end; .release(reason?)
-
-wf.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
-wf.stop(reason)                                               // ends the attempt stopped
-wf.sleep(name, "14d" | date)                                  // → once the time recorded under name has come
-wf.now()                                                      // the run's time: a test's virtual clock in a test
-
-// A workflow with events adds { file: import.meta.path, events, starts? }; a sender names the run
-wf.receive({ label?, take? })                                 // → the events not yet acknowledged
-wf.race(name, { branch: source | "2d", … }, { label? })  // → { key, [key]: what won }, recorded under name
-for await (const next of wf.select({ branch: source, … }))  // each event a branch takes, one at a time
-wf.timer(name, "2d" | date)   timer.cancel()                  // a source: due once, fires as timer:due
-wf.signal("dd.closed")   wf.timers()                         // sources: a declared event, any timer
-wf.at(() => ledger.nextNudge())                               // a select's branch: due at a time the state holds
-wf.after("3h")                                                // a Date: now() plus it, for the run's state to keep
-wf.started                                                    // the event that started the run
-agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
-agent.is<Meta, T>(e)   participant.is(e)   timer.is(e)        // narrow an event; each is a source too
-wf.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })  // the run stays live after its turns
-wf.participants.connect({ key, to: "code" })                  // replies come as participant:reply; .post(text)
-wf.emit(target, run, name, data, { eventId? })                // → "accepted" | "duplicate" | "refused"
-
-wf.log(message, fields?)   wf.usage()   wf.deadline   wf.cwd
-wf.runId   wf.attempt
-wf.allowance(harness)                                         // → what is left of its plan, as `awf allowance` reads it
-
-// In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
-                              caller?, timeoutMs?, stallMs?, cwd? | files?, recorded?, fromStage?, values? })  // → run
-testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during | after: "agent#1", name, data, from? }], maxTurns?, maxTimers?, … })  // → run, .emits, .parked, .timers
-answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
-```
-
-| Concept | In one line |
+| Call | Returns |
 | --- | --- |
-| **Workflow** | A file that exports `defineWorkflow(…)`, which `awf run file.ts` runs, and, with `events`, the events it declares start too. |
-| **Agent** | A coding agent (claude, codex, pi, cursor) behind a key. It keeps its session between turns. |
-| **Turn** | One `agent.run`: a prompt in, one outcome out. The answer is JSON checked against your schema. |
-| **Outcome** | Always a value, never an exception: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`. |
-| **Deadline** | Set where you want one. A child's deadline can be earlier than its parent's, never later. |
-| **Sandbox** | What agents inside it can read, write and reach. They share it or get a private one. |
-| **Decision** | Closed questions to a decision model (Jev). It returns probabilities, and no agent is involved. |
-| **Route** | Lets one agent message another while both work, for a purpose the workflow states. |
-| **Participant** | Someone outside the run that agents report to and ask, such as a coordinator; a terminal, a session or an app answers for it. |
-| **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
-| **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
-| **Event** | Starts the run its sender names, or lands in its mailbox; the run takes it at a wait, and parks between events. |
+| [`defineWorkflow({ meta, run, prepare?, id?, present?, report? })`](#defineworkflow) | the workflow, as the file's default export |
+| [`defineWorkflow({ …, file, events, starts? })`](#events) | a workflow whose runs take events |
+
+**Agents**
+
+| Call | Returns |
+| --- | --- |
+| [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools?, labels?, deadline? })`](#agents-open) | an agent |
+| [`agent.run({ prompt, schema?, timeoutMs?, deadline?, label?, nudge?, id? })`](#agent-run) | `{ outcome }`, in the agent's same session |
+| [`isAnswered(outcome)`](#isanswered) | narrows to `{ kind: "answered", value }` |
+| [`agent.compact({ prompt, timeoutMs?, deadline?, id? })`](#agent-compact) | an outcome; the harness's own compaction |
+| [`agent.set({ model?, effort?, timeoutMs?, deadline?, id? })`](#agent-set) | an outcome; later turns run at these |
+| [`agent.fork({ key, placement?, metered?, effort?, instructions?, labels?, layout?, keepPane?, tools? })`](#agent-fork) | a new agent on a copy of this one's session |
+| [`agent.execution`](#agent-execution) | the agent's harness, model, effort and placement now |
+| [`wf.agents.stop(key, reason?)`](#agents-stop) | `true` once closed; `false` if never opened or already stopped |
+| [`wf.agents.caller({ key })`](#agents-caller) | the session `awf run --here` was typed in, or `null` |
+| [`wf.agents.forkCaller({ key, placement?, metered?, effort?, instructions?, labels?, layout?, keepPane? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
+| [`tool({ description, input?, handler, timeoutMs? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
+
+**Composing work**
+
+| Call | Returns |
+| --- | --- |
+| [`wf.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })`](#parallel) | results in item order |
+| [`wf.sandboxes.open({ key, cwd?, read?, write?, network?, sockets?, webSearch?, srt? or docker? })`](#sandboxes-open) | a sandbox, for `open`'s `sandbox` |
+| [`wf.decisions.decide({ key, model, state, questions, deadline? })`](#decide) | `{ answers, record }` |
+| [`choice(…)`, `yesNo(…)`, `score(…)`](#decide) | a decision question |
+| [`wf.messages.allow({ from, to, purpose, maxMessages?, timeoutMs? })`](#messages-allow) | routes granted; also `{ between: [a, b], … }` |
+| [`wf.participants.connect({ key, labels? })`](#participants-connect) | a participant outside the run; `.release(reason?)` |
+| [`wf.participants.get(key)`](#participants-get) | an agent or participant by key, or `null` |
+
+**Stages and time**
+
+| Call | Returns |
+| --- | --- |
+| [`wf.stage(name, { result, summary? }?, async () => …)`](#stage) | the stage's value; reused on a continue |
+| [`wf.stop(reason)`](#stop) | never; ends the attempt `stopped` |
+| [`wf.sleep(name, "14d" or date)`](#sleep) | once the time recorded under `name` has come |
+| [`wf.now()`](#now) | the run's time; a test's virtual clock in a test |
+
+**A workflow with events**
+
+| Call | Returns |
+| --- | --- |
+| [`wf.receive({ label?, take? })`](#receive) | the events not yet acknowledged |
+| [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `agent:ended` |
+| [`agent.turn`, `turn.cancel(reason?)`](#agent-turn) | the started turn, until a wait takes its end |
+| [`agent.is(e)`, `participant.is(e)`, `timer.is(e)`, `signal.is(e)`](#is) | narrows an event |
+| [`wf.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
+| [`wf.participants.connect({ key, labels?, to: "code" })`](#participant-to-code) | a participant whose replies come to the code; `.post(text)` |
+| [`wf.race(name, { branch: source or "2d", … }, { label? })`](#race) | `{ key, [key]: what won }`, recorded under `name` |
+| [`wf.select({ branch: source, … }, { label? })`](#select) | each event a branch takes, one at a time |
+| [`wf.timer(name, "2d" or date)`](#timer) | a timer, a source; `timer.cancel()` |
+| [`wf.timers()`](#timers) | a source of any of the run's timers |
+| [`wf.signal(name)`](#signal) | one declared event, as a source |
+| [`wf.at(() => date or null)`](#at) | a select's branch, due at a time the state holds |
+| [`wf.after("3h")`](#after) | `now()` plus a duration, as a `Date` |
+| [`wf.started`](#started) | the event that started the run |
+| [`wf.emit(target, run, name, data, { eventId? })`](#emit) | `"accepted"`, `"duplicate"` or `"refused"` |
+
+**The run**
+
+| Call | Returns |
+| --- | --- |
+| [`wf.log(message, fields?)`](#log) | nothing; a line in the progress view and `awf logs` |
+| [`wf.usage()`](#usage) | this scope's finished operations |
+| [`wf.allowance(harness)`](#allowance) | what is left of a harness's plan |
+| [`wf.runId`, `wf.attempt`, `wf.cwd`, `wf.deadline`](#run-context) | the run's id, the attempt's number, its directory and deadline |
+
+**Results and errors**
+
+| Name | What it is |
+| --- | --- |
+| [Outcomes](#outcomes) | how a turn ended: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled` |
+| [Deadlines](#deadlines) | `{ unixMilliseconds }` bounds, each only earlier than the one around it |
+| [`DeadlineExceededError`](#deadlines) | what `parallel`, `decide` and a call past its scope's deadline reject with |
+| [`DecisionError`](#decide) | a decision that was sent and didn't answer |
+| [`Ending`](#ending) | how an attempt ended, `parked` included, as `present` and `report` get it |
+| [Types](#types) | the types and constants `agentswf/workflow` exports |
+
+[Not built yet](#not-built-yet) lists the calls in the types that reject today.
 
 ## A workflow file
 
@@ -102,761 +124,850 @@ export default defineWorkflow({
   },
   // Turns the command line into args: `awf run summarize.ts -- src/index.ts`.
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
-  // Optional: what a person sees at the terminal instead of the JSON.
+  // Optional: what a person sees at the terminal instead of the record.
   present: (result) => result.summary,
   // Optional: Markdown saved beside the run as report.md.
   report: (result) => (result ? `# Summary\n\n${result.summary}\n` : undefined),
 });
 ```
 
-- **`meta`** and **`run(wf, args)`** are the workflow; args and result must be JSON.
-  `meta.name` names the folder its runs are kept in (letters, digits, `.`, `_`, `@` and `-`). An optional
-  `meta.version` is semver; [Stages](#stages) says what it guards.
-- **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args. Left out, the
-  workflow takes no arguments: its args are `null`, and any argv is refused. A run an event starts
-  has no argv, so its args are what `prepare` makes of none.
-- **`id(args)`**, optional, names the run, such as by a ticket's key; `--id` overrides it. A run's
-  ref is `{workflow}/{id}`, for this workflow and one with [events](#events) alike.
-- **`present(value, ending)`**, optional, is what a completed attempt prints. Without it, or when
-  it returns `undefined`, `awf run` prints the result as JSON; `--json` always prints the record.
-- **`report(value, ending)`**, optional, is called however the attempt ended, so a stopped run
-  can still hand off what its stages found. `value` is `undefined` unless the attempt completed;
-  `ending` says how it ended, in which `stage`, why, the `continue` command, and each stage's
-  `summary` and `value`. Returning `undefined` writes no report.
+The guide: [Workflows](/guide/workflows).
+
+### defineWorkflow {#defineworkflow}
+
+`defineWorkflow(spec)` returns the workflow; the file exports it as its default.
+
+| Field | |
+| --- | --- |
+| `meta` | `{ name, description, whenToUse?, version? }`. `name` names the folder its runs are kept in: letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit. `version`, optional, is semver; [`stage`](#stage) says what it guards. `whenToUse` is optional text for a reader. |
+| `run(wf, args)` | The workflow. `args` and the result are JSON. |
+| `prepare({ argv, cwd })` | Turns the command line (`argv` after `--`, and `cwd`) into `args`. Required when `run` takes arguments: a workflow whose `args` aren't `null` without `prepare` fails `tsc`. Left out, the workflow takes none: its args are `null`, and any argv is refused. A throw ends the run before any agent opens. A run an event starts has no argv, and gets what `prepare` makes of none. |
+| `id(args)` | Optional. The run's id, such as a ticket's key: letters (either case), digits, `.`, `_`, `@` and `-`, starting with a letter or digit, at most 128 characters; an id differing from another only in case is refused. `awf run --id` overrides it. With neither, awf makes one, except for a workflow with events, whose run is then refused. A run's ref is `{workflow}/{id}`. |
+| `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `output.json`; `--json` always prints the record. |
+| `report(value, ending)` | Optional. Markdown saved as `report.md` beside the run. Called however the attempt ended, so a stopped run can still hand off what its stages found: `value` is `undefined` unless it completed. `undefined` writes no report. |
+| `file`, `events`, `starts` | A workflow whose runs take events: see [Events](#events). |
+
+<a id="ending"></a>`ending` says how the attempt ended. Every kind has `stages`, one per stage the
+attempt entered: `stage`, `source` (`"ran"` or `"reused"`), `outcome` (`succeeded`, `stopped` or
+`failed`), `attempt` (the one that ran it), `spanMs`, `summary?` and `value?`. Beyond that:
+
+| `kind` | Fields |
+| --- | --- |
+| `completed` | `value`. |
+| `parked` | `label?`, its last wait's label, and `until?`, an ISO time: a workflow with events waiting with nothing to do. |
+| `stopped`, `failed`, `timed-out`, `cancelled` | `stage?`, the stage it ended in; `reason`; `continue`, the command that goes on. |
 
 The result, every agent's usage and how the attempt ended are kept in `output.json`, in
 `.awf/runs/{workflow}/{id}` under the working directory, for failed and cancelled runs too.
+[The record](/guide/how-it-works#the-record) says what else a run keeps.
 
 ## Agents
 
-### Opening one
+The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 
-```ts
-const reviewer = await wf.agents.open({
-  key: "review:security",
-  runtime: { harness: "claude", model: "claude-sonnet-5-5" },  // placement defaults to "pane"
-  instructions: "You review code for security problems. Report; don't fix.",
-});
-```
+<a id="opening-one"></a>
 
-| Field | What it does |
+### wf.agents.open {#agents-open}
+
+<<< @/../examples/site/reference/workflow-api.ts#open
+
+| Field | |
 | --- | --- |
-| `key` | The agent's name in this run. Opening the same key again returns the same agent. In a run without stages, the part before `:` groups its cost, so `review:security` and `review:style` add up under `review`. |
-| `runtime` | An alias (`"claude"`, `"codex"`), or `{ harness, model, effort?, placement?, metered? }`, or `{ alias, … }` to constrain an alias. |
-| `effort` | How hard it thinks, in the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, the harness uses its default. |
-| `placement` | `"pane"` (the default), a terminal pane in [Herdr](https://herdr.dev) you can watch and type into, or `"headless"`, a process per turn. |
-| `metered: true` | Required for headless claude, which is billed per token even on a subscription. A claude pane runs on your plan. |
+| `key` | Required. The agent's name in this run. Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved. In a run without stages, the part before `:` groups its cost, so `review:security` and `review:style` add up under `review`. |
+| `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
-| `skills` | Exactly the skills this agent gets: `{ path }` for a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. |
-| `sandbox` | A sandbox from `wf.sandboxes.open`, or an inline spec for a private one. Left out, the agent is unsandboxed. |
+| `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
+| `sandbox` | A sandbox from [`wf.sandboxes.open`](#sandboxes-open), or an inline spec for a private one. Left out, the agent is unsandboxed. |
 | `cwd` | Where the agent works; `wf.cwd` by default, which `awf run --cwd` sets. |
-| `layout`, `keepPane` | Where its pane appears, and whether it stays once the agent is done. See [Where panes go](#where-panes-go-layout-and-keeppane). |
-| `tools` | What it can ask your code to do mid-turn. See [Tools](#tools-the-agent-calls-your-code). |
+| `layout`, `keepPane` | Where its pane appears, and whether it stays once the agent is done: [Where panes go](#where-panes-go-layout-and-keeppane). |
+| `tools` | What it can ask your code to do mid-turn: [`tool`](#tool). |
+| `labels` | A JSON object kept with the agent; a reopen must match it. |
+| `deadline` | `{ unixMilliseconds }`, bounding the open; the enclosing scope's by default. |
 
-Each harness uses your existing login.
+The `runtime` fields:
 
-### Giving it work
-
-```ts
-const FINDINGS = Type.Object(
-  { findings: Type.Array(Type.Object({ file: Type.String(), problem: Type.String() })) },
-  { additionalProperties: false },
-);
-
-const { outcome } = await reviewer.run<Type.Static<typeof FINDINGS>>({
-  prompt: "Review the diff on this branch against main.",
-  schema: FINDINGS,
-  timeoutMs: 15 * 60_000,
-  label: "first pass",
-});
-```
-
-- **With a `schema`**, the agent answers by running `wfa result`, as its prompt tells it: with flags,
-  `--verdict 'approve'`, for an object of up to 6 strings, numbers, booleans or enums, else with
-  JSON. The engine checks it, and a refused answer can be retried within the same turn.
-- **Without a schema**, the answer is a string.
-- **The type argument** (`run<Type.Static<typeof X>>`) gives the answer its TypeScript type; a
-  TypeBox schema doesn't carry one on its own.
-- **`timeoutMs`** bounds the whole turn, recovery included, within the enclosing
-  [deadline](#deadlines).
-- **`nudge`** is the recovery for an agent that goes quiet: the engine checks in and asks for its
-  answer. `nudge: false` turns it off; `nudge: { prompt }` adds to what the check-in says. An
-  agent with long work in progress can say so with `wfa waiting`, where its placement supports it
-  (claude panes today), and is checked in on again later, within the same deadline.
-
-### Outcomes
-
-`run` resolves to `{ outcome }`, and rejects only when the whole scope's deadline has passed:
-
-| `kind` | Meaning |
+| Field | |
 | --- | --- |
-| `answered` | `outcome.value` is the checked answer. |
-| `unanswered` | The agent stopped without an accepted answer, even after a check-in. |
-| `blocked` | The agent is showing a question only a person can answer, such as a permission prompt. |
-| `timed-out` | The turn's deadline passed. |
-| `failed` | Something broke. `retryable` says whether trying again might help. `login` is set when the harness has no login: `{ harness, provider?, run }`, with `run` saying what the operator should run. |
-| `cancelled` | The run or an enclosing scope was stopped. |
+| `harness` | `"claude"`, `"codex"`, `"pi"` or `"cursor"`. |
+| `model` | The harness's own model name. |
+| `effort` | In the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, the harness uses its default. |
+| `placement` | `"pane"`, the default, a terminal pane in [Herdr](https://herdr.dev) you can watch and type into; or `"headless"`, a process per turn. |
+| `metered` | `true`: required for headless claude. [Subscription and metered](/guide/harnesses#subscription-and-metered) says why. |
 
-```ts
-if (!isAnswered(outcome)) return { error: `${outcome.kind}: ${outcome.reason}` };
-outcome.value.findings; // typed
-```
+The aliases `awf run` installs are `claude` (claude, `sonnet`) and `codex` (codex,
+`gpt-5.6-sol`). Both open a pane unless `placement` says otherwise.
 
-A missing login fails every agent on that harness the same way, so a workflow that shouldn't
-spend the rest stops on it:
+<a id="giving-it-work"></a>
 
-```ts
-if (outcome.kind === "failed" && outcome.login) wf.stop(outcome.reason);
-// "pi needs a login for openai-codex: run `pi`, then /login (pi said: OAuth refresh failed …)"
-```
+### agent.run {#agent-run}
 
-**A turn that fails or times out closes its agent**, and the agent takes no more turns. The
-calling session is the exception.
+<<< @/../examples/site/reference/workflow-api.ts#run
 
-`wf.agents.stop(key, reason?)` closes an agent the workflow is done with, such as a lens
-that has answered, so it doesn't sit idle until the run ends. A turn it is running ends
-`cancelled`, and its key can't be opened again. It resolves `true` once the agent is closed, and
-`false` for a key never opened or already stopped. Stopping the calling session hands it back to
-its operator then rather than at the end of the run.
+| Field | |
+| --- | --- |
+| `prompt` | Required. The turn's prompt. |
+| `schema` | A JSON Schema, such as a TypeBox one, the answer must fit. The agent answers with [`wfa result`](/reference/wfa#result); a refused answer can be sent again within the turn. Without it, the answer is a string. |
+| `timeoutMs` | Bounds the whole turn, nudges included, from the call; capped by the enclosing [deadline](#deadlines). |
+| `deadline` | `{ unixMilliseconds }`: the same bound as an absolute time. |
+| `label` | The turn's name in the progress view and the record. |
+| `nudge` | On by default: an agent that stops without an answer is nudged to give it. `false` turns it off. `{ prompt }` replaces the nudge's opening line; the lines on how to answer still follow. `{ deadline }` caps the whole turn, as `deadline` does: it can make it sooner, never later. |
+| `id` | A key for this turn within the attempt: `run` with an id it already ran returns that turn's result. Generated when left out. |
 
-### Sessions: talk to the same agent again
+The type argument, `run<Type.Static<typeof X>>`, gives the answer its TypeScript type; a TypeBox
+schema doesn't carry one on its own. A wait on a [participant](#participants-connect)'s answer
+moves the turn's bound out by the wait's length, within the deadlines around it.
 
-Every `run` on the same agent continues its session, so it remembers what it did. That is how you
-build loops: ask for work, check it, ask for a fix, with a different typed answer each time.
+Every `run` on the same agent continues its session, so it remembers its earlier turns.
+<a id="sessions-talk-to-the-same-agent-again"></a>[Loops](/guide/loops) builds on that. How a
+nudge reads and when it comes: [Deadlines and nudges](/guide/deadlines).
 
-```ts
-const builder = await wf.agents.open({ key: "build", runtime: "claude" });
-await builder.run({ prompt: "Implement the plan in PLAN.md.", schema: DONE });
+### Outcomes {#outcomes}
 
-for (let round = 1; round <= 3; round++) {
-  const { outcome } = await critic.run<Review>({ prompt: "Review the change.", schema: REVIEW });
-  if (!isAnswered(outcome) || outcome.value.approved) break;
-  await builder.run({ prompt: `Fix these:\n${outcome.value.notes}`, schema: DONE });
-}
-```
+`run` settles every ending on the agent's side as an outcome. It rejects only on misuse or a
+scope that has ended:
 
-### Compacting: keep the agent, shrink its context
+- the enclosing scope's deadline has passed, or the scope was cancelled (`DeadlineExceededError`);
+- the agent is closed (`logical agent is closed`): stopped, or after a turn of it failed or timed
+  out;
+- the agent has a [started turn](#agent-turn) no wait has taken the end of;
+- it is called from a tool's handler the agent is in;
+- `id` was used before with a different spec;
+- a continue is stopping for stage values it found missing.
+[What each ending means](/guide/agents#what-each-ending-means) says what each leaves of the agent.
 
-`compact` runs the harness's own compaction, as `/compact` with a focus does. The `prompt` says
-what to keep and what to drop; the next `run` goes on in the compacted session.
+| `kind` | Fields |
+| --- | --- |
+| `answered` | `value`, the checked answer. |
+| `unanswered` | `reason`. The agent stopped without an accepted answer, even after a nudge. |
+| `blocked` | `reason`. The agent is showing a question only a person can answer, such as a permission prompt. |
+| `timed-out` | `reason`. The turn's deadline passed. |
+| `failed` | `reason`, `retryable` and `login?`. `retryable` is `false` for every turn that runs today; only a [started turn](#agent-start) whose attempt ended before it did is `true`. `login` is set when the harness has no login, or it was refused: `{ harness, provider?, run }`, with `run` saying what the operator should run. |
+| `cancelled` | `reason`. The run, an enclosing scope or [`wf.agents.stop`](#agents-stop) stopped it. |
 
-```ts
-const compacted = await builder.compact({
-  prompt: "Keep the plan's decisions, the branch and the worktree. Drop file contents.",
-});
-if (!isAnswered(compacted)) wf.log("compaction didn't finish", { reason: compacted.reason });
-```
+Every outcome also has `usage`, the operation's record: its times, sessions and settings.
 
-- **`answered`** means it compacted. `value` is the summary from claude and pi, and `""` from
-  codex, which keeps it encrypted.
+A turn that fails or times out closes its agent, which takes no more turns; the calling session
+is the exception. A missing login fails every agent on that harness the same way, so a workflow
+that shouldn't go on stops on it:
+
+<<< @/../examples/site/reference/workflow-api.ts#login
+
+### isAnswered {#isanswered}
+
+`isAnswered(outcome)` is `true` for `answered`, and narrows `outcome.value` to the schema's type.
+
+<<< @/../examples/site/reference/workflow-api.ts#isanswered
+
+<a id="compacting-keep-the-agent-shrink-its-context"></a>
+
+### agent.compact {#agent-compact}
+
+Runs the harness's own compaction, as `/compact` with a focus does. `prompt` says what to keep and
+what to drop; the next `run` goes on in the compacted session.
+
+<<< @/../examples/site/reference/workflow-api.ts#compact
+
+- **Fields:** `prompt`, required; `timeoutMs`, `deadline` and `id`, as for `run`.
+- **`answered`** means it compacted. `value` is the summary from claude and pi, `""` from codex,
+  which keeps it encrypted, and `""` from cursor.
 - **Any other outcome** leaves the context as it was, so going on is usually right.
 - **Where:** claude, codex and pi, in a pane or headless; cursor in a pane only. pi only
   summarizes what is older than its last 20k tokens, so a short pi session fails "nothing to
-  compact".
-- It runs after the agent's earlier turns, bounded like `run`.
+  compact". The calling session refuses it.
+- It runs after the agent's earlier turns.
 
-### Switching model or effort: `set`
+<a id="switching-model-or-effort-set"></a>
 
-`set` switches the model, the effort or both for every later operation, as `/model` or `/effort`
-does. The session and its context stay.
+### agent.set {#agent-set}
 
-```ts
-const reviewer = await wf.agents.open({ key: "reviewer", runtime: { alias: "codex", effort: "high" } });
-const findings = await reviewer.run({ prompt: review, schema: FINDINGS });  // high
-await reviewer.set({ effort: "low" });
-const summary = await reviewer.run({ prompt: "Summarise." });               // low, and every turn after
-```
+Switches the model, the effort or both for every later operation, as `/model` or `/effort` does.
+The session and its context stay.
 
-- **`answered`** means the switch is in force, and `agent.execution` shows the new settings.
+<<< @/../examples/site/reference/workflow-api.ts#set
+
+- **Fields:** `model`, another model of the same harness; `effort`; `timeoutMs`, `deadline` and
+  `id`, as for `run`.
+- **`answered`** means the switch is in force, and [`agent.execution`](#agent-execution) shows the
+  new settings.
 - **It is refused** for an effort the harness doesn't list, for the calling session, and in a
   cursor pane. Another harness or placement is another agent.
-- **A pane whose switch fails is closed**, as after a failed turn.
+- **A pane whose switch fails or times out is closed**, as after a failed turn.
 - **Switching the model costs the cache**: the next turn reads the whole context at full price.
 
-### Forking: new agents that start from what one knows
+<a id="forking-new-agents-that-start-from-what-one-knows"></a>
 
-`fork` opens a new agent on a copy of this agent's session, so it knows what this agent knew
-without being told again, and reads that context from the provider's cache
+### agent.fork {#agent-fork}
+
+Opens a new agent on a copy of this agent's session, so it knows what this agent knew without
+being told again, and reads that context from the provider's cache
 ([ADR 0009](https://github.com/romanlv/agentswf/blob/main/docs/adr/0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md)).
 
-```ts
-await worker.run({ prompt: "Read the ticket and plan the change.", schema: PLAN });
-const [security, tests] = await Promise.all([
-  worker.fork({ key: "security", instructions: "Review the plan for security." }),
-  worker.fork({ key: "tests" }),
-]);
-```
+<<< @/../examples/site/reference/workflow-api.ts#fork
 
 - **The copy is taken when `fork` is called**, after the agent's earlier operations. From then on
   neither sees the other's turns.
-- **A fork has its parent's** harness, model, effort, working directory, sandbox and skills. It may
-  name its own `placement`, `effort`, `instructions` and `labels`, but never inherits `layout` or
-  `keepPane`: without them it gets a tab of its own.
-- **It rejects** before the parent's first turn and once the parent is closed. Every harness
-  forks, in a pane or headless, sandboxed too.
+- **A fork has its parent's** harness, model, effort, working directory, sandbox, skills and
+  tools. It may name its own `placement`, `metered`, `effort`, `instructions`, `labels` and
+  `tools` (`{}` for none). It never inherits `layout` or `keepPane`: without them it gets a tab of
+  its own.
+- **It rejects** before the parent's first turn, once the parent is closed, and after a `set`
+  queued before it that didn't take. Every harness forks, in a pane or headless, sandboxed too.
+- **The same key** with the same parent and spec returns the same agent.
 
-### Where panes go: `layout` and `keepPane`
+### agent.execution {#agent-execution}
 
-Each pane agent gets a tab of its own in the run's Herdr workspace, closed once it is done. A
-workflow can place it elsewhere as it opens, or at its first turn in a workflow with events
-([design](https://github.com/romanlv/agentswf/blob/main/docs/design/pane-layout.md)):
+The agent's settings now: `harness`, `model`, `effort?`, `placement?`, `metered?`, `alias?` when
+it was opened through one, and `caller: true` for the calling session, whose `model` is `""`. As it
+was opened, then as the last answered `set` left them.
 
-```ts
-const lead = await wf.agents.open({
-  key: "lead",
-  runtime: "claude",
-  layout: { workspace: "origin", tab: "review" },  // a tab where `awf run` was typed
-  keepPane: "on-failure",
-});
-await lead.run({ prompt: "Read the change and plan the review." });
-const security = await lead.fork({ key: "security", layout: { beside: "lead", side: "right" } });
-const style = await lead.fork({ key: "style", layout: { beside: "security", side: "below" } });
-```
+### Where panes go: layout and keepPane {#where-panes-go-layout-and-keeppane}
 
-- **A new tab**: `{ session?, workspace?, tab? }`. `workspace` is `"run"` (the default),
-  `"origin"`, where `awf run` was typed, or `{ name }`, made if missing. `tab` defaults to the key.
+Each pane agent gets a tab of its own in the run's Herdr workspace, closed once it is done. `layout`
+places it elsewhere as it opens, or at its first turn in a workflow with events
+([Where panes go](/guide/harnesses#where-panes-go)):
+
+<<< @/../examples/site/reference/workflow-api.ts#layout
+
+- **A new tab**: `{ session?, workspace?, tab? }`. `session` is the terminal session, the run's by
+  default. `workspace` is `"run"` (the default), `"origin"`, where `awf run` was typed, or
+  `{ name }`, found or made. `tab` defaults to the key.
 - **Beside another agent**: `{ beside: key, side: "right" | "below", share? }` splits that agent's
-  pane; `share`, 0.2 to 0.8, is the new pane's part.
-- **A layout that can't be used** falls back to a tab of its own, and never fails the agent. The
-  run's closing lines say which agent fell back and why. Headless and sandboxed agents take no
-  layout.
-- **`keepPane`**, `"never"` (the default), `"on-failure"` or `"always"`, keeps the pane once the
-  agent is done. Its harness is left running and released: what you type into it is yours. awf
-  never closes a kept pane.
+  pane; `share`, 0.2 to 0.8, is the new pane's part, 0.5 by default.
+- **Refused at `open`:** `layout` or `keepPane` on a headless or sandboxed agent, and a malformed
+  value (an unknown field, a `side` other than `right` or `below`, a `share` out of range, an agent
+  `beside` itself).
+- **A well-formed layout that can't be placed**, such as beside an agent with no pane, falls back
+  to a tab of its own and never fails the agent. The run's closing lines say which agent fell back
+  and why.
+- **`keepPane`**, `"never"` (the default), `"on-failure"` (when its last operation wasn't
+  answered) or `"always"`, keeps the pane once the agent is done. Its harness is left running and
+  released: what you type into it is yours. awf never closes a kept pane.
 
-### The calling session
+### wf.agents.stop {#agents-stop}
+
+`wf.agents.stop(key, reason?)` closes an agent the workflow is done with, so it doesn't sit idle
+until the run ends. A turn it is running ends `cancelled`, its pane is closed or, as `keepPane`
+says, kept, and its key can't be opened again. It resolves `true` once the agent is closed, and
+`false` for a key never opened, not opened, or already stopped. Stopping the calling session
+hands it back to its operator then rather than at the end of the run.
+
+<a id="the-calling-session"></a>
+
+### wf.agents.caller {#agents-caller}
 
 `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run in
 a tab of its own, and the run can drive that session as an agent
-([ADR 0010](https://github.com/romanlv/agentswf/blob/main/docs/adr/0010-the-calling-session-is-an-agent.md)):
+([ADR 0010](https://github.com/romanlv/agentswf/blob/main/docs/adr/0010-the-calling-session-is-an-agent.md)).
+The guide: [Calling session](/guide/calling-session).
 
-```ts
-const author = await wf.agents.caller({ key: "author" });
-if (!author) throw new Error("start this workflow with awf run --here from an agent");
-const { outcome } = await author.run({ prompt: "Pick a number and remember it.", schema: PICKED });
-```
+<<< @/../examples/site/reference/workflow-api.ts#caller
 
 - **`null`** means there is no calling session: refuse, or open an agent of your own.
+- **The same key** returns the same agent; another key rejects.
 - **It is the operator's session**, so it takes no `instructions`, refuses `compact` and `set`, and
-  stays usable after a turn that fails or times out. The operator interrupting a turn settles it
-  `cancelled`.
+  stays usable after a turn that fails, is cancelled or times out. The operator interrupting a turn
+  settles it `cancelled`. Where the harness's interrupt can't be recognised, an unanswered turn
+  isn't nudged by default. Its forks are [`forkCaller`](#agents-forkcaller)'s, and take no `tools`.
 - **When the run ends**, the session gets one message saying how and where the run's records
   are. A run that is killed sends none.
 
-### Forking the session that started the run
+<a id="forking-the-session-that-started-the-run"></a>
 
-`forkCaller` opens an agent that knows what the session `awf run` was started from knows, without
-spending that session's context on the work. The session waits on `awf run` as an ordinary
-command and reads the result as its output.
+### wf.agents.forkCaller {#agents-forkcaller}
 
-```ts
-const fixer =
-  (await wf.agents.forkCaller({ key: "fixer", layout: { workspace: "origin" } })) ??
-  (await wf.agents.open({ key: "fixer", runtime: "claude" }));
-```
+Opens an agent that knows what the session `awf run` was started from knows, without spending that
+session's context on the work. The session waits on `awf run` as an ordinary command and reads the
+result as its output. The guide: [Calling session](/guide/calling-session).
 
+<<< @/../examples/site/reference/workflow-api.ts#forkcaller
+
+- **Fields:** those of [`fork`](#agent-fork) but `tools`: `key`, `placement`, `metered`,
+  `effort`, `instructions`, `labels`, `layout` and `keepPane`. Root scope only.
 - **`null`** means there is no session to fork, and the run's output says why.
-- **The copy** holds the session up to the command that started the run. The fork runs on the
-  model the session last ran, with awf's launch flags and the operator's skills, not their
-  settings or MCP servers.
+- **The copy** holds the session up to the command that started the run; with `--here`, after the
+  run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
+  the operator's skills, not their settings or MCP servers.
 - **Under codex's default sandbox**, the run is inside it and pane agents can't reach Herdr. The
   `awf-run` skill says how each harness waits on a long run.
 
-## `parallel`
+<a id="tools-the-agent-calls-your-code"></a>
+
+### tool {#tool}
+
+A tool is a function in your workflow an agent calls while it works, with
+[`wfa tool`](/reference/wfa#tool), and reads
+what it returns. Holding a tool is what lets the agent call it. The guide: [Tools](/guide/tools).
+
+<<< @/../examples/site/reference/workflow-api.ts#tool
+
+| Field | |
+| --- | --- |
+| `description` | Required. What it is for, as the agent reads it in its prompt. |
+| `input` | An object schema. A TypeBox schema carries no TypeScript type, so give it as the type argument, `tool<Type.Static<typeof X>>`, which types the handler's input. Left out, the tool takes none, and the handler gets `{}`. |
+| `handler(input, call)` | Required. Runs once per accepted call; what it returns is what the agent reads. `call` has `id`, `agent` (the caller's key, a fork's own) and `signal`, aborted when the call's budget passes or its turn ends. |
+| `timeoutMs` | The handler's budget, 30 s by default; `false` leaves only the turn's deadline. |
+
+- **The agent's prompt teaches its tools**, in every turn: each one's name and description, and how
+  to call it. A simple input, up to 6 strings, numbers, booleans or enums, is taught as flags,
+  `wfa tool close_item --id <text> --status done|wontfix --why <text>`; any other as JSON.
+- **The result:** a string prints as is, other JSON as JSON, nothing as nothing; a throw fails the
+  call, not the run. Input that doesn't fit the schema is refused before the handler runs, and the
+  agent corrects it.
+- **Keep the handler short:** it runs while the agent waits. A shell command that runs long is
+  backgrounded by claude after 2 minutes and cursor after 30 s, and handed back to codex to poll
+  after 10 s. An agent that calls again with the same input while the call runs gets its answer,
+  once; a call after it ended runs it again, so a handler past 10 s should be safe to repeat.
+- **It can't give work to the agent that called it**, which is in a turn: `run`, `start`,
+  `compact`, `set`, `fork`, `agents.stop` and `cancel()` on its started turn throw, as they do on
+  an agent whose handler ran this one's, and so does `wf.receive()`. It may run another agent,
+  except in the message turns a stage runs after its body, where no code can.
+- **Limits:** names match `^[a-z][a-z0-9_]{0,47}$`; at most 16 tools an agent, 1 KiB a
+  description, 8 KiB a schema, and 64 KiB for a call's input and for its result.
+- **On a reopen**, tools match by name, description and input schema, never by handler: matching
+  ones take the new handlers and budgets. A fork has its parent's unless it gives its own.
+- **Recorded:** each call, its input and its result or error are in the run's event log, and
+  `awf logs` shows them.
+
+## Composing work
+
+### wf.parallel {#parallel}
 
 `Promise.all` with a concurrency limit and a deadline, which the engine tracks and shows. Results
-come back in item order.
+come back in item order. The guide: [Parallel](/guide/parallel).
 
-```ts
-const LENSES = ["security", "correctness", "tests"] as const;
+<<< @/../examples/site/reference/workflow-api.ts#parallel
 
-const reviews = await wf.parallel(
-  LENSES,
-  async (lens) => {
-    const agent = await wf.agents.open({ key: `review:${lens}`, runtime: "codex" });
-    const { outcome } = await agent.run<Findings>({ prompt: `Review for ${lens}.`, schema: FINDINGS });
-    return isAnswered(outcome) ? outcome.value.findings : [];
-  },
-  { label: "review", concurrency: 2 },
-);
-```
-
-- **`concurrency`** defaults to all at once; **`label`** names the group in the live progress
-  ("review 2/3"); **`deadline`** can only be earlier than the enclosing one.
+- **`concurrency`**, a positive integer, defaults to all at once. **`label`** names the group in
+  the progress view ("review 2/3"). **`deadline`**, `{ unixMilliseconds }`, can only be earlier
+  than the enclosing one.
+- **When its deadline passes**, the turns still running end `timed-out`, and `parallel` rejects
+  with `DeadlineExceededError`: the results already gathered are dropped.
 - **It's fail-fast.** If one item throws, the others are cancelled and `parallel` rejects. Outcomes
   don't throw, so in the pattern above one bad agent never stops the rest.
-- **It nests.** A fan-out that verifies each finding is a `parallel` inside a `parallel`.
+- **It nests.** An empty list resolves to `[]`.
 
-## Stages
+### Deadlines {#deadlines}
 
-A run is one piece of work, kept in `.awf/runs/{workflow}/{id}`, and each `awf run` of it is an
-attempt. A stage is a named step whose result the run keeps, so `awf run file.ts --id {id} --continue`
-reuses what succeeded and picks up at the stage that didn't.
+A run has no deadline unless `awf run --timeout 2h` gives it one, as `wf.deadline`. Everything
+inside inherits it, and anything can set an earlier one, never a later one. The guide:
+[Deadlines and nudges](/guide/deadlines).
 
-```ts
-const doc = await wf.stage("doc-review", { result: DOC, summary: (d) => d.path }, async () => {
-  const doc = await ask(worker, DOC, `Review the ticket doc for ${ticket}`);
-  if (doc.kind === "no-doc") wf.stop(doc.reason); // inside: a continue redoes doc-review
-  return doc;
-});
-await wf.stage("notify", async () => {                // no result: it only has to happen
-  await postToSlack(`${ticket}: reviewed`);
-});
-```
-
-- **A stage's only output is its return value.** With `result`, it must fit the schema; without,
-  the stage returns nothing. `summary(value)` is its line in the progress view.
-- **A reused stage isn't run.** No agent is asked anything, and a variable assigned inside it stays
-  unset.
-- **Code between stages runs on every attempt**, so keep it safe to repeat. Push, post, compact or
-  create inside a stage.
-- **One stage at a time, each name once per attempt.** Names are lowercase letters, digits, `.`,
-  `_`, `@` and `-`, starting with a letter or digit. Parallel work and loops go inside a stage. A
-  workflow with `events` names a stage by its one effect instead, and enters it as often as it
-  likes ([Events](#events)).
-- **`wf.stop(reason)`** ends the attempt `stopped` (exit 3) rather than failed; inside a
-  stage, a continue redoes that stage. Don't catch it. Write `return wf.stop(reason)` where
-  TypeScript should know the code after it isn't reached.
-- **`meta.version`** guards reuse: a record from another major version (another minor under
-  `0.x`), or one whose value no longer fits its schema, stops the continue at that stage, and
-  `--from-stage {stage}` redoes from there.
-
-`wf.runId` is the run's id and `wf.attempt` the attempt's number. The full model is in
-[`design/runs-and-stages.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/runs-and-stages.md).
-
-## Deadlines
-
-A run has no deadline unless `awf run --timeout 2h` gives it one, as `wf.deadline`, absent
-otherwise. Everything inside inherits it, and anything can set an earlier one, never a later one:
-
-```
+```text
 run deadline (--timeout)
  └─ parallel({ deadline })          earlier or equal
      └─ agent.run({ timeoutMs })    earlier or equal
 ```
 
 When a deadline passes, turns under it end `timed-out`, and `parallel` and `decide` reject with
-`DeadlineExceededError`. Without any deadline, turn liveness still stops a turn that stalls. An agent
-waiting on a coordinator's answer isn't working: its clock stops while it waits, within any deadline
-around it. When the run ends, for any reason, every agent it opened is closed and
-every sandbox torn down; only kept panes and the calling session stay.
+`DeadlineExceededError`, which `agentswf/workflow` exports. Without any deadline, turn liveness
+still stops a turn that stalls. An agent waiting on a participant's answer isn't working: its
+clock stops while it waits, within any deadline around it. When the run ends, for any reason,
+every agent it opened is closed and every sandbox torn down; only kept panes and the calling
+session stay.
 
-## Sandboxes
+<a id="sandboxes"></a>
 
-```ts
-const box = await wf.sandboxes.open({
-  key: "work",
-  write: ["."],                   // the working directory is writable; everything else is read-only
-  network: ["registry.npmjs.org"], // beyond each harness's own model API
-  srt: {},                         // or docker: { image? }; omit both for the operator's default
-});
+### wf.sandboxes.open {#sandboxes-open}
 
-const coder = await wf.agents.open({ key: "code", runtime: "claude", sandbox: box });
-const tester = await wf.agents.open({ key: "test", runtime: "codex", sandbox: box });
-const reader = await wf.agents.open({
-  key: "read",
-  runtime: "claude",
-  sandbox: { read: ["/data"] }, // an inline spec: a private sandbox for this agent only
-});
-```
+The guide: [Sandboxes](/guide/sandboxes).
 
-- **`read`, `write`, `network`** say what the agents inside can see and reach. **`sockets`** names
-  host unix sockets they may connect to, a socket or a directory of them, such as a browser or a
-  database the workflow runs on the host. In a directory also in `write`, they can create sockets
-  of their own. srt only; docker refuses it.
-- **Web search is off inside unless `webSearch: true`.** claude's and codex's search runs on the
-  model provider's servers, past any `network` rule, so it can carry out what the agents read.
-  claude's `WebFetch` goes with it. cursor keeps its web tools either way, and pi has none.
-- **`srt`** is Anthropic's sandbox-runtime, on your machine with your toolchain. **`docker`** is a
-  container running as your user.
+<<< @/../examples/site/reference/workflow-api.ts#sandbox
+
+| Field | |
+| --- | --- |
+| `key` | Required. The sandbox's name in this run. |
+| `cwd` | Its working directory, `wf.cwd` by default; always readable inside. |
+| `read` | Host paths visible read-only, at the same path, beyond the working directory. |
+| `write` | Host paths visible and writable. `"."` makes the working directory writable. |
+| `network` | Domains reachable beyond each harness's model API: exact, or `*.example.com` for its subdomains only. No scheme, port, path or IP address. |
+| `sockets` | Host unix sockets the agents may connect to: a socket, or a directory of them, where they may create their own if it is also in `write`. srt only; docker refuses it. |
+| `webSearch` | `true` keeps the harnesses' model-side web tools, which are off inside otherwise. |
+| `srt` or `docker` | `srt: {}`, Anthropic's sandbox-runtime on your machine; `docker: { image? }`, a container running as your user. At most one; neither uses the operator's default. |
+
+An inline spec on `open` takes the same fields but `key` and `cwd`, and is always private.
+
+- **Web search runs on the model provider's servers**, past any `network` rule, so with
+  `webSearch: true` it can carry out what the agents read. claude's `WebFetch` goes with it.
+  cursor keeps its web tools either way, and pi has none.
 - **Agents sharing a sandbox can read each other's files**, their homes and skills included.
   Under docker they share one container; under srt each agent is wrapped on its own, and they meet
-  only in the writable paths. An inline spec is always private.
+  only in the writable paths.
 - **Logins:** claude needs `CLAUDE_CODE_OAUTH_TOKEN` and cursor `CURSOR_API_KEY` in your
   environment, as their logins live in the keychain; codex and pi copy theirs in.
 - **git works.** A writable worktree can commit, but its hooks and config can't be changed from
   inside.
-- **The operator can sandbox the whole run instead** with `awf run --sandbox box.json`, which puts
-  every agent in one sandbox. A workflow that opens its own is then refused.
+- **`awf run --sandbox box.json`** puts every agent of the run in one sandbox instead; a workflow
+  that opens its own is then refused.
+- A sandbox closes when the run does, after every agent in it.
 
-## Decisions
+<a id="decisions"></a>
 
-Not every step needs a coding agent. `decide` asks a decision model closed questions about a
-piece of state and returns a probability for every possible answer, in about 200 ms. The state is
-billed once per call, so ask all your questions together.
+### wf.decisions.decide {#decide}
 
-```ts
-import { choice, score, yesNo } from "agentswf/workflow";
+Asks a decision model closed questions about a piece of state and returns a probability for every
+possible answer, in about 200 ms, with no agent involved. The state is billed once per call, so
+ask all your questions together. The guide: [Decisions](/guide/decisions).
 
-const { answers } = await wf.decisions.decide({
-  key: "triage:42",   // the part before ":" is its cost group, for a run without stages
-  model: "jev",
-  state: { title, body },
-  questions: {
-    team: choice("Which team owns this?", { payments: null, accounts: "logins, profiles" }),
-    bug: yesNo("Is this a bug report rather than a feature request?"),
-    urgency: score("How urgent is it?", ["whenever", "this sprint", "today"]),
-  },
-});
+<<< @/../examples/site/reference/workflow-api.ts#decide
 
-answers.team.choice;          // "payments" | "accounts", typed from the options
-answers.team.probabilities;   // { payments: 0.97, accounts: 0.03 }
-answers.bug.yes;              // 0.91
-answers.urgency.expected;     // 1.4, the probability-weighted level
-```
+| Field | |
+| --- | --- |
+| `key` | Required. Names the call in its record; not unique. |
+| `model` | Required. A decision model alias: `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter, which needs `OPENROUTER_API_KEY` in the environment or a `.env` where you run `awf`. |
+| `state` | Required. What every question is about: a string, a JSON object or an array. |
+| `questions` | Required, at least one. Each is answered on its own. |
+| `deadline` | `{ unixMilliseconds }`; the scope's by default, and only earlier. |
 
-- **`jev`** is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter. It needs
-  `OPENROUTER_API_KEY`, in the environment or a `.env` where you run `awf`. No agent sees the key.
-- **Set your own threshold on the probabilities.** The
-  [findings](https://github.com/romanlv/agentswf/blob/main/docs/findings/system-one-models.md) show Jev is reliable at matching text to options, and
-  not at anything that needs reading code.
-- **A decision that didn't answer rejects** with `DecisionError` (or `DeadlineExceededError`).
+The questions. `instructions`, an option's description and a level are text, or a JSON object of
+structured text:
 
-## Tools: the agent calls your code
+- **`choice(instructions, options)`**: `options` maps each name to a description, or `null`. Its
+  answer has `choice`, the most likely (the first on a tie), and `probabilities` by name.
+- **`yesNo(instructions, { yes, no }?)`**: its answer's `yes` is the probability of yes.
+- **`score(instructions, levels)`**: `levels` lowest first. Its answer has `level`, the most
+  likely index (the lowest on a tie), `expected`, the probability-weighted level, and
+  `probabilities`, one per level.
 
-A tool is a function in your workflow an agent calls while it works, and reads what it returns.
-Holding a tool is what lets the agent call it.
+`decide` resolves to `{ answers, record }`. A decision that was sent and didn't answer rejects with
+`DecisionError` (its `record` attached) or `DeadlineExceededError`; a spec the engine refuses, such
+as an unknown alias, rejects with an `Error` before anything is sent. Set your own threshold on the
+probabilities: the
+[findings](https://github.com/romanlv/agentswf/blob/main/docs/findings/system-one-models.md) show
+Jev is reliable at matching text to options, and not at anything that needs reading code.
 
-```ts
-import { tool } from "agentswf/workflow";
+<a id="messaging"></a>
 
-const triager = await wf.agents.open({
-  key: "triager",
-  runtime: "codex",
-  tools: {
-    close_item: tool({
-      description: "Close an open item as done or won't fix, saying why.",
-      input: outputSchema(Type.Object({
-        id: Type.String(),
-        status: Type.Union([Type.Literal("done"), Type.Literal("wontfix")]),
-        why: Type.String(),
-      })),
-      handler: ({ id, status, why }) => {
-        backlog.close(id, status, why);
-        return `Closed ${id}.`;
-      },
-    }),
-    list_open: tool({ description: "The items still open, one per line.", handler: () => backlog.open() }),
-  },
-});
-```
+### wf.messages.allow {#messages-allow}
 
-- **The agent's prompt teaches its tools**, in every turn: each one's name and description, and how
-  to call it. A simple input, up to 6 strings, numbers, booleans or enums, is taught as flags,
-  `wfa tool close_item --id <text> --status done|wontfix --why <text>`, which the agent fills in
-  with each value in single quotes; any other as JSON.
-- **`tool()` types the handler** from `input`, which is wrapped in `outputSchema(...)` as a turn's
-  `schema` is. Without `input` the tool takes none.
-- **The handler runs during the turn**, while the agent waits, so keep it short. It has 30 s by
-  default; `timeoutMs` sets its own, and `false` leaves only the turn's deadline. A shell command
-  that runs long is backgrounded by claude after 2 minutes and cursor after 30 s, and handed back to
-  codex to poll after 10 s, so a handler that answers within 10 s is never waited on that way. An
-  agent that calls again with the same input while the call runs gets its answer, once; a call
-  after it ended runs it again, so a handler past 10 s should be safe to repeat. A string result
-  prints as is, other JSON as JSON, nothing as nothing; a throw fails the call, not the run. Input
-  that doesn't fit the schema is refused before it runs, and the agent corrects it.
-- **It can't give work to the agent that called it**, which is in a turn: `run`, `start`, `compact`,
-  `set`, `fork`, `agents.stop` and `cancel()` on its started turn throw, as they do on an agent
-  whose handler ran this one's. It may run another agent, except in the message turns a stage runs
-  after its body, where no code can.
-- **A fork has its parent's tools** unless its spec gives its own; `tools: {}` gives none. The calling
-  session's forks take none.
-- **Recorded:** each call, its input and its result or error are in the run's event log, and
-  `awf logs` shows them.
+Grants a route on which one agent may message another, or a participant, while both work. Your
+code grants the route and reads typed results; what the agents say is between them. The guide:
+[Messaging](/guide/messaging).
 
-## Messaging
+<<< @/../examples/site/reference/workflow-api.ts#allow
 
-Agents can talk to each other while they work, on routes the workflow grants. Your code grants a
-route and reads typed results; what the agents say is between them.
+| Field | |
+| --- | --- |
+| `from`, `to` | One way: `from` may message `to`, which answers when asked. |
+| `between: [a, b]` | Both ways, sharing one count. Give this or `from` and `to`. |
+| `purpose` | Required. Shown with every message on the route. |
+| `maxMessages` | Lowers the ceiling of 40 messages a route an attempt, replies included. |
+| `timeoutMs` | Only on a route to a participant: a question closes unanswered after this long. Without it, a question waits until answered; an agent's `--timeout` can only shorten it. |
 
-```ts
-await wf.messages.allow({
-  between: [reviewer, implementer],
-  purpose: "Revise the implementation until the reviewer approves it.",
-  maxMessages: 6,
-});
-const verdict = await reviewer.run({ prompt: "Review the change; ask the implementer for fixes.", schema: VERDICT });
-```
-
-- **A route** is `{ from, to }`, one way, or `{ between: [a, b] }`, both ways. Its `purpose` comes
-  with every message. Granted inside a stage, it closes with the stage. `maxMessages` lowers the
-  ceiling of 40 a route, replies included.
-- **Agents use `wfa`**, which their prompt teaches them: `wfa peers`, `wfa send {peer}`,
-  `wfa send --await-reply {peer}` to ask and wait, and `wfa reply {peer}`.
+- **Scope:** granted inside a stage, a route closes with the stage; otherwise with the attempt. A
+  pair has one open route at a time; granting it again must match, or it rejects.
+- **Agents use `wfa`**, which their prompt teaches them: [`wfa peers`](/reference/wfa#peers),
+  [`wfa send {peer}`](/reference/wfa#send), `wfa send --await-reply {peer}` to ask, and
+  [`wfa reply {peer}`](/reference/wfa#reply). The answer to a question starts
+  the asker's next turn.
 - **A message arrives between turns**, never into a running one. An idle agent gets a turn of its
-  own for it, at its own cost; a busy one gets it with its next turn. An agent that is asked a
-  question can't give its result until it replies.
+  own for it; a busy one gets it with its next turn. An agent that is asked a question can't give
+  its result until it replies.
 - **`--await-reply`** works on headless claude, codex and pi, and on a claude pane that confirms
-  what it is sent. Elsewhere the agent is told to send without waiting.
-- **Costs and logs:** `wf.usage()` marks each operation a message started, and `awf run`,
-  `awf logs` and `awf runs` show the messages.
-
-### A coordinator outside the run
-
-A workflow can let agents report to, and ask, something outside the run: a coordinator. Who answers
-for it is chosen when the run starts, not here: `awf run`'s terminal, another claude or codex
-session, or an app such as a Slack bridge.
-
-```ts
-const coordinator = await wf.participants.connect({
-  key: "coordinator",
-  labels: { audience: "operator" },
-});
-await wf.messages.allow({
-  between: [investigator, coordinator],
-  purpose: "report findings that hold up; ask when the logs can't settle it",
-  timeoutMs: 2 * 60 * 60_000,
-});
-```
-
-- **Agents talk to it as to any peer:** `wfa send coordinator` reports, and
-  `wfa send --await-reply coordinator` asks; the answer starts the agent's next turn, in the same
-  session, hours later if need be.
-- **`labels`** is any JSON object for whatever answers; awf only passes it along. `operator`, `awf`,
-  `system` and `user` are refused as keys.
-- **`timeoutMs`**, only on a route to a participant, closes a question unanswered after that long;
-  without it, a question waits until it is answered. An agent's `--timeout` can only shorten it.
-- **It stays connected** past the workflow's return while a question to it is open, so the run
-  waits for the answer. `coordinator.release(reason)` ends it sooner.
-- **Run in a terminal**, `awf run` asks each question there. Otherwise the answer comes from
-  `awf reply`, by a session or an app reading `awf inbox` ([Answering for a participant](../guide/people)).
+  what it is sent. Elsewhere it is refused `unsupported`, a codex pane included, and the agent
+  sends without waiting.
+- **Recorded:** `wf.usage()` marks each operation a message started, and `awf run`, `awf logs`
+  and `awf runs` show the messages.
 
 claude's own messaging between sessions is a different thing, on by default:
-[`design/messaging.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/messaging.md#claudes-own-messaging) says what it reaches.
+[`design/messaging.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/messaging.md#claudes-own-messaging)
+says what it reaches.
+
+<a id="a-coordinator-outside-the-run"></a>
+
+### wf.participants.connect {#participants-connect}
+
+Connects a participant outside the run, such as a coordinator, that agents report to and ask. Who
+answers for it is chosen when the run starts, not here: `awf run`'s terminal, another claude or
+codex session, or an app. [Answering for a participant](/guide/people) is the other side.
+
+<<< @/../examples/site/reference/workflow-api.ts#connect
+
+- **`key`**, required, may not be reserved (`operator`, `awf`, `system`, `user`) or held by any
+  agent or participant in the run.
+- **`labels`** is any JSON object for whatever answers; awf passes it along in `awf inbox` and
+  never reads it.
+- **Agents talk to it as to any peer:** `wfa send coordinator` reports, and
+  `wfa send --await-reply coordinator` asks; the answer starts the agent's next turn, in the same
+  session, hours later if need be. The guide: [People](/guide/people).
+- **It stays connected** past the workflow's return while a question to it is open, so the run
+  waits for the answer. `coordinator.release(reason?)` ends it sooner, closing its routes and its
+  open questions; it resolves `false` when already released.
+- **Run in a terminal**, `awf run` asks each question there. Otherwise the answer comes from
+  `awf reply`, by a session or an app reading `awf inbox`.
+
+### wf.participants.get {#participants-get}
+
+`wf.participants.get(key)` finds an agent or a connected participant by its key, or resolves `null`.
+
+## Stages and time
+
+<a id="stages"></a>
+
+### wf.stage {#stage}
+
+A run is one piece of work, kept in `.awf/runs/{workflow}/{id}`, and each `awf run` of it is an
+attempt. A stage is a named step whose result the run keeps, so
+`awf run file.ts --id {id} --continue` reuses what succeeded and picks up at the stage that
+didn't. The guide: [Runs](/guide/runs#stages), [Durability](/guide/durability).
+
+<<< @/../examples/site/reference/workflow-api.ts#stage
+
+- **A stage's only output is its return value.** With `result`, a schema, it must fit it, when
+  recorded and whenever a continue reuses it; without, the stage returns nothing. `summary(value)`
+  is its line in the progress view and the record.
+- **A reused stage isn't run.** No agent is asked anything, and a variable assigned inside it stays
+  unset.
+- **Code between stages runs on every attempt**, so keep it safe to repeat. Push, post, compact or
+  create inside a stage.
+- **One stage at a time, each name once per attempt.** Names are lowercase letters, digits, `.`,
+  `_`, `@` and `-`, starting with a letter or digit, at most 128 characters. Parallel work and
+  loops go inside a stage. A workflow with events names a stage by its one effect instead, and
+  enters it as often as it likes ([stages by content](#events)).
+- **`meta.version`** guards reuse: a record from another major version (another minor under
+  `0.x`), or one whose value no longer fits its schema, stops the continue at that stage, and
+  `--from-stage {stage}` redoes from there.
+
+The full model is in
+[`design/runs-and-stages.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/runs-and-stages.md).
+
+### wf.stop {#stop}
+
+`wf.stop(reason)` ends the attempt `stopped` rather than failed. Inside a stage, a continue redoes
+that stage; between stages, a continue checks again. Don't catch it: caught, it fails the stage
+that caught it. Write `return wf.stop(reason)` where TypeScript should know the code after it
+isn't reached. [Stopping with a reason](/guide/workflows#stopping-with-a-reason) says when to use
+it; [Runs](/guide/runs) has the exit codes.
+
+### wf.sleep {#sleep}
+
+`wf.sleep(name, when)` waits until `when` and goes on. `when` is a
+[duration](#waiting-on-time) from the first call under `name`, or a `Date`. The time is recorded under `name` the first time, so a
+rerun waits for what is left of it, and returns at once once it has passed. A sleep in a loop is
+named per round. In a workflow with events, it is a race of one timer of its own,
+`{name}@sleep`, and the run parks while it waits; without events, it waits in its process. It
+throws in a stage or a tool's handler, and sleeps share their names with races.
+
+### wf.now {#now}
+
+`wf.now()` is the run's time. Workflow code reads it, not `Date.now()`, so a test's virtual clock
+is the one it reads.
 
 ## Events
 
-A workflow that reacts to things that happen declares the events it takes, beside the rest of its
-definition, and each sender names the run an event is for. An event starts that run, or lands in its mailbox; the run takes waiting
-events at a wait, handles them in plain code, and starts an agent turn only when one is needed.
-Between events the run parks: its process exits, and the next event runs its code from the top.
+A workflow with `events` takes events its senders address to a run by id, waits for them, and
+parks between them. The guide teaches the model: [Events](/guide/events); running the senders and
+`awf tick`: [Hosting events](/guide/hosting-events). This part specifies the calls.
 
-```ts
-export default defineWorkflow({
-  meta: { name: "dd-case", description: "Investigate one Datadog case." },
-  file: import.meta.path,                                   // where senders find it, and its runs live
-  events: { "dd.changes": Changes, "dd.closed": Closed },   // a schema per name; no colon
-  starts: ["dd.changes"],                                   // the events that may start one; absent, any
-  async run(wf) {
-    const kase = openCase(wf.runId);                       // state lives in files, not variables
-    const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
-    for (;;) {
-      const events = await wf.receive({ label: `${kase.unseen()} unseen` });
-      for (const e of events) {
-        if (investigator.is<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
-        if (e.name === "dd.closed") await wf.stage(`close-${e.id}`, () => kase.close(e.data));
-      }
-      if (!investigator.turn && kase.needsLook()) {
-        const given = kase.pending();
-        await investigator.start({ prompt: promptFor(given), meta: given });   // returns at once
-      }
-    }
-  },
-});
-```
+<<< @/../examples/site/reference/workflow-api.ts#events
 
 ```sh
-awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}' --event-id 83d34d7
+awf emit --target case.ts --id checkout-timeouts dd.changes '{"case":"checkout-timeouts"}' --event-id 83d34d7
 ```
 
-- **Sending.** `wf.emit(caseRun, run, name, data, { eventId })` imports its target, so a wrong name or
-  shape fails `tsc`; `awf emit --target {file}` checks the same at run time. Either returns
-  `accepted`, `duplicate` (the id is in the run's mailbox already) or `refused` (the run returned,
-  or it has none and `starts` doesn't list the event). An id names one occurrence for good; without
-  one, nothing deduplicates the event.
-- **The run's id.** The sender names the run an event is for, as `awf send` names the run it
-  writes to: `awf emit --id`, `wf.emit`'s second argument. The ref is `{workflow}/{id}`, as
-  for a run without events, and `wf.runId` is the id. Run ids are letters, digits, `.`, `_`, `@` and `-`, starting
-  with a letter or digit; event ids and stage names are the same, lowercase, so a stage named by
-  an event id (`close-{id}`) is always valid.
+The fields `defineWorkflow` adds:
+
+| Field | |
+| --- | --- |
+| `file` | Required. `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the nearest directory above it holding `.awf/`. |
+| `events` | Required. Each event's name and the schema of its data. A name with a colon fails `tsc`: `agent:ended`, `participant:reply` and `timer:due` are awf's own. |
+| `starts` | The events that may start a run with an id that has none; any other is refused then. Absent, any event starts one; an empty list is refused when the workflow loads. |
+
+- **Ids.** The sender names the run: `awf emit --id`, or `wf.emit`'s second argument; `wf.runId`
+  is the id and the ref is `{workflow}/{id}`. Without `id(args)` or `--id`, `awf run` refuses the
+  run. Event ids and stage names are lowercase letters, digits, `.`, `_`, `@` and `-`, at most 128
+  characters, so a stage named by an event id (`close-{id}`) is always valid. Ids starting `awf.`
+  are awf's own.
 - **Starting by hand.** `awf run {file} --id {id} -- {args}` makes the run with those args and
-  starts it, detached in its project, as an event would; it runs to its first wait, which returns
-  nothing, and parks. `id(args)` may name it instead of `--id`. It ignores `starts`, and a run
-  already there is only woken. A run an event starts gets what `prepare` makes of no argv: a
-  sender is refused when `prepare` refuses that. Work to do once, on the first attempt, goes in a
-  stage at the top of `run`.
-- **Without `events`** a workflow has no `receive`, and its runs never park: nothing could wake
-  them. It can `sleep`, which waits in its process.
-- **`receive`** acknowledges what its last call returned, then returns every event not yet
-  acknowledged, in arrival order, or the oldest alone with `take: "oldest"`. The first call takes
-  the event that started the run, if one did. After a crash, the first call returns the unacknowledged batch
-  again, alone. `label` is what `awf runs` shows. A time to act is a timer, which comes as an
-  event: see [Waiting on time](#waiting-on-time).
-- **Turns not awaited.** `agent.start()` takes what `run()` takes, plus `meta`, and returns once
-  the turn is launched. Its end arrives at a wait as `agent:ended`, from the agent's key, with the
-  outcome and `meta`; `agent.is(e)` narrows it. `agent.turn` is set until a wait takes that end,
-  and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it; a tool call it has
-  running is aborted through `call.signal`, and the end and `cancel()` wait for the handler, at
-  most 5 s more.
-- **Parking.** Waiting with nothing else of the run working (no turn, decision, sandbox or other
-  stage) and nothing the wait takes, the run ends its attempt
-  `parked` and its process exits. Plain code running beside the wait, outside any awf call, is
-  cut off and runs again on the continue: work that must finish goes in a stage or before the
-  wait. The next event the wait takes, or `awf tick` once its timer is due, continues it:
-  agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
-  new event. What must outlive that lives in files or a stage. `awf tick` wakes the runs of the
-  project it runs in, the ones `awf runs` lists there; `awf tick --all`, every project's.
-- **Kept alive.** An agent opened with `keepAlive` keeps the run live, not parked, for a window
-  after each turn it runs, awaited, started or a message's: `timeoutMs`, an hour by default, the
-  life of claude's prompt cache on a subscription. Its pane and the run's process stay, so a
-  message then is a warm turn in the same pane, and its end opens a new window. Once the window
-  passes, a wait with nothing to take and nothing working calls `onTimeout(agent)`, if a turn ended
-  since it last ran, and awaits it in the wait's scope; the run parks once no window is open and no
-  handler is due. A turn the handler runs opens no window, though a message it sends a peer is that peer's turn,
-  and so is an answer the peer sends back after the handler's turn has ended, which opens this
-  agent's window again: a wrap-up that asks a peer each time keeps the run live; a started one ends at the loop as any
-  does, told apart by its `meta`. A throw is logged, and the run parks anyway. A turn that fails or
-  times out closes the agent, and a closed agent holds no window. Every agent's pane stays with the
-  run: none is released alone. Elsewhere `keepAlive` fails `tsc`, and open refuses it.
+  starts it, detached in its project; it runs to its first wait, which returns nothing, and parks.
+  It ignores `starts`, and a run already there is only woken.
+- **Parking.** A wait with nothing else of the run working (no turn, decision, sandbox or other
+  stage) and nothing to take ends the attempt `parked`, and the process exits. Code running beside
+  the wait, outside any awf call, is cut off. The next event the wait takes, or `awf tick` once
+  its time is due, continues the run from the top.
+- **Agents on a wake** reopen on their kept sessions, without their instructions again, and a pane
+  agent's pane opens at its first turn. Before that turn, in an attempt, it can't be forked or
+  compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a sandbox,
+  whose home is made anew, starts a new session, as one whose harness changed does.
+- **Stages by content.** A succeeded stage is reused wherever and however often its name is
+  entered, in any attempt and any version of the code, while its value fits. A stage around a
+  wait, `stage(name, () => wf.receive(…))`, returns the batch that wait took, then and on every
+  rerun; its work is the wait alone.
+- **`return`** ends the run for good: later events for it are refused.
+- **Without `events`** a workflow has no `receive`, `race`, `select` or `timer`, and never parks;
+  `wf.sleep` waits in its process.
 
-  ```ts
-  const investigator = await wf.agents.open({
-    key: "investigator",
-    runtime: "claude",
-    keepAlive: {
-      onTimeout: async (agent) => {
-        // Written when the window passes, from the case as it is then, while the cache is warm.
-        await agent.compact({ prompt: focusFor(kase.view()) });
-      },
-    },
-  });
-  ```
+### wf.receive {#receive}
 
-  The run's terminal shows "live until {time}" on the row of each idle agent whose window is
-  open; `awf runs` shows the run live and waiting.
-- **Agents on a wake.** Each agent reopens on its kept session, without its instructions again, and
-  a pane agent's pane opens at its first turn. So before that turn, in an attempt, it can't be
-  forked or compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a
-  sandbox, whose home is made anew, starts a new session, as one whose harness changed does.
-- **Stages by content.** In a run with `events`, a succeeded stage is reused wherever and however
-  often its name is entered, in any attempt and any version of the code, while its value fits.
-  Name it by its one effect: `close-{event id}`, `post-f3@abc123`.
-- **A participant routed to the code**, `connect({ key, to: "code" })`, turns each message into
-  `participant:reply` from its key; `awf send {ref} --as {key} --event-id {message id} {text}` delivers
-  one, and `participant.post(text)` writes back without a turn.
-- **`return`** ends the run for good: later events for it are refused. A run that may be
-  needed again records what happened in its files and keeps waiting instead.
+`wf.receive(options?)` acknowledges what its last call returned, then waits for and returns the
+events not yet acknowledged, in arrival order. The first call takes the event that started the
+run, if one did. After a crash, the first call returns the unacknowledged batch again, alone. It
+throws in a tool's handler.
 
-### Waiting on time
+| Option | |
+| --- | --- |
+| `label` | What `awf runs` shows while the run waits here or is parked at this wait. |
+| `take` | `"all"`, the default: every event not yet acknowledged; `"oldest"`: the first of them alone. |
 
-A timer is a time recorded once under a name; due, it fires into the mailbox as `timer:due`, from
+Each event has:
+
+| Field | |
+| --- | --- |
+| `id` | Its id: the sender's `eventId`, or one awf made, starting `awf.`. |
+| `name` | A declared name, or `agent:ended`, `participant:reply` or `timer:due`. |
+| `data` | Typed by its schema; for awf's own, as [`agent.start`](#agent-start), [a participant routed to the code](#participant-to-code) and [`wf.timer`](#timer) say. |
+| `from` | An agent's or participant's key, a timer's name, the sending run's ref for `wf.emit`, or `operator` for `awf emit`. |
+| `at` | When it was appended, an ISO time; for `timer:due`, when the timer was due. |
+
+### agent.start {#agent-start}
+
+`agent.start(spec)` takes what [`run`](#agent-run) takes, plus `meta`, any JSON, and returns once
+the turn is launched, at the run's root scope only. Its end arrives at a wait as `agent:ended`, from
+the agent's key, with `turn`, the `outcome`, checked against `schema` as `run`'s is, and `meta`
+(`null` when absent). A turn started before a park is started again by the wake's rerun.
+
+### agent.turn {#agent-turn}
+
+`agent.turn` is the started turn until a wait takes its end, restored on a continue for an end no
+wait took, and `null` otherwise. Meanwhile the agent refuses `start`, `run`, `compact`, `set`,
+`fork` and messages from other agents. `agent.turn.cancel(reason?)` stops it, and resolves once
+its `cancelled` end is in the mailbox, or `false` at once when it had ended already; a tool call
+it has running is aborted through `call.signal`, and the end waits for the handler, at most 5 s
+more. A started turn is also a source: a wait takes its end.
+
+### is {#is}
+
+`agent.is<Meta, T>(e)` is `true` for that agent's `agent:ended` and narrows its `meta` and outcome;
+`agent.turn.is(e)` for that one turn's. `participant.is(e)`, on a participant routed to the code,
+is `true` for its replies; `timer.is(e)` for its `timer:due`; `wf.signal(name).is(e)` for an event
+of that name.
+
+### keepAlive {#keepalive}
+
+An agent opened with `keepAlive` keeps the run live, not parked, for a window after each turn it
+runs, awaited, started or a message's. Its pane and the run's process stay, so a message then is a
+warm turn in the same pane, and its end opens a new window.
+
+<<< @/../examples/site/reference/workflow-api.ts#keepalive
+
+- **`timeoutMs`** is the window, an hour by default: the life of claude's prompt cache on a
+  subscription.
+- **`onTimeout(agent)`** is called once the window passes, if a turn ended since it last ran, at
+  a wait with nothing to take and nothing working, which awaits it in its own scope. A turn it
+  runs opens no window, though a message it has a peer send is that peer's turn, and an answer the
+  peer sends back after the handler's turn has ended opens this agent's window again. A throw is
+  logged, and the run parks anyway.
+- **The run parks** once no window is open and no handler is due. A turn that fails or times out
+  closes the agent, and a closed agent holds no window. Every agent's pane stays with the run: none
+  is released alone.
+- **Elsewhere** `keepAlive` fails `tsc`, and `open` refuses it. On a reopen it takes the new spec;
+  left out, the agent keeps what it has.
+
+The run's terminal shows "live until {time}" on the row of each idle agent whose window is open;
+`awf runs` shows the run live and waiting.
+
+### A participant routed to the code {#participant-to-code}
+
+`wf.participants.connect({ key, labels?, to: "code" })` turns each message to the participant into
+`participant:reply` from its key, with `text` and `author?`, taken at a wait rather than by an
+agent. `awf send {ref} --as {key} --event-id {message id} {text}` delivers one, and continues a
+parked run. `participant.post(text)` writes to it without a turn: an item in `awf inbox`. A parked
+run keeps it connected.
+
+### Waiting on time {#waiting-on-time}
+
+A **duration** is `"{n}d"`, `"{n}h"` or `"{n}m"`, decimals allowed (`"1.5h"`); a unit typo fails
+`tsc`, and a number that isn't plain and positive throws. A timer is a time recorded once under a
+name; due, it fires into the mailbox as `timer:due`, from
 its name, at its due time. A **source** is something a wait can take: a timer, a declared event
-(`wf.signal(name)`), a participant routed to the code, an agent (any of its turns' ends) or
-a started turn (its end). Three waits take sources, beside `receive`:
+(`wf.signal(name)`), a participant routed to the code, an agent (any of its turns' ends) or a
+started turn (its end). Three waits take sources, beside `receive`:
+
+<<< @/../examples/site/reference/workflow-api.ts#race
+
+<<< @/../examples/site/reference/workflow-api.ts#sleep
+
+<<< @/../examples/site/reference/workflow-api.ts#select
+
+What a branch hands back: a reply as its `text` and `author`, a turn's end as its `outcome` and
+`meta`, a timer's as its `name`, each with the event's `id` and `at`; a signal, the event.
+
+### wf.race {#race}
+
+`wf.race(name, branches, options?)` waits for the first of its branches and answers
+`{ key, [key]: … }`: `if (next.reply)` and `switch (next.key)` both narrow.
+
+| Argument | |
+| --- | --- |
+| `name` | Required. Where the answer is recorded. Shared with sleeps; a race's own timers are `{name}@{branch}`. |
+| `branches` | Required, at least one, none named `key`. Each is a [source](#waiting-on-time) or a duration. |
+| `options.label` | What `awf runs` shows while the run waits here. |
+
+- **It takes only what it names:** the rest stays in the mailbox for a later wait, and doesn't wake
+  a run parked at the race.
+- **Recorded under `name`**, so a rerun gets the same answer back and walks on: a race in a loop is
+  named per round, and a name answers once an attempt. Races and sleeps share their names.
+- **Of two ready, the earlier `at` wins**; of two branches taking one event, the first declared.
+- **A branch given a duration** is a timer of the race's own, `{name}@{branch}`, cancelled when
+  another branch wins; a `wf.timer()` passed in is the code's to cancel. A branch takes a duration,
+  not a `Date`, and not [`wf.at`](#at): a fixed time is `wf.timer(name, date)`.
+- It throws in a stage or a tool's handler.
+
+### wf.select {#select}
+
+`wf.select(branches, options?)` is an async iterable: it yields each event its branches take,
+one at a time, as `{ key, [key]: … }`, until the loop returns or breaks.
+
+| Argument | |
+| --- | --- |
+| `branches` | Required, at least one, none named `key`. Each is a [source](#waiting-on-time) or a [`wf.at`](#at). |
+| `options.label` | A string, or a function asked at each wait: what `awf runs` shows. |
+ An event is acknowledged
+when the loop asks for the next; after a crash, the one taken and not acknowledged comes back once.
+What no branch names stays in the mailbox. A branch is a source, not a duration: a timer in a loop is `wf.timer()`'s. It throws in a stage or a tool's
+handler.
+
+### wf.timer {#timer}
+
+`wf.timer(name, when)` returns its source at once.
+
+| Argument | |
+| --- | --- |
+| `name` | Required. Where the time is recorded; no `@`, which a race's own timers use. |
+| `when` | Required. A duration from the first call under the name, or a `Date`. |
+
+The timer has `name`, `due` (an ISO time), `cancel()` and `is(e)`; its branch hands back `name`,
+`id` and `at`.
+
+- **The first call names the time:** a later one, in this attempt or any other, gets the recorded
+  timer, and one asking another time is logged and ignored. So a timer per round is named per
+  round, and a fixed time is a duration or a `Date` from the run's files: one built from `now()`
+  differs on every rerun.
+- **`timer.cancel()`** stops it, and a `timer:due` of it not yet taken is withdrawn; the name stays
+  cancelled.
+- In a `receive` loop, `timer.is(e)` tells its event, or `e.name === "timer:due"` with `e.from`,
+  its name, for one an earlier attempt made.
+
+### wf.timers {#timers}
+
+`wf.timers()` is a source of any of the run's timers, told apart by `name`: one made in the loop,
+`retry-{id}`, is caught by `next.timer.name` without a branch of its own.
+
+### wf.signal {#signal}
+
+`wf.signal(name)` is one of the workflow's declared events, as a source; its branch hands back the
+event, typed by its schema.
+
+### wf.at {#at}
+
+`wf.at(read)` is a select's branch due at a time the run's state holds: `read` returns a `Date`,
+or `null` for none, and is called at each wait, so the branch follows the state as the code moves
+the time. It answers `{ at }`, the time it came for.
+
+<<< @/../examples/site/reference/workflow-api.ts#at
+
+- **It isn't a timer:** nothing is recorded under a name, there is nothing to cancel, and it lives
+  as long as its loop. Events ready at the wait, timers' among them, come before it.
+- **A time returned once isn't returned again** by a branch of that name, so a handler that leaves
+  the state alone doesn't fire on every pass. After a crash, a time returned and not acknowledged
+  comes back once, if the state still says it.
+- **`read` is cheap and synchronous**, and reads state that outlives the process (files, or what
+  is rebuilt from them): a parked run wakes in a new one and reads it again. `wf.now()` and
+  `wf.after()` throw inside it, as does returning anything but a valid `Date` or `null`.
+- A race refuses it.
+
+### wf.after {#after}
+
+`wf.after(duration)` is `now()` plus a [duration](#waiting-on-time): a time for the state to keep,
+where it is set, as `wf.at` reads it.
+
+### wf.started {#started}
+
+`wf.started` is the event that started the run, typed by `events`; absent for a run started by
+hand.
+
+### wf.emit {#emit}
+
+`wf.emit(target, run, name, data, { eventId? })` sends an event to the run `run` of the workflow
+`target`, imported from its file, so a wrong name or shape fails `tsc`; `awf emit --target {file}`
+checks the same at run time ([Sending events with `awf emit`](/guide/hosting-events#sending-events-with-awf-emit)). Either returns `accepted`; `duplicate`, the id is in the run's mailbox
+already; or `refused`, the run returned, or it has none and `starts` doesn't list the event. A name
+`target` doesn't declare, or data its schema refuses, throws. An id
+names one occurrence for good; without one, nothing deduplicates the event. A sender is refused
+when `prepare` refuses no argv. Any workflow can emit; the target is one with events.
+
+A parked run's `until` in `awf runs` is the earliest timer, or time read from state, its wait
+takes, and `awf tick` continues it once that is due: [`awf tick` on a schedule](/guide/hosting-events#awf-tick-on-a-schedule).
+
+## The run
+
+<a id="logging-and-usage"></a>
+
+### wf.log {#log}
+
+<<< @/../examples/site/reference/workflow-api.ts#log
+
+`fields` is a JSON object.
+
+### wf.usage {#usage}
+
+`wf.usage()` returns this scope's finished operations and its descendants', in the order they were
+dispatched: each one's agent, settings, times, sessions, stage and label, and for one a message
+started, `cause`. Costs are priced after the run, from each agent's tokens: each stage's line gains
+what its agents cost, and one summary closes the run. `output.json` keeps the tokens, each stage's
+share and the price table used.
+
+<a id="plan-allowance"></a>
+
+### wf.allowance {#allowance}
+
+`wf.allowance(harness)` reads what is left of a harness's plan now, as `awf allowance` does, with
+no model turn, on the login the run's agents get. It returns one harness of
+`awf allowance --json`'s report: `read: "plan"` with each window's `usedPercent`, its `resetsAt`
+and, for a window that limits only some models, which; or `read: "none"` with a `reason`, which
+means unknown, not room to spare. A harness awf doesn't know throws. The read isn't recorded: a
+continue reads again, and a stage keeps one.
 
 ```ts
-// A reminder every two days, an approval, or an expiry at fourteen.
-const expiry = wf.timer("doc-expires", "14d");
-for (let round = 1; ; round++) {
-  const next = await wf.race(`approval-${round}`, {
-    reply: approvals,                 // a participant routed to the code
-    remind: "2d",                     // a timer of the race's own
-    expiry,                           // a timer the code made, shared by every round
-  }, { label: "awaiting approval" });
-  if (next.expiry) return abandon();
-  if (next.reply && isApproval(next.reply.text)) return approve(next.reply);
-  if (next.remind) await wf.stage(`remind-${round}`, () => approvals.post(REMINDER));
-}
-
-// Straight-line code that waits, and goes on.
-await wf.stage("release", () => release(ticket));
-await wf.sleep("follow-up", "14d");
-
-// A loop that handles the events it names, one at a time.
-for await (const next of wf.select({ reply: thread, closed: wf.signal("dd.closed") })) {
-  if (next.closed) return close(next.closed.data);
-  if (next.reply) await answer(next.reply);
-}
-```
-
-- **`wf.timer(name, when)`** returns its source at once. `when` is `"{n}d"`, `"{n}h"` or
-  `"{n}m"` from the first call under the name, or a `Date`. The first call names the time: a later
-  one, in this attempt or any other, gets the recorded timer, and one asking another time is
-  logged and ignored. So a timer per round is named per round, and a fixed time is a duration or
-  a `Date` from the run's files: one built from `now()` differs on every rerun. `timer.cancel()` stops it, and a `timer:due` of it not yet taken is withdrawn; a name
-  stays cancelled. A name has no `@`. In a `receive` loop, `timer.is(e)` tells its event, or
-  `e.name === "timer:due"` with `e.from`, its name, for one an earlier attempt made.
-- **`race(name, branches)`** waits for the first of its branches and answers `{ key, [key]: … }`:
-  `if (next.reply)` and `switch (next.key)` both narrow. It takes only what it names: the rest
-  stays in the mailbox for a later wait, and doesn't wake a run parked at the race. Its answer is
-  recorded under `name`, so a rerun gets it back and walks on: a race in a loop is named per round,
-  and a name answers once an attempt. Of two ready, the earlier `at` wins; of two branches taking
-  one event, the first declared. A branch given a duration is a timer of the race's own,
-  `{name}@{branch}`, cancelled when another branch wins; a `wf.timer()` passed in is the
-  code's to cancel. A branch takes a duration, not a `Date`: a fixed time is
-  `wf.timer(name, date)`. `race`, `sleep` and `select` throw in a stage or a tool's
-  handler, and races and sleeps share their names.
-- **What a branch hands back**: a reply as its `text` and `author`, a turn's end as its `outcome`
-  and `meta`, a timer's as its `name`, each with the event's `id` and `at`; a signal, the event.
-- **`sleep(name, when)`** is a race of one timer of its own, `{name}@sleep`: past its time, it
-  returns at once. A sleep in a loop is named per round, as a race is.
-- **`select(branches)`** yields each event its branches take, one at a time, under its branch's
-  name, until the loop returns or breaks. An event is acknowledged when the loop asks for the next;
-  after a crash, the one taken and not acknowledged comes back once. `wf.timers()` takes any
-  of the run's timers, so one made in the loop, `retry-{id}`, is caught by `next.timer.name`. Its
-  `label` may be a function, asked at each wait. A branch is a source, not a duration: a timer in
-  a loop is `wf.timer()`'s.
-- **`wf.at(read)`** is a select's branch due at a time the run's state holds: `read` returns
-  a `Date`, or `null` for none, and is called at each wait, so the branch follows the state as the
-  code moves the time. It answers `{ at }`, the time it came for.
-
-  ```ts
-  for await (const next of wf.select({
-    reply: engineer,
-    nudge: wf.at(() => ledger.nextNudge()),         // Date | null, from the ledger's file
-  })) {
-    if (next.nudge) await nudge();                  // which puts ledger's nextNudge off, or clears it
-    if (next.reply) ledger.answered();              // nextNudge = null: no more nudges
-  }
-  ```
-
-  It isn't a timer: nothing is recorded under a name, there is nothing to cancel, and it lives as
-  long as its loop. Events ready at the wait, timers' among them, come before it, as the handler may
-  move the time. A time returned once isn't returned again by a branch of that name, so a handler
-  that leaves the state alone doesn't fire on every pass. After a crash, a time returned and not
-  acknowledged comes back once, if the state still says it. `read` is cheap and synchronous, and
-  reads state that outlives the process (files, or what is rebuilt from them): a parked run wakes in
-  a new one and reads it again. A time is kept in the state, not made at the read, which would never
-  come due: `wf.now()` and `wf.after()` throw inside it, as does anything but a valid
-  `Date` or `null`. A race refuses it; a fixed time there is `wf.timer(name, date)`.
-- **`wf.after(duration)`** is `now()` plus `"{n}d"`, `"{n}h"` or `"{n}m"`: a time for the
-  state to keep, where it is set.
-- **`wf.started`** is the event that started the run, absent for one started by hand.
-- **`wf.now()`** is the run's time. Workflow code reads it, not `Date.now()`, so a test's
-  clock is the one it reads.
-- **Parked**, a run's `until` in `awf runs` is the earliest timer, or time read from state, its
-  wait takes, and `awf tick` continues it once that is due.
-
-## Logging and usage
-
-```ts
-wf.log("reviewed", { findings: 12 }); // a line in awf's live progress and in `awf logs`
-wf.usage();                           // this scope's finished operations: times and sessions
-```
-
-Costs are priced after the run, from each agent's tokens: each stage's line gains what its agents
-cost, and one summary closes the run. `output.json` keeps the tokens, each stage's share and the
-price table used.
-
-## Plan allowance
-
-`wf.allowance(harness)` reads what is left of a harness's plan now, as `awf allowance` does,
-with no model turn, on the login the run's agents get. It returns one harness of
-`awf allowance --json`'s report: each window's `usedPercent`, its `resetsAt` and, for a window that limits
-only some models, which. A `none` says why there was nothing to read, and means unknown, not room to
-spare. The read isn't recorded: a continue reads again, and a stage keeps one.
-
-```ts
-// examples/event-sketches/dd-tick.ts: a tick that leaves the plan to the operator past 80%;
-// a window of some models' only, as claude's `week (Fable)`, doesn't limit its sonnet
+// examples/event-sketches/dd-tick.ts
+// A window of some models' only, as `week (Fable)`, doesn't limit the triage's sonnet.
 const plan = await wf.allowance("claude");
 if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent >= 80))
   return { changed: 0, skipped: "claude's plan is over 80% used" };
 ```
 
+### wf.runId, wf.attempt, wf.cwd, wf.deadline {#run-context}
+
+- **`wf.runId`** is the run's id, the same in every attempt.
+- **`wf.attempt`** is which `awf run` of the run this is: 1, then one more for each continue.
+- **`wf.cwd`** is the working directory, which `awf run --cwd` sets.
+- **`wf.deadline`** is the run's deadline, `{ unixMilliseconds }`, absent unless
+  `awf run --timeout` sets one.
+
+## Types
+
+What `agentswf/workflow` exports for a workflow's own signatures, beside the calls above.
+
+| Name | |
+| --- | --- |
+| `WorkflowContext` | `wf` in a workflow without events. |
+| `EventWorkflowContext<Events>` | `wf` in a workflow with events: adds `receive`, `race`, `select`, `timer`, `timers`, `signal`, `at`, `after` and `started`. |
+| `AgentRef` | An agent: `key`, `execution`, `run`, `compact`, `set`, `fork`. |
+| `EventAgentRef` | An agent in a workflow with events: adds `start`, `turn` and `is`, and is a source. |
+| `TurnOutcome<T>` | An [outcome](#outcomes), `T` the answer's type. |
+| `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: annotate a TypeBox schema with it, `const X: OutputSchema<Type.Static<typeof x>> = x`, and `run`, `stage` and `events` take its type. |
+| `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
+| `Workflow<Args, Result, Events>` | What `defineWorkflow` returns. |
+| `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. |
+| `TOOL_LIMITS` | The tool limits: `name` (a pattern), `tools` 16, `descriptionBytes` 1024, `schemaBytes` 8192, `defaultTimeoutMs` 30000, `inputBytes` and `resultBytes` 65536. |
+
 ## Not built yet
 
-These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
-session), `steps` (durable steps and sleep), and `call` (one workflow calling another).
-[`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md) says what's next.
+These are in the types, and the promise each returns rejects with
+`Error: {name} is not implemented by the minimum workflow runner`:
 
+- **`wf.agents.attach(key)`** for any key but the calling session's, which returns that session.
+- **`wf.steps.run` and `wf.steps.sleep`**, durable steps. `wf.sleep` is built.
+- **`wf.call`**, one workflow calling another.
+
+[Limits](/guide/limits) says what else isn't built, and
+[`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md) what's next.

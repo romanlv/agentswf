@@ -75,6 +75,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
     description: "A reviewer asks an implementer for a fix by message and waits for it.",
     whenToUse: "Use to see agent messaging work end to end, for a few cents.",
   },
+  // #region run
   async run(wf, { runtime }) {
     const execution = RUNTIMES[runtime];
     const folder = `/tmp/awf-messaging/${wf.runId}`;
@@ -130,6 +131,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
         .filter((operation) => operation.agent === "implementer" && operation.cause).length,
     };
   },
+  // #endregion run
   prepare: parseRuntime,
   present: ({ folder, approved, checks, revisions }) =>
     [

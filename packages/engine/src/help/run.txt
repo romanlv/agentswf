@@ -10,8 +10,8 @@ the stages that succeeded, up to the first with no record or to --from-stage, an
 A new run with --from-stage starts there. A stage before it with no record to reuse takes its
 value from --values, a JSON object by stage name, checked by its result; one that returns
 nothing is passed. Without one the attempt stops, naming the stage and its schema.
-A stop exits 3. A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names
-another folder for .awf/runs.
+A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names another folder
+for .awf/runs.
 A run has no deadline unless --timeout gives it one, per attempt.
 A workflow that knows how to present its result prints that; --json prints the full result instead.
 Either way the full result is kept as output.json in the run's folder, beside report.md
@@ -31,6 +31,9 @@ A run of a workflow with events is named by --id, or by the workflow's id(args).
 with its arguments and no event, detached in its project, as awf emit would, and the run waits at
 its first receive. A run already there is only woken. A run an event starts has no argv: its args
 are what prepare makes of none.
+Exits 0 when the run completed or parked, 1 when it failed or timed out, 2 on a usage error or
+when the run is refused, 3 when it stopped and can go on with --continue, and 128 plus the
+signal's number when it was interrupted.
 
 Examples:
   awf run examples/minimum-review/review-loop.ts

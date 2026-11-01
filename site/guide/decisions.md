@@ -10,7 +10,14 @@ how urgent an issue is: these are closed questions about a piece of text. A deci
 answers them in about 200 ms with a probability for every possible answer. No agent starts,
 nothing reads your repository, and there is no turn to wait on.
 
-Ask the model first, keep what it is sure of, and send the rest to an agent:
+awf has one decision model built in, `jev`, and it needs an `OPENROUTER_API_KEY`
+([below](#the-model-and-its-key)). Everything else comes from `agentswf/workflow`:
+
+<<< @/../examples/site/guide/decisions.ts#imports
+
+Write the questions once, ask the model, keep what it is sure of, and send the rest to an agent:
+
+<<< @/../examples/site/guide/decisions.ts#kinds
 
 <<< @/../examples/site/guide/decisions.ts#route
 
@@ -40,7 +47,8 @@ for each:
 - **`key`** names the call in the run's record. The part before the first `:` groups its usage when
   the run has no stages, so `triage:1`, `triage:2` and so on count together. Keys need not be
   unique.
-- **`model`** is the alias of a decision model. `jev` is the one awf installs.
+- **`model`** is the alias of a decision model: `jev`, the built-in one, while `OPENROUTER_API_KEY`
+  is set.
 - **`state`** is what every question is about: a string, an object or an array. The model reads it
   once per call however many questions you ask, so ask them together rather than one call each.
 - **`questions`** are at least one, keyed by the name you read the answer by. Each is answered on
@@ -48,9 +56,7 @@ for each:
 - **`deadline`**, optional, `{ unixMilliseconds }`, is an earlier deadline for this call than the
   one around it.
 
-There are three kinds of question, imported from `agentswf/workflow`:
-
-<<< @/../examples/site/guide/decisions.ts#kinds
+The sample at the top uses all three kinds of question:
 
 | Question | Gives | Its answer |
 | --- | --- | --- |
@@ -73,11 +79,13 @@ costs you:
   `urgency.probabilities[urgency.level]`.
 - A **yes/no**: how far `yes` is from 0.5. A confident no, `yes` at 0.05, is as sure as a confident
   yes.
-- A **score** read as a number: `expected` and cut points of your own often say more than `level`.
+- A **score** read as a number: `expected` and cut points of your own, as the sample does for
+  `urgency`, often say more than `level`.
 
 The model is close to deterministic but not quite: the same call can move a probability by a few
-hundredths. On matching, answers at 0.9 or above were right 117 times in 118 in the measurements
-above.
+hundredths. On matching review comments to a list of issues, answers at 0.9 or above were right
+117 times in 118 in the measurements above, but the issues' descriptions had been drafted from
+those same comments, so text written independently will match less well.
 
 ## The model and its key
 
@@ -96,10 +104,12 @@ was fitted on.
 
 ## When a decision fails
 
-- **Refused before it is sent.** An unknown alias, no questions, a question with no options, or
-  `jev` without a key rejects with an `Error` that says what to fix, for example
+- **Refused before it is sent.** A call that can't be asked rejects with an `Error` that says what
+  to fix: no key, no questions, a question of unknown type, a state that isn't text, an object or
+  an array, an unknown alias, a bad deadline, or `jev` without a key, for example
   `decision model "jev" is unavailable: OPENROUTER_API_KEY is not set`. Nothing is sent or
-  recorded.
+  recorded. A `choice` with no options or a `score` with no levels throws sooner, where you build
+  it.
 - **Retried.** When OpenRouter can't be reached, is rate limited or has a server error, awf tries
   again, up to three requests in all, waiting longer each time, and not past the deadline. Each
   request may be billed, so the record counts them as `attempts`.

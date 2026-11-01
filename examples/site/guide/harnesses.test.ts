@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
-import planAndList, { PLAN, reviewers, unlisted, unmetered } from "./harnesses";
+import planAndList, { eachRuntime, PLAN, reviewers, unlisted, unmetered } from "./harnesses";
 
 test("each agent runs on the harness, model, effort and placement it was opened with", async () => {
   const run = await testWorkflow(planAndList, null, {
@@ -47,4 +47,16 @@ test("the lead's forks review side by side, and each answers", async () => {
     },
   });
   expect(run.value).toEqual(["no injection", "names are fine"]);
+});
+
+test("each runtime shape resolves to a harness, model, effort and placement", async () => {
+  const run = await testWorkflow(eachRuntime, null, { agents: {} });
+  expect(run.value).toEqual({
+    alias: { harness: "claude", model: "sonnet", alias: "claude" },
+    thorough: { harness: "codex", model: "gpt-5.6-sol", effort: "high", alias: "codex" },
+    pi: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash", effort: "low" },
+    cursor: { harness: "cursor", model: "gpt-5.6-luna-high" },
+    quiet: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
+    meteredClaude: { harness: "claude", model: "sonnet", placement: "headless", metered: true },
+  });
 });

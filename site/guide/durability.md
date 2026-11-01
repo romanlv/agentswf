@@ -7,29 +7,34 @@ description: What survives a failed step, a stop, a crash, a closed laptop or a 
 
 A run of coding agents takes minutes to hours, and things go wrong partway through: an agent
 gives no answer, you press Ctrl-C, the machine reboots, or you fix a bug in the workflow and want
-to go on. This page says what is still there afterwards and what `--continue` does with it, so
-you know what you are paying for again. [Runs](/guide/runs) explains ids, attempts and the
-`--continue` command itself.
+to go on. This page says what is still there afterwards and what a continue does with it, so you
+know what runs again. [Runs](/guide/runs) explains ids, attempts and the commands.
 
 The short version: a run keeps the value of each **stage** that succeeded. Whatever ends an
 attempt, the next one reuses those values and picks up at the first stage without one.
 
 ## An example
 
-Three stages, each one agent turn:
+Three stages, each one agent's turn:
 
 <<< @/../examples/site/guide/durability.ts#flow
 
-Say the reviewer rejects the fix. The attempt stops in `review`, with `plan` and `implement`
-recorded. You fix the code, or nothing at all, and go on:
+You start it with an id, so you can come back to it:
+
+```sh
+awf run fix-issue.ts --id 212 -- "#212: dates before 1970 parse as null"
+```
+
+Say the reviewer never answers. The attempt stops in `review`, with `plan` and `implement`
+recorded. You go on:
 
 ```sh
 awf run fix-issue.ts --id 212 --continue
 ```
 
-`plan` and `implement` are reused: their work isn't called and no agent is asked anything. Each
-`wf.stage(…)` call returns the value recorded the first time, and `review` runs again. A test
-shows it, with no agents and no cost:
+`plan` and `implement` are reused: their work isn't called, so no agent is opened or asked
+anything, and each `wf.stage(…)` returns the value recorded the first time. Only `review` runs
+again. A test shows it, with no agents and no cost:
 
 <<< @/../examples/site/guide/durability.test.ts#continue
 
@@ -37,21 +42,25 @@ shows it, with no agents and no cost:
 
 | What happens | The attempt ends | What is kept | What a continue does |
 | --- | --- | --- | --- |
-| The work in a stage throws, such as a turn's outcome you turn into an error | `failed` | every stage that succeeded; this one recorded `failed` | redoes this stage, then the rest |
+| The work in a stage throws | `failed` | every stage that succeeded; this one recorded `failed` | redoes this stage, then the rest |
 | `wf.stop(reason)` inside a stage | `stopped` | as above; this one recorded `stopped` | redoes this stage |
 | `wf.stop(reason)` between stages | `stopped` | every stage record, unchanged | runs the code between stages again, so the check checks again |
 | `--timeout` runs out | `timed-out` | as for a throw; the stage it was in is recorded `failed` | redoes that stage, with no deadline unless you give one again |
 | Ctrl-C, `kill`, or the terminal closing | `cancelled` | as for a throw; the open stage is recorded `failed` | redoes that stage |
-| A crash: `kill -9`, a second Ctrl-C, the power, a reboot | no ending: the run reads `interrupted` | every stage that ended before it; the one in flight has no record | starts at the stage in flight |
-| The laptop lid closes | nothing ends: awf and its agents sleep with the machine | everything | nothing to do: the attempt is still running |
-| You change the code between attempts | | every stage record | runs the new code, reusing records that still fit it ([below](#when-the-code-changes)) |
+| A crash: `kill -9`, a second Ctrl-C before the attempt has ended, the power, a reboot | no ending: the run reads `interrupted` | every stage that ended before it; the one in flight has no record | starts at the stage in flight |
+| The laptop sleeps | nothing, until it wakes | everything | depends on how it then ends ([below](#a-sleeping-laptop)) |
+| You change the code between attempts | | every stage record | runs the new code, reusing the records that still fit it ([below](#when-the-code-changes)) |
 | The run completed | `completed` | everything | refused, unless `--from-stage` names a stage to redo |
 
 A stage is the unit: nothing finer is kept. Two agent turns in one stage are redone together, so
 a step worth keeping on its own is a stage of its own. A workflow with no stages keeps nothing to
 reuse, and a continue runs all of it again.
 
-A sleep that ends in a shutdown, or a battery that runs out, is a crash.
+### A sleeping laptop
+
+Sleep pauses awf and its agents, but not the clock. A deadline is a time of day, so the time
+asleep counts against `--timeout` and every other deadline, and a run past its deadline ends
+`timed-out` soon after the machine wakes. A sleep that ends in a shutdown is a crash.
 
 ## What a continue reuses and what it redoes
 
@@ -63,10 +72,8 @@ As the workflow enters each stage, the continue decides:
   `--from-stage` names. From there, every stage runs, even those that succeeded before: a review
   of an implementation that is being redone is stale. Their old records move to `replaced/` in
   the run's folder; nothing is deleted.
-
-Two things run on every attempt whatever was reused: the code between stages, and the agents,
-which start fresh and remember nothing of the reused stages. That is why the `review` prompt above
-names the commit and the branch. [Runs](/guide/runs#stages) has the rules this gives a stage.
+- **Agents start fresh.** A continue opens its agents anew, and they remember nothing of the
+  stages it reused. That is why the `review` prompt names the commit and the branch.
 
 The progress view marks each reused stage `↺`, with the attempt that ran it, and its age once it
 is over an hour old, so a stale record doesn't slip past you.
@@ -80,9 +87,9 @@ what it reuses, from coarse to fine:
 | What changed | What happens |
 | --- | --- |
 | `prepare` no longer accepts the run's recorded arguments | the continue is refused: start a new run |
-| `meta.version`'s major (under `0.x`, its minor) | the attempt stops at the first stage recorded by the old version |
-| A stage's `result` schema rejects its recorded value | the attempt stops at that stage, listing the problems |
-| A stage was added or renamed | it has no record, so a plain continue starts there |
+| `meta.version`'s major (under `0.x`, its minor), when both the record and the code have one | the attempt stops at the first stage recorded by the other version |
+| A stage's `result` schema rejects its recorded value, or the stage gained or lost a `result` | the attempt stops at that stage, saying why |
+| A stage was added or renamed | it has no record, so a plain continue starts there; after `--from-stage`, the attempt stops, listing the recorded stages it never reached |
 | A stage was removed | its record is never asked for, and moves to `replaced/` at the next start point |
 | A prompt, a model or anything else | records are reused as they are |
 
@@ -94,46 +101,46 @@ stage.
 
 ## After a crash
 
-Every record file but the appended logs is written to a temporary file and renamed into place,
-so a crash leaves the old file or the new one, never half of either. An attempt with no ending whose process is gone reads
-`interrupted` in `awf runs` and `awf logs`, and `awf logs` prints the command that goes on.
+An attempt with no ending whose process is gone reads `interrupted` in `awf runs` and
+`awf logs`, and `awf logs` prints the command that goes on. The next attempt names each
+interrupted one and the Herdr workspace its panes were in, the one named
+`awf fix-issue 212 #1`. Those panes stay open until the next run that opens a pane agent, which
+closes the workspaces of runs whose process is gone. The agents' turns up to the crash are in the
+run's event log; an interrupted attempt has no usage totals, since those are written when an
+attempt ends.
 
-The next attempt names each interrupted one and the Herdr workspace its panes may still be open
-in, `awf fix-issue 212 #1`, and leaves them alone: you may be reading one. The agents' turns
-up to the crash are in the run's event log, `turns.jsonl`. An interrupted attempt has no usage
-totals in its record, since those are written when an attempt ends.
-
-Two `awf run --continue` of one run at once can't both run: the second is refused, naming the
-attempt still running and its process.
+Two continues of one run at once can't both run: the second is refused, naming the attempt still
+running and its process.
 
 ## Runs that wait for events
 
-A workflow with `events` parks between events: its attempt ends `parked` and its process exits.
-A parked run has nothing to lose to a crash or a closed laptop. Events sent meanwhile wait in its
-mailbox, and the next event, or `awf tick` once a timer is due, continues it. Its agents reopen
-on the sessions they had (after a crash, on new ones), its stages are reused wherever they are
-entered, and after a crash the events it took and never acknowledged come back once. [Events](/guide/events) covers these runs.
+A workflow with `events` parks between events, with no process left running, so a crash or a
+closed laptop costs it nothing. Its stages work differently: one that succeeded is reused for the
+rest of the run, whatever `meta.version` the code has, so the table
+[above](#when-the-code-changes) doesn't apply to it. [Events](/guide/events) covers these runs.
 
 ## Catches
 
+- **A crash can leave an agent working.** Each agent's harness runs in a process group of its
+  own, so killing awf doesn't kill it, and it may still be editing your files. Check that none
+  from the crashed attempt is still running before you continue.
 - **A stage runs its work, then writes its record.** A crash between the two runs the work
   again on the next attempt. A push or a post that must not happen twice checks first whether it
   already did.
-- **A test sees the second attempt only if you write one.** `testWorkflow` with `recorded` runs
-  the workflow as a continue, which catches a variable assigned inside a stage and read after it,
-  or a turn between stages that a continue would ask again.
 - **A check on a stage's value belongs inside that stage.** Written between stages, a continue
   reuses the value and stops again. awf notices a continue that ran no stage and stopped where
   the last attempt did, and says which stage to redo.
-- **The runs live in `.awf/runs`,** in the directory the run works in, ignored by git.
-  `git clean -xfd` deletes them, and with them everything a continue would reuse.
+- **A renamed stage has no record.** A plain continue runs it and every stage after it.
+- **The runs live in `.awf/runs`** under the folder the run works in, kept out of git by the
+  `.gitignore` from [Quick start](/guide/quick-start). Deleting it, as `git clean -xfd` does,
+  deletes everything a continue would reuse.
 
 ## See also
 
 - [Runs](/guide/runs): ids, attempts, `--continue`, `--from-stage` and `--values`.
 - [Stages](/reference/workflow-api#stages) in the workflow API.
 - [Continuing over recorded stages](/reference/testing-api#continuing-over-recorded-stages):
-  testing a workflow's second attempt.
+  testing a workflow's second attempt, which catches code that only works on the first.
 - The full model, with the record formats:
   [`design/runs-and-stages.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/runs-and-stages.md)
   on GitHub.

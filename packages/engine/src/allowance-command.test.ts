@@ -115,6 +115,6 @@ describe("awf allowance", () => {
 
   test("its help names every harness and the plan table's date", () => {
     expect(allowanceUsage).toContain(`none is named: ${HARNESS_NAMES.join(", ")}.`);
-    expect(allowanceUsage).toContain(`charged: ${PLAN_BASIS}.`);
+    expect(allowanceUsage).toContain(`as of the table's date:\n${PLAN_BASIS}.`);
   });
 });

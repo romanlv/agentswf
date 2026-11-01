@@ -1,3 +1,4 @@
+// #region imports
 import {
   choice,
   DecisionError,
@@ -6,7 +7,10 @@ import {
   score,
   yesNo,
 } from "@agentswf/contract/workflow";
+// #endregion imports
 import Type from "typebox";
+
+export const URGENCY = ["later", "this week", "now"] as const;
 
 export const ROUTE = Type.Object(
   {
@@ -16,6 +20,7 @@ export const ROUTE = Type.Object(
       Type.Literal("frontend"),
     ]),
     bug: Type.Boolean(),
+    urgency: Type.Union([Type.Literal("later"), Type.Literal("this week"), Type.Literal("now")]),
   },
   { additionalProperties: false },
 );
@@ -23,10 +28,17 @@ export const ROUTE = Type.Object(
 export type Routed = Type.Static<typeof ROUTE> & { by: "decision" | "agent" };
 
 // #region kinds
-export const kinds = {
-  team: choice("Which team owns `ticket`?", { payments: "Checkout and billing", accounts: null }),
-  urgency: score("How soon does `ticket` need a fix?", ["later", "this week", "now"]),
-  bug: yesNo("Is `ticket` a bug report?", { yes: "something is broken", no: "a request" }),
+export const QUESTIONS = {
+  team: choice("Which team owns `ticket`?", {
+    payments: "Checkout, billing and refunds",
+    accounts: "Sign-in, sign-up and permissions",
+    frontend: null,
+  }),
+  bug: yesNo("Does `ticket` report something broken?", {
+    yes: "something that worked no longer does",
+    no: "a request for something new or different",
+  }),
+  urgency: score("How soon does `ticket` need a fix?", URGENCY),
 };
 // #endregion kinds
 
@@ -38,33 +50,25 @@ export default defineWorkflow<{ ticket: string }, Routed>({
   async run(wf, { ticket }) {
     // #region route
     const decided = await wf.decisions
-      .decide({
-        key: "route",
-        model: "jev",
-        state: { ticket },
-        questions: {
-          team: choice("Which team owns `ticket`?", {
-            payments: "Checkout, billing and refunds",
-            accounts: "Sign-in, sign-up and permissions",
-            frontend: "Layout, styling and new screens",
-          }),
-          bug: yesNo("Does `ticket` report something broken, rather than ask for a change?"),
-        },
-      })
+      .decide({ key: "route", model: "jev", state: { ticket }, questions: QUESTIONS })
       .catch((error: unknown) => {
         if (error instanceof DecisionError) return undefined; // the agent decides instead
         throw error;
       });
 
     if (decided) {
-      const { team, bug } = decided.answers;
+      const { team, bug, urgency } = decided.answers;
       const sure = team.probabilities[team.choice] >= 0.9 && Math.abs(bug.yes - 0.5) >= 0.4;
-      if (sure) return { team: team.choice, bug: bug.yes >= 0.5, by: "decision" };
+      if (sure) {
+        // `expected` is the probability-weighted level, 0 to 2 here.
+        const level = urgency.expected >= 1.5 ? 2 : urgency.expected >= 0.5 ? 1 : 0;
+        return { team: team.choice, bug: bug.yes >= 0.5, urgency: URGENCY[level], by: "decision" };
+      }
     }
 
     const router = await wf.agents.open({ key: "router", runtime: "codex" });
     const { outcome } = await router.run<Type.Static<typeof ROUTE>>({
-      prompt: `Find the code this ticket is about. Which team owns it, and is it a bug?\n\n${ticket}`,
+      prompt: `Find the code this ticket is about. Which team owns it, is it a bug, how urgent?\n\n${ticket}`,
       schema: ROUTE,
     });
     if (!isAnswered(outcome)) return wf.stop(`${outcome.kind}: ${outcome.reason}`);

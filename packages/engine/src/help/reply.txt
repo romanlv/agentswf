@@ -11,7 +11,7 @@ names the participant when the workflow connects more than one. Neither waits fo
 it comes back in awf inbox. With --event-id, send is a reply on a participant the run routes to its
 code: no agent, it reaches the run whether it runs or is parked, and the same id again is a
 duplicate. The id is one the run has not had from anyone, as a chat's message ids are. It prints
-as awf emit does, and exits 0 for whatever the run did with it (delivered, duplicate, or refused
+as awf emit does, and exits 0 for whatever the run did with it (accepted, duplicate, or refused
 by a run that returned); 1 when the run or participant isn't found, or its attempt didn't start.
 
 Exits 0 when delivered, 1 when refused (the code says why), 2 on a usage error, 3 when the run

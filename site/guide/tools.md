@@ -43,9 +43,9 @@ The agent runs `wfa` in its shell, the same launcher it answers with (see
 /…/wfa tool add_finding --file 'src/report.ts' --line '41' --problem 'formatDate is never called'
 ```
 
-An input of up to 6 strings, numbers, booleans or enums is taught as flags, as here. Any other
-input, a list or a nested object, is taught as its JSON Schema, and the agent sends JSON on
-standard input:
+A small input is taught as flags, as here, by the same rule as a turn's
+[typed answer](/guide/agents#catches). Any other input, a list or a nested object, is taught as its
+JSON Schema, and the agent sends JSON on standard input:
 
 ```sh
 /…/wfa tool label_item <<'WF_JSON'
@@ -56,14 +56,9 @@ WF_JSON
 A tool without `input` is called by its name alone.
 
 What the handler returns is what the agent reads on standard output: a string as it is, any other
-JSON value as JSON, nothing as nothing. `wfa tool` exits with:
-
-| Exit | Meaning |
-| --- | --- |
-| 0 | The handler returned; its result is on standard output. |
-| 1 | The handler threw. Its message is on standard error. |
-| 3 | The call was refused and the handler didn't run: the input didn't fit, no such tool, or another call is running. |
-| 4 | The call ran out of time or was cancelled, or its answer was lost: it may have run, so check before calling again. |
+JSON value as JSON, nothing as nothing. `wfa tool` exits 0 with the result, and nonzero with
+what went wrong on standard error; [`wfa tool`](/reference/wfa#tool) lists its exit and refusal
+codes.
 
 ## Defining one
 
@@ -90,6 +85,7 @@ JSON value as JSON, nothing as nothing. `wfa tool` exits with:
   handler at compile time.
 - **A call outside a turn, or after its answer is accepted, is refused**: a tool is callable only
   while the agent works on a turn.
+- **A result over 64 KiB as JSON fails the call.** Return a summary or a path, not a whole file.
 
 ## Time
 
@@ -101,39 +97,32 @@ The agent waits while the handler runs, so keep it short.
   5 more seconds, then its call ends without it, and the agent is told it may have run.
 - **An agent makes one call at a time.** A second call while one runs is refused, and the agent
   calls again once the first answers.
-- **The harness may stop waiting first.** A shell command that runs long is moved to the
-  background by claude after 2 minutes and cursor after 30 seconds, and handed back to codex to
-  poll after 10 seconds. An agent that then calls again with the same input while the call runs
-  is given its answer; a call made after it ended runs the handler again. So a handler that can
-  take longer than 10 seconds should be safe to run twice.
+- **While a call runs, the agent can't answer its turn.** Its `wfa result` and `wfa waiting`
+  are refused until the call has answered.
+- **The harness may stop waiting first.** Each harness moves a long shell command to the
+  background or hands it back after its own limit, codex's the shortest at 10 seconds;
+  [`wfa tool`](/reference/wfa#tool) has each one's. An agent that then calls again with the same
+  input while the call runs is given its answer; a call made after it ended runs the handler
+  again. So make a handler that can take longer than 10 seconds safe to run twice.
 
 ## What a handler can't do
 
 - **Give work to the agent that called it.** That agent is in a turn, waiting for the handler, so
-  `run`, `start`, `compact`, `set`, `fork` and `wf.agents.stop` on it throw, as does `cancel()` on a
-  turn it started. Another agent can be run.
-- **Wait on `wf.receive()`.**
+  `run`, `compact`, `set`, `fork` and `wf.agents.stop` on it throw. Another agent can be run.
+- **Wait for an event.** `wf.receive()`, `wf.race` and `wf.select` throw in a handler.
 
 ## Limits
 
-The first four are checked when the agent opens, so a mistake fails there and not mid-turn; a call
-past the last is refused or fails.
-
-| | Limit |
-| --- | --- |
-| Tools per agent | 16 |
-| Name | lowercase letters, digits and `_`, starting with a letter, at most 48 characters |
-| Description | not empty, at most 1,024 bytes |
-| Input schema | an object, at most 8,192 bytes |
-| One call's input, and its result as JSON | at most 64 KiB each |
+An agent holds at most 16 tools, each named in lowercase letters, digits and `_`. These and the
+other limits on a tool are checked when the agent opens, so a mistake fails there and not
+mid-turn; [`wfa tool`](/reference/wfa#tool) lists them all.
 
 ## Forks, reopening and messages
 
-- **A fork has its parent's tools** unless its spec gives its own; `tools: {}` gives none. A fork of
-  the session that started the run takes none.
+- **A fork has its parent's tools** unless its spec gives its own; `tools: {}` gives none.
 - **Opening the same key again** with tools must give the same names, descriptions and schemas;
   the new handlers replace the old. Left out, the agent keeps what it has.
-- **An agent can call its tools in a message turn too**, when a [message](/guide/messaging) wakes it.
+- **An agent can call its tools when a [message](/guide/messaging) wakes it**, not only in a turn you gave it.
 
 ## Testing a tool
 

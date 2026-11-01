@@ -1,11 +1,12 @@
 usage: awf allowance [harness...] [--json]
 
-What is left of each harness's plan, as the harness itself shows it: claude's /usage, codex's
-/status, and cursor's /usage, read in a Herdr pane. Nothing asks a model. Every harness when
+What is left of each harness's plan, as the harness itself shows it: claude's /usage, as
+claude -p /usage prints it; codex's /status, as its app-server answers it; and cursor's /usage,
+read in a Herdr pane. pi has none of its own. Nothing asks a model. Every harness when
 none is named: claude, codex, pi, cursor.
 
-A plan's monthly price is the vendor's list price as of the table's date, not what was
-charged: plans 2026-10-05.
+A plan's monthly price is an estimate at the vendor's list price as of the table's date:
+plans 2026-10-05.
 
 --json prints one document, the interface for scripts, with the plan as the
 harness names it and no price; what it prints otherwise is for reading. A harness that could

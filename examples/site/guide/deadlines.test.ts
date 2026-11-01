@@ -16,7 +16,7 @@ test("both reviews answer within the budget", async () => {
   expect(run.value).toEqual({ findings: ["off by one in paging"] });
 });
 
-test("a reviewer that goes quiet is checked in on with the workflow's words, and answers", async () => {
+test("a reviewer that goes quiet is nudged in the workflow's words, and answers", async () => {
   const run = await testWorkflow(
     timedReview,
     { minutes: 20 },

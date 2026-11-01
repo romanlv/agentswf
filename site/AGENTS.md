@@ -110,3 +110,35 @@ A command's help is included verbatim, in a fenced block, from the file the comm
 ````
 
 The build fails if the file is missing.
+
+## Where each fact lives
+
+One page owns each of these; every other page says it in a clause at most and links the owner.
+
+| Fact | Owner |
+| --- | --- |
+| The words: workflow, run, agent, turn, outcome, harness, pane, stage, nudge, `wf`, `wfa` | `/guide/how-it-works` |
+| What a run keeps (output.json, report.md), briefly | `/guide/how-it-works#the-record`; the full layout on `/reference/data` |
+| What `awf init` writes and never overwrites | `/guide/quick-start` |
+| Harness requirements (logins, binaries, Herdr, srt, docker) | `/guide/install` |
+| Subscription vs metered, headless claude needs `metered: true`, API keys in the environment refused | `/guide/harnesses` |
+| The list of refused metered-key variables, and every other environment variable | `/reference/configuration` (harnesses states the rule and links it) |
+| Outcome kinds and what each leaves of the agent; a failed or timed-out turn closes it; fields taught as flags; switching model costs the cache | `/guide/agents` |
+| The JSON Schema subset a typed answer may use | `/guide/agents` (the reference links it) |
+| `wf.stop` and what it means for a run | `/guide/workflows` |
+| Nudges: the default, custom, `nudge: false`, a claude pane's `wfa waiting` | `/guide/deadlines` |
+| `parallel`'s deadline rejecting and dropping gathered results | `/guide/parallel` |
+| `testWorkflow` doesn't call `prepare`; deadlines are real time in tests | `/guide/testing` |
+| Exit codes and how a run ends; the commands (`--id`, `--continue`, `--from-stage`, `--values`) and the stage rules | `/guide/runs` |
+| What survives a failure, stop or crash; what a code change between attempts does | `/guide/durability` |
+| Keeping `.awf/runs` out of git (awf writes `.awf/runs/.gitignore` itself on first use) | `/guide/how-it-works#the-record` |
+| A workflow is trusted code; what agents may do; what awf refuses | `/guide/security` |
+| Every `wfa` command's flags, exit codes, refusal codes and limits | `/reference/wfa` |
+| The review-loop sample | `examples/site/index.ts#loop`; pages that extend it keep its shape (`VERDICT` with `changes`) |
+
+## Typing a schema
+
+One style across the site: a TypeBox schema, and the answer typed with the type argument,
+`agent.run<Type.Static<typeof VERDICT>>({ prompt, schema: VERDICT })`. Where a declaration needs
+the type itself (an event's `data`), annotate it `OutputSchema<Type.Static<typeof X>>`. Never
+import the `outputSchema` helper from `examples/output-schema`: a reader can't.

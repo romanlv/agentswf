@@ -1,59 +1,128 @@
 ---
 title: People
-description: "Answering for a participant outside a run: awf inbox, reply and send, their items, codes and cursor."
+description: "Letting agents report to and ask a person or an app outside the run, and answering them with awf inbox, awf reply and awf send."
 ---
 
-# Answering for a participant
+# People
 
-A workflow can connect a **participant** outside the run, such as a coordinator, that its agents
-report to and ask ([the workflow API](../reference/workflow-api#a-coordinator-outside-the-run)). Whatever
-answers for it is the **holder**: `awf run`'s own terminal, another claude or codex session, or an app such as
-a Slack bridge. This page is the holder's side: three commands on `awf`, the items they print, the
-result codes, and what the cursor guarantees. The design and its reasons are in
-[design/messaging.md](https://github.com/romanlv/agentswf/blob/main/docs/design/messaging.md#coordinator-cli).
+Some questions only a person can settle: merge these two incidents or keep two, ship the fix
+tonight or wait for the review. A workflow can connect a **participant** outside the run, such as a
+coordinator, that its agents report to and ask while they work.
+
+Who answers is chosen when the run starts, not in the workflow: `awf run`'s own terminal, another
+claude or codex session, or an app such as a Slack bot. Whatever answers is the participant's
+**holder**, and it uses three commands: `awf inbox` to read, `awf reply` and `awf send` to talk back.
+
+Here an investigator looks into an outage, reports what holds up to a coordinator, and asks it when
+the logs can't settle something:
+
+<<< @/../examples/site/guide/people.ts#connect
+
+The sample is checked and tested:
+[`examples/site/guide/people.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/people.ts)
+and its test.
+
+The workflow then calls `investigator.run` once. The participant is a peer like any agent, so the
+investigator talks to it as it would to another agent ([Messaging](/guide/messaging)):
+`wfa send coordinator` reports, and `wfa send --await-reply coordinator` asks. Asking doesn't
+block: the agent finishes what doesn't need the answer and ends its turn, and `investigator.run`
+stays pending. When the answer comes, minutes or hours later, awf starts the agent's next turn with
+it, in the same session. Once the agent hands back its typed answer, `investigator.run` resolves as
+it always does.
+
+## Answering in the terminal
 
 ```sh
-awf inbox {workflow}/{id}                         # one run: what was said, both ways
-awf inbox {workflow}/{id} --open                  # the questions still waiting for an answer
-awf inbox --json --after {cursor} --wait 100         # every run here, for an app or a session
-awf reply {workflow}/{id} {agent} --to {id} 'Keep two, and link them.'
-awf send {workflow}/{id} {agent} 'Also check the 09:12 deploy.'
+awf run investigate.ts --id r1
 ```
 
-Like `awf runs`, all three read the runs in the current folder's `.awf/runs`, or in `--cwd` or
-`--run-root`, so a holder runs in the folder where runs start; an app watching several folders runs
-one loop per folder. A run is named `{workflow}/{id}`, or `{id}` when one workflow has it; a run
-not found there is looked for in each project awf has started a run with events in, as every
-command that takes a run does. Every command takes `--json`, and `--as {key}`
-when the workflow connects more than one participant.
+The run is `investigate/r1`: the workflow's name and the id you gave, or one awf generates
+([Runs](/guide/runs#id-attempts-and-status)). In a terminal, `awf run` asks you each question as it
+comes, oldest first:
 
-## In a terminal
-
-`awf run` asks the questions itself when its stdin and stderr are a terminal and `--json` isn't
-given. Reports print as lines, and each question is a prompt, oldest first; one that waited behind
-another shows its text again when its turn comes. An empty answer leaves the question for another
-holder. A question answered elsewhere, or closed, is skipped.
-
-With `--json`, or with no terminal, as under a cron, nothing is asked. Each question prints in the
-run's progress with the command that answers it, and waits in the run log:
-
-```
-● investigator asks coordinator (1.2):
-                Merge the two incidents, or keep two?
-  answer: awf reply investigate/r1 investigator --to 1.2 '…'
+```text
+● investigator asks:
+                Same symptom as the 2026-10-14 incident, different service. Merge them or keep two?
+reply to investigator › Keep two, and link them.
 ```
 
-## `awf inbox`
+An empty answer leaves the question open for another holder. Under a cron, or with `--json`, nothing
+is asked: the question waits in the run's record, and the progress line names the command that
+answers it. `1.5` is the message's id, `{attempt}.{n}`: message 5 of attempt 1.
 
-Reads what the run log holds, so a holder that starts late, or after the run ended, still sees it
-all. Items come oldest first, across runs too, each run's in its log's order. With no run, it reads every
-run in the folder that connected a participant; `--workflow {name}` and `--as {key}` narrow it.
-`--wait {seconds}`, at most 300, waits when nothing is new; a session's shell tool stops a command
-after 120 s by default, so it passes 100. `--open` is a snapshot of the questions waiting now, with
-no cursor and no waiting.
+```text
+● investigator asks coordinator (1.5):
+                Same symptom as the 2026-10-14 incident, different service. Merge them or keep two?
+  answer: awf reply investigate/r1 investigator --to 1.5 '…'
+```
 
-Text is for a person. `--json` prints one item per line, `InboxItemJson`
-(`packages/contract/src/records.ts`), each with `v`, `ref`, `at`, and outside `--open` a `cursor`:
+## Connecting a participant
+
+- **`key`** is the name agents send to. `operator`, `awf`, `system` and `user` are refused, as is a
+  key an agent or another participant in the run has.
+- **`labels`** is any JSON object for the holder, such as the chat channel to post in. awf never
+  reads it; it comes with each route in `awf inbox`.
+- **The route** is a [messaging route](/guide/messaging#granting-a-route) with the participant at
+  one end. With `{ from: investigator, to: coordinator }` the agent reports and asks, and the holder
+  can only answer; `between` lets the holder message the agent first too.
+- **`timeoutMs`**, only on a route to a participant, closes a question unanswered after that long.
+  Without it, a question waits until it is answered.
+- **`coordinator.release(reason)`** disconnects it: its routes close, and every question still open
+  to it ends. Otherwise it stays connected until the workflow has returned and no question to it is
+  open.
+
+## Waiting hours
+
+Waiting for a person isn't work, so it doesn't use up the agent's time: while it waits, its turn's
+deadline doesn't count, and once the answer comes the deadline moves out by however long the wait
+took. A [deadline](/guide/deadlines) your workflow set around the agent, or on the run, still holds,
+and the question closes there.
+
+A question still open when the workflow returns keeps the run open until it is answered; set
+`timeoutMs` if the run shouldn't wait that long. While it waits, a headless agent has no process
+running, and an agent in a pane keeps its pane and process. Either way, awf bounds a turn by a week
+when nothing else does, so ask from a headless agent when answers may take days, and treat a
+question open longer than a week as a run to stop and start again.
+
+In a workflow that reacts to [events](/guide/events), an agent opened with `keepAlive` keeps the run
+live for a window after each turn, an hour by default: a person's `awf send` in that window is a
+warm turn in the same pane rather than a cold start after the run parks.
+[`examples/keep-alive`](https://github.com/romanlv/agentswf/tree/main/examples/keep-alive) shows one,
+and [Events](/reference/workflow-api#events) in the workflow API has the rules.
+
+## Answering from outside
+
+```sh
+awf inbox investigate/r1                          # one run: what was said, both ways
+awf inbox investigate/r1 --open                   # the questions still waiting for an answer
+awf inbox --json --after {cursor} --wait 100      # every run here, for an app or a session
+awf reply investigate/r1 investigator --to 1.5 'Keep two, and link them.'
+awf send investigate/r1 investigator 'Also check the 09:12 deploy.'
+```
+
+All three read the runs in the current folder's `.awf/runs`, as `awf runs` does, so a holder runs in
+the folder where runs start, and an app watching several folders runs one loop per folder. An agent
+is named by its key, such as `investigator`. Add `--as {key}` when the workflow connects more than
+one participant.
+
+- **`awf inbox`** reads the run's record, so a holder that starts late, or after the run ended,
+  still sees everything. Without a run, it reads every run in the folder that connected a
+  participant. `--wait` waits when nothing is new; a coding agent's shell tool usually stops a
+  command after 120 seconds, so a session passes 100.
+- **`awf reply`** answers a question. `--to` names it, and may be left out when the agent has only
+  one open. A `--to` naming anything but an open question from that agent is refused `expired`, so
+  a late answer never lands on a newer question. Anyone may answer, and the first answer wins.
+- **`awf send`** messages an agent first, if the route allows it. A busy agent gets it with its next
+  turn, and an idle one gets a turn of its own for it, a model call.
+
+The text is the last argument, or standard input, so an app passes a chat message through
+unchanged. Neither `reply` nor `send` waits for the agent: its answer comes back in `awf inbox`. A
+refusal names its code and what to do instead; [`awf reply`](/reference/awf#reply) has the help.
+
+### What `awf inbox --json` prints
+
+One item per line, oldest first, each with `v`, `ref` (the run), `at`, `kind`, and outside `--open`
+a `cursor`:
 
 | `kind` | Fields |
 | --- | --- |
@@ -61,81 +130,70 @@ Text is for a person. `--json` prints one item per line, `InboxItemJson`
 | `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the participant sent with `awf send` has `via` |
 | `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
 | `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
-| `post` | `participant`, `id`, `text`, `labels`: the run's code wrote to a participant routed to it, with `participant.post` |
+| `post` | `participant`, `id` (`{attempt}.p{n}`), `text`, `labels`: the run's code wrote to a participant routed to it |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
 
-Message ids are `{attempt}.{n}`. A participant's answer is an `answered` item only. An agent is
-named by its peer address. A route's `direction` says whether `awf send` may reach the agent at
-all. Readers ignore kinds and fields they don't know; `v` changes only when one is renamed or
-removed.
-
-**The cursor.** Opaque, for the run, or every run here and its `--workflow`, it was made with; another's is refused.
-Without `--after`, everything is read, so a first call misses nothing. From a saved cursor, a holder
-sees every item after it in every run here: a new run, one that connects late, and one continued
-with `awf run --continue` included. Save the cursor after handling a batch: after a crash, or
-being down or asleep, reading on from it loses nothing. An item may come twice, never zero times.
-An attempt whose process died reads as `interrupted`: each question still open in it gets an
-`expired` (`attempt-ended`), so no holder waits on an answer no one can take.
-
-It fails `not-found` for no such run, `no-participant` for a run that ended without connecting one
-(or that `--as`), and `bad-cursor`, in that order; with `--json`, `{ v: 1, code, error }`. A live run
-that has not connected one yet is just empty. Exit codes: 0 read, 1 one of those, 2 a usage error,
-3 the run's files could not be read.
-
-## `awf reply` and `awf send`
-
-The text is the last argument, or stdin without one, so an app passes a chat message through
-unchanged. Neither waits for the agent: its answer comes back in `awf inbox`.
-
-`awf reply` answers a question. `--to {id}` names it, as `awf inbox` printed it; it may be left out
-only when that agent has exactly one question open to this participant. A late answer to an old
-question never lands on a newer one: a `--to` naming anything but an open question from that agent
-is `expired`. Anyone may answer, and the first answer wins.
-
-`awf send` messages an agent first, over a route the workflow allowed. A busy agent gets it with
-its next turn, and an idle one gets a turn of its own for it, a model call. One waiting for this
-participant's answer gets it with that answer; the command says so.
-
-Both print one line, or with `--json` `ParticipantResultJson`: `delivered` with the id an `awf inbox`
-item names (for a reply the question's, for a send the new message's), or a refusal. The first code
-that applies, in this order:
-
-| `code` | Meaning |
-| --- | --- |
-| `delivered` | the agent will see it |
-| `not-found` | no run `{workflow}/{id}` here, or in a project awf knows |
-| `ended` | the run has ended, or for `awf send`, the workflow has returned |
-| `no-participant` | no participant by that key: not connected yet, released, or never; a reserved key such as `operator` included |
-| `unknown-agent` | the run has no agent at that address |
-| `ambiguous` | no `--as` when the workflow connects more than one; no `--to` when the agent has more than one open question; the choices are listed |
-| `expired` | not an open question from that agent to this participant |
-| `no-route` | the workflow allows no route from this participant to the agent |
-| `stopped` | the agent has stopped |
-| `closed` | the route was allowed but has closed |
-| `too-large` | over 16 KB |
-| `limit` | the route has used the messages it allows this attempt |
-| `inbox-full` | the agent has 16 unread messages |
-
-Exit codes: 0 delivered, 1 refused, 2 a usage error, 3 the run could not be reached.
+A reader ignores kinds and fields it doesn't know. **The cursor** reads on from just after its item,
+across every run here, new and continued ones included: save it after handling a batch, and a holder
+that crashed or slept loses nothing. An item may come twice, never zero times, so handle each one
+idempotently; a `post` that a crashed attempt made may come again under a new id.
 
 ### A participant routed to the code
 
-A participant the workflow connects with `to: "code"`, such as a chat thread, has no agent to
-answer: its messages go to the run's code. `awf send {run} --as {key} --event-id {id} {text}`
-delivers one, from the participant, whether the run is live or parked, and the same id again is a
-duplicate, so a chat's own message id makes a resend safe. It prints as `awf emit` does, and with
-`--json` `EmitResultJson`. Unlike a reply, it exits 0 for whatever the run did with it (accepted,
-duplicate, or refused by a run that returned), 1 when the run or the participant isn't found or
-its attempt didn't start. What the code writes back comes as `post` items.
+A participant connected with `to: "code"` sends its messages to the run's code instead of an agent,
+each a `participant:reply` event the workflow takes at a wait, and the code writes back with
+`participant.post(text)`. It needs a workflow that reacts to [events](/guide/events).
+[`examples/approval-reminders`](https://github.com/romanlv/agentswf/tree/main/examples/approval-reminders)
+waits days for an approval this way.
 
-## What reaches what
+```sh
+awf send approval/doc-42 --as approvals --event-id 1730450000.123456 --author dana 'approved'
+```
 
-`awf reply` and `awf send` reach a live run over a socket in `~/.awf/coordinator`, the operator's
-alone; `AWF_COORDINATOR_DIR` moves it, never into the workflow's directory. No sandbox reaches it.
-An agent without a sandbox runs as the operator's user with `awf` on its path, and can do what a
-holder can, as it can do anything else on the machine; a workflow that needs the guarantee
-sandboxes its agents. A message from the participant carries a peer's authority plus what the
-route's purpose grants, never the operator's.
+`--event-id` is the message's own id, so a resend is a duplicate, and `--author` names who wrote it.
+It reaches the run whether it is running or parked.
 
-A session can learn the job from the `awf-coordinator` skill
-(`packages/engine/skills/awf-coordinator`).
+## Connecting a chat app
+
+A chat app such as a Slack bot is its own program, built on these three commands; awf has no chat
+code of its own. A sketch of one, run in each folder where runs start:
+
+1. **Read.** Loop on `awf inbox --json --after {cursor} --wait 300`, the first time with no cursor.
+2. **A route opens.** Start a thread for it in the channel the participant's `labels` name, and
+   remember which thread is which run, participant and agent.
+3. **A message.** Post it in its thread. A question (`asks`) shows its `id` and, with `until`, when
+   it closes.
+4. **Someone replies in the thread.** Pipe the text to `awf reply {ref} {agent} --to {id}` when it
+   answers an open question, or to `awf send {ref} {agent}` otherwise, and post the refusal back if
+   it isn't `delivered`. For a participant routed to the code, it is
+   `awf send {ref} --as {key} --event-id {message id} --author {name}`.
+5. **Answered, expired, ended.** Mark the question answered elsewhere or closed, and say in the
+   thread when the run's attempt ended.
+6. **Save the cursor** after each batch, so a restart reads on from there.
+
+Since the first answer wins, the bot, the terminal and a coding session can hold the same
+participant at once.
+
+## Catches
+
+- **Not every placement can wait for an answer.** `--await-reply` has the same limits as between
+  agents: see [Messaging](/guide/messaging#catches).
+- **An unsandboxed agent can answer for the participant.** `awf reply` and `awf send` reach a live
+  run over a socket in `~/.awf/coordinator`, which no [sandbox](/guide/sandboxes) can reach. An
+  agent without one runs as your user with `awf` on its path, and can do what a holder can. A
+  workflow that needs the guarantee sandboxes its agents.
+- **A participant isn't you.** Its message carries a peer's authority plus what the route's purpose
+  grants, never the authority of the person who started the run;
+  [Security](/guide/security#what-agents-may-do) has the rest.
+- **A run in another folder** is found without `--cwd` or `--run-root` only in a project where awf
+  has started a run of a workflow with events.
+
+## See also
+
+- [`awf inbox`](/reference/awf#inbox) and [`awf reply`, `awf send`](/reference/awf#reply): every
+  flag, refusal and exit code.
+- [A coordinator outside the run](/reference/workflow-api#a-coordinator-outside-the-run) in the
+  workflow API, and [participants](/reference/testing-api#participants) in the testing API: a script
+  answers for the participant, free.
+- A coding session learns the holder's job from the
+  [`awf-coordinator` skill](https://github.com/romanlv/agentswf/tree/main/packages/engine/skills/awf-coordinator).

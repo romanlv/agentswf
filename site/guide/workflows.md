@@ -36,8 +36,9 @@ answer, the run stops there and says why.
 `defineWorkflow({ … })` is the file's default export. Two parts are required:
 
 - **`meta`**: `name` and `description`. `name` names the folder the workflow's runs are kept in,
-  `.awf/runs/{name}`, so it is letters, digits, `.`, `_`, `@` and `-`. An optional `version`,
-  semver, is recorded with each attempt; [Runs](/guide/runs) says what it guards.
+  `.awf/runs/{name}`, so it is up to 128 letters, digits, `.`, `_`, `@` and `-`, starting with a
+  letter or digit. An optional `version`, semver, is recorded with each attempt;
+  [Runs](/guide/runs) says what it guards.
 - **`run(wf, args)`**: an async function. `wf` is the workflow's context, everything it can do;
   `args` is what `prepare` made of the command line. What it returns is the run's result.
 
@@ -50,15 +51,15 @@ They are kept in the run's record, and a type that isn't JSON fails `tsc`.
 
 ## Arguments: `prepare`
 
-<<< @/../examples/site/guide/workflows.ts#prepare
-
-`prepare` gets `argv`, the words after `--`, and `cwd`, the directory the run works in, and
-returns `args`. Its return type is the type `run` sees, so `args.files` is `string[]` with no
-annotation.
+The sample's `prepare` gets `argv`, the words after `--`, and `cwd`, the directory the run works
+in, and returns `args`. Its return type is the type `run` sees, so `args.files` is `string[]` with
+no annotation.
 
 It runs before anything starts. A `prepare` that throws refuses the run: awf prints
-`awf: prepare: {message}`, exits 2, and opens no agent. Check your arguments there, not halfway
-through the run.
+`awf: prepare: {message}` and opens no agent. Check your arguments there, not halfway through the
+run. It runs again on every `--continue`, with the arguments and directory the run was started
+with; if the code has changed so that it throws on them, the continue is refused, and you start a
+new run.
 
 Everything up to `--` is awf's: its options may go before or after the file. Everything after
 belongs to the workflow:
@@ -73,13 +74,10 @@ refused.
 
 ## Control flow is plain TypeScript
 
-<<< @/../examples/site/guide/workflows.ts#run
-
-There is no graph to declare. Opening agents, giving them turns and deciding what to do with each
-outcome is ordinary code: a `for` over the files, an `if` on the outcome, an early `return`. A
-turn's outcome is a value, never an exception, so you branch on it with
-[`isAnswered`](/reference/workflow-api#outcomes) and decide what an agent that didn't answer
-means for your workflow.
+There is no graph to declare. The sample's `run` opens one agent and gives it a turn a file:
+a `for` over the files, an `if` on the outcome, an early `return`. A turn's outcome is a value,
+never an exception, so you branch on it with [`isAnswered`](/reference/workflow-api#outcomes) and
+decide what an agent that didn't answer means for your workflow.
 
 The same goes for structure: split the work into functions that take `wf`, import helpers from
 other files, and run agents side by side with [`wf.parallel`](/guide/parallel) or loop until a
@@ -87,9 +85,10 @@ reviewer approves ([Loops](/guide/loops)).
 
 ## Stopping with a reason
 
-`wf.stop(reason)` ends the run `stopped`: on purpose, with a reason, rather than failed. Above, a
-file with no answer stops the run, and awf's closing block gives the reason, the command that
-goes on, and where the report is:
+`wf.stop(reason)` ends the run `stopped`: on purpose, with a reason, rather than failed. Use it
+when the workflow can't go on as asked and a person should look; let a bug throw, and the run
+fails with the error. In the sample, a file with no answer stops the run, and awf's closing block
+gives the reason, the command that goes on, and where the report is:
 
 ```text
 ■ stopped: README.md: failed: {reason}
@@ -99,52 +98,49 @@ goes on, and where the report is:
   records  .awf/runs/check-docs/{id}
 ```
 
-`awf run` exits 0 when the run completed, 1 when it failed or timed out, and 3 when it stopped.
-Use a stop when the workflow can't go on as asked and a person should look; let a bug throw, and
-the run fails with the error.
-
-Write `return wf.stop(…)`: `stop` never returns, and the `return` tells TypeScript the code after
-it isn't reached. Going on from a stopped run, and where a stop inside a stage leaves it, is in
-[Runs](/guide/runs).
+- **It never returns.** Write `return wf.stop(…)`, so TypeScript knows the code after it isn't
+  reached.
+- **It works by throwing, so don't catch it.** A `try`/`catch` around it catches the stop, and the
+  stage that caught it, or the run, fails instead.
+- **A stopped run exits 3.** Every exit code is in
+  [How an attempt ends](/guide/runs#how-an-attempt-ends).
+- **The go-on command continues it.** `--continue` makes another attempt of the same run. A stop
+  inside a stage leaves that stage to be redone; a stop between stages leaves no record, so the
+  continue runs the same check again ([Stages](/guide/runs#stages)).
 
 ## The result: `present` and `report`
 
 What `run` returns is kept in the run's `output.json`. Two optional functions turn it into
 something for a person.
 
-<<< @/../examples/site/guide/workflows.ts#present
-
-**`present(value, ending)`** is what a completed run prints, on standard output. Without it, or
-when it returns `undefined`, `awf run` prints the run's record as JSON. `--json` always prints the
-record. A run that didn't complete never calls `present`: awf prints how it ended itself.
-
-<<< @/../examples/site/guide/workflows.ts#report
+**`present(value, ending)`** is what a completed run prints, on standard output. The sample's
+prints a line a file. Without it, or when it returns `undefined`, `awf run` prints the run's
+record as JSON. `--json` always prints the record. A run that didn't complete never calls
+`present`: awf prints how it ended itself.
 
 **`report(value, ending)`** returns Markdown that awf saves as `report.md` in the run's folder, and
 the closing block says where. It is called however the run ended, so a stopped run can still hand
-off what it found: `value` is the result only when the run completed, and `ending` says how it
-ended, in which stage, why, the command that goes on, and each stage's value. Returning
-`undefined` saves none.
+off what it found: `value` is the result only when the run completed. `ending.kind` says how it
+ended: `completed`, or `stopped`, `failed`, `timed-out` or `cancelled`, which carry `reason`,
+`stage` when it ended in one, and `continue`, the go-on command. (`parked` is only for a workflow
+that waits on events.) Each kind also lists its stages and their values. Returning `undefined`
+saves none.
 
 ## Catches
 
 - **Only the words after `--` reach `prepare`.** A second file name before `--` is refused with
   `put -- before workflow arguments`, and an option awf doesn't know with `unknown option`.
-- **`wf.stop` works by throwing.** A `try`/`catch` around it catches the stop, and the run fails
-  instead. Keep it out of a `try`.
 - **`present` and `report` don't fail the run.** One that throws is reported on standard error;
-  awf prints the JSON instead, or keeps no report, and the result is still in `output.json`.
-- **`report.md` is the last attempt's.** A later attempt that writes none removes the earlier
-  one.
+  awf prints the JSON instead, or saves no report, and the result is still in `output.json`.
+- **`report.md` is the last attempt's.** A later attempt whose `report` returns `undefined`
+  removes the earlier one; a `report` that throws leaves the earlier attempt's file in place.
 - **The closing block goes to standard error,** and only what `present` returns, or the JSON, to
   standard output: `awf run check-docs.ts -- README.md > result.txt` keeps the result alone.
-- **A test calls `run`, not `prepare`.** `testWorkflow(workflow, args)` takes `args` as given;
-  call `workflow.prepare({ argv, cwd })` in a test of its own, as this page's sample does
-  ([Testing](/guide/testing)).
 
 ## Next
 
 - [A workflow file](/reference/workflow-api#a-workflow-file) in the workflow API: every part and
   its type.
-- [Runs](/guide/runs): a run's id, stages, and going on after a stop.
+- [Runs](/guide/runs): a run's id, stages, exit codes, and going on after a stop.
+- [Testing](/guide/testing): testing a workflow, `prepare` included, on scripted answers.
 - [Agents](/guide/agents): opening an agent and what each outcome means.

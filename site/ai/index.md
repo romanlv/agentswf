@@ -19,20 +19,23 @@ agent for the workflow:
 
 ```text
 Read https://agents.wf/llms.txt, then the Workflow API it links. Write a workflow in
-review/ where a claude agent fixes the failing tests and a codex agent reviews the fix,
-at most three rounds. Write its test. Run awf test and bun run check until both pass.
-Don't run the workflow.
+review/ where a headless codex agent (gpt-6-luna) fixes the failing tests in the
+directory the run works in, and a second one reviews the fix, at most three rounds.
+Write its test. Run awf test and bun run check until both pass. Don't run the workflow.
 ```
+
+The workflow lives in this folder and works on your project when you run it: `awf run`'s
+`--cwd` sets the directory its agents work in ([below](#review-what-it-wrote)).
 
 ## What the agent reads
 
-- **`/llms.txt`**, the index: what agents.wf is, the rules below, and every page with a line
-  saying what it covers.
+- **`/llms.txt`**, the index: what agents.wf is, the `AGENTS.md` below, and every page with a
+  line saying what it covers.
 - **A `.md` for every page.** Add `.md` to a page's URL: `/guide/quick-start.md`, and for a
   section's index, `/guide/index.md`. It is the page's Markdown with every code sample written
   out, so an agent reads the code, not a reference to it.
-- **`/llms-full.txt`**, every page in one file, for an agent that would rather read it all at
-  once.
+- **`/llms-full.txt`**, every page but the landing page in one file, for an agent that would
+  rather read it all at once.
 
 The [Workflow API](/reference/workflow-api) is one page on purpose: an agent gets every call,
 option and outcome in one fetch.
@@ -61,7 +64,8 @@ Passing tests mean the workflow does what its test says, against the answers the
 Before the first real run, read it for what only you can judge:
 
 - **The runtimes.** Which harness and model each agent runs on decides what the run costs and
-  which login it uses. awf refuses a headless claude agent without `metered: true`, your consent
+  which login it uses. An agent without `placement: "headless"` opens in a pane, which needs
+  [Herdr](https://herdr.dev). awf refuses a headless claude agent without `metered: true`, your consent
   to per-token billing; check that the agent set it because you meant it.
 - **The loops.** Every loop needs a limit, and every turn's outcome needs handling: a turn can end
   without an answer, and `outcome.reason` says why ([Outcomes](/reference/workflow-api#outcomes)).
@@ -70,9 +74,9 @@ Before the first real run, read it for what only you can judge:
 - **The test.** Check that it scripts the unhappy path too: a reviewer that never approves, an
   agent that doesn't answer.
 
-Then run it yourself, and read what it did:
+Then run it yourself, on your project, and read what it did:
 
 ```sh
-awf run review/workflow.ts
-awf logs
+awf run review/workflow.ts --cwd ../my-project
+awf logs --cwd ../my-project
 ```

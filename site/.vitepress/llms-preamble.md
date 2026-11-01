@@ -16,16 +16,4 @@ nothing.
   `/guide/` is `/guide/index.md`.
 - Read the [Workflow API](/reference/workflow-api.md) before writing code: every call, option,
   default and outcome is on that one page. Tests use the [Testing API](/reference/testing-api.md).
-- [/llms-full.txt](/llms-full.txt) is every page in one file.
-
-## Rules for writing a workflow
-
-These are the rules in the `AGENTS.md` that `awf init` writes.
-
-- A workflow is a folder with a `workflow.ts`, which default-exports `defineWorkflow(…)` from
-  `agentswf/workflow`, and a `workflow.test.ts` beside it.
-- After a change, run `awf test` and `bun run check`, which typechecks. `awf test` replaces each
-  agent with scripted answers: no agent starts and it costs nothing.
-- Don't run a workflow (`awf run`) unless asked. It starts real agents on the operator's accounts.
-- Each run is kept in `.awf/runs/{workflow}/{id}`. `awf runs` lists them; `awf logs {run}` shows
-  what one did.
+- [/llms-full.txt](/llms-full.txt) is every page but the landing page, in one file.

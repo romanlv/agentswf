@@ -29,7 +29,9 @@ awf test
 
 - **`testWorkflow(workflow, args, options)`** runs the workflow and returns what it did.
 - **`agents`** maps each agent's key to its script. **`answer(NOTES, value)`** answers a turn
-  that asks for `NOTES` with `value`, checked against the schema as a real answer is.
+  that asks for `NOTES` with `value`, checked against the schema as a real answer is. The script
+  names the same schema the workflow asks with; a different one fails the test with
+  `it asks for … its script answers …`.
 - **`run.value`** is what the workflow returned; **`run.agents`** the agents it opened;
   **`run.turnsOf(key)`** one agent's turns, each with the `prompt` it was given.
 
@@ -58,14 +60,15 @@ the way a real agent can:
 
 <<< @/../examples/site/guide/testing/release-notes.test.ts#outcomes
 
-- **`reply.silent()`** ends the turn with no answer. awf checks in once, as it would on a real
-  run, and the same script entry meets that check-in with `turn.nudge` true; still silent, the
-  turn ends `unanswered`.
+- **`reply.silent()`** ends the turn with no answer. awf sends one
+  [nudge](/guide/how-it-works#the-words), as it would on a real run, and the same script entry
+  meets the nudge with `turn.nudge` true; still silent, the turn ends `unanswered`.
 - **`reply.blocked()`**, **`reply.failed()`** and **`reply.timedOut()`** end it `blocked`,
   `failed` and `timed-out`, each with a reason you can pass. **`reply.hang()`** holds it until
   the engine cancels it, to test a deadline or a sibling's failure cancelling it under
   `wf.parallel`.
-- **`run.stopped`** is `{ reason, stage? }` when the workflow stopped with `wf.stop`, and reading
+- **`run.stopped`** has the `reason` and `stage` when the workflow stopped with
+  [`wf.stop`](/guide/workflows), and reading
   **`run.value`** then throws, as it does when the workflow threw.
 
 `reply.needsLogin()` and `reply.waiting()` and every other script are in
@@ -113,8 +116,9 @@ as they do on `awf run`; `runtimes` in the options adds or replaces others.
 - **A missing script fails the test, not the workflow.** An agent with no script, an answer its
   turn's schema refuses, or a script that throws is the test's mistake, and the test fails saying
   so.
-- **A stuck run fails rather than hangs.** Nothing starting or ending for 2 s fails the test, and
-  so does a run that starts more than 20 turns (`stallMs`, `maxTurns`).
+- **A stuck run fails rather than hangs.** Nothing starting or ending for 2 s fails the test;
+  `stallMs` in `testWorkflow`'s options changes it. A loop whose turns keep answering never
+  stalls, so it runs until `awf test`'s per-test timeout, 5 s unless `--timeout` says otherwise.
 - **Deadlines are real time.** A turn's `timeoutMs` runs on the clock, so keep them short in a
   test, or end the turn at once with `reply.timedOut()`.
 - **Sandboxes are fakes.** They confine nothing; a test checks what each agent was given, not what

@@ -7,3 +7,6 @@ workflow against its own copies either way.
 
 Never overwrites. A file that exists is skipped, except that package.json gains the
 devDependencies and scripts it lacks and .gitignore the lines it lacks.
+
+Exits 0; 1 when a file could not be written, or bun install failed (the files written are
+kept); 2 on a usage error.

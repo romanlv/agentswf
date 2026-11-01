@@ -6,7 +6,8 @@ description: Limiting what an agent can write and reach with srt or docker, shar
 # Sandboxes
 
 An agent outside a sandbox can do what you can: write anywhere you can, reach any host, read your
-cloud credentials and past transcripts. A sandbox narrows that to what the workflow names. Use one
+cloud credentials and past transcripts. A sandbox narrows that to what the workflow names. awf holds it with one of two providers: srt,
+Anthropic's sandbox-runtime on your own machine, or docker, a container. Use one
 when an agent's input could steer it somewhere you don't want, such as a repository you didn't
 write or an issue anyone can file, or when an agent must not see what another one wrote.
 
@@ -38,8 +39,8 @@ and the `.test.ts` beside it.
 | `webSearch` | `true` keeps the harness's web search, which is off inside otherwise |
 | `srt` or `docker` | which provider holds it; omit both for the default |
 
-`wf.sandboxes.open` also takes a `key`, which names it in the record, and a `cwd`, which defaults
-to the workflow's working directory. An inline spec takes neither. Relative paths are from the
+`wf.sandboxes.open` also needs a `key`, which names it in the run's record, and takes a `cwd`, which
+defaults to the workflow's working directory. An inline spec takes neither. Relative paths are from the
 sandbox's `cwd`, and `~` is your home.
 
 ## srt or docker
@@ -58,31 +59,34 @@ await wf.sandboxes.open({ key: "build", write: ["."], docker: {} });
 await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });
 ```
 
-A spec that names neither runs under srt when it's installed, and docker otherwise. Naming one pins
-it: if it isn't installed, the sandbox doesn't open, and the error says so. What each needs on your machine is in
+A spec that names neither runs under srt when `srt` is on your PATH, and docker otherwise. If srt
+is there but can't be set up, the sandbox fails with the reason; it doesn't fall back to docker.
+Naming a provider pins it: if it isn't installed, the sandbox doesn't open, and the error says so. What each needs on your machine is in
 [Install](/guide/install#sandboxes).
 
 Panes work under both. An srt agent's pane opens in the run's Herdr as usual. A docker sandbox runs
-its own Herdr inside the container: the run shows it in a tab of its workspace, and prints the
-command that shows it, which is all you get with `--no-watch`.
+its own Herdr inside the container. The run adds a tab to its workspace showing that Herdr's panes,
+and prints the command that opens them; `awf run --no-watch` leaves the tab out, and the command
+still works. Either way, a sandboxed agent can't take `layout` or `keepPane`, which place a pane in
+the run's Herdr; the agent is refused if it names one, under `awf run --sandbox` too.
 
 ## Shared or private
 
 A sandbox from `wf.sandboxes.open` is shared by every agent you pass it to. An inline spec is always
 a private sandbox, recorded as `agent:{key}`. A fork runs in its parent's sandbox.
 
-**Agents in one sandbox can read each other's files**, their harness homes included. Under docker
-they share a container and a user, so one can read another's environment, login token included.
-Under srt they meet only in the writable paths. Agents in different sandboxes see none of each
-other's.
+**Agents in one sandbox can read each other's files**, including the private folder awf gives
+each agent for its harness's settings and copied login, such as codex's. Under docker they also
+share a container and a user, so one can read another's environment variables, a login token
+included. Agents in different sandboxes see none of each other's.
 
 So put agents whose work must be independent in separate sandboxes: a reviewer and what it
 reviews, or two attempts at the same task you want to compare.
 
 ## Inside a sandbox
 
-- **A home of its own.** Each sandboxed agent starts with a fresh harness home: its login, and
-  nothing else of yours. Your harness settings, skills, memory and past transcripts aren't there.
+- **A fresh settings folder.** Each sandboxed agent's harness starts from a folder of its own
+  holding its login and nothing else of yours. Your harness settings, skills, memory and past transcripts aren't there.
   The repository's own `AGENTS.md` is still read, and the skills the workflow names are copied in.
 - **No permission prompts.** The sandbox holds the agent, so the harness's prompts are turned off.
 - **No web search** unless `webSearch: true`. claude's and codex's search runs on the model
@@ -90,8 +94,8 @@ reviews, or two attempts at the same task you want to compare.
   sandbox. claude's `WebFetch` goes with it. cursor keeps its web tools either way, and pi has none.
 - **git works.** An agent in a writable worktree can commit, but can't change its hooks or config,
   which your git runs later.
-- **Logins.** claude and cursor need a token in your environment to run in a sandbox; codex and pi
-  need nothing more. [Install](/guide/install#each-harness) has the table.
+- **Logins** work differently inside a sandbox for some harnesses; [Install](/guide/install#each-harness)
+  says what each needs.
 
 ## Sandbox a whole run: `awf run --sandbox`
 
@@ -120,10 +124,10 @@ for it.
 - **Some paths are never allowed.** Your home directory itself or anything holding it, `~/.ssh`,
   `~/.aws`, `~/.gnupg`, `~/.docker`, `~/.kube`, your harnesses' own state, and awf's run and machine
   directories. Name a project under `~` instead.
-- **An agent's working directory must be inside its sandbox's reach.** A box can't gain paths once
-  open, so an agent whose `cwd` lies outside it is refused.
-- **docker needs awf's image.** The first docker sandbox stops if it isn't built, and its error
-  gives the `docker build` command to run once.
+- **An agent's working directory must be inside its sandbox's reach.** What a sandbox can see is
+  fixed when it opens, so an agent whose `cwd` lies outside it is refused.
+- **docker needs awf's image built once.** The first docker sandbox stops without it, and the error
+  gives the `docker build` command; see [Install](/guide/install#sandboxes).
 - **The workflow isn't sandboxed.** A sandbox holds agents. Your workflow code runs on the host with
   your authority; see [Limits](/guide/limits).
 - **A sandboxed agent still uses your login.** It runs on your subscription like any other agent.
@@ -135,7 +139,7 @@ resolved, every domain reachable in the end, and each agent it held.
 
 - [Sandboxes in the workflow API](/reference/workflow-api#sandboxes)
 - [Install: sandboxes](/guide/install#sandboxes)
-- [Harnesses](/guide/harnesses), for panes and each harness's login
+- [Harnesses](/guide/harnesses), for panes and headless agents
 - [`examples/sandboxes`](https://github.com/romanlv/agentswf/tree/main/examples/sandboxes): a team of
   agents in one docker container, then a reader alone under srt, each reporting what its commands
   could do

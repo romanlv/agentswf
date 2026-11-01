@@ -1,7 +1,7 @@
+// #region first
 import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
-// #region first
 export const SCOPE = Type.Object(
   {
     files: Type.Array(Type.String(), { description: "Every file the fix would change." }),

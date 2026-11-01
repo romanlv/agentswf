@@ -111,11 +111,11 @@ line gives its token count and an estimate at list prices.
 Before you run it:
 
 - `awf run` fails before any agent opens while your shell holds an API key that would switch an
-  agent to per-token billing, such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `CODEX_API_KEY`. [Install](/guide/install#api-keys-in-your-environment) lists them all; unset them first.
+  agent to per-token billing, such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `CODEX_API_KEY`. [Harnesses](/guide/harnesses#subscription-and-metered) lists them all; unset them first.
 - To use another harness, change `runtime`. An agent without `placement: "headless"` runs in a
   pane, which needs Herdr.
 - Headless claude is refused unless the runtime says `metered: true`; claude in a pane runs on
-  your subscription ([why](/guide/install#claude-on-a-subscription-panes-only)).
+  your subscription ([why](/guide/harnesses#subscription-and-metered)).
 
 While the run goes, the terminal shows its agent and what it is doing. When it ends, awf prints a
 closing block. Its shape is fixed; the figures here are only an example:

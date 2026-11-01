@@ -43,6 +43,10 @@ its first agent on it, so a run that uses only codex needs no claude login.
 | pi | `pi` | one per model provider: `pi`, then `/login` | yes | nothing |
 | cursor | `cursor-agent` | `cursor-agent login` | yes | `CURSOR_API_KEY`, from Cursor's dashboard |
 
+A claude pane runs on your plan, and headless claude is refused unless its runtime says
+`metered: true`; [Harnesses](/guide/harnesses#subscription-and-metered) says why, and what awf refuses
+in your environment.
+
 claude and codex must be on a subscription login, not an API key; otherwise the agent doesn't open:
 
 ```text
@@ -60,25 +64,6 @@ pi needs a login for openai-codex: run `pi`, then /login (pi said: No API key fo
 claude and cursor keep their logins in the macOS keychain, which a sandbox can't reach, so a
 sandboxed agent of theirs reads a token from awf's environment instead.
 
-## Claude on a subscription: panes only
-
-A claude pane runs on your Claude plan; a headless claude agent is refused unless its runtime says
-`metered: true` ([Opening one](/reference/workflow-api#opening-one)). Run claude agents in panes,
-the default, to stay on your plan.
-
-## API keys in your environment
-
-awf runs agents on subscription logins, so `awf run` refuses to start when your environment holds a
-key that would switch an agent to per-token billing:
-
-```text
-subscription runtime refused metered credential environment: ANTHROPIC_API_KEY
-```
-
-The variables it refuses are `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
-`OPENAI_API_KEY`, `OPENAI_BASE_URL` and `CODEX_API_KEY`. Unset them in the shell you run `awf`
-from.
-
 ## Sandboxes
 
 A sandbox limits what an agent can write and reach. It needs one of:
@@ -86,7 +71,8 @@ A sandbox limits what an agent can write and reach. It needs one of:
 - **srt**, Anthropic's [sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime),
   with `srt` and `node` on your PATH, and bubblewrap on Linux. On its first use in a run awf checks
   that srt really confines on this machine, and stops if it doesn't.
-- **docker**, with its daemon running. A docker sandbox runs its own Herdr, so its panes show in
+- **docker**, with its daemon running and awf's image built once
+  ([Sandboxes](/guide/sandboxes#catches) gives the command). A docker sandbox runs its own Herdr, so its panes show in
   the run's workspace.
 
 A run that opens no sandbox needs neither. Which one a sandbox uses, and how to open one, is on

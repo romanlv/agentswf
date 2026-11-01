@@ -3,7 +3,7 @@ import Type from "typebox";
 
 export const DONE = Type.Object({ summary: Type.String() }, { additionalProperties: false });
 export const VERDICT = Type.Object(
-  { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
+  { approved: Type.Boolean(), changes: Type.Array(Type.String()) },
   { additionalProperties: false },
 );
 type Done = Type.Static<typeof DONE>;
@@ -14,78 +14,63 @@ export type Result =
   | { approved: false; rounds: number; open: string[] };
 
 // #region bound
-const MAX_ROUNDS = 4;
+const ROUNDS = 3;
 const TURN_MS = 20 * 60_000;
 // #endregion bound
 
 export default defineWorkflow({
   meta: {
-    name: "fix-until-approved",
-    description:
-      "Implement a task, then fix what a reviewer on another model finds, until it approves.",
+    name: "review-loop",
+    description: "Implement a task, then revise it until a reviewer on another model approves.",
   },
   prepare: ({ argv }) => ({ task: argv.join(" ") }),
   async run(wf, { task }: { task: string }): Promise<Result> {
+    let implementer = await wf.agents.open({ key: "implementer", runtime: "claude" });
     const reviewer = await wf.agents.open({
       key: "reviewer",
-      runtime: { harness: "codex", model: "gpt-6-luna" },
-      instructions: "You review changes. Report what is wrong; never edit the code yourself.",
+      runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });
-
-    // #region branch
-    let implementer = await wf.agents.open({ key: "implementer", runtime: "claude" });
-    let replacements = 0;
-
-    async function implement(prompt: string, open: string[]): Promise<Done> {
-      const { outcome } = await implementer.run<Done>({ prompt, schema: DONE, timeoutMs: TURN_MS });
-      switch (outcome.kind) {
-        case "answered":
-          return outcome.value;
-        case "failed":
-        case "timed-out": {
-          // Either one closes the agent. A missing login fails every agent on its harness alike.
-          if (outcome.kind === "failed" && outcome.login) return wf.stop(outcome.reason);
-          if (replacements === 1) return wf.stop(`implementer ${outcome.kind}: ${outcome.reason}`);
-          replacements++;
-          implementer = await wf.agents.open({ key: "implementer#2", runtime: "claude" });
-          return implement(handover(task, open), open);
-        }
-        default:
-          // unanswered, blocked or cancelled: say why, and leave the run to be continued.
-          return wf.stop(`implementer ${outcome.kind}: ${outcome.reason}`);
-      }
-    }
-    // #endregion branch
-
-    // #region loop
+    let prompt = `Implement this task: ${task}`;
     let open: string[] = [];
-    let done = await implement(`Implement this task: ${task}`, open);
-    for (let round = 1; round <= MAX_ROUNDS; round++) {
-      const { outcome } = await reviewer.run<Verdict>({
+    let replaced = false;
+    for (let round = 1; round <= ROUNDS; round++) {
+      // #region branch
+      let work = await implementer.run<Done>({ prompt, schema: DONE, timeoutMs: TURN_MS });
+      const closed = work.outcome.kind === "failed" || work.outcome.kind === "timed-out";
+      const login = work.outcome.kind === "failed" && work.outcome.login !== undefined;
+      if (closed && !login && !replaced) {
+        // The agent is closed. Once, a new one under its own key takes over from the working tree.
+        replaced = true;
+        implementer = await wf.agents.open({ key: "implementer#2", runtime: "claude" });
+        const handover = `Take over from an agent that stopped. The task: ${task}\nIts change so far is in the working tree.`;
+        work = await implementer.run<Done>({
+          prompt: round === 1 ? handover : `${handover}\n${prompt}`,
+          schema: DONE,
+          timeoutMs: TURN_MS,
+        });
+      }
+      if (!isAnswered(work.outcome)) {
+        return wf.stop(`implementer ${work.outcome.kind}: ${work.outcome.reason}`);
+      }
+      // #endregion branch
+
+      // #region feedback
+      const review = await reviewer.run<Verdict>({
         prompt:
           round === 1
-            ? `Review the uncommitted change for this task: ${task}\nIts author says: ${done.summary}`
-            : `The author says it addressed your findings: ${done.summary}\nCheck each one, then the rest of the change.`,
+            ? `Review the change. Its author says: ${work.outcome.value.summary}`
+            : `The author says it made your changes: ${work.outcome.value.summary}\nCheck each one, then the rest of the change.`,
         schema: VERDICT,
         timeoutMs: TURN_MS,
       });
-      if (!isAnswered(outcome)) return wf.stop(`reviewer ${outcome.kind}: ${outcome.reason}`);
-      if (outcome.value.approved) return { approved: true, rounds: round };
-
-      open = outcome.value.findings;
-      if (round === MAX_ROUNDS) break;
-      done = await implement(`Fix what the reviewer found:\n- ${open.join("\n- ")}`, open);
+      if (!isAnswered(review.outcome)) {
+        return wf.stop(`reviewer ${review.outcome.kind}: ${review.outcome.reason}`);
+      }
+      if (review.outcome.value.approved) return { approved: true, rounds: round };
+      open = review.outcome.value.changes;
+      prompt = `Make these changes:\n${open.join("\n")}`;
+      // #endregion feedback
     }
-    return { approved: false, rounds: MAX_ROUNDS, open };
-    // #endregion loop
+    return { approved: false, rounds: ROUNDS, open };
   },
 });
-
-/** A fresh agent has no session: everything it needs is in the prompt. */
-function handover(task: string, open: string[]): string {
-  return [
-    `Another agent was working on this task and stopped: ${task}`,
-    "Its uncommitted change is in the working tree; read it before you continue.",
-    ...(open.length > 0 ? [`A reviewer asked for these fixes:\n- ${open.join("\n- ")}`] : []),
-  ].join("\n");
-}

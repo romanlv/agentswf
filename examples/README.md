@@ -1,198 +1,81 @@
 # Examples
 
-Scenario workflows written against `@agentswf/contract/workflow`, the workspace name of what a
-workflow outside this repository imports as `agentswf/workflow`, so the repository's own typecheck
-resolves them. The import boundary is enforced by `bun run scripts/check-boundaries.ts`: workflows
-never reach into the engine or a harness.
+Workflows to run from a clone of this repository, each with the page of the
+[site](../site/) that explains what it shows. They import `@agentswf/contract/workflow`, the
+workspace's name for what a workflow outside this repository imports as `agentswf/workflow`, and
+never the engine or a harness: `bun run scripts/check-boundaries.ts` enforces it.
 
-## Run the review workflow
+## Running one
 
-From this repository:
-
-```sh
-bun awf run examples/minimum-review/review-loop.ts
-```
-
-The default run deadline is thirty minutes. Set another deadline with a CLI flag before the workflow
-file:
+From the repository's root, after `bun install`:
 
 ```sh
-bun awf run --timeout 20m examples/minimum-review/review-loop.ts
+bun awf run examples/messaging/workflow.ts                  # a workflow, with its defaults
+bun awf run examples/messaging/workflow.ts -- claude-pane   # its own arguments go after --
+bun awf logs                                                # what the newest run did
 ```
 
-The run deadline bounds agent activation, turns, nudges, and result collection. After it expires,
-the engine cancels active work and allows at most five additional seconds for resource cleanup; a
-broken adapter cannot keep the command open indefinitely. A future configuration file may provide
-the same setting, but configuration is not part of the current interface.
+`bun awf` is the repository's `awf`, so an example runs against the code beside it. Its options,
+deadlines, nudges, where the records go and what the exit codes mean are on the site:
+[Runs](../site/guide/runs.md), [Deadlines and nudges](../site/guide/deadlines.md) and
+[Following runs](../site/guide/following-runs.md); [Harnesses](../site/guide/harnesses.md) says
+which login each agent needs. A workflow file is trusted code: it runs with your filesystem and
+process authority.
 
-`agent.run()` makes one standard missing-answer recovery attempt by default. Workflows only mention
-nudging when they customize it or deliberately disable it with `nudge: false`.
+Each workflow's logic is tested beside it, every agent's answers scripted, through the real
+engine, for free: `bun test examples`, or one folder's, `bun test examples/feature-delivery`.
+Outside this repository `awf test` does the same; [Testing](../site/guide/testing.md) says how to
+write one.
 
-By default the review target is the current directory. To review one file or directory relative to
-the current working directory, put its path after `--`:
+## The examples
 
-```sh
-bun awf run examples/minimum-review/review-loop.ts -- packages/engine/src
-```
+### Patterns: one problem, one workflow
 
-When the `@agentswf/engine` package bin is installed, the shorter equivalent is:
+| Example | What it shows | Explained in |
+| --- | --- | --- |
+| `messaging/` | an implementer writes `slugify()`; a reviewer that knows a house style runs it, asks for each fix by message and checks again; `-- codex` (the default), `pi`, `claude` or `claude-pane` | [Review loop](../site/patterns/review-loop.md), [Messaging](../site/guide/messaging.md) |
+| `feature-delivery/` | a ticket from plan to approved change, each step a stage: `-- {ticket}`, `--revisions {n}`, `--reviewer {name}={runtime}`; give it a `--run-root` outside the repository | [Plan, implement, review](../site/patterns/plan-implement.md) |
+| `event-sketches/` | a run per merge request (`mr-review.ts`) and per Datadog case (`dd-case.ts`), each with the poller that sends it events; type-checked sketches, not runnable | [Review on event](../site/patterns/review-on-event.md), [Events](../site/guide/events.md) |
 
-```sh
-awf run examples/minimum-review/review-loop.ts -- packages/engine/src
-```
+### Reviews
 
-The command opens its agents in the Herdr session of the pane it runs in, `default` outside Herdr,
-unless `AWF_HERDR_SESSION` selects another session. The
-runtime selects subscription-authenticated Claude and Codex models without exposing terminal
-placement in workflow aliases. A metered API-key variable set in the environment refuses the run,
-and none is passed to an agent, so they cannot silently take precedence. A workflow that presents its own result prints that report on standard output;
-otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
-`output.json` in the run's folder, `.awf/runs/{workflow}/{id}` under `--cwd` unless `--run-root`
-says otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
-that fails, times out or is cancelled once it has started still writes `output.json`, with `outcome` saying
-so, its `reason`, and what its agents spent. A run directory without one is a run that never
-started, or whose process was killed. A workflow file is trusted
-executable code: loading it gives the file the same filesystem and process authority as the
-operator.
-Agent operations are cancelled on interruption. A custom trusted workflow remains responsible for
-bounding or cancelling any external asynchronous work it starts outside the workflow engine.
+| Example | What it shows | Explained in |
+| --- | --- | --- |
+| `minimum-review/` | two reviewers at once, a correctness and a maintainability lens on claude and codex; `review-loop.ts` runs it on a path, `-- packages/engine/src`, the current directory by default, and `fixtures/` holds a target with a known defect | [Parallel](../site/guide/parallel.md), [Loops](../site/guide/loops.md) |
+| `catalogue-review/` | a diff fanned out over a catalogue of lenses, each finding verified; a lens runs only when the diff touches its `paths` | [Parallel](../site/guide/parallel.md) |
+| `single-agent-review/` | one agent reviews `--range` in one turn, with a pinned public review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer reviews are compared with | [Loops](../site/guide/loops.md) |
 
-## Smoke-test a harness
+### Agents and harnesses
 
-`quick-check/` asks one agent per runtime named (codex when none is) questions with known answers,
-proving a harness, its result channel and the run's accounting for a few cents:
+| Example | What it shows | Explained in |
+| --- | --- | --- |
+| `quick-check/` | one agent per runtime named (`-- codex pi`) answers questions with known answers: a harness smoke test for a few cents | [Harnesses](../site/guide/harnesses.md) |
+| `output-schema/` | the TypeBox-to-output-schema helper the examples share, with its type tests | [Agents](../site/guide/agents.md) |
+| `compaction/` | one agent per harness compacted with a focus, then asked what it kept (`-- claude pi`) | [Agents](../site/guide/agents.md) |
+| `fork/` | a worker forked per harness, compacted or not, and each asked what it knows | [Agents](../site/guide/agents.md) |
+| `effort/` | one agent per harness switched to another effort, then another model | [Agents](../site/guide/agents.md) |
+| `pane-layout/` | a lead in a tab of your workspace and two forked reviewers stacked beside it; run it from a Herdr pane | [Harnesses](../site/guide/harnesses.md) |
+| `calling-session/` | the run takes over the agent session it was started from: `awf run --here`, from claude, codex, pi or cursor in a Herdr pane | [Calling session](../site/guide/calling-session.md) |
+| `fork-caller/` | forks the session that started the run and asks the fork what it was working on | [Calling session](../site/guide/calling-session.md) |
+| `tools/` | an agent closes backlog items through the workflow's own tools | [Tools](../site/guide/tools.md) |
+| `sandboxes/` | a team of codex agents in one docker container, and a pi under srt that can read but not write; run it with `--cwd "$(mktemp -d)"` | [Sandboxes](../site/guide/sandboxes.md) |
+| `triage/` | support tickets routed by a decision model, every answer with its probability; needs `OPENROUTER_API_KEY`, opens no agent | [Decisions](../site/guide/decisions.md) |
 
-```sh
-bun awf run examples/quick-check/workflow.ts -- codex pi
-```
+### People, time and events
 
-## See agents message each other
+| Example | What it shows | Explained in |
+| --- | --- | --- |
+| `approval-reminders/` | a doc waits for approval, with a reminder an agent drafts on a timer, until it is approved or expires | [People](../site/guide/people.md), [Events](../site/guide/events.md) |
+| `nudges/` | a question for a person, nudging on a schedule kept in a file, until it is answered | [Deadlines and nudges](../site/guide/deadlines.md) |
+| `keep-alive/` | a claude kept alive between events, compacted when its window passes, woken by the next | [People](../site/guide/people.md) |
 
-`messaging/` has an implementer write `slugify()` in a fresh folder under `/tmp/awf-messaging`, and
-a reviewer who knows a house style the implementer was not told run it, ask for the fix with
-`wfa send --await-reply`, and check again. Codex by default, or `pi`, `claude` (headless, billed per
-token) or `claude-pane`; under a minute and a cent on codex:
+### For awf's own checks
 
-```sh
-awf run examples/messaging/workflow.ts -- codex
-awf logs                  # the newest run: messages, waits, replies and each agent's tool calls
-awf logs @e18 --full      # one event in full, a message's text included
-```
-
-## Drive the session you are in
-
-`calling-session/` takes over the agent session it was started from (ADR 0010). It asks the session
-to pick a number, has a headless codex agent double it, then asks the session to recall the number
-and check the doubling. Run it from claude, codex, pi or cursor in a Herdr pane, as the agent's own
-shell command; `--no-helper` leaves the codex agent out:
-
-```sh
-awf run --here examples/calling-session/workflow.ts
-```
-
-The agent replies with the line it prints, and the run, in a new tab, sends it the steps. Run without
-`--here` it throws, saying so.
-
-## Ask a decision model
-
-`triage/` routes support tickets with Jev, a decision model: one call per ticket asks which team
-owns it, whether it reports a bug, and how urgent it is, and gets a probability for every answer
-back in a few hundred milliseconds. An answer below 0.9 is flagged `unsure` rather than taken. It
-needs `OPENROUTER_API_KEY`, in the environment or in `.env`, which the engine holds and no agent is
-given, and it costs about $0.00002 a ticket. It opens no agent, so `awf run` checks no
-subscription login, which it does for a harness only when its first agent opens:
-
-```sh
-bun awf run examples/triage/workflow.ts
-bun awf run examples/triage/workflow.ts -- "The invoice PDF shows last month's total"
-```
-
-With no tickets after `--` it triages four synthetic ones. `triageTicket` is the call as a plain
-function, which is how a workflow shares a decision with others (story 006).
-
-## See what a sandbox allows
-
-`sandboxes/` shows two ways to sandbox agents, each agent running a few shell commands and
-reporting what they printed, refusals included:
-
-- **A team in one docker container, headed.** Three codex agents share a sandbox, all at once, each
-  in a pane of the container's own Herdr. They write a file each into the working directory,
-  print the container's hostname (the same for all three), and reach `registry.npmjs.org`.
-- **pi under srt, headless.** A private sandbox, given inline on the agent, that reads the working
-  directory but cannot write it, cannot read `~`, and reaches no domain beyond its model. It reads
-  the team's files.
-
-Point `--cwd` at a scratch directory, as the team writes into it:
-
-```sh
-bun awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts
-```
-
-The run's workspace in your Herdr shows the container's own Herdr, with the team's panes, while
-they work. `awf run --no-watch` leaves it out; the run still prints the `docker exec -it … herdr`
-command that shows them. It needs srt, docker and the default image, which the run names how to
-build if it is missing. Four agents, under a minute.
-
-## Other examples
-
-Each example that spans more than one file has a folder of its own, with its workflow in
-`workflow.ts`:
-
-- `minimum-review/` is the reusable one-round, two-lens review definition, plus `review-loop.ts`
-  that runs it and a `fixtures/` target with a known defect.
-- `catalogue-review/` fans a diff out over catalogue lenses and verifies each finding.
-  `defineCatalogueReview` turns a lens catalogue into an `awf run` entry point, which by default
-  reviews `origin/main...HEAD` through every lens; `-- --lenses a,b` and `--range` narrow it.
-  A lens with `paths` globs runs only when the diff touches a match, given the changed files by
-  the entry point. It prints a line per finding to act on, and writes `report.md` with the
-  evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
-- `feature-delivery/` takes a ticket from plan to approved change, each step a stage, so
-  `--id {ticket} --continue` redoes the step that stopped. `-- {ticket}` runs it with a claude planner
-  and codex for the implementer and the reviewer; `--revisions {n}` bounds each review's revisions and
-  `--reviewer {name}={runtime}` adds a reviewer who looks last. Its planner has a skill, which claude
-  takes only from outside its working directory, so `--run-root` puts the run's records elsewhere.
-  It ran live on 2026-10-10, a small ticket in a scratch repo, through all five stages.
-  `workflow.ts` holds only the process; `reviews.ts` what each review says and how it loops,
-  `team.ts` its agents, `cli.ts` its arguments; `session.ts`, a turn that answers or stops, and
-  `prompt.ts`, prompts written inline, are for another workflow to copy and change.
-- `single-agent-review/` is one agent reviewing `--range` in one turn, with a pinned public
-  review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer review workflows are
-  scored against with `awf-lab` (story 008).
-- `compaction/` compacts one agent per harness and placement with a focus, then asks what it
-  kept: the apparatus of `tests/compaction.eval.ts` (story 015), runnable by hand with the
-  runtimes to check, `bun awf run examples/compaction/workflow.ts -- claude pi`.
-- `fork/` forks one worker per harness and placement, compacted or not, then asks the fork what it
-  knew and the worker what it learned after: the apparatus of story 016's fork eval, runnable by
-  hand, `bun awf run examples/fork/workflow.ts -- claude-headless claude-headless:compact`.
-- `effort/` opens one agent per harness at an effort, switches its effort, then its model, and
-  asks each what it ran at: the apparatus of `tests/effort.eval.ts` (story 020).
-- `pane-layout/` opens a lead in a tab of the workspace you typed `awf run` in, and two reviewers
-  forked from it stacked right of its pane; the lead's pane stays once the run ends (story 026).
-  Run it from a Herdr pane, `bun awf run examples/pane-layout/workflow.ts`, or pass `-- run` or
-  `-- {workspace name}` to put the tab elsewhere. Three cheap codex agents.
-- `fork-caller/` forks the agent session `awf run` was started from and asks the fork what that
-  session was working on, which only a copy of its context can say (story 027). Have a claude,
-  codex or pi session run `bun awf run examples/fork-caller/workflow.ts`, without `--here`, and
-  wait on it.
-- `quick-check/` is the smoke test above.
-- `sandboxes/` is the sandbox tour above.
-- `triage/` is the decision model example above.
-- `sandbox-probe/` runs agents in a shared and a private sandbox, each running fixed shell
-  commands and reporting what each printed. It is the apparatus of `tests/sandbox-*.eval.ts`,
-  which plant the canaries and pass the plan as one JSON argument, not something to run by hand.
-  Its claude runs headless and so needs `CLAUDE_CODE_OAUTH_TOKEN`.
-- `skills-probe/` gives agents one of two probe skills and checks each found and ran its own. It
-  is the apparatus of `tests/skills.eval.ts`, not something to run by hand.
-- `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
-
-Each workflow's logic is tested beside it, in `workflow.test.ts`: every agent's answers scripted,
-through the real engine, for free. `bun test examples` runs them all, or one folder's with its
-path, `bun test examples/feature-delivery`; outside this repository, `awf test` does the same.
-`quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
-[The testing API](../site/reference/testing-api.md) says how to write one.
+- `sandbox-probe/` and `skills-probe/` are what the sandbox and skills evals drive; they take
+  their plan from the eval, not by hand.
+- `log-color-check.workflow.ts` logs two lines and opens no agent.
+- `site/` holds the site's own samples, each at its page's path, tested as the examples are.
 
 A file `awf run` takes default-exports its workflow. `minimum-review/workflow.ts` and
-`catalogue-review/workflow.ts` export the function that makes one instead, for an entry point
-that names its own model or catalogue.
-A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
-reading one is I/O and a workflow here is pure.
+`catalogue-review/workflow.ts` export the function that makes one instead, for an entry point that
+names its own models or catalogue.

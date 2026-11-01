@@ -380,6 +380,7 @@ Reference
                             (docs/workflow-api.md, moved here)
   /reference/testing-api    agentswf/testing (the API page's "Testing a workflow", moved here)
   /reference/awf            every awf command, options, exit codes, from its help file
+  /reference/wfa            every wfa command an agent runs: flags, exit codes, refusals, limits
   /reference/data           where awf keeps what: .awf/runs and a run's record (output.json,
                             events), ~/.awf (projects, coordinator), what is safe to delete
   /reference/configuration  environment variables, files awf reads

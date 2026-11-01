@@ -46,17 +46,22 @@ once it has, and `interrupted` when it never ended and its process is gone, as a
 | Outcome | When | Exit code |
 | --- | --- | --- |
 | `completed` | the workflow returned | 0 |
-| `stopped` | `wf.stop(reason)`, or a stage awf can neither reuse nor run: a record that no longer fits, a value `--from-stage` lacks | 3 |
+| `parked` | a workflow with events waits with no process ([Events](/guide/events)) | 0 |
+| `stopped` | `wf.stop(reason)`, or a stage awf can neither reuse nor run (see [going on](#going-on-from-a-stopped-run) below) | 3 |
 | `failed` | the workflow threw | 1 |
 | `timed-out` | the attempt passed `--timeout` | 1 |
 | `cancelled` | a signal, such as Ctrl-C | 128 + the signal's number |
 
 A refusal, such as an id that's taken or a flag a continue can't take, exits 2 and starts no
-attempt. A workflow with events can also end `parked`, waiting with no process:
-[Events](/guide/events) covers it.
+attempt.
 
-A completed attempt prints what the workflow's `present` makes of its value, or the value as JSON.
-Any other prints the stage it ended in, why, and the exact command to go on.
+A completed attempt prints what the workflow's `present` makes of its value; a workflow without
+`present` prints the whole `output.json` record. Any other ending prints the stage it ended in,
+why, and the exact command to go on.
+
+`awf runs` and `awf logs`, which read runs rather than start them, exit 0 on any read that worked,
+1 when there is no such run (for `awf logs`, also a cursor or handle that doesn't fit it), 2 on a
+usage error, and 3 when the run's files can't be read.
 
 ## Stages
 
@@ -70,14 +75,12 @@ A stage runs its work once and records what it returns, checked by its `result` 
 **reused**: its work isn't called, no agent in it is opened or asked anything, and `wf.stage`
 returns the recorded value.
 
-That gives a stage four rules:
+That gives a stage three rules:
 
 - **Its only output is its return value.** A variable assigned inside a reused stage stays unset.
   Return what later stages need: a path, a branch, a commit.
-- **Code between stages runs on every attempt.** Keep it safe to repeat; pushing, posting and
-  creating things go inside a stage.
-- **Agents start fresh in each attempt.** The builder above knows nothing of the planner's
-  session, so its prompt names the plan's file.
+- **Code between stages runs on every attempt**, agent turns included. Keep it safe to repeat;
+  pushing, posting, creating things and turns you don't want repeated go inside a stage.
 - **One stage at a time, each name once per attempt.** A loop or a `parallel` goes inside a
   stage. Names are lowercase letters, digits, `.`, `_`, `@` and `-`.
 
@@ -94,11 +97,8 @@ awf run ship-ticket.ts --id ABC-1 --continue
 `--continue` adds an attempt to the run `--id` names, with the arguments, `--cwd` and `--sandbox`
 it was started with: giving others is refused, since different input is a different run. It
 reuses the stages that succeeded, up to the first with no succeeded record, and runs from there.
-
-The file may have changed since: fixing the workflow and continuing is the main use. A record is
-reused only while its value fits the stage's current `result`, and while `meta.version` has the
-same major (the same minor under `0.x`). A record that fails either stops the attempt at that stage
-rather than rerunning it, and the stop names the command to go on.
+A record it can't reuse, because the code changed under it, stops the attempt at that stage;
+[Durability](/guide/durability) says when, and what a continue redoes after a crash.
 
 ### Redo from a stage
 
@@ -114,49 +114,48 @@ listed to choose from.
 ### Start part-way
 
 A new run can start at a stage too, with nothing recorded before it: a build for a plan written by
-hand. Each earlier stage that returns a value needs one, from `--values`, a JSON file of values by
-stage name:
+hand. Each earlier stage that returns a value needs one, given in a file. In three steps:
 
-```sh
-awf run ship-ticket.ts --from-stage build -- ABC-1
-awf run ship-ticket.ts --id ABC-1 --continue --from-stage build --values values.json
-```
+1. Start at the stage. The attempt stops before any stage's work runs, and lists each value it
+   needs as a type, such as `plan: {doc: string}`, with the command to go on, ending
+   `--values {file}`:
 
-```json
-{ "plan": { "doc": "docs/ABC-1.md" } }
-```
+   ```sh
+   awf run ship-ticket.ts --from-stage build -- ABC-1
+   ```
 
-Without `--values`, the first command stops before any stage's work runs and lists each value it
-needs, with its schema; the command it prints to go on names the file. Each value is checked
-against its stage's `result` and recorded as if the stage had run. A stage with no `result` needs
-no value. `--values` goes only with `--from-stage`.
+2. Write the values, a JSON object by stage name, to `values.json`:
+
+   ```json
+   { "plan": { "doc": "docs/ABC-1.md" } }
+   ```
+
+3. Run the printed command with your file:
+
+   ```sh
+   awf run ship-ticket.ts --id ABC-1 --continue --from-stage build --values values.json
+   ```
+
+Each value is checked against its stage's `result` and recorded as if the stage had run. A stage
+with no `result` needs no value. `--values` goes only with `--from-stage`.
 
 ## The record
 
-A run is kept in `.awf/runs/{workflow}/{id}` under `--cwd`, or under `--run-root` when you give
-one. awf ignores `.awf/runs` in git for you. Each attempt and each stage record is a small file
-there, beside `output.json`, the last attempt's full result, which `awf run --json` prints.
-[Data](/reference/data) has the layout.
-
-A new run whose first attempt ends before its workflow starts, such as a harness that fails to
-install, leaves no folder, so the same command starts it again.
+A run's record, `output.json` and the rest, is kept in `.awf/runs/{workflow}/{id}`:
+[How it works](/guide/how-it-works#the-record) says what's in it, and [Data](/reference/data) has
+the layout. A new run whose first attempt ends before its workflow starts, such as a harness that
+fails to install, leaves no folder, so the same command starts it again.
 
 ## Catches
 
 - **A continue runs in the project the run is kept in.** It looks in `.awf/runs` under `--cwd`,
   so continue from the same directory, or give the same `--cwd` or `--run-root`.
-- **The world isn't checked.** A reused stage's branch may have been deleted since. Its record
-  says which attempt made it; a check between stages can stop on what it can see.
-- **A renamed stage has no record.** A plain continue runs it; after `--from-stage` it stops,
-  listing the recorded stages the code never reached.
-- **Agent turns between stages run again on every attempt.** Put them inside a stage unless
-  repeating them is the point.
-
-What survives a crash, a closed laptop or a killed process, and what a continue redoes after one,
-is [Durability](/guide/durability).
+- **A reused stage is not checked against the world.** The branch it recorded may have been
+  deleted since; a check between stages can stop on what it can see.
 
 ## Next
 
+- [Durability](/guide/durability): what survives a crash or a code change between attempts.
 - [Stages](/reference/workflow-api#stages) in the workflow API, and `awf run` in
   [the awf reference](/reference/awf).
 - [Continuing over recorded stages](/reference/testing-api#continuing-over-recorded-stages): test

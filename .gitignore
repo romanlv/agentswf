@@ -1,7 +1,7 @@
 node_modules/
 runs/
 .awf/
-reference/
+/reference/
 
 # Per-call run dirs: result.json, call.json and attempts.jsonl, ~1,200 files an experiment.
 # The aggregate trials.jsonl and the findings files carry everything read off them.

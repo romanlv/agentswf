@@ -15,10 +15,10 @@ defined in [How it works](/guide/how-it-works#the-words).
 
 <<< @/../examples/site/guide/agents.ts#first
 
-Saved as `scope-issue.ts`, it runs with:
+Saved as `scope-issue/workflow.ts`, the folder layout `awf init` makes, it runs with:
 
 ```sh
-awf run scope-issue.ts
+awf run scope-issue/workflow.ts
 ```
 
 Three calls do the work:
@@ -29,6 +29,9 @@ Three calls do the work:
 - **`isAnswered(outcome)`** tells a checked answer from every other ending, and types
   `outcome.value` as the schema says.
 
+`wf.stop` ends the run with a reason, and `wf.log` adds a line to its log: both are on
+[Workflows](/guide/workflows#stopping-with-a-reason) and in [the reference](/reference/workflow-api#at-a-glance).
+
 ## Opening an agent
 
 ```ts
@@ -38,7 +41,8 @@ const agent = await wf.agents.open({ key: "scoper", runtime: "claude", instructi
 - **`key`** names the agent in this run, in its record and its pane's tab. Opening the same key
   again returns the same agent; opening it with a different spec rejects.
 - **`runtime`** picks the harness and model: an alias, `"claude"` or `"codex"`, or spelled out,
-  `{ harness: "codex", model: "gpt-6-luna", effort: "high" }`. Pane or headless, and which models
+  `{ harness: "codex", model: "gpt-6-luna", effort: "high" }`, or an alias with your own effort,
+  `{ alias: "codex", effort: "high" }`. Pane or headless, and which models
   and efforts each harness takes, are on [Harnesses](/guide/harnesses).
 - **`instructions`** are standing instructions. They go ahead of the agent's first prompt, so
   they stay in its session for every turn after.
@@ -46,8 +50,9 @@ const agent = await wf.agents.open({ key: "scoper", runtime: "claude", instructi
   below; [Sandboxes](/guide/sandboxes) and [Tools](/guide/tools) have pages of their own. `cwd`
   is where the agent works, the run's working directory by default.
 
-An agent stays open until the run ends, a turn of it fails or times out, or you stop it. When it has nothing
-more to do, `await wf.agents.stop("scoper")` closes it, so its pane doesn't sit idle.
+An agent stays open until the run ends, a turn of it fails or times out, or you stop it. When it
+has nothing more to do, `await wf.agents.stop("scoper")` closes it for good, so its pane doesn't
+sit idle; opening that key again rejects.
 
 ## A typed answer
 
@@ -91,18 +96,19 @@ exception. `outcome.kind` is one of six:
 | `kind` | What happened | The agent after it | What you usually do |
 | --- | --- | --- | --- |
 | `answered` | It handed back a value that fits the schema: `outcome.value`. | open | Use the value. |
-| `unanswered` | It stopped working without an accepted answer, even after the engine checked in on it and asked for one. | open | Ask again, differently, or give up on this piece. |
+| `unanswered` | It stopped working without an accepted answer, even after a nudge asked it for one. | open | Ask again, differently, or give up on this piece. |
 | `blocked` | It is showing a question only a person can answer, such as a permission prompt. | open | Stop, or let someone answer it in its pane. |
 | `timed-out` | The turn's deadline passed first. | closed | Stop, or open a new agent with more time. |
-| `failed` | Something broke: the harness crashed, the model errored, or there is no login. | closed | Stop; on `login`, stop the run. |
-| `cancelled` | The run, an enclosing scope, or `wf.agents.stop` stopped it. | closed, if `wf.agents.stop` ended it | Nothing: your workflow or the run is already stopping it. |
+| `failed` | Something broke: the harness crashed, the model errored, or there is no login. | closed | Stop. A missing login is below. |
+| `cancelled` | The run, an enclosing scope, or `wf.agents.stop` stopped it. | open after a scope's cancel; closed for good after `wf.agents.stop` | Nothing: your workflow or the run is already stopping it. |
 
 Every kind but `answered` carries `outcome.reason`, a sentence for a person and the run's record,
 such as `agent settled without an accepted result`. Branch on `kind`, not on the reason's words.
 
 **A turn that fails or times out closes its agent.** The next `run`, `compact`, `set` or `fork`
-on it rejects with `logical agent is closed`. To try again, open an agent under another key.
-After `unanswered` or `blocked` the agent is still open, its session intact.
+on it rejects with `logical agent is closed`, for the rest of the run; opening its key again
+returns the same closed agent, so a fresh agent needs another key. After `unanswered` or
+`blocked` the agent is still open, its session intact.
 
 **A missing login** fails the turn with `outcome.login`: which harness, and what the operator
 runs to log in. Every agent on that harness fails the same way until they do, so stop the run
@@ -119,9 +125,9 @@ if (outcome.kind === "failed" && outcome.login) wf.stop(outcome.reason);
 agent, or when the deadline around the whole scope has passed. A turn's own timeout is an
 outcome.
 
-**An agent that stops without answering** is checked in on and asked for its answer before the
-turn ends `unanswered`. `timeoutMs` bounds a turn, check-ins included, and `nudge` changes or turns
-off the check-in: [Deadlines](/guide/deadlines).
+**An agent that stops without answering** gets a nudge before the turn ends `unanswered`.
+`timeoutMs` bounds a turn, nudges included, and the `nudge` option changes or turns them off:
+[Deadlines](/guide/deadlines).
 
 ## Several turns
 
@@ -143,7 +149,7 @@ prompt says what to keep; the next turn goes on in the compacted session.
 
 <<< @/../examples/site/guide/agents.ts#compact
 
-It returns an outcome, not `{ outcome }`. `answered` means it compacted, with the harness's summary
+`compact`, like `set`, returns an outcome, not `{ outcome }`. `answered` means it compacted, with the harness's summary
 as the value where it shows one; any other outcome leaves the context as it was, so going on is
 usually right.
 
@@ -154,14 +160,17 @@ on, neither sees the other's turns.
 <<< @/../examples/site/guide/agents.ts#fork
 
 A fork has its parent's harness, model, effort, working directory, sandbox and skills, and may
-name its own `instructions`, `effort` and `placement`. It rejects before the parent's first turn.
+name its own `instructions`, `effort` and `placement`. It has its parent's tools unless it names
+its own `tools`, which replace them (`{}` gives none): [Tools](/guide/tools). It rejects before
+the parent's first turn.
 
 **`set`** switches the model, the effort or both for every later turn, as `/model` and `/effort`
 do. The session and its context stay.
 
 <<< @/../examples/site/guide/agents.ts#set
 
-`agent.execution` shows the settings now in force. Switching the model costs the cache: the next
+`agent.execution` shows the settings now in force. `set` rejects before it runs for an effort
+the harness doesn't list, or where the harness can't switch. Switching the model costs the cache: the next
 turn reads the whole context again at full price.
 
 Which harness does each, in a pane or headless, is in the reference:
@@ -182,27 +191,22 @@ when a task fits. `skills` lists exactly the skills an agent gets:
 - **`{ path }`** is a folder on disk. Name one beside the workflow with
   `new URL("./skills/name", import.meta.url)`; a relative path is refused.
 - **`{ repo: "owner/repo", skill: "name", ref: "v1.2" }`** is a public skill from GitHub or a
-  git URL, fetched at `ref`, or at the default branch as it is when the run starts. Pin a `ref` for runs you
-  compare.
+  git URL, fetched at `ref`, or at the default branch as it is when the run starts. Pin a `ref`
+  for runs you compare.
 - **`skills: []`** gives none. **Left out**, the agent has the skills it would have without awf:
   yours on the host, none in a sandbox.
 
 Each agent gets a copy of its own, so an agent can't change the skill another one runs. A skill
 that can't be found or read, or a `SKILL.md` without a `name` and `description` in its
 frontmatter, makes `open` reject. The harness's own bundled skills, and claude's and codex's
-skills in the working directory, stay either way.
+skills in the working directory, stay either way. cursor takes skills only in a sandbox: on the
+host, a cursor agent with `skills` is refused.
 
 ## Catches
 
-- **Only `wfa result` is an answer.** An agent that writes its answer in its terminal and stops
-  ends `unanswered`. Say in the prompt what you want back; the engine adds how to send it.
 - **A field's `description` reaches the agent only when the schema is sent whole.** A schema of up
   to six plain fields (strings, numbers, booleans, a choice of words) is taught as flags,
   `--risk low|medium|high`, without its descriptions. Say what each field means in the prompt.
-- **A failed or timed-out turn closes the agent for the rest of the run.** Opening its key again
-  returns the same closed agent; a fresh agent needs another key.
-- **`compact`, `set` and `fork` return or reject differently from `run`:** `compact` and `set`
-  resolve to an outcome; `fork` resolves to an agent, and rejects when it can't make one.
 - **A scripted test checks your branches, not the agent.** Every ending in the table above can be
   scripted, for free: [Testing](/guide/testing).
 

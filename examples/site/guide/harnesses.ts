@@ -1,4 +1,9 @@
-import { defineWorkflow, isAnswered, type RuntimeSelection } from "@agentswf/contract/workflow";
+import {
+  type AgentExecution,
+  defineWorkflow,
+  isAnswered,
+  type RuntimeSelection,
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 // #region runtimes
@@ -17,6 +22,18 @@ export const RUNTIMES = {
   meteredClaude: { harness: "claude", model: "sonnet", placement: "headless", metered: true },
 } satisfies Record<string, RuntimeSelection>;
 // #endregion runtimes
+
+/** Opens one agent on each of `RUNTIMES`, and returns what each runs on. */
+export const eachRuntime = defineWorkflow({
+  meta: { name: "each-runtime", description: "Open an agent on each runtime shape." },
+  async run(wf) {
+    const opened: Record<string, AgentExecution> = {};
+    for (const [key, runtime] of Object.entries(RUNTIMES)) {
+      opened[key] = (await wf.agents.open({ key, runtime })).execution;
+    }
+    return opened;
+  },
+});
 
 export const PLAN = Type.Object(
   { steps: Type.Array(Type.String()) },

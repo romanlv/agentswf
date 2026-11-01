@@ -92,6 +92,11 @@ function homeMarkdown({ hero = {}, features = [], title, description }: Frontmat
   return parts.filter(Boolean).join("\n\n");
 }
 
+const AGENTS_TEMPLATE = join(
+  import.meta.dirname,
+  "../../packages/engine/src/init-template/AGENTS.md.template",
+);
+
 /** The path a page's Markdown is served at: `guide/agents.md` is `/guide/agents.md`. */
 export const markdownHref = (relativePath: string) => `/${relativePath}`;
 
@@ -135,10 +140,12 @@ export function writeAgentFiles(
     return `- [${title}](${markdownHref(path)}): ${description}`;
   };
   const preamble = readFileSync(join(import.meta.dirname, "llms-preamble.md"), "utf8").trim();
+  const agentsMd = readFileSync(AGENTS_TEMPLATE, "utf8").trim();
+  const rules = `## Rules for writing a workflow\n\nThe \`AGENTS.md\` that \`awf init\` writes into a workflow folder, as written:\n\n\`\`\`\`md\n${agentsMd}\n\`\`\`\``;
   const index = sections
     .map(({ text, paths }) => `## ${text}\n\n${paths.map(entry).join("\n")}`)
     .join("\n\n");
-  writeFileSync(join(outDir, "llms.txt"), `${preamble}\n\n${index}\n`);
+  writeFileSync(join(outDir, "llms.txt"), `${preamble}\n\n${rules}\n\n${index}\n`);
 
   const full = sections
     .flatMap(({ paths }) => paths)
