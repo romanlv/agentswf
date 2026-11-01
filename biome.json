@@ -48,7 +48,7 @@
   },
   "overrides": [
     {
-      "includes": ["examples/site/**"],
+      "includes": ["examples/site/**", "!examples/site/reference/**"],
       "formatter": {
         "lineWidth": 80
       }

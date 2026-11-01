@@ -6,9 +6,7 @@ test("a coordinator's script answers the investigator's question", async () => {
   const run = await testWorkflow(investigate, null, {
     agents: {
       investigator: answer(async (turn) => {
-        const asked = await turn.send("coordinator", "One incident or two?", {
-          awaitReply: true,
-        });
+        const asked = await turn.send("coordinator", "One incident or two?", { awaitReply: true });
         return asked.kind === "replied" ? asked.text : asked.kind;
       }),
     },
@@ -37,19 +35,14 @@ test("a reply during the first turn gets a second, then the run parks", async ()
       },
     ],
   });
-  expect(run.parked?.label).toBe(
-    "waiting on the thread about checkout-timeouts",
-  );
+  expect(run.parked?.label).toBe("waiting on the thread about checkout-timeouts");
   expect(run.turnsOf("investigator")[1]?.prompt).toContain("is it the index?");
   expect(run.emits).toEqual([]);
 });
 
 test("a continue reuses the recorded stages and doesn't repeat implement's compaction", async () => {
   const run = await testWorkflow(flow, null, {
-    recorded: {
-      "doc-review": { path: "docs/a.md" },
-      implement: { branch: "feat/a" },
-    },
+    recorded: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
     agents: { worker: answer(QA, { preview: "ok" }) },
   });
   expect(run.compactions).toEqual([]); // a compaction inside implement isn't repeated
