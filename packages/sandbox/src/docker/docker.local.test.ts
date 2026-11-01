@@ -43,18 +43,25 @@ sandboxConformance(
 );
 
 describe.skipIf(!provider)("docker on this machine", () => {
-  const root = realpathSync(mkdtempSync(join(realpathSync(homedir()), ".awf-docker-local-")));
-  const runRoot = join(root, "runs");
-  const work = join(root, "work");
-  const outside = join(root, "outside");
-  // Not `~`, where this test's files are: resolution would refuse them.
-  const otherHome = realpathSync(mkdtempSync(join(tmpdir(), "wf-docker-home-")));
+  // Made in beforeAll, not here: this body runs even when a filter skips every test, and
+  // afterAll would then never remove them.
+  let root: string;
+  let runRoot: string;
+  let work: string;
+  let outside: string;
+  let otherHome: string;
   let opened: OpenedSandbox;
   let occupant: Occupant;
   const sh = (script: string, timeoutMs = 30_000) =>
     runCommand(occupant.launch({ argv: ["sh", "-c", script], cwd: work, timeoutMs }));
 
   beforeAll(async () => {
+    root = realpathSync(mkdtempSync(join(realpathSync(homedir()), ".awf-docker-local-")));
+    runRoot = join(root, "runs");
+    work = join(root, "work");
+    outside = join(root, "outside");
+    // Not `~`, where this test's files are: resolution would refuse them.
+    otherHome = realpathSync(mkdtempSync(join(tmpdir(), "wf-docker-home-")));
     await mkdir(join(work, "out"), { recursive: true });
     await mkdir(outside, { recursive: true });
     await writeFile(join(outside, "canary.txt"), "canary-outside");
@@ -106,7 +113,9 @@ describe.skipIf(!provider)("docker on this machine", () => {
 
   afterAll(async () => {
     await opened?.close();
-    await Promise.all([root, otherHome].map((path) => rm(path, { recursive: true, force: true })));
+    await Promise.all(
+      [root, otherHome].filter(Boolean).map((path) => rm(path, { recursive: true, force: true })),
+    );
   });
 
   test("mounts: a host path outside reach is absent, the working directory read-only", async () => {
