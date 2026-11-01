@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { HarnessAllowance } from "@agentswf/contract/records";
-import { describeReport, parseAllowanceCommand, readReport } from "./allowance-command";
+import { HARNESS_NAMES } from "@agentswf/harness";
+import { PLAN_BASIS } from "./accounting/plans";
+import {
+  allowanceUsage,
+  describeReport,
+  parseAllowanceCommand,
+  readReport,
+} from "./allowance-command";
 import { runOperatorCli } from "./operator-cli";
 
 const NOW = Date.parse("2026-10-05T16:50:00Z");
@@ -104,5 +111,10 @@ describe("awf allowance", () => {
     });
     expect(exit).toBe(2);
     expect(printed.join("")).toContain("awf: unknown harness or option: gemini");
+  });
+
+  test("its help names every harness and the plan table's date", () => {
+    expect(allowanceUsage).toContain(`none is named: ${HARNESS_NAMES.join(", ")}.`);
+    expect(allowanceUsage).toContain(`charged: ${PLAN_BASIS}.`);
   });
 });

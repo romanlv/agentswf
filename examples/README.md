@@ -189,7 +189,7 @@ Each workflow's logic is tested beside it, in `workflow.test.ts`: every agent's 
 through the real engine, for free. `bun test examples` runs them all, or one folder's with its
 path, `bun test examples/feature-delivery`; outside this repository, `awf test` does the same.
 `quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
-[The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
+[The testing API](../site/reference/testing-api.md) says how to write one.
 
 A file `awf run` takes default-exports its workflow. `minimum-review/workflow.ts` and
 `catalogue-review/workflow.ts` export the function that makes one instead, for an entry point

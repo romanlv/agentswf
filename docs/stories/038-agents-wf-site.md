@@ -454,8 +454,8 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. `site/` builds locally with VitePress, standalone, with the version in its header
-- [ ] 2. The existing docs are reorganized: the user docs and each command's help move into their
+- [x] 1. `site/` builds locally with VitePress, standalone, with the version in its header
+- [x] 2. The existing docs are reorganized: the user docs and each command's help move into their
   one home, and every link follows
 - [ ] 3. The landing page and Get started are written
 - [ ] 4. The build serves each page's source as `{page}.md`, with `/llms.txt` and `/llms-full.txt`;
@@ -790,6 +790,33 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+- 2026-11-01, task 1: VitePress 1.6.4. The sidebar is the site map filtered at config load to
+  pages whose `.md` exists; a nav section (Guide, Patterns, Reference) shows once it has a page.
+  The version links its npm page. `srcExclude` keeps `AGENTS.md` and `README.md` off the site.
+- 2026-11-01, M3 settled: `<<<` reads files outside `site/`, in build and dev, and a missing file
+  fails the build. A page's own samples live in `examples/site/{page path}.ts`, so root tsc,
+  Biome, the boundaries and `bun test` check them as examples, with no new tsconfig, workspace or
+  lockfile change; pages import them, or a whole example, as `<<< @/../examples/….ts#region`.
+  Examples import the workspace names, so the config rewrites `@agentswf/contract/workflow` and
+  `@agentswf/engine/workflow-testing` to `agentswf/workflow` and `agentswf/testing` in every code
+  block, the mapping the samples test already uses. Task 4's `{page}.md` must apply the same
+  rewrite. Extending the samples test to every page was not needed.
+- 2026-11-01, M5 settled: `<!--@include: @/../packages/engine/src/help/{command}.txt-->` inside a
+  fenced block works from outside `site/`, and the dev server sends an HMR update when the file
+  changes. Surprise: VitePress leaves an include it cannot read in the page silently, so the
+  config fails the build on any unresolved `@include`.
+- 2026-11-01, task 2: the ten help strings are `packages/engine/src/help/{command}.txt` (reply's
+  covers send), each ending in a newline; the command exports `help.trimEnd()`, so the strings,
+  `awf {command} -h` and `awf help reference` are byte-identical to before (diffed). `bun-types`
+  already declares `*.txt`, and the engine's `files: ["src"]` ships them (checked with
+  `bun pm pack`). `awf allowance`'s help interpolated `HARNESS_NAMES` and `PLAN_BASIS`; the file
+  holds their text and a test in `allowance-command.test.ts` fails when either changes.
+- 2026-11-01, task 2: `testing-api.md` heads with `# Testing a workflow`, its subsections one level
+  up; anchors are unchanged. Site-internal links are relative without `.md` (`../guide/people`),
+  VitePress's recommended form; links into the repository are GitHub URLs on main. The API page's
+  intro gained one sentence linking the testing page. `docs/design/messaging.md`'s Obsidian
+  `[[workflow-api#Outcomes]]` became a Markdown path.
 
 ## Human review
 

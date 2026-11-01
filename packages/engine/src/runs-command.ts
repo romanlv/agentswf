@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
+import help from "./help/runs.txt" with { type: "text" };
 import {
   clockTime,
   command,
@@ -23,19 +24,7 @@ import { encodeCursor } from "./run-read";
 import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 
-export const runsUsage = [
-  "usage: awf runs [--limit <n>] [--cwd <directory>] [--run-root <directory>] [--json]",
-  "       awf runs <run> [--cwd <directory>] [--run-root <directory>] [--json]",
-  "",
-  "The runs here, newest first, or one run in depth: its attempts, the stages of the last, what",
-  "each agent is doing, and what to run next. The list shows 20 unless --limit says another",
-  "number. A run is <workflow>/<id>, or an <id> only one",
-  "workflow has. Runs are listed under --cwd's .awf/runs, or --run-root, as awf run keeps them; a",
-  "run named is found there first, then in each project awf has started a run with events in.",
-  "",
-  "--json prints one document, the interface for scripts. Exits 0 on any read that worked, 1 when",
-  "there is no such run, 2 on a usage error, 3 when the run's files could not be read.",
-].join("\n");
+export const runsUsage = help.trimEnd();
 
 const LISTED = 20;
 

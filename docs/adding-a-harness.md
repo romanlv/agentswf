@@ -86,6 +86,6 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
 - `packages/lab` and `examples/single-agent-review` repeat `meteredHeadless` for claude, and
   `packages/lab/src/review/format/runtime.ts` every harness's effort levels, as they may not
   import the harness package.
-- Docs: `status.md`, `workflow-api.md` (placements, compaction, effort), `foundation.md` §8 (usage),
+- Docs: `status.md`, `site/reference/workflow-api.md` (placements, compaction, effort), `foundation.md` §8 (usage),
   `design/permissions.md` (its permission column), `testing.md`, and a finding for each
   measurement.

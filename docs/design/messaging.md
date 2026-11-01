@@ -559,7 +559,7 @@ obligation fails, the waiter is continued, and a later reply is refused `expired
 replier's operation goes on. A request that opens or continues the operation can only lengthen its
 deadline, so liveness needs a deadline it can move, where story 021 fixed one per operation. A
 timeout or a harness failure stops the agent, as for any operation
-([[workflow-api#Outcomes|workflow API]]); its obligations fail with it.
+([workflow API](../../site/reference/workflow-api.md#outcomes)); its obligations fail with it.
 
 A workflow operation's turn that ends without a result goes, in this order:
 
@@ -663,7 +663,7 @@ the holder, uses three commands on `awf`, matching `wfa`'s verbs: `awf inbox` to
 and `awf send` to talk back. They are the interface apps build on, so `awf inbox`'s items and
 cursor, and the two commands' arguments, stdin and result codes, are published; the run log's
 format and the socket folder are not. Built in [[032-run-coordinator|story 032]]; the reference
-for a holder is [`holder-cli.md`](../holder-cli.md).
+for a holder is [`site/guide/people.md`](../../site/guide/people.md).
 
 All three take a run as `{workflow}/{id}`, found under `.awf/runs` in the current folder, or the
 `--cwd` or `--run-root` given, as `awf run --continue` finds it. No two runs in one folder share

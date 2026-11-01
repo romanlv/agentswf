@@ -1,11 +1,16 @@
+---
+title: People
+description: "Answering for a participant outside a run: awf inbox, reply and send, their items, codes and cursor."
+---
+
 # Answering for a participant
 
 A workflow can connect a **participant** outside the run, such as a coordinator, that its agents
-report to and ask ([workflow-api.md](workflow-api.md#a-coordinator-outside-the-run)). Whatever
+report to and ask ([the workflow API](../reference/workflow-api#a-coordinator-outside-the-run)). Whatever
 answers for it is the **holder**: `awf run`'s own terminal, another claude or codex session, or an app such as
 a Slack bridge. This page is the holder's side: three commands on `awf`, the items they print, the
 result codes, and what the cursor guarantees. The design and its reasons are in
-[design/messaging.md](design/messaging.md#coordinator-cli).
+[design/messaging.md](https://github.com/romanlv/agentswf/blob/main/docs/design/messaging.md#coordinator-cli).
 
 ```sh
 awf inbox {workflow}/{id}                         # one run: what was said, both ways

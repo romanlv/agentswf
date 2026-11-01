@@ -1,6 +1,7 @@
 import type { TickResultJson } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import help from "./help/tick.txt" with { type: "text" };
 import { listProjects, projectRunRoot } from "./projects";
 import type { Out } from "./run-commands";
 import { parsePlace } from "./run-commands";
@@ -8,19 +9,7 @@ import { runLockFile, withRunLock } from "./run-lock";
 import { listRuns } from "./run-state";
 import { type Launch, wake } from "./wake";
 
-export const tickUsage = [
-  "usage: awf tick [--cwd <directory>] [--run-root <directory>] [--json]",
-  "       awf tick --all [--json]",
-  "",
-  "Wakes every run of a workflow with events under --cwd's .awf/runs, or --run-root, the runs awf",
-  "runs lists there, as an event would: continues a parked run whose wait's timer is due, and a",
-  "crashed or failed one until it has failed three times in a row. Runs of other workflows are left",
-  "as they are. --all wakes them in every project awf has started one in, as ~/.awf/projects lists",
-  "them. Run it on any schedule; a run is continued once however many wakers come at once.",
-  "",
-  "Prints a line for each run it woke, and nothing when it woke none. --json prints one document.",
-  "Exits 0, or 1 when a project is gone or a run could not be woken; the others are still woken.",
-].join("\n");
+export const tickUsage = help.trimEnd();
 
 export async function tickCommand(
   argv: readonly string[],

@@ -10,6 +10,7 @@
     "includes": [
       "**",
       "!docs",
+      "!site",
       "!tests/fixtures",
       "!examples/minimum-review/fixtures",
       "!packages/harness/src/usage/fixtures"

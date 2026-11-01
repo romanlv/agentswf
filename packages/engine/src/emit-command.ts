@@ -2,23 +2,12 @@ import type { EmitResultJson } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent } from "./emit";
 import { messageOf } from "./errors";
+import help from "./help/emit.txt" with { type: "text" };
 import type { Out } from "./run-commands";
 import type { Launch } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";
 
-export const emitUsage = [
-  "usage: awf emit --target <file> --id <id> <event> [<json>] [--event-id <id>] [--json]",
-  "",
-  "Sends an event to the run of a workflow with events that --id names. That run starts if it has",
-  "none and the event is one that starts one, and is woken if it has one: nudged while it runs, continued when it is",
-  "parked or crashed. The run lives in the project of <file>, the nearest directory above it",
-  "holding .awf/, whoever sends. --event-id names the occurrence: the same id again is a duplicate.",
-  "",
-  "Prints what became of the event, and what was done to the run: accepted, duplicate or refused.",
-  "--json prints one document. Exits 0 for any of the three, 1 when the run's attempt could not be",
-  "started (the event is kept, and the next event or awf tick tries again), 2 when the event is",
-  "wrong for its target: its name, its data, or its id.",
-].join("\n");
+export const emitUsage = help.trimEnd();
 
 export async function emitCommand(
   argv: readonly string[],

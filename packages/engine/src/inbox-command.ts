@@ -14,6 +14,7 @@ import { maskCredentials } from "@agentswf/harness";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import help from "./help/inbox.txt" with { type: "text" };
 import { readMailbox } from "./mailbox";
 import {
   clockTime,
@@ -34,20 +35,7 @@ import {
   readEventsFrom,
 } from "./runs";
 
-export const inboxUsage = [
-  "usage: awf inbox [<run>] [--open] [--workflow <name>] [--as <key>] [--after <cursor>] [--wait <seconds>]",
-  "                 [--cwd <directory>] [--run-root <directory>] [--json]",
-  "",
-  "What agents said to a participant outside the run, and what it said back: routes, messages,",
-  "answers, questions that closed unanswered, and each attempt's end, oldest first. Without a run,",
-  "every run here that connected one; --workflow narrows that. A run is <workflow>/<id>, or an <id>",
-  "only one workflow has. --after reads on from a cursor the last answer gave; --wait",
-  "waits up to that many seconds, at most 300, when nothing is new. --open lists the questions",
-  "still waiting for an answer, a snapshot. --json prints one item per line.",
-  "",
-  "Exits 0 on a read that worked, 1 when there is no such run, it has no participant, or the",
-  "cursor is another's, 2 on a usage error, 3 when the run's files could not be read.",
-].join("\n");
+export const inboxUsage = help.trimEnd();
 
 const MAX_WAIT_SECONDS = 300;
 const POLL_MS = 1_000;

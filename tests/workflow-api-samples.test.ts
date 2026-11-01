@@ -4,14 +4,16 @@ import { join } from "node:path";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs } from "../packages/engine/src/testing";
 
-// The workflow API's samples are code: a block whose first line names a file is that file. A bare
-// name is written to a folder of its own and run there with `awf test`, as an author would; an
-// example's path is quoted from that example, and must still be in it.
+// The workflow and testing API pages' samples are code: a block whose first line names a file is
+// that file. A bare name is written to a folder of its own and run there with `awf test`, as an
+// author would; an example's path is quoted from that example, and must still be in it.
 const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
-const page = readFileSync(join(ROOT, "docs/workflow-api.md"), "utf8");
+const page = ["site/reference/workflow-api.md", "site/reference/testing-api.md"]
+  .map((path) => readFileSync(join(ROOT, path), "utf8"))
+  .join("\n");
 const samples = [...page.matchAll(/```ts\n\/\/ (\S+)\n([\s\S]*?)```/g)].map(([, file, code]) => ({
   file: file!,
   code: code!,

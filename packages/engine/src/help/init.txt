@@ -1,0 +1,9 @@
+usage: awf init [dir] [--no-install]
+
+Sets up the current directory, or dir, for writing workflows: hello/workflow.ts, a workflow
+with one agent, and hello/workflow.test.ts, its test; package.json, tsconfig.json, .gitignore
+and AGENTS.md. Then runs bun install, unless --no-install, for editor types: awf runs a
+workflow against its own copies either way.
+
+Never overwrites. A file that exists is skipped, except that package.json gains the
+devDependencies and scripts it lacks and .gitignore the lines it lacks.

@@ -88,7 +88,7 @@ exists, the code is right, then this page.
   032), and its agents report to it and ask it over routes like any peer's, a route's `timeoutMs`
   bounding a question. Whatever holds it answers: `awf run`'s terminal asks each question there;
   another session or an app reads `awf inbox` from a saved cursor and answers with `awf reply` or
-  messages first with `awf send` ([`holder-cli.md`](holder-cli.md), the `awf-coordinator` skill).
+  messages first with `awf send` ([`site/guide/people.md`](../site/guide/people.md), the `awf-coordinator` skill).
   The asker waits hours if need be, in the same session; a workflow's tests script the coordinator.
 - An agent calls its workflow's code mid-turn through `tools` on `agents.open` and `fork` (story
   035): `wfa tool {name}`, with flags for a simple input and JSON for any other, and the handler's

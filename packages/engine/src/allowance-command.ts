@@ -4,24 +4,12 @@ import type {
   HarnessAllowance,
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
-import { PLAN_BASIS, planPrice } from "./accounting/plans";
+import { planPrice } from "./accounting/plans";
 import { messageOf } from "./errors";
+import help from "./help/allowance.txt" with { type: "text" };
 import type { Out } from "./run-commands";
 
-export const allowanceUsage = [
-  "usage: awf allowance [harness...] [--json]",
-  "",
-  "What is left of each harness's plan, as the harness itself shows it: claude's /usage, codex's",
-  "/status, and cursor's /usage, read in a Herdr pane. Nothing asks a model. Every harness when",
-  `none is named: ${HARNESS_NAMES.join(", ")}.`,
-  "",
-  "A plan's monthly price is the vendor's list price as of the table's date, not what was",
-  `charged: ${PLAN_BASIS}.`,
-  "",
-  `--json prints one document, the interface for scripts, with the plan as the`,
-  "harness names it and no price; what it prints otherwise is for reading. A harness that could",
-  "not be read says why. Exits 0 once every harness was asked, 2 on a usage error.",
-].join("\n");
+export const allowanceUsage = help.trimEnd();
 
 export type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
 

@@ -3,6 +3,7 @@ import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/co
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
+import help from "./help/logs.txt" with { type: "text" };
 import {
   clockTime,
   command,
@@ -34,21 +35,7 @@ import {
 import { findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
 
-export const logsUsage = [
-  "usage: awf logs [<run>] [@<handle>] [--agent <key>] [--stage <name>] [--after <cursor>]",
-  "                [--limit <n>] [--wait <seconds> | --follow] [--full] [--cwd <directory>]",
-  "                [--run-root <directory>] [--json]",
-  "",
-  "What a run did and is doing: its events and what its agents did, read from their own session",
-  "files, merged by time. With no run, the newest here. Without --after, the last 40 events; with",
-  "it, what came after, oldest first. Every answer ends with the command that gets only what is",
-  "new. --wait: with nothing to show yet, wait for the first event, at most that many seconds, up",
-  "to 300; --follow prints each event as it comes until the run ends. @<handle> names one event,",
-  "and --full prints its text, with common credential shapes masked; --json carries it always.",
-  "",
-  "Exits 0 on any read that worked, 1 when there is no such run or the cursor or handle does not",
-  "fit it, 2 on a usage error, 3 when the run's files could not be read.",
-].join("\n");
+export const logsUsage = help.trimEnd();
 
 const DEFAULT_LIMIT = 40;
 /**

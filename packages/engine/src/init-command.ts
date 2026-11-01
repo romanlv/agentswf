@@ -2,19 +2,10 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync
 import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
 import { messageOf } from "./errors";
+import help from "./help/init.txt" with { type: "text" };
 import type { Out } from "./run-commands";
 
-export const initUsage = [
-  "usage: awf init [dir] [--no-install]",
-  "",
-  "Sets up the current directory, or dir, for writing workflows: hello/workflow.ts, a workflow",
-  "with one agent, and hello/workflow.test.ts, its test; package.json, tsconfig.json, .gitignore",
-  "and AGENTS.md. Then runs bun install, unless --no-install, for editor types: awf runs a",
-  "workflow against its own copies either way.",
-  "",
-  "Never overwrites. A file that exists is skipped, except that package.json gains the",
-  "devDependencies and scripts it lacks and .gitignore the lines it lacks.",
-].join("\n");
+export const initUsage = help.trimEnd();
 
 export type InitCommand = { dir: string; install: boolean };
 

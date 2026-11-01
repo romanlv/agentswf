@@ -101,7 +101,7 @@ awf run --run-root /tmp/awf-runs examples/feature-delivery/workflow.ts -- PROJ-1
 | [`calling-session`](examples/calling-session/) | `awf run --here`: a workflow driving the session that started it |
 
 More in [`examples/`](examples/README.md), with how to run each. Every call is explained in
-[the workflow API](docs/workflow-api.md), on one page.
+[the workflow API](site/reference/workflow-api.md), on one page.
 
 ## What you get
 
@@ -125,7 +125,7 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   another agent, and a stopped run goes on from the stage that stopped.
 - **Runs that react to events.** A workflow declares the events it takes; `awf emit` sends one to a
   run by its id, and the run's code takes it at a wait. Between events the run parks and no
-  process runs, so a case that lives for weeks costs a file ([events](docs/workflow-api.md#events)).
+  process runs, so a case that lives for weeks costs a file ([events](site/reference/workflow-api.md#events)).
 - **Deadlines and cleanup.** A stalled turn is stopped, deadlines you set nest, and every agent is
   closed when the run ends, however it ends, unless the workflow asked to keep its pane.
 
@@ -353,7 +353,7 @@ bun install && bun test   # no live agents, no cost
 bun run check             # lint, format, types and package boundaries
 ```
 
-- [`docs/workflow-api.md`](docs/workflow-api.md): every call a workflow can make, on one page
+- [`site/reference/workflow-api.md`](site/reference/workflow-api.md): every call a workflow can make, on one page
 - [`packages/lab`](packages/lab/README.md): scoring review workflows against cases with known answers
 - [`docs/status.md`](docs/status.md): what runs today and what comes next
 - [`docs/testing.md`](docs/testing.md): the test levels, from free to live, and what each costs

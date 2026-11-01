@@ -6,6 +6,7 @@ import { deliver, eventIdProblem } from "./emit";
 import { printEmit } from "./emit-command";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
+import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
@@ -13,26 +14,7 @@ import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
-export const replyUsage = [
-  "usage: awf reply <run> <agent> [--to <id>] [--as <participant>] [<text>]",
-  "       awf send <run> <agent> [--as <participant>] [<text>]",
-  "       awf send <run> --as <participant> --event-id <id> [--author <name>] [<text>]",
-  "each takes [--cwd <directory>] [--run-root <directory>] [--json]",
-  "",
-  "A run is <workflow>/<id>, or an <id> only one workflow has, here or in a project awf knows.",
-  "Answers a question an agent asked a participant outside the run, or messages an agent first,",
-  "over a route the workflow allowed. The text is the argument, or stdin without one. --to names",
-  "the question, as awf inbox prints it; it may be left out when the agent has one open. --as",
-  "names the participant when the workflow connects more than one. Neither waits for an answer:",
-  "it comes back in awf inbox. With --event-id, send is a reply on a participant the run routes to its",
-  "code: no agent, it reaches the run whether it runs or is parked, and the same id again is a",
-  "duplicate. The id is one the run has not had from anyone, as a chat's message ids are. It prints",
-  "as awf emit does, and exits 0 for whatever the run did with it (delivered, duplicate, or refused",
-  "by a run that returned); 1 when the run or participant isn't found, or its attempt didn't start.",
-  "",
-  "Exits 0 when delivered, 1 when refused (the code says why), 2 on a usage error, 3 when the run",
-  "could not be reached.",
-].join("\n");
+export const replyUsage = help.trimEnd();
 
 type Options = {
   command: "reply" | "send";

@@ -4,21 +4,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
+import help from "./help/test.txt" with { type: "text" };
 import type { Out } from "./run-commands";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
 
-export const testUsage = [
-  "usage: awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
-  "",
-  "Runs a workflow's tests (*.test.ts and *.spec.ts files) under the current directory, or under",
-  "each file or directory given, with agentswf/workflow, agentswf/testing and typebox served as",
-  "awf run serves them: nothing is installed. -t runs the tests whose names match the pattern;",
-  "--watch reruns them on a change; --timeout bounds each test, 5s by default.",
-  "",
-  "Exits 0 when every test passed, 1 when one failed or none was found, 2 on a usage error. What",
-  "it prints is for reading, not parsing.",
-].join("\n");
+export const testUsage = help.trimEnd();
 
 export type TestCommand = { paths: string[]; bunArgs: string[] };
 
