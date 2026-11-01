@@ -861,6 +861,12 @@ Manual or live evaluation:
   landing page and the overview); Install's "Updating" runs the checks and hands what they find to
   the coding agent. The README says the same in place of its "Early preview" note, links the
   issues again under Contributing, and installs `agentswf` instead of `agentswf@beta`.
+- 2026-11-01, the operator's review: the landing page and Why are repositioned. agents.wf
+  automates the agent work you run by hand: code is deterministic (order, loops, deadlines, typed
+  answers), agents are creative (real harnesses with their skills and sessions), runs are durable
+  and wake on events. The reader is a builder who wants control over their agents and their plan
+  limits rather than a vendor's black box, so Why gains "Why not a black box", and the landing page
+  "From hand-run to automated". Reviewed for accuracy against the code and as the target reader.
 
 ## Human review
 
