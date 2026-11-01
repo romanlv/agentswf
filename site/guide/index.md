@@ -77,9 +77,6 @@ waits on it as on any command, or hands itself to the run
 - **One agent, one task, one session.** Ask the agent; a workflow adds nothing.
 - **You want the agent to choose the steps.** Use its own subagents.
 - **You need a hosted service.** awf runs on your machine, with your agents' logins.
-- **You need stable interfaces.** agents.wf is in beta: `agentswf` on npm is a prerelease,
-  `0.1.0-beta.{n}`, and its API changes between versions. [Limits](/guide/limits) says what it
-  doesn't do.
 
 ## Next
 

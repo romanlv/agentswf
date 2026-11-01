@@ -18,7 +18,7 @@ commit, and a push to main updates the site.
 
 The site's purpose is different from the README's. A visitor browses it to learn what the project
 does and how each feature works, and leaves trusting it enough to try it: the site says what awf
-doesn't do and what beta means, and links the evidence on GitHub (what is tested and measured,
+doesn't do and that it is in evaluation, and links the evidence on GitHub (what is tested and measured,
 what runs today), where the code is open. The GitHub README keeps its own purpose; only its links
 to the API page change.
 
@@ -272,7 +272,8 @@ Read from each site's `llms.txt` (Hono, Vitest, Elysia, Herdr, Mastra, Trigger.d
   - Limits says what awf doesn't do; Durability says what survives what; Security lists the known
     gaps from `docs/status.md` (an agent outside a sandbox has the operator's authority; a
     sandboxed agent still spends the operator's login).
-  - Limits also says what beta means, and links what runs today (`docs/status.md`), how awf is
+  - Limits also says it is in its evaluation phase (real work shapes the API; a change makes it
+    better, and the agent that wrote a workflow moves it over), and links what runs today (`docs/status.md`), how awf is
     tested (`docs/testing.md`) and what was measured (`docs/findings/`) on GitHub. The landing
     page's trust strip links the same. The site doesn't restate them.
   - Patterns give each workflow's estimated cost and time from a recorded run.
@@ -318,7 +319,7 @@ Get started
   /guide/how-it-works     the words (workflow, run, agent, turn, outcome, harness, pane,
                           stage) and the engine's side: the agent's socket, the wfa commands an
                           agent uses in its session, the record
-  /guide/limits           what awf doesn't do, by design; what beta means; links to what runs
+  /guide/limits           what awf doesn't do, by design; the evaluation phase; links to what runs
                           today, how it is tested and what was measured, on GitHub
 
 Build with AI
@@ -412,8 +413,8 @@ a later task (Q11). Top to bottom:
 5. **Built for agents to write.** "Point your coding agent at `agents.wf/llms.txt`": every page
    as Markdown, the API on one page, `awf init`'s AGENTS.md, typecheck and `awf test` as the
    safety net. Links `/ai/`.
-6. **Honest about where it is.** MIT and open on GitHub; beta, interfaces change between
-   versions; what it doesn't do (Limits); how it is tested and what was measured, on GitHub.
+6. **Honest about where it is.** MIT and open on GitHub; in evaluation, real work still
+   shapes the API; what it doesn't do (Limits); how it is tested and what was measured, on GitHub.
 7. **Closing call.** "Your first workflow in 10 minutes", to the quick start.
 
 Top navigation: Guide, Patterns, Reference, the version, and GitHub and npm icons. The

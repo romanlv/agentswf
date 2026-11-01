@@ -13,8 +13,8 @@ bun add -g agentswf   # puts awf in ~/.bun/bin
 awf --version
 ```
 
-`~/.bun/bin` is on your PATH if Bun's installer set it up. agents.wf is in beta, and the newest
-beta is what a plain install gets.
+`~/.bun/bin` is on your PATH if Bun's installer set it up. A plain install gets the newest
+release.
 
 ## What you need
 

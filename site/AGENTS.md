@@ -26,6 +26,9 @@ bun run preview    # serves the build
 - No claim about spend beyond the records' own words: a headless claude being "metered" is a rule,
   not a bill. Never "charged" or "spent".
 - No private project's name.
+- agents.wf is in its evaluation phase: real work still shapes the API, and a change makes it
+  better. Say so once, on `/guide/limits`, with how an update reaches a workflow (the checks, and
+  the agent that moves it over). Elsewhere don't say "beta" or warn that things break; link Limits.
 - Enough guidance, not everything: a page explains an idea so a newcomer gets it on one read, and
   stops. What only a contributor needs (how awf is tested, the measurements, the design record)
   stays on GitHub, and the page links to it.

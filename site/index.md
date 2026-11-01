@@ -82,8 +82,8 @@ schemas and plain `for` and `if`, so you can review it in a minute.
 ## Where it is
 
 - **Open source.** MIT licensed, on [GitHub](https://github.com/romanlv/agentswf).
-- **Beta.** Interfaces change between versions. [Limits](/guide/limits) says what that means
-  and what awf doesn't do.
+- **In evaluation.** agents.wf runs real work now, and what that work shows still shapes its
+  API. [Limits](/guide/limits) says how an update reaches your workflows, and what awf doesn't do.
 - **What runs today and what is next:** [status](https://github.com/romanlv/agentswf/blob/main/docs/status.md).
 - **How it is tested:** [the test levels](https://github.com/romanlv/agentswf/blob/main/docs/testing.md),
   from free to live agents. **What was measured:** [findings](https://github.com/romanlv/agentswf/tree/main/docs/findings).

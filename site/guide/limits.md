@@ -1,12 +1,12 @@
 ---
 title: Limits
-description: What awf doesn't do by design, what isn't built yet, and what beta means for the workflows you write.
+description: What awf doesn't do by design, what isn't built yet, and how an update reaches the workflows you write.
 ---
 
 # Limits
 
 awf runs workflows of coding agents on your machine. This page says where it stops: what it leaves
-out on purpose, what isn't built yet, and what beta means for code you write against it.
+out on purpose, what isn't built yet, and how an update reaches the workflows you write.
 
 ## What awf doesn't do, by design
 
@@ -52,24 +52,26 @@ And some rough edges:
 - A headless turn killed in the middle of a request can leave that request out of the run's usage.
 - pi's billing (subscription or metered) is inferred from its login file, not read from a bill.
 
-## What beta means
+## While it's in evaluation
 
-- **One release line.** Every release so far is a prerelease, `0.1.0-beta.{n}`. There is no stable
-  version yet.
-- **Interfaces change between versions.** The workflow API, the `awf` commands and their flags, and
-  the run records can all change in any release. When a better API is found it replaces the old
-  one in the next release, with no compatibility shim and no deprecation period.
-- **Update awf and your workflows together.** awf runs a workflow against its own copy of
-  `agentswf/workflow`; the `agentswf` in your project's `package.json` gives your editor its
-  types. After you update awf, update that to the same version, then run the `check` and `test`
-  scripts [`awf init`](/guide/quick-start) wrote into its `package.json`:
+agents.wf is in its evaluation phase: it runs real work, and what that work shows feeds back into
+the design. Releases are numbered `0.1.0-beta.{n}`, and one can change the workflow API, an `awf`
+command or the run records when that makes them better. The new form replaces the old one in the
+same release, so there is one way to do each thing.
+
+To update, update awf and your workflows together. awf runs a workflow against its own copy of
+`agentswf/workflow`; the `agentswf` in your project's `package.json` gives your editor its types.
+After you update awf, update that to the same version, then run the `check` and `test` scripts
+[`awf init`](/guide/quick-start) wrote into its `package.json`:
 
 ```sh
 bun run check   # tsc --noEmit
 bun run test    # awf test
 ```
 
-A type error or a red test there is the change, found before any agent runs.
+A type error or a red test there is the change, found before any agent runs. Moving a workflow
+over is a small job for the agent that wrote it: give it those errors and the current
+[`llms.txt`](/ai/#what-the-agent-reads), and run the checks again until they pass.
 
 ## Where it stands
 
