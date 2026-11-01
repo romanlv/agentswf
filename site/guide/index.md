@@ -81,7 +81,7 @@ waits on it as on any command, or hands itself to the run
 ## Help shape it
 
 agents.wf is in its evaluation phase, and what people build with it shapes the next release. If
-your use case is missing or the design gets in your way, [open an issue](https://github.com/romanlv/agentswf/issues): say what you
+you hit a bug, your use case is missing or the design gets in your way, [open an issue](https://github.com/romanlv/agentswf/issues): say what you
 were building and where awf stopped you.
 
 ## Next

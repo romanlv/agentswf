@@ -28,7 +28,7 @@ bun run preview    # serves the build
 - No private project's name.
 - agents.wf is in its evaluation phase, and what people build with it shapes the design. Don't
   say "beta" or warn that things break. The landing page and the overview invite an issue on
-  GitHub for a missing use case or a design idea; Install says how an update reaches a workflow.
+  GitHub for a bug, a missing use case or a design idea, as the README does; Install says how an update reaches a workflow.
 - Enough guidance, not everything: a page explains an idea so a newcomer gets it on one read, and
   stops. What only a contributor needs (how awf is tested, the measurements, the design record)
   stays on GitHub, and the page links to it.

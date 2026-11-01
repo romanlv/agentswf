@@ -12,7 +12,9 @@ const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", sche
 if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
 ```
 
-> **Early preview.** Interfaces will change between versions. It is on npm as a beta: `agentswf@beta`.
+> **Shaped by use.** agentswf is in its evaluation phase, and what people build with it decides
+> where the design goes next. Found a bug, missing a use case, or have an idea for the design?
+> [Open an issue](https://github.com/romanlv/agentswf/issues).
 
 ## Why
 
@@ -137,7 +139,7 @@ You need [Bun](https://bun.sh) 1.4 or later, git, and at least one agent CLI you
 claude, codex, pi or cursor.
 
 ```sh
-bun add -g agentswf@beta   # puts awf in ~/.bun/bin
+bun add -g agentswf   # puts awf in ~/.bun/bin
 awf --version
 ```
 
@@ -220,7 +222,7 @@ as dev dependencies, and a `tsconfig.json`. `awf` still runs the workflow agains
 To set up a folder by hand instead:
 
 ```sh
-bun add -d agentswf@beta typebox @types/bun
+bun add -d agentswf typebox @types/bun
 ```
 
 ```json
@@ -347,6 +349,8 @@ types exist, and calling them fails with a clear "unavailable" error.
 [`docs/status.md`](docs/status.md) has what runs today and what's next.
 
 ## Contributing and design docs
+
+A bug, a missing use case or a design idea: [open an issue](https://github.com/romanlv/agentswf/issues). To work on agentswf itself:
 
 ```sh
 bun install && bun test   # no live agents, no cost

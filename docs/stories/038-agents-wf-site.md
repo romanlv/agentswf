@@ -859,7 +859,8 @@ Manual or live evaluation:
   pages own, and it framed beta as a warning. The site says instead that agents.wf is in its
   evaluation phase and invites an issue on GitHub for a missing use case or a design idea (the
   landing page and the overview); Install's "Updating" runs the checks and hands what they find to
-  the coding agent.
+  the coding agent. The README says the same in place of its "Early preview" note, links the
+  issues again under Contributing, and installs `agentswf` instead of `agentswf@beta`.
 
 ## Human review
 
