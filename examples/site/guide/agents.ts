@@ -104,6 +104,10 @@ export const changelog = defineWorkflow({
     });
     // #endregion skills
     const { outcome } = await writer.run({ prompt: "Write the changelog entry for this branch." });
+    // #region login
+    if (outcome.kind === "failed" && outcome.login) wf.stop(outcome.reason);
+    // outcome.login.run: "run `claude`, then /login; …"
+    // #endregion login
     return isAnswered(outcome) ? outcome.value : wf.stop(`${outcome.kind}: ${outcome.reason}`);
   },
 });

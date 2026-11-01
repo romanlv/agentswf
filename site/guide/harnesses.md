@@ -78,7 +78,7 @@ Codex subscription authentication is required (ChatGPT login); `codex login stat
 a variable that would move an agent to per-token billing:
 
 ```text
-subscription runtime refused metered credential environment: ANTHROPIC_API_KEY
+awf: runtime: subscription runtime refused metered credential environment: ANTHROPIC_API_KEY; the run did not start, and nothing of it is kept
 ```
 
 They are claude's and codex's API keys and base URLs, such as `ANTHROPIC_API_KEY` and

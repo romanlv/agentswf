@@ -65,6 +65,8 @@ usage error, and 3 when the run's files can't be read.
 
 ## Stages
 
+In outline, with the work left out (the sample above has it whole):
+
 ```ts
 const plan = await wf.stage("plan", { result: PLAN, summary: (p) => p.doc }, async () => { … });
 await wf.stage("notify", async () => { … }); // no result: it only has to happen

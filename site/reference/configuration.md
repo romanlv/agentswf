@@ -39,7 +39,7 @@ per-token billing ([Harnesses](/guide/harnesses#subscription-and-metered)):
 | codex | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CODEX_API_KEY` |
 
 ```text
-subscription runtime refused metered credential environment: ANTHROPIC_API_KEY
+awf: runtime: subscription runtime refused metered credential environment: ANTHROPIC_API_KEY; the run did not start, and nothing of it is kept
 ```
 
 Unset them in the shell you run `awf` from.

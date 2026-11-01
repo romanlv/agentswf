@@ -73,8 +73,8 @@ turns and last activity. Under it is what to run next.
 $ awf runs check-readme/20261101-0930-a1b2
 check-readme/20261101-0930-a1b2  running  stage review  14s
   stage review   running    12s
-    reviewer          working     turn 1  9s  last: tool Bash  grep -n "awf " README.md (09:30:09)
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6NjQwfV0 --wait 90
+    reviewer          working      turn 1  9s  last: tool Bash  grep -n "awf " README.md (09:30:09)
+next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90
 ```
 
 A running run ends with a `next:` line, the `awf logs` command that waits for what comes next.
@@ -92,8 +92,9 @@ check-readme/20261101-0930-a1b2  running  stage review
 @e2 09:30:02 review  stage started
 @e3 09:30:02 reviewer  opened  claude
 @e4 09:30:05 review  reviewer  turn started
-@a1.0 09:30:09 review  reviewer  tool Bash  grep -n "awf " README.md
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6NjQwfV0 --wait 90
+@a1.4b1 09:30:06 review  reviewer  prompt  412 chars
+@a1.9e2 09:30:09 review  reviewer  tool Bash  grep -n "awf " README.md
+next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90
 ```
 
 `awf logs` merges two sources by time: the run's own events (stages, turns, messages, tool calls,
@@ -107,7 +108,7 @@ line is cut short; `awf logs {run} @{handle} --full` prints it whole.
 ```sh
 awf logs {run} --agent reviewer       # one agent, and the messages to and from it
 awf logs {run} --stage review         # one stage
-awf logs {run} @a1.0 --full           # one event's whole text
+awf logs {run} @a1.9e2 --full           # one event's whole text
 awf logs {run} --limit 200            # more than the last 40
 ```
 

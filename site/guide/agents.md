@@ -114,10 +114,7 @@ returns the same closed agent, so a fresh agent needs another key. After `unansw
 runs to log in. Every agent on that harness fails the same way until they do, so stop the run
 rather than spend the rest of it:
 
-```ts
-if (outcome.kind === "failed" && outcome.login) wf.stop(outcome.reason);
-// outcome.login.run: "run `claude`, then /login; …"
-```
+<<< @/../examples/site/guide/agents.ts#login
 
 `failed` also carries `retryable`, whether trying again might help.
 

@@ -47,3 +47,14 @@ export default defineWorkflow({
     return { tests: tested.outcome.value.summary, verdict: review.outcome.value.verdict };
   },
 });
+
+export const pinned = defineWorkflow({
+  meta: { name: "build-and-lint", description: "Each sandbox pinned to a provider." },
+  async run(wf) {
+    // #region providers
+    await wf.sandboxes.open({ key: "build", write: ["."], docker: {} });
+    await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });
+    // #endregion providers
+    return null;
+  },
+});

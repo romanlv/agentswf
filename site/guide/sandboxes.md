@@ -54,10 +54,7 @@ directory and whatever the spec doesn't name. Each agent is wrapped on its own.
 you name with `docker: { image }`. Paths you name are mounted at the same path, and traffic leaves
 only through a proxy that allows the spec's domains.
 
-```ts
-await wf.sandboxes.open({ key: "build", write: ["."], docker: {} });
-await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });
-```
+<<< @/../examples/site/guide/sandboxes.ts#providers
 
 A spec that names neither runs under srt when `srt` is on your PATH, and docker otherwise. If srt
 is there but can't be set up, the sandbox fails with the reason; it doesn't fall back to docker.
