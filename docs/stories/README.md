@@ -156,6 +156,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — named timers, typed sources, a named `race` that takes only its winner, `select`
   as its loop form beside `receive`, and `sleep`, so time reads well in a loop and in straight-line
   code alike.
+- [`038` — agents.wf shows what the project is and how to use it, for people and agents](038-agents-wf-site.md) —
+  `ready` — a VitePress site at agents.wf, deployed from main, built from Markdown in a
+  standalone `site/`, each page also served as plain Markdown with an llms.txt, so an agent reads
+  it as easily as a person.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
