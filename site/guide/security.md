@@ -49,7 +49,8 @@ the tokens a sandboxed claude or cursor needs included, comes from the shell you
 One exception: a run with events that `awf emit` or `awf tick` starts in the background gets the
 `PATH` it was made with, a few plain variables such as `HOME` and `SSH_AUTH_SOCK`, and the
 project's `.env`, not your shell's environment. Every name in that `.env`, keys and tokens
-included, reaches that run and its agents as if you had exported it.
+included, reaches that run and its agents as if you had exported it
+([Hosting events](/guide/hosting-events#catches)).
 
 An agent outside a sandbox gets your environment, less these names:
 

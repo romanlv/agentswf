@@ -131,9 +131,9 @@ rest of the run, whatever `meta.version` the code has, so the table
   reuses the value and stops again. awf notices a continue that ran no stage and stopped where
   the last attempt did, and says which stage to redo.
 - **A renamed stage has no record.** A plain continue runs it and every stage after it.
-- **The runs live in `.awf/runs`** under the folder the run works in, kept out of git by the
-  `.gitignore` from [Quick start](/guide/quick-start). Deleting it, as `git clean -xfd` does,
-  deletes everything a continue would reuse.
+- **The runs live in `.awf/runs`** under the folder the run works in, which awf keeps out of git
+  ([the record](/guide/how-it-works#the-record)). Deleting it, as `git clean -xfd` does, deletes
+  everything a continue would reuse.
 
 ## See also
 

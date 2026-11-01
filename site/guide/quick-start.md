@@ -111,9 +111,10 @@ line gives its token count and an estimate at list prices.
 Before you run it:
 
 - `awf run` fails before any agent opens while your shell holds an API key that would switch an
-  agent to per-token billing, such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `CODEX_API_KEY`. [Harnesses](/guide/harnesses#subscription-and-metered) lists them all; unset them first.
+  agent to per-token billing, such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `CODEX_API_KEY`;
+  unset them first. [Configuration](/reference/configuration#refused) lists them all.
 - To use another harness, change `runtime`. An agent without `placement: "headless"` runs in a
-  pane, which needs Herdr.
+  pane, which needs Herdr ([Harnesses](/guide/harnesses)).
 - Headless claude is refused unless the runtime says `metered: true`; claude in a pane runs on
   your subscription ([why](/guide/harnesses#subscription-and-metered)).
 
@@ -126,7 +127,8 @@ closing block. Its shape is fixed; the figures here are only an example:
 ```
 
 The run's id is its start time and four random hex digits. The last word is how the harness says
-the agent was billed: `subscription`, `metered` or `unknown`.
+the agent was billed: `subscription`, `metered` or `unknown`
+([What the record says](/guide/harnesses#what-the-record-says)).
 
 Then it prints the result. `hello` has no `present` function, so awf prints the run's whole record
 as JSON, the same as its `output.json`. Trimmed:
@@ -146,12 +148,10 @@ as JSON, the same as its `output.json`. Trimmed:
 ```
 
 `value` is what `run` returned. A workflow with `present` prints what that returns instead
-([a workflow file](/reference/workflow-api#a-workflow-file)).
+([Workflows](/guide/workflows#the-result-present-and-report)).
 
-`awf run` exits 0 when the run completed, or parked to wait for an event, and 1 when it failed or
-timed out. It exits 2 when it refuses to start, such as on an unknown option, and 3 when the run
-stopped part-way and can go on from there with `--continue`. Ctrl-C ends it with 128 plus the
-signal's number: 130.
+`awf run` exits 0 when the run completed; every other exit code, and how a run that stopped
+part-way goes on, is on [Runs](/guide/runs#how-an-attempt-ends).
 
 ## 5. Read what the run kept
 
@@ -159,7 +159,8 @@ Every run is kept in `.awf/runs/{workflow}/{id}`, under the folder the run worke
 there is the record printed above; [the record](/guide/how-it-works#the-record) says what else the
 folder holds.
 
-Two commands read runs without opening the files:
+Two commands read runs without opening the files
+([Following runs](/guide/following-runs)):
 
 ```sh
 awf runs                  # the runs here, newest first
@@ -167,10 +168,18 @@ awf runs hello/{id}       # one run: its attempts, stages and agents
 awf logs                  # what the newest run and its agent did, merged by time
 ```
 
-`.awf/` is in the `.gitignore` that `awf init` wrote, so runs stay out of your repository.
+Runs stay out of your repository: awf keeps them out of git itself
+([the record](/guide/how-it-works#the-record)), and the `.gitignore` that `awf init` wrote lists
+`.awf/` too.
 
 ## Next
 
-- Change the prompt or the schema, run `awf test`, and see the tests catch it.
-- [The workflow API](/reference/workflow-api) has every option and outcome.
-- [The testing API](/reference/testing-api) has every scripted reply and what a test can check.
+- Change the prompt or the schema, run `awf test`, and see the tests catch it:
+  [Testing](/guide/testing) has how.
+- [How it works](/guide/how-it-works): the words these pages use, and what awf does between your
+  workflow and its agents.
+- [Workflows](/guide/workflows) and [Harnesses](/guide/harnesses): a workflow's arguments and
+  result, and running agents on other harnesses, models and in panes.
+- [Runs](/guide/runs): ids, stages, and going on after a stop.
+- [The workflow API](/reference/workflow-api) has every option and outcome, and
+  [`awf`](/reference/awf) every command.

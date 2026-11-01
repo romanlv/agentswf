@@ -300,7 +300,7 @@ The session and its context stay.
 
 Opens a new agent on a copy of this agent's session, so it knows what this agent knew without
 being told again, and reads that context from the provider's cache
-([ADR 0009](https://github.com/romanlv/agentswf/blob/main/docs/adr/0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md)).
+([the design record](https://github.com/romanlv/agentswf/blob/main/docs/adr/0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md)).
 
 <<< @/../examples/site/reference/workflow-api.ts#fork
 
@@ -357,14 +357,15 @@ hands it back to its operator then rather than at the end of the run.
 
 `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run in
 a tab of its own, and the run can drive that session as an agent
-([ADR 0010](https://github.com/romanlv/agentswf/blob/main/docs/adr/0010-the-calling-session-is-an-agent.md)).
+([the design record](https://github.com/romanlv/agentswf/blob/main/docs/adr/0010-the-calling-session-is-an-agent.md)).
 The guide: [Calling session](/guide/calling-session).
 
 <<< @/../examples/site/reference/workflow-api.ts#caller
 
 - **`null`** means there is no calling session: refuse, or open an agent of your own.
 - **The same key** returns the same agent; another key rejects.
-- **It is the operator's session**, so it takes no `instructions`, refuses `compact` and `set`, and
+- **It is the operator's session**, so it takes no `instructions`, refuses `set`, ends `compact`
+  `failed` with the session as it was, and
   stays usable after a turn that fails, is cancelled or times out. The operator interrupting a turn
   settles it `cancelled`. Where the harness's interrupt can't be recognised, an unanswered turn
   isn't nudged by default. Its forks are [`forkCaller`](#agents-forkcaller)'s, and take no `tools`.
@@ -388,7 +389,8 @@ result as its output. The guide: [Calling session](/guide/calling-session).
   run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
   the operator's skills, not their settings or MCP servers.
 - **Under codex's default sandbox**, the run is inside it and pane agents can't reach Herdr. The
-  `awf-run` skill says how each harness waits on a long run.
+  [`awf-run` skill](https://github.com/romanlv/agentswf/tree/main/packages/engine/skills/awf-run)
+  says how each harness waits on a long run.
 
 <a id="tools-the-agent-calls-your-code"></a>
 

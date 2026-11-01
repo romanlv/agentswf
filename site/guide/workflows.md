@@ -70,7 +70,7 @@ awf run check-docs.ts --cwd ../other-repo -- README.md
 ```
 
 A workflow without `prepare` takes no arguments: its `args` are `null`, and a run given any is
-refused.
+refused. So a `run` that declares arguments needs a `prepare`, or `tsc` fails it.
 
 ## Control flow is plain TypeScript
 

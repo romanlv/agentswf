@@ -41,7 +41,7 @@ attempt. `--timeout` is on [Deadlines](/guide/deadlines), `--sandbox` on
 ### awf test {#test}
 
 Runs a workflow's tests, each agent replaced by scripted answers: no agent starts, nothing is
-spent. [Testing](/guide/testing) teaches writing them; the [Testing API](/reference/testing-api)
+metered. [Testing](/guide/testing) teaches writing them; the [Testing API](/reference/testing-api)
 lists the calls.
 
 ```text

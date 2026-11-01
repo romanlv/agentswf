@@ -39,14 +39,15 @@ is trusted code and runs with your filesystem and process authority.
 **Run.** One piece of work: what `awf run` makes of a workflow and its arguments. A run is named
 `{workflow}/{id}`, from `meta.name` and an id that `--id` gives, the workflow's `id(args)` makes,
 or awf generates. Each `awf run` of it is an **attempt**: `awf run {file} --id {id} --continue`
-makes another attempt of the same run. What a run keeps is in [The record](#the-record).
+makes another attempt of the same run. What a run keeps is in [The record](#the-record), and
+[Runs](/guide/runs) has the rest.
 
 **Agent.** A coding agent the workflow opened with `wf.agents.open`, named in the run by its
-`key`. It keeps one session for the whole run, so each turn you give it continues from what it
+`key` ([Agents](/guide/agents)). It keeps one session for the whole run, so each turn you give it continues from what it
 already did. When the run ends, however it ends, awf closes every agent whose pane the workflow
 didn't ask to keep.
 
-**Turn.** One piece of work given to an agent: `agent.run({ prompt, schema })`. The agent gets
+**Turn.** One prompt given to an agent, and the work it does on it: `agent.run({ prompt, schema })`. The agent gets
 the prompt, works, and answers with `wfa result`. A turn ends exactly once, with an outcome.
 
 **Outcome.** How a turn ended. `answered` carries `value`: the answer, checked against the turn's
@@ -57,23 +58,26 @@ the value. [Outcomes](/reference/workflow-api#outcomes) says what each kind mean
 **Harness.** The coding-agent CLI an agent runs in: `claude` (Claude Code), `codex`, `pi` or
 `cursor`, logged in as you already are. An agent's `runtime` picks the harness and model, either
 spelled out, `{ harness: "codex", model: "gpt-6-luna" }`, or by an alias: `"claude"` and `"codex"`
-are built in.
+are built in ([Harnesses](/guide/harnesses)).
 
 **Pane.** A terminal pane in [Herdr](https://herdr.dev), a terminal multiplexer, where an agent
 runs by default; you can watch it work and type into it. Each pane agent gets a tab in the run's
 Herdr workspace unless the workflow places it elsewhere. The other placement is `headless`: the
-harness runs as a plain process, one per turn, with nothing to watch.
+harness runs as a plain process, one per turn, with nothing to watch
+([Where panes go](/guide/harnesses#where-panes-go)).
 
 **Stage.** A named step the run records when it ends: `wf.stage(name, { result }, work)`. With
 `{ result }` it returns a value the record keeps. When an attempt stops part-way, `--continue`
 reuses the stages that succeeded, up to the first that didn't, and runs that one and every stage
-after it again.
+after it again ([Stages](/guide/runs#stages)).
 
 **Nudge.** What awf does when an agent stops without answering: it prompts the same session
-again and asks for the answer. `nudge: false` on a turn turns it off.
+again and asks for the answer. `nudge: false` on a turn turns it off
+([Nudges](/guide/deadlines#nudges)).
 
 Two more names: `wf` is a workflow's context, and `wfa` is the agent's command. A person never
-types `wfa`; an agent does, in its own session.
+types `wfa`; an agent does, in its own session. The operator's command is `awf`
+([every command](/reference/awf)).
 
 ## What `awf run` does
 
@@ -145,10 +149,12 @@ The others:
 | Command | What the agent uses it for |
 | --- | --- |
 | `wfa waiting` | To say it is still on long work, such as a build, when it gets a nudge. Offered to claude panes today. |
-| `wfa tool` | To call one of the workflow's [tools](/reference/workflow-api#tools-the-agent-calls-your-code), code of yours, mid-turn. |
-| `wfa peers` | To list who it may [message](/reference/workflow-api#messaging). |
+| `wfa tool` | To call one of the workflow's [tools](/guide/tools), code of yours, mid-turn. |
+| `wfa peers` | To list who it may [message](/guide/messaging). |
 | `wfa send` | To message a peer, or ask one a question. |
 | `wfa reply` | To answer a peer's question. |
+
+[`wfa`](/reference/wfa) has each command's flags, exit codes and refusals.
 
 ## The record
 
@@ -161,6 +167,9 @@ A run is kept in `.awf/runs/{workflow}/{id}` under `--cwd`. `--run-root {dir}` r
 - The engine's records of each attempt, stage and turn, which `awf runs` and `awf logs` read and
   `--continue` reuses.
 
+The first time awf makes a run under a runs folder, it writes a `.gitignore` there holding `*`,
+so no run is committed by accident. [Data](/reference/data) has every file in a run's folder.
+
 ```sh
 awf runs   # the runs here, newest first
 awf logs   # what the newest run did, and its agents
@@ -172,12 +181,16 @@ awf logs   # what the newest run did, and its agents
   gets a nudge, then ends `unanswered`. A schema doesn't change that; it only says what the
   answer must look like.
 - **The socket says who is answering; it doesn't isolate anyone.** Every agent runs as your user.
-  One outside a sandbox can read and write what you can, a sibling's files included.
+  One outside a sandbox can read and write what you can, a sibling's files included:
+  [Security](/guide/security).
 - **`wfa` works only through the launcher awf wrote** for that agent and that run. Run on its
   own, it refuses.
 
 ## Next
 
+- [Limits](/guide/limits): what awf doesn't do, and what beta means. Then
+  [Agents](/guide/agents), the first of the Learn pages, or [the review loop](/patterns/review-loop)
+  for a whole workflow.
 - [The workflow API](/reference/workflow-api): every call, option and default, on one page;
   [A workflow file](/reference/workflow-api#a-workflow-file) and
   [Stages](/reference/workflow-api#stages) for what this page touched.

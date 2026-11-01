@@ -81,9 +81,10 @@ a variable that would move an agent to per-token billing:
 subscription runtime refused metered credential environment: ANTHROPIC_API_KEY
 ```
 
-The variables are `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
-`OPENAI_API_KEY`, `OPENAI_BASE_URL` and `CODEX_API_KEY`. Unset them in the shell you run `awf`
-from. awf also withholds `OPENROUTER_API_KEY` from every agent, without refusing the run.
+They are claude's and codex's API keys and base URLs, such as `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY`; [Configuration](/reference/configuration#refused) lists them all. Unset them in
+the shell you run `awf` from. awf also withholds `OPENROUTER_API_KEY` from every agent, without
+refusing the run.
 
 **Headless claude needs `metered: true`.** `claude -p` is billed per token even on a subscription
 login, so awf refuses a headless claude agent unless its runtime gives that consent:
@@ -95,7 +96,7 @@ headless or not.
 
 ### What the record says
 
-`output.json` marks each agent's operations `subscription`, `metered` or `unknown`:
+`output.json` marks each agent's turns `subscription`, `metered` or `unknown`:
 
 | Harness | `subscription` | `metered` | `unknown` |
 | --- | --- | --- | --- |
@@ -147,7 +148,7 @@ HERDR_DISABLE_SOUND=1 herdr session attach awf
   parameters, as your default in `~/.cursor/cli-config.json`, headless too. A bare cursor model id
   then runs at whichever variant was chosen last.
 - **pi's login is per provider**, so awf can't check it up front: [Install](/guide/install#each-harness).
-- **Check-ins differ by harness**: a claude pane can say it is still on long work with
+- **Nudges differ by harness**: a claude pane can say it is still on long work with
   `wfa waiting`. See [Nudges](/guide/deadlines#nudges).
 
 ## Next

@@ -127,7 +127,8 @@ for it.
 - **An agent's working directory must be inside its sandbox's reach.** What a sandbox can see is
   fixed when it opens, so an agent whose `cwd` lies outside it is refused.
 - **docker needs awf's image built once.** The first docker sandbox stops without it, and the error
-  gives the `docker build` command; see [Install](/guide/install#sandboxes).
+  gives the `docker build` command
+  ([Troubleshooting](/guide/troubleshooting#docker-the-sandbox-image-image-is-not-built)).
 - **The workflow isn't sandboxed.** A sandbox holds agents. Your workflow code runs on the host with
   your authority; see [Limits](/guide/limits).
 - **A sandboxed agent still uses your login.** It runs on your subscription like any other agent.

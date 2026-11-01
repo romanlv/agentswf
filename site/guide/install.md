@@ -71,9 +71,10 @@ A sandbox limits what an agent can write and reach. It needs one of:
 - **srt**, Anthropic's [sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime),
   with `srt` and `node` on your PATH, and bubblewrap on Linux. On its first use in a run awf checks
   that srt really confines on this machine, and stops if it doesn't.
-- **docker**, with its daemon running and awf's image built once
-  ([Sandboxes](/guide/sandboxes#catches) gives the command). A docker sandbox runs its own Herdr, so its panes show in
-  the run's workspace.
+- **docker**, with its daemon running and awf's image built once: the first docker sandbox stops
+  with the `docker build` command to run
+  ([Troubleshooting](/guide/troubleshooting#docker-the-sandbox-image-image-is-not-built)). A docker
+  sandbox runs its own Herdr, so its panes show in the run's workspace.
 
 A run that opens no sandbox needs neither. Which one a sandbox uses, and how to open one, is on
 [Sandboxes](/guide/sandboxes#srt-or-docker).
@@ -98,8 +99,15 @@ folder's own dev dependency; update them there with `bun add -d agentswf`.
 ## Catches
 
 - **A workflow file is trusted code**: it runs with your permissions, so sandbox the agents, not
-  the workflow.
+  the workflow ([Security](/guide/security#a-workflow-is-trusted-code)).
 - **Each harness is its own install.** awf doesn't install or update claude, codex, pi, cursor or
   Herdr; keep each logged in with its own command.
 - **Work on agents.wf itself** runs from a clone instead; the
   [README](https://github.com/romanlv/agentswf#install) says how.
+
+## Next
+
+- [Quick start](/guide/quick-start): a first workflow, its free test, and one real run.
+- [Harnesses](/guide/harnesses): models, effort, and which logins a run uses.
+- [Troubleshooting](/guide/troubleshooting): what a refused login or a missing Herdr prints.
+- [Configuration](/reference/configuration): every environment variable awf reads or refuses.

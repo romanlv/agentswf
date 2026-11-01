@@ -54,7 +54,7 @@ Two of those rules are the safety net:
   what an agent gets wrong about the API fails here.
 - **`awf test`** runs the workflow's tests on scripted answers: each agent is replaced by the
   answers the test gives it, no agent starts and nothing is billed. An agent can run it as often
-  as it likes. [Testing](/reference/testing-api) has how a test scripts its agents.
+  as it likes. [Testing](/guide/testing) has how a test scripts its agents.
 
 The third keeps the agent from starting real ones: it doesn't `awf run` unless you ask.
 
@@ -80,3 +80,10 @@ Then run it yourself, on your project, and read what it did:
 awf run review/workflow.ts --cwd ../my-project
 awf logs --cwd ../my-project
 ```
+
+## Next
+
+- [Agents](/guide/agents) and [Workflows](/guide/workflows): what the agent wrote, so you can
+  review it.
+- [Following runs](/guide/following-runs): `awf logs` and `awf runs`, for you or another agent.
+- [The workflow API](/reference/workflow-api): the page the agent reads.

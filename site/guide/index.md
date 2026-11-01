@@ -26,7 +26,7 @@ turn that ends without an answer says why, and the run stops on it.
   on the next change.
 - **You want to know which setup works for your code.** Swap a harness, a model, a prompt or a
   skill, and compare runs: each run records its time, tokens and an estimated cost per agent and
-  model.
+  model ([Cost](/guide/cost)).
 - **You want to try how agents are organized,** a reviewer per lens, a verifier per finding, one
   agent asking another, without losing track of what each one is doing.
 
@@ -41,16 +41,16 @@ What it lacks shows up on later ones:
 - **Silence looks like work.** An agent that stops without answering just ends, or never does.
   The engine nudges a quiet agent, stops a stalled turn, and tells your code why a turn ended
   without an answer.
-- **Nothing is left to read.** A run keeps a record in `.awf/runs`: its turns, what each agent
-  did, and the time, tokens and estimated cost.
+- **Nothing is left to read.** A run keeps [a record](/guide/how-it-works#the-record) in
+  `.awf/runs`: its turns, what each agent did, and the time, tokens and estimated cost.
 - **A stopped script starts over.** A run that stops part-way can be continued, reusing the
-  steps that already succeeded.
+  steps that already succeeded ([Durability](/guide/durability)).
 - **You can't watch it.** An agent in a pane runs in [Herdr](https://herdr.dev), where you see it
-  work and can type to it. Headless is there when you want it.
-- **Testing it costs a run.** `awf test` runs a workflow on scripted answers, through the real
-  engine, with no agent started and nothing to pay.
-- **Headless claude is billed per token,** even on a subscription login. A claude agent in a pane
-  runs on your plan; [Install](/guide/install) has what each agent needs.
+  work and can type to it. Headless is there when you want it ([Harnesses](/guide/harnesses)).
+- **Testing it costs a run.** [`awf test`](/guide/testing) runs a workflow on scripted answers,
+  through the real engine, with no agent started and nothing to pay.
+- **Headless claude is metered,** even on a subscription login. A claude agent in a pane
+  runs on your plan: [Harnesses](/guide/harnesses#subscription-and-metered) has the rule.
 
 ## Why not an agent's own subagents
 
@@ -69,7 +69,8 @@ They fit less well when the process itself is what you want to keep:
 - **No record, no continue, no free test** of the orchestration, as above.
 
 The two compose: typed in a coding agent's session, `awf run` starts a workflow, and the session
-waits on it as on any command.
+waits on it as on any command, or hands itself to the run
+([Calling session](/guide/calling-session)).
 
 ## When not to use it
 

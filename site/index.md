@@ -31,6 +31,7 @@ features:
     link: /guide/durability
   - title: Runs that wait
     details: A run can wait days for events sent to it, a timer or a person, with no process left running.
+    link: /guide/events
   - title: Tested for free
     details: awf test runs a workflow on scripted answers. No agent starts, so nothing is billed.
     link: /guide/testing
