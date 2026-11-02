@@ -776,7 +776,7 @@ Automated:
 
 Manual or live evaluation:
 
-- [ ] agents.wf serves the landing page, a docs page and its `.md` over HTTPS, naming the
+- [x] agents.wf serves the landing page, a docs page and its `.md` over HTTPS, naming the
   released version.
 - [ ] M2 run once, on a cheap model.
 - [ ] The quick start followed word for word in an empty directory works.
