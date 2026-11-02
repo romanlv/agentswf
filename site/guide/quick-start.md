@@ -177,14 +177,17 @@ Runs stay out of your repository: awf keeps them out of git itself
 Open your coding agent in the folder and ask for the workflow:
 
 ```text
-Write a workflow in review/ where one agent fixes the failing tests in the directory
-the run works in, and a second one reviews the fix, at most three rounds.
+Read https://agents.wf/llms.txt and the workflow API it links. Write a workflow in review/
+where one agent fixes the failing tests in the directory the run works in, and a second
+reviews the fix, at most three rounds. Write its test, and run awf test and bun run check
+until both pass. Don't run the workflow.
 ```
 
-The `AGENTS.md` that `awf init` wrote does the rest: it sends the agent to
-[the workflow API](/reference/workflow-api), has it write a test, and keeps it on
-`bun run check` and `awf test` until both pass, without starting a real agent. Those catch
-what it gets wrong about the API. Before the first real run, read it for what they can't:
+The `AGENTS.md` that `awf init` wrote says the same, but not every agent reads it: one opened
+outside the folder doesn't, nor does Claude Code under a `CLAUDE.md`. The prompt says it anyway.
+
+The typecheck and `awf test` catch what the agent gets wrong about the API, without starting a
+real agent. Before the first real run, read the workflow for what they can't:
 
 - **The runtimes.** Which harness and model each agent runs on decides what the run costs and
   which login it uses. An agent without `placement: "headless"` opens in a pane, which needs

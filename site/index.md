@@ -83,8 +83,8 @@ instead. The engine handles an agent that goes quiet, answers in the wrong shape
 
 ## Built for agents to write
 
-Your coding agent writes the workflow. `awf init` writes an `AGENTS.md` that tells it where the
-[API](/reference/workflow-api) is and what to run after a change: the typechecker and `awf test`,
+Your coding agent writes the workflow. Every page here is also Markdown for it to read, and the
+[API](/reference/workflow-api) is one page. After a change it runs the typechecker and `awf test`,
 which catch its mistakes before any agent starts. What it writes is agents, prompts, schemas and
 plain `for` and `if`, so you can review it in a minute: [Quick start](/guide/quick-start#have-your-agent-write-the-next-one)
 says what to check.

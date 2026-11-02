@@ -46,6 +46,7 @@ export default defineWorkflow({
       key: "writer",
       runtime: { harness: "codex", model: "gpt-6-luna", effort: "low", placement: "headless" },
     });
+    // #region select
     for await (const next of wf.select(
       { reply: engineer, nudge: wf.at(() => ledger.nextNudge()) },
       { label: () => `awaiting an answer, ${ledger.nudges} nudged` },
@@ -77,6 +78,7 @@ export default defineWorkflow({
         await ledger.nudged(wf.after(nudgeAfter as Duration));
       }
     }
+    // #endregion select
     return { answer: null, nudges: ledger.nudges };
   },
 });

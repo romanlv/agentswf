@@ -1,6 +1,6 @@
 ---
 title: Events
-description: "Runs that react to things that happen and wait days for them with no process left: event workflows, awf emit, timers, race, select and sleep."
+description: "Runs that react to things that happen and wait days for them with no process left: event workflows, awf emit, receive, race and select, and timers in brief."
 ---
 
 # Events
@@ -100,47 +100,41 @@ run waits there.
 A run parks when it waits with nothing else of it working: no agent turn, no stage, and nothing in
 the mailbox for the wait to take. Waiting while a turn runs keeps the process, so an agent can work
 while the code goes on taking events: `agent.start()` launches a turn without awaiting it, and its
-end arrives at a wait as `agent:ended`, with the outcome. A merge mid-fix can then cancel the turn.
+end arrives at a wait as `agent:ended`, with the outcome. The race below uses one.
 [Events](/reference/workflow-api#events) in the workflow API has `start` and the rest.
 
-## Waiting on time
+## Race and select
 
-A **timer** is a time recorded once under a name: `wf.timer("review-due", "2d")` returns one
-([`wf.timer`](/reference/workflow-api#waiting-on-time) has the rules). When it comes due
-it fires into the mailbox as a `timer:due` event, which a running run takes at its next wait and a
-parked one once `awf tick` continues it. Three
-waits, beside `receive`, take timers and events by name.
+`receive` takes whatever is in the mailbox. Two waits take only what you name, each branch a
+source of events.
 
-**`race`** waits for the first of its branches. Here, after a release passes its smoke tests, a
-run waits for an incident or a quiet day, whichever comes first:
+**`race`** waits for the first of its branches. Here the fix runs as a started turn, so the run
+can take events while the agent works, and a pull request closing mid-fix cuts it short:
 
-<<< @/../examples/site/guide/events-waits.ts#race
+<<< @/../examples/site/guide/events.ts#race
 
-A branch is a declared event (`wf.signal(name)`), a timer, an agent (any of its turns' ends), a
-started turn (`agent.turn`), a [participant routed to the code](/guide/people#a-participant-routed-to-the-code),
-whose messages come to your code instead of an agent, or a duration, which makes a timer of the
-race's own. The answer names the branch that won, so `if (firstDay.incident)` narrows it. The race
-is recorded under its name, `first-day`, so a run woken after parking gets the same answer back and
-walks on.
-
-**`sleep`** waits until a time and goes on, so straight-line code can wait for weeks:
-
-<<< @/../examples/site/guide/events-waits.ts#sleep
+A branch is a declared event (`wf.signal(name)`), an agent (any of its turns' ends), a started
+turn, a [participant routed to the code](/guide/people#a-participant-routed-to-the-code), whose
+messages come to your code instead of an agent, or a [timer](/guide/timers). The answer names the
+branch that won, so `if (first.closed)` narrows it. The race is recorded under its name,
+`fix-or-close`, so a run woken after parking gets the same answer back and walks on.
 
 **`select`** is a loop over the events its branches take, one at a time. The CI loop above,
 written with it:
 
 <<< @/../examples/site/guide/events.ts#select
 
-Durations are `"{n}d"`, `"{n}h"` or `"{n}m"`, from the first call under the name; a `Date` is a
-fixed time. `timer.cancel()` stops a timer. A `select` can also take `wf.at(() => …)`, a time the
-run's state holds, and `wf.timers()`, any timer the run has made: the
-[Waiting on time](/reference/workflow-api#waiting-on-time) reference has them.
+Both samples are checked and tested, in
+[`examples/site/guide/events.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/events.ts).
 
-The sample is checked and tested:
-[`examples/site/guide/events-waits.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/events-waits.ts).
-Its test runs the whole fortnight in milliseconds, since a test's clock is
-[virtual](/reference/testing-api#a-workflow-with-events).
+## Timers
+
+A timer is an event the run sends itself. `wf.timer("review-due", "2d")` records a time, and when
+it comes due a `timer:due` event lands in the mailbox, which `receive`, `race` and `select` take
+like any other. A race's branch can also be a duration, such as `quiet: "1d"`, and `wf.sleep`
+waits until a time and goes on. A parked run's timer fires at the next `awf tick`.
+
+[Timers](/guide/timers) has the examples, how to move a timer, and when a due one fires.
 
 ## Catches
 
@@ -150,28 +144,25 @@ Its test runs the whole fortnight in milliseconds, since a test's clock is
 - **Name stages by the event they handle.** In a run with events, a stage that succeeded is reused
   wherever its name comes up again, in any attempt. `fix-{event id}` runs once per failure; a fixed
   name such as `fix` would run once per run.
-- **Name a race or sleep per round.** A name answers once in an attempt: a second race or sleep
-  under the same name throws. In a loop, name it `approval-{round}`, as
+- **Name a race per round.** A name answers once in an attempt: a second race under the same
+  name throws. In a loop, name it `approval-{round}`, as
   [`examples/approval-reminders`](https://github.com/romanlv/agentswf/tree/main/examples/approval-reminders)
   does.
 - **A race takes only what it names.** Other events stay in the mailbox for a later wait, and don't
-  wake a run parked at the race: an incident opened during the two-week sleep above waits there
-  unread.
+  wake a run parked at the race: a second `ci.failed` during the fix above waits there unread.
 - **Work beside a wait is cut off.** Code running alongside a wait, outside any awf call, stops
   when the run parks and runs again on the next wake. Work that must finish goes in a stage or
   before the wait.
 - **`return` is final.** Later events for the run are refused. A run that may be needed again keeps
   waiting instead.
-- **Nothing wakes a timer on its own.** A parked run has no process, so a due timer waits until
-  `awf tick` runs: [Hosting events](/guide/hosting-events).
 - **`race`, `sleep` and `select` can't run inside a stage** or a tool's handler; they throw.
-- **Without `events`** a workflow has no `receive` and never parks. It can still `sleep`, which
-  waits in its process.
+- **Without `events`** a workflow has no `receive` and never parks.
 
 ## See also
 
 - [Events](/reference/workflow-api#events) and
   [Waiting on time](/reference/workflow-api#waiting-on-time) in the workflow API.
+- [Timers](/guide/timers): races and sleeps on time, moving a timer, and when one fires.
 - [A workflow with events](/reference/testing-api#a-workflow-with-events): testing one, with
   events sent mid-turn and a virtual clock.
 - [People](/guide/people): a person or app answering a run, and an agent kept warm between events.

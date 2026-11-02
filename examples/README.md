@@ -17,7 +17,7 @@ bun awf logs                                                # what the newest ru
 
 `bun awf` is the repository's `awf`, so an example runs against the code beside it. Its options,
 deadlines, nudges, where the records go and what the exit codes mean are on the site:
-[Runs](../site/guide/runs.md), [Deadlines and nudges](../site/guide/deadlines.md) and
+[Runs](../site/guide/runs.md), [Timeouts and nudges](../site/guide/timeouts.md) and
 [Following runs](../site/guide/following-runs.md); [Harnesses](../site/guide/harnesses.md) says
 which login each agent needs. A workflow file is trusted code: it runs with your filesystem and
 process authority.
@@ -43,9 +43,9 @@ write one.
 
 | Example | What it shows | Explained in |
 | --- | --- | --- |
-| `minimum-review/` | two reviewers at once, a correctness and a maintainability lens on claude and codex; `review-loop.ts` runs it on a path, `-- packages/engine/src`, the current directory by default, and `fixtures/` holds a target with a known defect | [Parallel](../site/guide/parallel.md), [Loops](../site/guide/loops.md) |
-| `catalogue-review/` | a diff fanned out over a catalogue of lenses, each finding verified; a lens runs only when the diff touches its `paths` | [Parallel](../site/guide/parallel.md) |
-| `single-agent-review/` | one agent reviews `--range` in one turn, with a pinned public review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer reviews are compared with | [Loops](../site/guide/loops.md) |
+| `minimum-review/` | two reviewers at once, a correctness and a maintainability lens on claude and codex; `review-loop.ts` runs it on a path, `-- packages/engine/src`, the current directory by default, and `fixtures/` holds a target with a known defect | [Parallel and loops](../site/guide/parallel-and-loops.md) |
+| `catalogue-review/` | a diff fanned out over a catalogue of lenses, each finding verified; a lens runs only when the diff touches its `paths` | [Parallel and loops](../site/guide/parallel-and-loops.md) |
+| `single-agent-review/` | one agent reviews `--range` in one turn, with a pinned public review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer reviews are compared with | [Parallel and loops](../site/guide/parallel-and-loops.md) |
 
 ### Agents and harnesses
 
@@ -68,7 +68,7 @@ write one.
 | Example | What it shows | Explained in |
 | --- | --- | --- |
 | `approval-reminders/` | a doc waits for approval, with a reminder an agent drafts on a timer, until it is approved or expires | [People](../site/guide/people.md), [Events](../site/guide/events.md) |
-| `nudges/` | a question for a person, nudging on a schedule kept in a file, until it is answered | [Deadlines and nudges](../site/guide/deadlines.md) |
+| `nudges/` | a question for a person, nudging on a schedule kept in a file, until it is answered | [Timers](../site/guide/timers.md) |
 | `keep-alive/` | a claude kept alive between events, compacted when its window passes, woken by the next | [People](../site/guide/people.md) |
 
 ### For awf's own checks

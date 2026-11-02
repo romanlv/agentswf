@@ -1,13 +1,13 @@
 ---
-title: Deadlines and nudges
-description: "Timeouts: bounding how long a run, a group of agents or one turn may take, nudging an agent that goes quiet for its answer, and stopping a run on purpose."
+title: Timeouts and nudges
+description: "Bounding how long a run, a group of agents or one turn may take, how those limits nest, and nudging an agent that goes quiet for its answer."
 ---
 
-# Deadlines and nudges
+# Timeouts and nudges
 
 An agent can work for an hour, stop without answering, or never finish. Two things keep a run in
-hand: **deadlines**, the timeouts that bound how long work may take, and **nudges**, which ask an
-agent that went quiet for its answer. Either way the turn still ends with an
+hand: **timeouts**, which bound how long work may take, and **nudges**, which ask an agent that
+went quiet for its answer. Either way the turn still ends with an
 [outcome](/guide/how-it-works), so the workflow decides what happens next, and when there's no
 point going on, it stops the run on purpose.
 
@@ -16,15 +16,15 @@ the reviews go through it, one at a time (`concurrency: 1`): each turn has ten m
 has twenty, a quiet reviewer is nudged for what it has so far, and the run stops, saying why, when
 nothing came back.
 
-<<< @/../examples/site/guide/deadlines.ts#file
+<<< @/../examples/site/guide/timeouts.ts#file
 
 The sample is checked and tested:
-[`examples/site/guide/deadlines.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/deadlines.ts)
+[`examples/site/guide/timeouts.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/timeouts.ts)
 and its test.
 
-## Deadlines
+## Timeouts
 
-A deadline can be set at three levels, and each one sits inside the one around it:
+A timeout is set as a deadline at three levels, and each one sits inside the one around it:
 
 ```text
 awf run --timeout 2h                the run's, for this attempt
@@ -54,18 +54,22 @@ without `--timeout`.
 
 `wf.parallel` takes a `deadline`, `{ unixMilliseconds }`, for the whole group, as in the sample.
 When it passes, the turns still running end `timed-out`, items not yet started never start, and
-`parallel` rejects with `DeadlineExceededError`, imported from `agentswf/workflow`, without the
-results it had gathered ([Parallel](/guide/parallel#the-options)). Catch it where running out of
-time has an answer of its own:
+`parallel` rejects with `DeadlineExceededError`, imported from `agentswf/workflow`, and the
+results of the branches that had finished are dropped with it: `parallel` returns all of its
+results or none. Catch it where running out of time has an answer of its own:
 
-<<< @/../examples/site/guide/deadlines.ts#over
+<<< @/../examples/site/guide/timeouts.ts#over
 
 A `parallel` with no deadline of its own rejects the same way when the run's deadline passes, and
 `wf.decisions.decide` rejects with it too.
 
+To keep what finished, bound each turn instead of the group, with `timeoutMs`: a turn that runs
+out ends `timed-out`, which its branch returns as data like any other outcome. The sample does
+both, ten minutes a turn inside twenty for the pair.
+
 ### One turn
 
-<<< @/../examples/site/guide/deadlines.ts#turn
+<<< @/../examples/site/guide/timeouts.ts#turn
 
 `timeoutMs` bounds the whole turn, from the call, nudges included, and the outcome is `timed-out`
 when it passes. `deadline: { unixMilliseconds }` sets the same bound as a point in time; a turn
@@ -130,7 +134,7 @@ again, or a turn whose silence you handle anyway.
 
 ## Stopping on purpose
 
-<<< @/../examples/site/guide/deadlines.ts#stop
+<<< @/../examples/site/guide/timeouts.ts#stop
 
 When going on is pointless, here because no reviewer answered or the budget ran out,
 `return wf.stop(reason)` ends the attempt `stopped` with your reason rather than failed.
@@ -141,9 +145,6 @@ outside, Ctrl-C cancels the run, and a second Ctrl-C stops awf at once.
 
 - **`timeoutMs` counts from the call.** A turn queued behind another on the same agent spends its
   time waiting too.
-- **To keep each item's outcome, bound its turns.** A `timeoutMs` on each turn ends that turn
-  `timed-out` and lets the rest go on, where the group's deadline rejects the whole `parallel`, as
-  the sample's per-turn ten minutes inside its twenty show.
 - **No deadline means no limit.** Nudges end a turn whose agent stops without answering, but an
   agent that keeps working is never cut off. Set `timeoutMs` on turns you can't wait on, or run
   with `--timeout`.
@@ -151,12 +152,12 @@ outside, Ctrl-C cancels the run, and a second Ctrl-C stops awf at once.
   once, and a silent script is nudged as in a run, with `turn.nudge` true:
   [Testing](/guide/testing).
 - **These nudges are for an agent in a turn.** Reminding a person who hasn't answered is a
-  workflow of its own, waiting on time: [People](/guide/people), and
-  [`examples/nudges`](https://github.com/romanlv/agentswf/tree/main/examples/nudges).
+  workflow of its own, waiting on time: [Timers](/guide/timers#keep-the-time-in-state-with-wf-at).
 
 ## See also
 
 - [Deadlines](/reference/workflow-api#deadlines) and
   [Giving it work](/reference/workflow-api#giving-it-work) in the workflow API.
 - [Runs](/guide/runs): how an attempt ends, and going on from one that stopped or timed out.
-- [Loops](/guide/loops): branching on each outcome, `timed-out` and `unanswered` included.
+- [Parallel and loops](/guide/parallel-and-loops): the group a deadline bounds, and branching on
+  each outcome, `timed-out` and `unanswered` included.

@@ -91,7 +91,7 @@ covers a full run, each kind of stop, and continues.
 - **A continue redoes the whole stage that stopped,** a review loop included, from its first
   round.
 - **The bound is on revisions, not time.** Give the run a deadline with `--timeout` when it
-  shouldn't run longer than you'd wait: [Deadlines](/guide/deadlines).
+  shouldn't run longer than you'd wait: [Timeouts](/guide/timeouts).
 
 ## See also
 

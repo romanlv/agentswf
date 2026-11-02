@@ -80,8 +80,8 @@ never an exception, so you branch on it with [`isAnswered`](/reference/workflow-
 decide what an agent that didn't answer means for your workflow.
 
 The same goes for structure: split the work into functions that take `wf`, import helpers from
-other files, and run agents side by side with [`wf.parallel`](/guide/parallel) or loop until a
-reviewer approves ([Loops](/guide/loops)).
+other files, and run agents side by side with [`wf.parallel`](/guide/parallel-and-loops) or loop until a
+reviewer approves ([Loops](/guide/parallel-and-loops#round-after-round)).
 
 ## Stopping with a reason
 

@@ -35,9 +35,8 @@ const SITE_MAP: { text: string; items: [link: string, text: string][] }[] = [
     text: "Learn: workflows",
     items: [
       ["/guide/workflows", "Workflows"],
-      ["/guide/parallel", "Parallel"],
-      ["/guide/loops", "Loops"],
-      ["/guide/deadlines", "Deadlines and nudges"],
+      ["/guide/parallel-and-loops", "Parallel and loops"],
+      ["/guide/timeouts", "Timeouts and nudges"],
       ["/guide/messaging", "Messaging"],
       ["/guide/decisions", "Decisions"],
       ["/guide/testing", "Testing"],
@@ -55,6 +54,7 @@ const SITE_MAP: { text: string; items: [link: string, text: string][] }[] = [
     text: "In depth",
     items: [
       ["/guide/events", "Events"],
+      ["/guide/timers", "Timers"],
       ["/guide/people", "People"],
       ["/guide/hosting-events", "Hosting events"],
       ["/guide/calling-session", "Calling session"],

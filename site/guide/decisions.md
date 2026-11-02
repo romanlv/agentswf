@@ -118,7 +118,7 @@ was fitted on.
   call's record, which the run keeps too.
 - **Out of time.** A decision runs under the deadline around it, the run's `--timeout` or a
   `parallel`'s, and rejects with `DeadlineExceededError` when it passes. See
-  [Deadlines](/guide/deadlines).
+  [Timeouts](/guide/timeouts).
 
 Uncaught, any of these fails the run like any other thrown error. To hand the item to an agent
 instead, catch `DecisionError`, as the sample at the top does, and let anything else through: a
@@ -142,4 +142,4 @@ A decision with no script fails the test. [Testing](/guide/testing) covers the r
 - [Decisions](/reference/workflow-api#decisions) in the workflow API.
 - [`examples/triage`](https://github.com/romanlv/agentswf/tree/main/examples/triage): tickets
   triaged in parallel, three questions per call, the unsure answers flagged, with its test.
-- [Parallel](/guide/parallel): decisions are fast enough to ask for every item of a list at once.
+- [Parallel](/guide/parallel-and-loops): decisions are fast enough to ask for every item of a list at once.

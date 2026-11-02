@@ -336,9 +336,8 @@ Learn: agents, who does the work
 
 Learn: workflows, orchestrating agents
   /guide/workflows        a workflow file: args, result, report; control flow is plain TypeScript
-  /guide/parallel         fan out, concurrency, results in order, fan in
-  /guide/loops            loop until approved, branch on an outcome, one agent checks another
-  /guide/deadlines        Deadlines and nudges: timeouts, check-ins, nested deadlines, stopping
+  /guide/parallel-and-loops  fan out and fan in; loop until approved, branch on an outcome, bound it
+  /guide/timeouts         Timeouts and nudges: nested deadlines, a group's deadline, nudges, stopping
                           a run on purpose
   /guide/messaging        agents talking on routes the workflow grants
   /guide/decisions        fast typed questions to a decision model
@@ -353,7 +352,10 @@ Learn: runs, durable, named, resumable
 
 In depth
   /guide/events           runs that wait, parked with no process; event workflows, awf emit,
-                          the mailbox, a run per key; timers, race, select, sleep
+                          the mailbox, a run per key; receive, race, select; timers in brief
+  /guide/timers           race and sleep on time; a timer's name and fixed time; moving one,
+                          by cancel and rename or by wf.at over state; wf.timers; when a due
+                          timer fires
   /guide/people           a person or app outside the run: questions, waiting hours, an agent
                           kept warm between turns; answering from outside with awf inbox,
                           reply and send (holder-cli.md, moved here); how a chat app such as
@@ -652,9 +654,8 @@ Done when:
 | Page | Written from |
 | --- | --- |
 | `/guide/workflows` | the API page's "A workflow file"; `examples/minimum-review/` |
-| `/guide/parallel` | the API page's `parallel`; `examples/catalogue-review/` |
-| `/guide/loops` | `examples/minimum-review/`, `single-agent-review/`, `triage/` |
-| `/guide/deadlines` | the API page's "Deadlines"; `examples/nudges/` |
+| `/guide/parallel-and-loops` | the API page's `parallel`; `examples/catalogue-review/`, `minimum-review/`, `single-agent-review/`, `triage/` |
+| `/guide/timeouts` | the API page's "Deadlines" |
 | `/guide/messaging` | the API page's "Messaging"; `docs/design/messaging.md`; `examples/messaging/` |
 | `/guide/decisions` | the API page's "Decisions"; `examples/triage/` |
 | `/guide/testing` | the testing API page; the examples' `workflow.test.ts` |
@@ -879,10 +880,20 @@ Manual or live evaluation:
   and the llms files as `text/plain`. `bun run deploy` in `site/` builds and deploys, from a
   laptop with `wrangler login` or from CI with `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID` as repository secrets.
-- 2026-11-02, the operator's review: `/ai/` is cut. The agent learns awf from the `AGENTS.md`
-  that `awf init` writes and from `llms.txt`, never from that page, and the rest of it repeated
-  them. Its one part of value, what to check in a workflow an agent wrote, is Quick start's last
-  section, "Have your agent write the next one", which the landing page links.
+- 2026-11-02, the operator's review: `/ai/` is cut. The agent learns awf from `llms.txt` and the
+  pages' `.md`, never from that page, and the rest of it repeated Quick start. What to check in
+  a workflow an agent wrote is Quick start's last section, "Have your agent write the next one",
+  which the landing page links. Its prompt names `llms.txt` and the rules itself: the `AGENTS.md`
+  that `awf init` writes is read only by an agent opened in that folder, and Claude Code skips it
+  under a `CLAUDE.md` (code.claude.com/docs/en/memory).
+- 2026-11-02, the operator's review: timers get a page of their own in In depth, `/guide/timers`.
+  Events said what a timer is and linked the rules; moving one, the question a reader brings,
+  was nowhere. Its samples: `examples/site/guide/timers.ts` (cancel and rename, tested) and the
+  `select` region of `examples/nudges` (`wf.at`).
+- 2026-11-02, the operator's review: Parallel and Loops merge into `/guide/parallel-and-loops`,
+  and Deadlines and nudges becomes `/guide/timeouts`, Timeouts and nudges, so it isn't read as
+  Timers. A group's deadline is explained there only. The old URLs get no redirect: the site had
+  been live an hour.
 
 ## Human review
 

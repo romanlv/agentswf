@@ -60,12 +60,12 @@ Its test is [`workflow.test.ts`](https://github.com/romanlv/agentswf/blob/main/e
 
 The loop can live in your workflow instead: a `for` that runs the implementer, asks the reviewer
 for a typed verdict, and sends the findings back, up to a number of rounds.
-[Loops](/guide/loops) builds that one. Choose it when:
+[Loops](/guide/parallel-and-loops#round-after-round) builds that one. Choose it when:
 
 - the reviewer's harness or placement can't wait for a reply (a reviewer here must be one that
   can, which is why the example runs both agents headless or claude in a pane);
 - your code needs each round's findings, to log, gate or show them;
-- each round should be a fresh reviewer, or several reviewers in [`parallel`](/guide/parallel).
+- each round should be a fresh reviewer, or several reviewers in [`parallel`](/guide/parallel-and-loops).
   [`minimum-review`](https://github.com/romanlv/agentswf/tree/main/examples/minimum-review) is
   that review step on its own: a correctness and a maintainability lens at once, claude and
   codex, each answering with typed findings.
@@ -83,6 +83,6 @@ for a typed verdict, and sends the findings back, up to a number of rounds.
 
 ## See also
 
-- [Messaging](/guide/messaging) and [Loops](/guide/loops) in the guide.
+- [Messaging](/guide/messaging) and [Loops](/guide/parallel-and-loops#round-after-round) in the guide.
 - [Messaging](/reference/workflow-api#messaging) and
   [Outcomes](/reference/workflow-api#outcomes) in the workflow API.

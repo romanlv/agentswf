@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
-import timedReview, { FINDINGS } from "./deadlines";
+import timedReview, { FINDINGS } from "./timeouts";
 
 test("both reviews answer within the budget", async () => {
   const run = await testWorkflow(

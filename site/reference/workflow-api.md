@@ -219,8 +219,8 @@ schema doesn't carry one on its own. A wait on a [participant](#participants-con
 moves the turn's bound out by the wait's length, within the deadlines around it.
 
 Every `run` on the same agent continues its session, so it remembers its earlier turns.
-<a id="sessions-talk-to-the-same-agent-again"></a>[Loops](/guide/loops) builds on that. How a
-nudge reads and when it comes: [Deadlines and nudges](/guide/deadlines).
+<a id="sessions-talk-to-the-same-agent-again"></a>[Loops](/guide/parallel-and-loops#round-after-round) builds on that. How a
+nudge reads and when it comes: [Timeouts and nudges](/guide/timeouts).
 
 ### Outcomes {#outcomes}
 
@@ -436,7 +436,7 @@ what it returns. Holding a tool is what lets the agent call it. The guide: [Tool
 ### wf.parallel {#parallel}
 
 `Promise.all` with a concurrency limit and a deadline, which the engine tracks and shows. Results
-come back in item order. The guide: [Parallel](/guide/parallel).
+come back in item order. The guide: [Parallel](/guide/parallel-and-loops).
 
 <<< @/../examples/site/reference/workflow-api.ts#parallel
 
@@ -453,7 +453,7 @@ come back in item order. The guide: [Parallel](/guide/parallel).
 
 A run has no deadline unless `awf run --timeout 2h` gives it one, as `wf.deadline`. Everything
 inside inherits it, and anything can set an earlier one, never a later one. The guide:
-[Deadlines and nudges](/guide/deadlines).
+[Timeouts and nudges](/guide/timeouts).
 
 ```text
 run deadline (--timeout)

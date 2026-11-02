@@ -136,8 +136,9 @@ One page owns each of these; every other page says it in a clause at most and li
 | Outcome kinds and what each leaves of the agent; a failed or timed-out turn closes it; fields taught as flags; switching model costs the cache | `/guide/agents` |
 | The JSON Schema subset a typed answer may use | `/guide/agents` (the reference links it) |
 | `wf.stop` and what it means for a run | `/guide/workflows` |
-| Nudges: the default, custom, `nudge: false`, a claude pane's `wfa waiting` | `/guide/deadlines` |
-| `parallel`'s deadline rejecting and dropping gathered results | `/guide/parallel` |
+| Nudges: the default, custom, `nudge: false`, a claude pane's `wfa waiting` | `/guide/timeouts` |
+| `parallel`'s deadline rejecting and dropping gathered results | `/guide/timeouts` |
+| Timers: a name's fixed time, moving one (cancel and rename, or `wf.at`), `wf.timers`, when a due timer fires | `/guide/timers` |
 | `testWorkflow` doesn't call `prepare`; deadlines are real time in tests | `/guide/testing` |
 | Exit codes and how a run ends; the commands (`--id`, `--continue`, `--from-stage`, `--values`) and the stage rules | `/guide/runs` |
 | What survives a failure, stop or crash; what a code change between attempts does | `/guide/durability` |

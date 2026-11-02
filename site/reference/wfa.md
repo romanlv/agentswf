@@ -109,7 +109,7 @@ A turn that awaits a peer's reply can still finish with `wfa result`; the wait i
 Says the agent is still on long work, such as a build, when it is nudged for its answer. It holds
 off the next nudge. It is offered only where the harness confirms what it was sent, a claude pane
 today, and not a sandboxed claude pane without a run-local home; elsewhere it is refused
-`unsupported-command`. [In a claude pane](/guide/deadlines#in-a-claude-pane) explains the nudge it answers.
+`unsupported-command`. [In a claude pane](/guide/timeouts#in-a-claude-pane) explains the nudge it answers.
 
 ```sh
 wfa waiting <call-id> --reason 'Running the full test suite' --timeout 10m
@@ -337,5 +337,5 @@ Exits as `wfa send` does.
 
 - [Tools](/guide/tools) and [Messaging](/guide/messaging), what these commands are for.
 - [Agents](/guide/agents), the turn and its answer.
-- [Deadlines and nudges](/guide/deadlines#nudges), where `wfa waiting` fits.
+- [Timeouts and nudges](/guide/timeouts#nudges), where `wfa waiting` fits.
 - [`awf` commands](/reference/awf), the operator's side.

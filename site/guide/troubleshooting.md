@@ -269,7 +269,7 @@ it to. The turn ends `unanswered` and the agent stays open.
 
 See what it did with `awf logs {run} --agent {key}`: often it answered in prose instead of with
 `wfa result`, or its value didn't fit the schema. A prompt that says what to send, a smaller
-schema, or a nudge in your own words helps ([Nudges](/guide/deadlines#your-own-words)). To try
+schema, or a nudge in your own words helps ([Nudges](/guide/timeouts#your-own-words)). To try
 again, run another turn on the same agent.
 
 ### A pane agent waiting on a prompt
@@ -293,7 +293,7 @@ a deadline around it passed while it waited
 The turn's `timeoutMs`, or a deadline around it such as the run's `--timeout`, passed first. The
 turn ends `timed-out`, and that closes the agent. Without a deadline, an agent that keeps working
 is never cut off, since a nudge only reaches one that stopped: give its `run` a `timeoutMs`, or
-the run a `--timeout` ([Deadlines](/guide/deadlines#deadlines)).
+the run a `--timeout` ([Timeouts](/guide/timeouts#the-run)).
 
 ### `logical agent is closed`
 

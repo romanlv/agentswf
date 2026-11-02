@@ -124,7 +124,7 @@ outcome.
 
 **An agent that stops without answering** gets a nudge before the turn ends `unanswered`.
 `timeoutMs` bounds a turn, nudges included, and the `nudge` option changes or turns them off:
-[Deadlines](/guide/deadlines).
+[Timeouts](/guide/timeouts).
 
 ## Several turns
 
@@ -134,8 +134,8 @@ answered. A second turn can build on the first without repeating it:
 <<< @/../examples/site/guide/agents.ts#turns
 
 Turns on one agent run one at a time, in the order you call them. Different agents work at
-once: [Parallel](/guide/parallel). An agent that does work and another that checks it, turn after
-turn, is a [loop](/guide/loops).
+once: [Parallel](/guide/parallel-and-loops). An agent that does work and another that checks it, turn after
+turn, is a [loop](/guide/parallel-and-loops#round-after-round).
 
 ## Compact, switch, fork
 

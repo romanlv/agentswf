@@ -75,7 +75,7 @@ answers it. `1.5` is the message's id, `{attempt}.{n}`: message 5 of attempt 1.
 
 Waiting for a person isn't work, so it doesn't use up the agent's time: while it waits, its turn's
 deadline doesn't count, and once the answer comes the deadline moves out by however long the wait
-took. A [deadline](/guide/deadlines) your workflow set around the agent, or on the run, still holds,
+took. A [deadline](/guide/timeouts) your workflow set around the agent, or on the run, still holds,
 and the question closes there.
 
 A question still open when the workflow returns keeps the run open until it is answered; set

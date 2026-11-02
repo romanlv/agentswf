@@ -147,7 +147,7 @@ HERDR_DISABLE_SOUND=1 herdr session attach awf
   then runs at whichever variant was chosen last.
 - **pi's login is per provider**, so awf can't check it up front: [Install](/guide/install#each-harness).
 - **Nudges differ by harness**: a claude pane can say it is still on long work with
-  `wfa waiting`. See [Nudges](/guide/deadlines#nudges).
+  `wfa waiting`. See [Nudges](/guide/timeouts#nudges).
 
 ## Next
 

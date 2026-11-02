@@ -72,7 +72,7 @@ after it again ([Stages](/guide/runs#stages)).
 
 **Nudge.** What awf does when an agent stops without answering: it prompts the same session
 again and asks for the answer. `nudge: false` on a turn turns it off
-([Nudges](/guide/deadlines#nudges)).
+([Nudges](/guide/timeouts#nudges)).
 
 Two more names: `wf` is a workflow's context, and `wfa` is the agent's command. A person never
 types `wfa`; an agent does, in its own session. The operator's command is `awf`

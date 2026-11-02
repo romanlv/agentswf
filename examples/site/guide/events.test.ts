@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
-import ciFix, { ciFixBySelect, FIX } from "./events";
+import ciFix, { ciFixByRace, ciFixBySelect, FIX } from "./events";
 
 const failed = (job: string) => ({
   name: "ci.failed" as const,
@@ -59,4 +59,25 @@ test("as a select, each failure is fixed in turn", async () => {
   });
   expect(run.turnsOf("fixer")).toHaveLength(2);
   expect(run.value).toEqual({ pr: 212, merged: true });
+});
+
+test("as a race, the fix ends the run when it finishes first", async () => {
+  const run = await testWorkflow(ciFixByRace, {
+    id: "212",
+    event: failed("unit"),
+    agents: { fixer: answer("pushed") },
+  });
+  expect(run.value).toEqual({ pr: 212, fix: "answered" });
+});
+
+test("as a race, the pull request closing mid-fix wins, and the fix is cancelled", async () => {
+  const run = await testWorkflow(ciFixByRace, {
+    id: "212",
+    event: failed("unit"),
+    agents: { fixer: answer("pushed") },
+    events: [
+      { during: "fixer#1", name: "pr.closed", data: { pr: 212, merged: true } },
+    ],
+  });
+  expect(run.value).toEqual({ pr: 212, fix: "cancelled" });
 });
