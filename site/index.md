@@ -34,7 +34,7 @@ cards:
     details: Every run records each agent's turns, time and tokens. Swap a model, a prompt or a skill, and compare the runs.
     link: /guide/cost
   - title: Written by your agent
-    details: Point it at llms.txt. The typechecker and awf test, which runs the workflow on scripted answers for free, catch its mistakes before any agent starts.
+    details: A frontier model writes the workflow, cheaper ones can run it. The typechecker and awf test, which runs it on scripted answers for free, catch its mistakes before any agent starts.
     link: /ai/
 ---
 
@@ -83,11 +83,13 @@ instead. The engine handles an agent that goes quiet, answers in the wrong shape
 
 ## Built for agents to write
 
-Point your coding agent at `agents.wf/llms.txt`. Every page is also served as Markdown, and the
-whole [workflow API](/reference/workflow-api) is on one page. `awf init` writes an `AGENTS.md`
-that tells the agent where the API is and what to run after a change: the typechecker and
-`awf test`, which catch its mistakes before any agent starts. What it writes is agents, prompts,
-schemas and plain `for` and `if`, so you can review it in a minute.
+Your coding agent writes the workflow. `awf init` writes an `AGENTS.md` that tells it where the
+[API](/reference/workflow-api) is and what to run after a change: the typechecker and `awf test`,
+which catch its mistakes before any agent starts. What it writes is agents, prompts, schemas and
+plain `for` and `if`, so you can review it in a minute.
+
+Write the workflow with a frontier model, then run it on cheaper or open-weight ones: each agent's
+model is one line, and [Cost](/guide/cost) shows what the change did to a run.
 [Build with AI](/ai/) shows how.
 
 ## Open, and shaped by use
