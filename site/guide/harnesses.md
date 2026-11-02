@@ -120,13 +120,11 @@ closes once the agent is done. `layout` puts it elsewhere as it opens, and `keep
 
 <<< @/../examples/site/guide/harnesses.ts#layout
 
-```
-┌────────────┬────────────┐
-│            │  security  │
-│    lead    ├────────────┤
-│            │   style    │
-└────────────┴────────────┘
-```
+<div class="pane-layout" role="img" aria-label="The review tab: lead on the left; security on the right, above style">
+  <div class="lead">lead</div>
+  <div>security</div>
+  <div>style</div>
+</div>
 
 `keepPane` is `"never"`, the default, `"on-failure"` or `"always"`. A kept pane is left with its
 harness running, released from the run: what you type into it is yours, and awf never closes it.

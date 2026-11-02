@@ -1,0 +1,11 @@
+// agents.wf: the built site, served as static assets by a Worker with no script.
+{
+  "name": "agentswf-site",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./.vitepress/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "agents.wf", "custom_domain": true }]
+}

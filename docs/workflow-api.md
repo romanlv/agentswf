@@ -1,1 +1,1 @@
-The workflow API moved to [site/reference/workflow-api.md](https://github.com/romanlv/agentswf/blob/main/site/reference/workflow-api.md).
+The workflow API moved to [agents.wf/reference/workflow-api](https://agents.wf/reference/workflow-api).

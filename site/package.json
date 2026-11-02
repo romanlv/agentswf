@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "vitepress dev",
     "build": "vitepress build && bun scripts/check-agent-files.ts && bun scripts/check-links.ts",
-    "preview": "vitepress preview"
+    "preview": "vitepress preview",
+    "deploy": "bun run build && wrangler deploy"
   },
   "devDependencies": {
-    "vitepress": "^1.6.4"
+    "pele": "^1.13.0",
+    "vitepress": "^1.6.4",
+    "wrangler": "^4.156.1"
   }
 }

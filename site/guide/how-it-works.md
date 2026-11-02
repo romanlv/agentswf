@@ -9,11 +9,10 @@ This page gives you two things: the words every other page uses, each defined on
 `awf` does between your workflow and the coding agents it runs, down to the command an agent
 types to hand back its answer.
 
-<!--@include: ../parts/how-it-works-diagram.md-->
+<!--@include: ../parts/how-it-works-steps.md-->
 
-Your workflow is the left column, and it is all you write. The middle is the engine. On the right,
-each agent works in your repository as it always does, and answers through `wfa`, a command the
-engine gives it.
+The workflow is all you write. awf is the engine, and `wfa` is the command it gives each agent to
+answer with.
 
 ## A small workflow
 

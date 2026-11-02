@@ -1,6 +1,6 @@
 # agentswf
 
-**Write workflows for coding agents in TypeScript.** Hand work to claude, codex, pi or cursor,
+**Write workflows for coding agents in TypeScript.** Hand work to the coding agents you already use,
 run them side by side, have one check another, loop until a reviewer is happy, and get typed
 answers back. `awf` runs the workflow and handles the parts that make agent scripts fragile:
 agents that never answer, answer in prose, hang, or quietly run up a bill.
@@ -29,16 +29,13 @@ your Claude subscription, with no API key and no credits to buy.
 
 ## How it works
 
-```
- your workflow.ts                 awf run                         agents
- ────────────────                 ───────                         ──────
- agents.open(...)       ──▶  starts claude / codex / pi   ──▶  pane in Herdr, or headless
- agent.run({ prompt,    ──▶  sends the prompt, plus how   ──▶  works in your repo as usual,
-             schema })        to answer                        then runs `wfa result '{...}'`
- await outcome          ◀──  validates against the schema ◀──  over a socket just for that agent
- parallel / loops / ifs      deadlines, nudges, cleanup,
- return result               usage and cost for the record
-```
+1. Your code calls `agent.run({ prompt, schema })`.
+2. awf hands the prompt to a coding agent, in a Herdr pane you can watch or headless.
+3. The agent works in your repo with its own tools and skills, then answers by running
+   `wfa result`.
+4. awf checks the answer against your schema. A wrong shape goes back to the agent to fix; a quiet
+   agent gets a nudge.
+5. `await` returns a typed value, and your code decides what happens next.
 
 A workflow is a TypeScript module. `awf run ./workflow.ts` runs it, prints its result and keeps
 a record of the run in `.awf/runs`. Control flow is yours: `for`, `if`, `Promise.all`. Each agent
@@ -103,7 +100,7 @@ awf run --run-root /tmp/awf-runs examples/feature-delivery/workflow.ts -- PROJ-1
 | [`calling-session`](examples/calling-session/) | `awf run --here`: a workflow driving the session that started it |
 
 More in [`examples/`](examples/README.md), with how to run each. Every call is explained in
-[the workflow API](site/reference/workflow-api.md), on one page.
+[the workflow API](https://agents.wf/reference/workflow-api), on one page.
 
 ## What you get
 
@@ -127,7 +124,7 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   another agent, and a stopped run goes on from the stage that stopped.
 - **Runs that react to events.** A workflow declares the events it takes; `awf emit` sends one to a
   run by its id, and the run's code takes it at a wait. Between events the run parks and no
-  process runs, so a case that lives for weeks costs a file ([events](site/reference/workflow-api.md#events)).
+  process runs, so a case that lives for weeks costs a file ([events](https://agents.wf/reference/workflow-api#events)).
 - **Deadlines and cleanup.** A stalled turn is stopped, deadlines you set nest, and every agent is
   closed when the run ends, however it ends, unless the workflow asked to keep its pane.
 
@@ -357,7 +354,7 @@ bun install && bun test   # no live agents, no cost
 bun run check             # lint, format, types and package boundaries
 ```
 
-- [`site/reference/workflow-api.md`](site/reference/workflow-api.md): every call a workflow can make, on one page
+- [The workflow API](https://agents.wf/reference/workflow-api): every call a workflow can make, on one page
 - [`packages/lab`](packages/lab/README.md): scoring review workflows against cases with known answers
 - [`docs/status.md`](docs/status.md): what runs today and what comes next
 - [`docs/testing.md`](docs/testing.md): the test levels, from free to live, and what each costs

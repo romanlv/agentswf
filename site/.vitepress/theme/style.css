@@ -23,3 +23,52 @@
   text-decoration: none;
   color: inherit;
 }
+
+/* A Herdr tab's panes, as `layout` arranges them. */
+.pane-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 64px 64px;
+  gap: 4px;
+  max-width: 360px;
+  margin: 16px 0;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+  font-family: var(--vp-font-family-mono);
+  font-size: 14px;
+}
+.pane-layout > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+}
+.pane-layout > .lead {
+  grid-row: span 2;
+}
+
+/* Diagrams are drawn at build time by pele; its colours follow the theme, light or dark. */
+.diagram {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+  overflow-x: auto;
+}
+.diagram .pele {
+  --pele-bg: var(--vp-c-bg-soft);
+  --pele-fg: var(--vp-c-text-1);
+  --pele-muted: var(--vp-c-text-2);
+  --pele-line: var(--vp-c-text-2);
+  --pele-surface: var(--vp-c-bg);
+  --pele-surface-alt: var(--vp-c-default-soft);
+  --pele-border: var(--vp-c-divider);
+  --pele-accent: var(--vp-c-brand-1);
+  --pele-font: var(--vp-font-family-base);
+  --pele-radius: 6px;
+}

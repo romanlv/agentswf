@@ -3,7 +3,7 @@
   "version": "0.1.0-beta.3",
   "description": "agents.wf: an engine that runs workflows made of coding agents. Gives you awf, agentswf/workflow and agentswf/testing",
   "license": "MIT",
-  "homepage": "https://github.com/romanlv/agentswf",
+  "homepage": "https://agents.wf",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/romanlv/agentswf.git",

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { render as renderDiagram } from "pele";
 import { type DefaultTheme, defineConfig } from "vitepress";
 import { captureMarkdown, markdownHref, writeAgentFiles } from "./llms";
 
@@ -144,6 +145,14 @@ export default defineConfig({
       };
     },
     config(md) {
+      // A `mermaid` fence is drawn at build time: the page gets a static SVG and no script, and
+      // its `.md` keeps the Mermaid text, which agents read as it is.
+      const fence = md.renderer.rules.fence!;
+      md.renderer.rules.fence = (tokens, idx, ...rest) => {
+        const token = tokens[idx]!;
+        if (token.info.trim() !== "mermaid") return fence(tokens, idx, ...rest);
+        return `<div class="diagram">${renderDiagram(token.content).svg}</div>\n`;
+      };
       // VitePress leaves an `@include` it cannot read in the page, silently.
       md.core.ruler.push("unresolved-include", (state) => {
         const unresolved = state.src.match(/<!--\s*@include:\s*(.*?)\s*-->/);

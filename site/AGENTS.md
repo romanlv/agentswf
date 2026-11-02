@@ -26,6 +26,9 @@ bun run preview    # serves the build
 - No claim about spend beyond the records' own words: a headless claude being "metered" is a rule,
   not a bill. Never "charged" or "spent".
 - No private project's name.
+- The pitch (the landing page, the overview, the README opening) says "coding agents" or "the
+  agents you already use", never a list of harnesses: more are coming. Harnesses are named where
+  they are documented.
 - agents.wf is in its evaluation phase, and what people build with it shapes the design. Don't
   say "beta" or warn that things break. The landing page and the overview invite an issue on
   GitHub for a bug, a missing use case or a design idea, as the README does; Install says how an update reaches a workflow.
@@ -35,6 +38,10 @@ bun run preview    # serves the build
 - One home per fact. Link the page that owns it instead of explaining it again.
 - GitHub-flavoured Markdown. No Obsidian syntax (`[[…]]`, `%%…%%`). VitePress-only syntax
   (custom containers, Vue components) only where a page gains a lot from it.
+- No ASCII art. A diagram is a ` ```mermaid ` fence: the build draws it as a static SVG with
+  [pele](https://pele.run), with no script on the page, and the page's `.md` keeps the Mermaid
+  text for agents. A layout Mermaid can't draw is a little HTML with a class in
+  `.vitepress/theme/style.css`, like `.pane-layout` on Harnesses.
 
 ## A guide page's shape
 

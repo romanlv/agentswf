@@ -467,7 +467,7 @@ Alternatives rejected:
 - [x] 9. Running — cost, security, troubleshooting
 - [x] 10. Patterns — review loop, plan-implement, review on event; the examples' README follows
 - [x] 11. Reference — workflow API edited for the site, testing API, awf, data, configuration
-- [ ] 12. The whole site is reviewed locally for content and UX, with the operator, before it is
+- [x] 12. The whole site is reviewed locally for content and UX, with the operator, before it is
   public
 - [ ] 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
 
@@ -740,6 +740,9 @@ Done when:
 
 - The operator approves the site, recorded here with the date.
 
+Approved for publishing 2026-11-01: the operator wants it on the web now, and content adjustments
+go on after it is live. M2 is not run yet.
+
 ### 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
 
 Outcome: a push to main updates agents.wf, with the site task 12 approved.
@@ -867,6 +870,15 @@ Manual or live evaluation:
   and wake on events. The reader is a builder who wants control over their agents and their plan
   limits rather than a vendor's black box, so Why gains "Why not a black box", and the landing page
   "From hand-run to automated". Reviewed for accuracy against the code and as the target reader.
+- 2026-11-01, the operator's review: the pitch is repeatable workflows for any work done again
+  and again, not code review; it never lists harnesses. ASCII diagrams are gone: How it works is
+  five numbered steps of one turn, the pane layout a small styled grid, and a `mermaid` fence is
+  drawn at build time by pele as a static SVG with no script (none is used yet).
+- 2026-11-01, M4 settled: Workers static assets, a Worker with no script (`site/wrangler.jsonc`),
+  `agents.wf` as its custom domain. `site/public/_headers` serves `{page}.md` as `text/markdown`
+  and the llms files as `text/plain`. `bun run deploy` in `site/` builds and deploys, from a
+  laptop with `wrangler login` or from CI with `CLOUDFLARE_API_TOKEN` and
+  `CLOUDFLARE_ACCOUNT_ID` as repository secrets.
 
 ## Human review
 

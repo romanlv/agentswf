@@ -5,7 +5,7 @@ description: Set up a folder with awf init, test its workflow for free, run one 
 
 # Quick start
 
-In about ten minutes you set up a folder for workflows, run the workflow it comes with on
+You set up a folder for workflows, run the workflow it comes with on
 scripted agents, then once on a real agent, and read what the run kept.
 
 ```sh

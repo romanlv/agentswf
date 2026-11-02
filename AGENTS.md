@@ -36,7 +36,7 @@ rule is in `docs/foundation.md`'s naming note and ADRs 0005 and 0013.
 | `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
 | `packages/lab` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries; `examples/site/` holds the site's samples |
-| `site/` | the agents.wf site, VitePress. Standalone, not a workspace: `cd site && bun install && bun run build`. Its writing rules are `site/AGENTS.md` |
+| `site/` | the agents.wf site, VitePress. Standalone, not a workspace: `cd site && bun install && bun run build`; `bun run deploy` publishes it, as CI does on every push to main. Its writing rules are `site/AGENTS.md` |
 | `experiments/_archive/` | E1–E3 and E5 raw results, the evidence behind `docs/findings/`. Never edited |
 | `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |
 | `docs/testing.md` | the test levels, from free to live, what each costs, and when to run it |

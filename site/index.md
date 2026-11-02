@@ -1,11 +1,11 @@
 ---
 layout: home
 title: agents.wf
-description: "Automate the agent work you run by hand: TypeScript fixes the steps, real coding agents do the thinking, and runs survive crashes and wake on events."
+description: "Repeatable workflows for coding agents: TypeScript fixes the steps, real coding agents do the thinking, and runs are durable and event-driven."
 hero:
   name: agents.wf
-  text: Automate the agent work you run by hand.
-  tagline: TypeScript fixes the steps, Claude Code, Codex, pi or Cursor do the thinking, and runs survive crashes and wake on events. On your machine, with the logins and plans you already have.
+  text: Repeatable workflows for coding agents.
+  tagline: Coding agents that follow your process. TypeScript fixes the steps, the agents do the thinking, and runs are durable and event-driven. Your workflow is your code, not a feature of someone's platform.
   actions:
     - theme: brand
       text: Get started
@@ -22,9 +22,9 @@ cards:
     details: The order, the loops, how many rounds and the deadlines are code you wrote, the same on every run. Every answer is checked against your schema before your code sees it.
     link: /guide/agents#a-typed-answer
   - title: Real agents do the thinking
-    details: Claude Code, Codex, pi or Cursor, with their own skills and sessions, do the work that needs judgment. An agent keeps its context across turns, and can fork to try another angle.
+    details: Real coding agents, with their own skills and sessions, do the work that needs judgment. An agent keeps its context across turns, and can fork to try another angle.
     link: /guide/agents#compact-switch-fork
-  - title: Durable, and wakes on events
+  - title: Durable and event-driven
     details: A failed CI check, a webhook or a timer starts or wakes a run, which parks in between with no process left. Finished stages are kept, so a crash costs only the stage that was running.
     link: /guide/events
   - title: Yours
@@ -76,7 +76,7 @@ instead. The engine handles an agent that goes quiet, answers in the wrong shape
 
 ## How it works
 
-<!--@include: ./parts/how-it-works-diagram.md-->
+<!--@include: ./parts/how-it-works-steps.md-->
 
 `awf run ./workflow.ts` runs the workflow, prints its result, and keeps a record of the run in
 `.awf/runs`. [How it works](/guide/how-it-works) has the rest.
@@ -100,6 +100,6 @@ schemas and plain `for` and `if`, so you can review it in a minute.
 - **How it is tested:** [the test levels](https://github.com/romanlv/agentswf/blob/main/docs/testing.md),
   from free to live agents. **What was measured:** [findings](https://github.com/romanlv/agentswf/tree/main/docs/findings).
 
-## Your first workflow in 10 minutes
+## Your first workflow
 
 [The quick start](/guide/quick-start) takes you from install to a first run and its result.
