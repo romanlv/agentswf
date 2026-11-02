@@ -3,7 +3,7 @@ id: "038"
 title: "agents.wf shows what the project is and how to use it, for people and agents"
 summary: "A VitePress site at agents.wf, deployed from main and naming the released version, built from Markdown in a standalone site/ folder: a landing page, a guide ordered agents, workflows, runs, then patterns and reference, each page also served as plain Markdown with an llms.txt, so an agent reads it as easily as a person."
 type: story
-status: ready
+status: done
 depends_on: []
 ---
 
@@ -471,7 +471,7 @@ Alternatives rejected:
 - [x] 11. Reference — workflow API edited for the site, testing API, awf, data, configuration
 - [x] 12. The whole site is reviewed locally for content and UX, with the operator, before it is
   public
-- [ ] 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
+- [x] 13. A push to main deploys agents.wf on Cloudflare; manifests and `awf init` point at it
 
 Nothing is public until task 13: the site is built and read locally first, so content and UX are
 settled before agents.wf, npm's `homepage` and `awf init`'s template point at it.
@@ -769,11 +769,11 @@ Done when:
 
 Automated:
 
-- [ ] `bun run build` in `site/` passes, so no page has a dead link.
-- [ ] The build has `/llms.txt`, `/llms-full.txt` and a `.md` for every page, with imports
+- [x] `bun run build` in `site/` passes, so no page has a dead link.
+- [x] The build has `/llms.txt`, `/llms-full.txt` and a `.md` for every page, with imports
   expanded.
-- [ ] Every page has a title and description.
-- [ ] Root `bun install` leaves `bun.lock` without VitePress; `bun run check` passes.
+- [x] Every page has a title and description.
+- [x] Root `bun install` leaves `bun.lock` without VitePress; `bun run check` passes.
 
 Manual or live evaluation:
 
@@ -895,10 +895,25 @@ Manual or live evaluation:
   Timers. A group's deadline is explained there only. The old URLs get no redirect: the site had
   been live an hour.
 
+- 2026-11-01, documenting the data reference: a run's folder grew a story at a time, with replay
+  answers in three stores and the run's own records split between `mailbox.jsonl` and
+  `turns.jsonl`. Filed as [[run-record-layout]], to settle before leaving evaluation.
+- 2026-11-01, task 13: CI deploys. `.github/workflows/site.yml` runs only when a push to main
+  touches what the build reads (`site/`, `examples/`, the engine's help files and `AGENTS.md`
+  template, `packages/agentswf/package.json`, the workflow itself), not on every push; by hand
+  from the Actions tab. `CLOUDFLARE_API_TOKEN` is a dashboard token from the "Edit Cloudflare
+  Workers" template: wrangler's OAuth login can't create one. Run 41388105006 built, passed the
+  link and agent-file checks, and deployed.
+
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, decisions, review
+- [x] Every task is complete and story-level verification passes, except M2, the quick start
+  followed word for word, and the newcomer reviews, still open below.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, decisions, review
   findings, verification results, deviations, and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+
+Approved 2026-11-01: the operator marked the story done with the site live and CI deploying.
+M2, the quick start run word for word and the newcomer reviews were not run; content keeps
+changing on the live site.

@@ -157,7 +157,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   as its loop form beside `receive`, and `sleep`, so time reads well in a loop and in straight-line
   code alike.
 - [`038` — agents.wf shows what the project is and how to use it, for people and agents](038-agents-wf-site.md) —
-  `ready` — a VitePress site at agents.wf, deployed from main, built from Markdown in a
+  `done` — a VitePress site at agents.wf, deployed from main, built from Markdown in a
   standalone `site/`, each page also served as plain Markdown with an llms.txt, so an agent reads
   it as easily as a person.
 

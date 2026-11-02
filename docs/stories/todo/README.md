@@ -104,6 +104,8 @@ live runs.
 - [[workflow-in-sandbox]], [[sandbox-host-protection]] — containment.
 - [[sandbox-setsid-escape]] — what leaves a sandbox's process group is ended with it.
 - [[split-large-modules]].
+- [[run-record-layout]] — a run's folder designed as a whole: one journal for replay, the inbox
+  apart. Settle before leaving evaluation.
 
 ### P3
 
