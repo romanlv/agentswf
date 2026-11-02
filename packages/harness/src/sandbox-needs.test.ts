@@ -63,6 +63,7 @@ describe("sandboxNeeds", () => {
       skipDangerousModePermissionPrompt: true,
       permissions: { defaultMode: "bypassPermissions" },
       crossSessionInbound: "refuse",
+      attribution: { commit: "", pr: "", sessionUrl: false },
     });
     expect({ ...needs, defaults: [] }).toEqual({
       env: { CLAUDE_CONFIG_DIR: agentHome },

@@ -77,7 +77,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     // serve both placements, and a trusted folder's project settings stay inside the sandbox.
     // Its permission prompts are off, as the sandbox answers what they would ask (permissions.md),
     // in this home's user settings, which only a sandboxed claude reads. Messages from other claude
-    // sessions are refused here too, for a launch that misses the `--settings` flag.
+    // sessions are refused here too, for a launch that misses the `--settings` flag. Its commits and
+    // pull requests carry no Claude attribution: the host's home, where the operator sets it, is absent.
     defaults: (cwd) => [
       {
         name: ".claude.json",
@@ -93,6 +94,7 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
           skipDangerousModePermissionPrompt: true,
           permissions: { defaultMode: "bypassPermissions" },
           crossSessionInbound: "refuse",
+          attribution: { commit: "", pr: "", sessionUrl: false },
         })}\n`,
       },
     ],
