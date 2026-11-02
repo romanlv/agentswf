@@ -19,9 +19,17 @@ type Kind =
   | { type: "boolean" }
   | { type: "enum"; values: string[] };
 
-/** Said once in a prompt, under the first block taught with flags, and with every refusal of them. */
+/**
+ * Said once in a prompt, under the first block with a free-text flag, and with every refusal of
+ * flags that take text. Enum, number and boolean values are shell words as they stand.
+ */
 export const QUOTING_RULE =
   "Put every value in single quotes; a ' inside a value is written '\\''.";
+
+/** Whether a flag takes free text, the only value the shell can break. */
+export function takesText(simple: Simple): boolean {
+  return simple.some(({ kind }) => kind.type === "string");
+}
 
 const MAX_PROPERTIES = 6;
 const NAME = /^[a-z][a-z0-9_]*$/;
@@ -181,7 +189,9 @@ export function checkGiven(
 }
 
 function expected(simple: Simple): string {
-  return `expected: ${usageLine(simple)}\n${QUOTING_RULE}`;
+  return [`expected: ${usageLine(simple)}`, ...(takesText(simple) ? [QUOTING_RULE] : [])].join(
+    "\n",
+  );
 }
 
 /**

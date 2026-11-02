@@ -14,7 +14,14 @@ import { canonical } from "./canonical-json";
 import { scheduleAt } from "./deadlines";
 import { messageOf } from "./errors";
 import type { RunEventBody } from "./run-event-log";
-import { checkGiven, QUOTING_RULE, readGiven, simpleInput, usageLine } from "./simple-input";
+import {
+  checkGiven,
+  QUOTING_RULE,
+  readGiven,
+  simpleInput,
+  takesText,
+  usageLine,
+} from "./simple-input";
 
 /** How long a handler that ignores its aborted signal is waited for before its call is settled. */
 export const TOOL_SETTLE_MS = 5_000;
@@ -519,8 +526,8 @@ function readInput(
 
 /**
  * The tools block of an operation's prompt: how to call one, then each tool's name and description
- * and its usage line, or the schema for an input that isn't simple. The quoting rule comes with it
- * unless the result block above already said it; none for an agent without tools.
+ * and its usage line, or the schema for an input that isn't simple. The quoting rule comes with a
+ * free-text flag unless the result block above already said it; none for an agent without tools.
  */
 export function toolsLesson(
   tools: readonly { name: string; description: string; input?: JsonSchema }[],
@@ -533,9 +540,11 @@ export function toolsLesson(
     return { ...each, simple };
   });
   const flags = taught.some((each) => each.simple && each.simple.length > 0);
+  const text = taught.some((each) => each.simple && takesText(each.simple));
   const json = taught.some((each) => !each.simple);
+  const value = text ? "'<value>'" : "<value>";
   const forms = [
-    flags ? `${launcher} tool <name> --<option> '<value>' ...` : `${launcher} tool <name>`,
+    flags ? `${launcher} tool <name> --<option> ${value} ...` : `${launcher} tool <name>`,
     ...(json ? [`${launcher} tool <name> <<'WF_JSON'`, "<json>", "WF_JSON"] : []),
   ];
   const entries = taught.map(({ name, description, input, simple }) => {
@@ -549,7 +558,7 @@ export function toolsLesson(
     "You have tools the workflow runs for you. Call one with:",
     "",
     ...forms,
-    ...(flags && !quotingSaid ? ["", QUOTING_RULE] : []),
+    ...(text && !quotingSaid ? ["", QUOTING_RULE] : []),
     "",
     ...entries,
   ].join("\n");

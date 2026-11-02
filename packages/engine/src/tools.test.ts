@@ -1163,8 +1163,20 @@ describe("the tools lesson", () => {
     expect(
       toolsLesson([{ name: "two", description: "First.\n- not a tool" }], "wfa", true),
     ).toContain("- two: First.\n  - not a tool\n  wfa tool two");
-    // Nothing to quote with no flags; no lesson with no tools.
+    // Nothing to quote with no flags, or with flags that take no free text; no lesson with no tools.
     expect(toolsLesson([list], "wfa", false)).not.toContain("single quotes");
+    const choose: Taught = {
+      name: "choose",
+      description: "Choose one.",
+      input: {
+        type: "object",
+        properties: { pick: { type: "string", enum: ["a", "b"] }, n: { type: "integer" } },
+        required: ["pick"],
+      },
+    };
+    const chosen = toolsLesson([choose], "wfa", false)!;
+    expect(chosen).toContain("wfa tool <name> --<option> <value> ...");
+    expect(chosen).not.toContain("single quotes");
     expect(toolsLesson([], "wfa", false)).toBeUndefined();
   });
 
@@ -1228,6 +1240,50 @@ describe("the tools lesson", () => {
     );
     expect(withTools!.split("single quotes")).toHaveLength(2);
     expect(without).not.toContain("You have tools");
+  });
+
+  test("a result with no free text leaves the quoting rule to the tools block", async () => {
+    const prompts: string[] = [];
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          prompts.push(context.prompt);
+          await wfa(launcherOf(context), ["result", callIdOf(context), "--verdict", "real"]);
+        },
+      }),
+    });
+    const VERDICT: OutputSchema<{ verdict: "noise" | "real" }> = {
+      type: "object",
+      properties: { verdict: { type: "string", enum: ["noise", "real"] } },
+      required: ["verdict"],
+    };
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "verdict-lesson", description: "verdict-lesson" },
+      async run(context) {
+        const agent = await context.agents.open({
+          key: "with",
+          runtime: "fake",
+          tools: {
+            close_case: tool({
+              description: close.description,
+              input: close.input as never,
+              handler: () => "ok",
+            }),
+          },
+        });
+        await agent.run({ prompt: "Work.", schema: VERDICT, nudge: false });
+        return null;
+      },
+    };
+    await runNew(workflow, null, {
+      runRoot: runDirs.tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+    const [prompt] = prompts;
+    expect(prompt).toContain("--verdict noise|real\n\nYou have tools");
+    expect(prompt).toContain("' ...\n\nPut every value in single quotes");
+    expect(prompt!.split("single quotes")).toHaveLength(2);
   });
 
   test("a message turn's prompt carries the block, quoting rule and all", async () => {

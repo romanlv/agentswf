@@ -189,7 +189,7 @@ import {
   type RunSandboxOptions,
   type SeatedAgent,
 } from "./sandboxes";
-import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
+import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { asSource, branchOf, branchValue, source, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
@@ -3665,7 +3665,7 @@ class LogicalAgent implements AgentRef {
                 toolsLesson(
                   this.options.tools.taught(this.key),
                   this.options.launcher,
-                  simpleInput(schema) !== undefined,
+                  resultSaysQuoting(schema),
                 ),
               ]
                 .filter(Boolean)
@@ -4566,6 +4566,11 @@ function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined):
   return schema ? parseJsonSchema(schema) : { type: "string" };
 }
 
+function resultSaysQuoting(schema: JsonSchema): boolean {
+  const simple = simpleInput(schema);
+  return simple !== undefined && takesText(simple);
+}
+
 function operationPrompt(
   prompt: string,
   schema: JsonSchema,
@@ -4586,8 +4591,7 @@ function operationPrompt(
       "When the answer is ready, return it by running:",
       "",
       `${launcher} result ${callId} ${usageLine(simple)}`,
-      "",
-      QUOTING_RULE,
+      ...(takesText(simple) ? ["", QUOTING_RULE] : []),
     ].join("\n");
   }
   return [

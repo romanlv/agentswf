@@ -160,6 +160,15 @@ describe("reading flags", () => {
     }
   });
 
+  test("a refusal of flags with no free text leaves out the quoting rule", () => {
+    const read = readFlags(
+      object({ verdict: { type: "string", enum: ["noise", "real"] }, n: { type: "integer" } }),
+      ["--verdict", "maybe"],
+    );
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.error).not.toContain("single quotes");
+  });
+
   test("flags for a schema that isn't simple are refused with the schema", () => {
     const nested = object({ items: { type: "array", items: { type: "string" } } });
     const read = readFlags(nested, ["--items", "a"]);
