@@ -94,10 +94,13 @@ export const accepted = (output: string, name: string, version: string): boolean
   output.split("\n").some((line) => line.trim() === `+ ${name}@${version}`) ||
   /cannot publish over the previously published versions/i.test(output);
 
-/** Runs bun publish in the open, so its sign-in prompt is answerable, and returns what it printed. */
-const publish = async (tarball: string): Promise<string> => {
+/**
+ * Runs bun publish in the open, so its sign-in prompt is answerable, and returns what it printed.
+ * From the package's directory: bun checks a tarball's bin paths against where it runs.
+ */
+const publish = async (dir: string, tarball: string): Promise<string> => {
   const child = Bun.spawn(["bun", "publish", tarball, "--tag", "latest"], {
-    cwd: ROOT,
+    cwd: join(ROOT, "packages", dir),
     stdin: "inherit",
     stdout: "pipe",
     stderr: "pipe",
@@ -133,13 +136,13 @@ const main = async () => {
   const out = mkdtempSync(join(tmpdir(), "awf-release-"));
   try {
     // Everything is packed and checked before anything is published.
-    const plan: { name: string; tarball: string; published: boolean }[] = [];
+    const plan: { dir: string; name: string; tarball: string; published: boolean }[] = [];
     const problems: string[] = [];
     for (const dir of PACKAGES) {
       const { tarball, manifest } = await pack(dir, out);
       problems.push(...manifestProblems(manifest, version, names));
       const published = (await publishedVersions(manifest.name)).has(version);
-      plan.push({ name: manifest.name, tarball, published });
+      plan.push({ dir, name: manifest.name, tarball, published });
     }
     if (problems.length > 0) fail(`not publishing:\n  ${problems.join("\n  ")}`);
 
@@ -149,11 +152,11 @@ const main = async () => {
     if (todo.length === 0) return console.log(`release: ${version} is on npm whole`);
     if (dryRun) return console.log(`release: dry run, ${todo.length} to publish`);
 
-    for (const { name, tarball } of todo) {
+    for (const { dir, name, tarball } of todo) {
       console.log(`\nrelease: publishing ${name}@${version}`);
       // Under latest even as a prerelease: until a stable release, a plain install gets the newest.
       // TODO: once out of beta, publish a prerelease under its id (beta, rc) and only a stable under latest.
-      const output = await publish(tarball);
+      const output = await publish(dir, tarball);
       if (!accepted(output, name, version))
         fail(
           `npm did not take ${name}@${version}, so the release stopped here.\n` +
