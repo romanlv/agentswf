@@ -63,7 +63,7 @@ under can return later, per provider (open question 7).
    Sharing it is how agents share a box. A spec given inline to one agent is shorthand for a
    private instance.
 
-**Absent means no sandbox.** `sandbox: {}` is the reader: it reads its working directory, writes
+**Absent means no sandbox.** `sandbox: { srt: {} }`, or `{ docker: {} }`, is the reader: it reads its working directory, writes
 nothing, reaches only its model, and sees nothing else under the operator's home, the temp
 directories or harness state. That is the replayed reviewer, the case worth making effortless.
 
