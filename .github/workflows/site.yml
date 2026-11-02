@@ -1,10 +1,18 @@
-# Builds site/ and deploys it to agents.wf on every push to main. Not filtered by path: the site
-# also reads the help files, examples/ and the agentswf manifest. A failed build deploys nothing.
+# Builds site/ and deploys it to agents.wf when a push to main touches what the build reads:
+# site/, the samples in examples/, the CLI help files and AGENTS.md template it includes, and the
+# agentswf manifest it takes the version from. A failed build deploys nothing.
 name: site
 
 on:
   push:
     branches: [main]
+    paths:
+      - site/**
+      - examples/**
+      - packages/engine/src/help/**
+      - packages/engine/src/init-template/AGENTS.md.template
+      - packages/agentswf/package.json
+      - .github/workflows/site.yml
   workflow_dispatch:
 
 concurrency:
