@@ -2,7 +2,6 @@
 import {
   DeadlineExceededError,
   defineWorkflow,
-  isAnswered,
   type TurnOutcome,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -64,7 +63,7 @@ export default defineWorkflow({
       // #endregion over
     }
     // #region stop
-    const answered = reviews.filter(isAnswered);
+    const answered = reviews.filter((o) => o.answered);
     if (answered.length === 0) {
       return wf.stop(
         `no review answered: ${reviews.map((o) => o.kind).join(", ")}`,

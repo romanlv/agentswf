@@ -1,5 +1,5 @@
 // #region file
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const CHECK = Type.Object(
@@ -26,7 +26,7 @@ export default defineWorkflow({
         prompt: `Check every command and API that ${file} shows against the code.`,
         schema: CHECK,
       });
-      if (!isAnswered(outcome))
+      if (!outcome.answered)
         return wf.stop(`${file}: ${outcome.kind}: ${outcome.reason}`);
       checked.push({ file, problems: outcome.value.problems });
     }

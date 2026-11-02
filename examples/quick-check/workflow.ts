@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type JsonValue,
   type TurnOutcome,
   type WorkflowInvocation,
@@ -80,7 +79,7 @@ export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
             schema: ANSWER_SCHEMA,
             timeoutMs: 3 * 60_000,
           });
-          if (!isAnswered(outcome)) {
+          if (!outcome.answered) {
             answers.push({ outcome: outcome.kind, expected, reason: outcome.reason });
             break;
           }

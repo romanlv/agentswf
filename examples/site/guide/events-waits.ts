@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  isAnswered,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 const Shipped = Type.Object(
@@ -50,7 +46,7 @@ export default defineWorkflow({
           prompt: `Run the smoke tests against ${version}. Did they pass?`,
           schema: SMOKE,
         });
-        return isAnswered(outcome) && outcome.value.passed;
+        return outcome.answered && outcome.value.passed;
       },
     );
     if (!passed) return { version, ended: "smoke tests failed" };
@@ -77,7 +73,7 @@ export default defineWorkflow({
             `Remove the ${flag} flag and its dead branch, and commit.`,
           schema: REMOVED,
         });
-        if (!isAnswered(outcome))
+        if (!outcome.answered)
           return wf.stop(`flag not removed: ${outcome.reason}`);
         return outcome.value;
       },

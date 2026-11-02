@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const FINDINGS = Type.Object(
@@ -36,7 +36,7 @@ export default defineWorkflow({
         "checkout-api returns 5xx since 09:12. Find the cause in the logs under logs/.",
       schema: FINDINGS,
     });
-    if (!isAnswered(outcome)) return wf.stop(`investigator: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`investigator: ${outcome.reason}`);
     return outcome.value;
   },
 });

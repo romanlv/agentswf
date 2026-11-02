@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const PLAN = Type.Object(
@@ -31,7 +31,7 @@ export default defineWorkflow({
         prompt: `Plan a fix for ${args.issue}. Name the branch you will work on.`,
         schema: PLAN,
       });
-      if (!isAnswered(outcome)) return wf.stop(`no plan: ${outcome.reason}`);
+      if (!outcome.answered) return wf.stop(`no plan: ${outcome.reason}`);
       return outcome.value;
     });
 
@@ -48,7 +48,7 @@ export default defineWorkflow({
         ].join("\n"),
         schema: BUILT,
       });
-      if (!isAnswered(outcome)) return wf.stop(`not built: ${outcome.reason}`);
+      if (!outcome.answered) return wf.stop(`not built: ${outcome.reason}`);
       return outcome.value;
     });
 
@@ -62,7 +62,7 @@ export default defineWorkflow({
         prompt: `Review commit ${built.commit} on ${plan.branch} as a fix for ${args.issue}.`,
         schema: VERDICT,
       });
-      if (!isAnswered(outcome)) return wf.stop(`no review: ${outcome.reason}`);
+      if (!outcome.answered) return wf.stop(`no review: ${outcome.reason}`);
       return outcome.value;
     });
   },

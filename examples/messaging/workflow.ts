@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type OutputSchema,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
@@ -104,7 +103,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
       ].join(" "),
       schema: BUILT,
     });
-    if (!isAnswered(built.outcome)) return wf.stop(`implementer: ${built.outcome.reason}`);
+    if (!built.outcome.answered) return wf.stop(`implementer: ${built.outcome.reason}`);
 
     const review = await reviewer.run({
       label: "Review",
@@ -116,7 +115,7 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
       ].join(" "),
       schema: REVIEW,
     });
-    if (!isAnswered(review.outcome)) return wf.stop(`reviewer: ${review.outcome.reason}`);
+    if (!review.outcome.answered) return wf.stop(`reviewer: ${review.outcome.reason}`);
 
     const { approved, outputs } = review.outcome.value;
     return {

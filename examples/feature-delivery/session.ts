@@ -1,10 +1,9 @@
 // This workflow's own helper, not awf's API: copy it and change it.
-import {
-  type AgentRef,
-  isAnswered,
-  type JsonValue,
-  type OutputSchema,
-  type WorkflowContext,
+import type {
+  AgentRef,
+  JsonValue,
+  OutputSchema,
+  WorkflowContext,
 } from "@agentswf/contract/workflow";
 
 export type Session = ReturnType<typeof session>;
@@ -20,7 +19,7 @@ export function session(wf: WorkflowContext, agent: AgentRef, name: string = age
       turn: { label: string; prompt: string },
     ): Promise<T> {
       const { outcome } = await agent.run({ schema, ...turn });
-      return isAnswered(outcome) ? outcome.value : stop(outcome.reason);
+      return outcome.answered ? outcome.value : stop(outcome.reason);
     },
   };
 }

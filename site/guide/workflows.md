@@ -76,7 +76,7 @@ refused. So a `run` that declares arguments needs a `prepare`, or `tsc` fails it
 
 There is no graph to declare. The sample's `run` opens one agent and gives it a turn a file:
 a `for` over the files, an `if` on the outcome, an early `return`. A turn's outcome is a value,
-never an exception, so you branch on it with [`isAnswered`](/reference/workflow-api#outcomes) and
+never an exception, so you branch on it with [`outcome.answered`](/reference/workflow-api#outcomes) and
 decide what an agent that didn't answer means for your workflow.
 
 The same goes for structure: split the work into functions that take `wf`, import helpers from

@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -30,7 +30,7 @@ export const forkCaller = defineWorkflow<null, ForkCallerResult>({
       schema: RECALLED,
       timeoutMs: 5 * 60_000,
     });
-    if (!isAnswered(outcome)) throw new Error(`the fork did not answer: ${outcome.kind}`);
+    if (!outcome.answered) throw new Error(`the fork did not answer: ${outcome.kind}`);
     return { model: fork.execution.model, workingOn: outcome.value.working_on };
   },
   present: (result) => `the fork, on ${result.model}, says the session was: ${result.workingOn}`,

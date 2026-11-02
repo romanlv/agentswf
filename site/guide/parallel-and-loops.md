@@ -101,7 +101,7 @@ change in the working tree itself; the author's summary is context, not evidence
 
 ### Branch on the outcome
 
-`isAnswered(outcome)` is enough when every non-answer ends the loop the same way. When one
+`outcome.answered` is enough when every non-answer ends the loop the same way. When one
 deserves another try, branch on `outcome.kind`. Each round starts with the implementer's turn:
 
 <<< @/../examples/site/guide/loops.ts#branch

@@ -26,7 +26,7 @@ Three calls do the work:
 - **`wf.agents.open`** starts a claude agent named `scoper` in this run, with standing
   instructions.
 - **`scoper.run`** gives it one turn: the prompt, and the `schema` its answer must fit.
-- **`isAnswered(outcome)`** tells a checked answer from every other ending, and types
+- **`outcome.answered`** tells a checked answer from every other ending, and types
   `outcome.value` as the schema says.
 
 `wf.stop` ends the run with a reason, and `wf.log` adds a line to its log: both are on

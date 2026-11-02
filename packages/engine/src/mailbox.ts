@@ -26,7 +26,19 @@ export function mailboxFile(runDir: string): string {
 /** The run's mailbox in the order written, less a line a crash tore and kinds this awf doesn't know. */
 export async function readMailbox(runDir: string): Promise<MailboxRecord[]> {
   const lines = await readLines<MailboxRecord>(mailboxFile(runDir));
-  return lines.filter((line) => line.version === MAILBOX_RECORD_VERSION && KINDS.has(line.kind));
+  return lines
+    .filter((line) => line.version === MAILBOX_RECORD_VERSION && KINDS.has(line.kind))
+    .map(withAnswered);
+}
+
+/** A turn's end written before 0.1.0-beta.4 has no `answered`, which a workflow would read as false. */
+function withAnswered(line: MailboxRecord): MailboxRecord {
+  if (line.kind !== "event" || line.name !== "agent:ended") return line;
+  const end = line.data as { outcome?: { kind: string; answered?: boolean } };
+  if (end?.outcome === undefined || end.outcome.answered !== undefined) return line;
+  const answered = end.outcome.kind === "answered";
+  const data = { ...end, outcome: { ...end.outcome, answered } } as unknown as JsonValue;
+  return { ...line, data };
 }
 
 const KINDS = new Set<string>([
@@ -137,6 +149,7 @@ export async function recoverTurns(
           turn: turn.turn,
           meta: turn.meta,
           outcome: {
+            answered: false,
             kind: "failed",
             reason: `attempt ${turn.attempt} ended before this turn did; its work, if any, is in the agent's session`,
             retryable: true,

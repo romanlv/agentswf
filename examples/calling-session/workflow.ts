@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -53,7 +52,7 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
       schema: PICKED,
       ...steps,
     });
-    if (!isAnswered(picked)) throw new Error(`no number: ${picked.kind}`);
+    if (!picked.answered) throw new Error(`no number: ${picked.kind}`);
     const { number } = picked.value;
     let doubled: number | undefined;
     if (args.helper) {
@@ -63,7 +62,7 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
         schema: DOUBLED,
         ...steps,
       });
-      if (isAnswered(outcome)) doubled = outcome.value.answer;
+      if (outcome.answered) doubled = outcome.value.answer;
     }
     const { outcome: recalled } = await author.run({
       prompt: [
@@ -75,7 +74,7 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
       schema: RECALLED,
       ...steps,
     });
-    if (!isAnswered(recalled)) throw new Error(`no recall: ${recalled.kind}`);
+    if (!recalled.answered) throw new Error(`no recall: ${recalled.kind}`);
     return {
       harness: author.execution.harness,
       picked: number,

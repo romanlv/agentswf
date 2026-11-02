@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type OutputSchema,
 } from "../../packages/contract/src/workflow";
 
@@ -52,9 +51,9 @@ export default defineWorkflow<null, CallerSteps>({
     });
     return {
       harness: author.execution.harness,
-      ...(isAnswered(picked) ? { picked: picked.value.number } : {}),
+      ...(picked.answered ? { picked: picked.value.number } : {}),
       interrupted: slept.kind,
-      ...(isAnswered(recalled) ? { recalled: recalled.value.number } : {}),
+      ...(recalled.answered ? { recalled: recalled.value.number } : {}),
     };
   },
   prepare: () => null,

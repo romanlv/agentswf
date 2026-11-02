@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const CHANGED = Type.Object(
@@ -37,7 +37,7 @@ export default defineWorkflow({
         "List the files you changed in this session, and say in two sentences what changed.",
       schema: CHANGED,
     });
-    if (!isAnswered(changed.outcome))
+    if (!changed.outcome.answered)
       return wf.stop(`no change: ${changed.outcome.reason}`);
     const { files, summary } = changed.outcome.value;
 
@@ -46,7 +46,7 @@ export default defineWorkflow({
       prompt: `${summary}\nTest this change in ${files.join(", ")}; list the failing tests.`,
       schema: TESTED,
     });
-    if (!isAnswered(tested.outcome))
+    if (!tested.outcome.answered)
       return wf.stop(`no tests: ${tested.outcome.reason}`);
     const { failing } = tested.outcome.value;
 

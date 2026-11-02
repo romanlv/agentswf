@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type RuntimeSelection,
 } from "@agentswf/contract/workflow";
 
@@ -47,7 +46,7 @@ export default defineWorkflow({
       }
     }
     // #endregion usage
-    return isAnswered(summary.outcome)
+    return summary.outcome.answered
       ? summary.outcome.value
       : summary.outcome.kind;
   },

@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "../../../packages/contract/src/workflow";
+import { defineWorkflow } from "../../../packages/contract/src/workflow";
 
 /**
  * Two agents that name no sandbox, for `tests/run-sandbox.eval.ts`: a prober runs fixed shell
@@ -65,8 +65,8 @@ export default defineWorkflow({
         schema: LINE,
       }),
     ]);
-    if (!isAnswered(probed.outcome)) throw new Error(`prober: ${probed.outcome.kind}`);
-    if (!isAnswered(read.outcome)) throw new Error(`reader: ${read.outcome.kind}`);
+    if (!probed.outcome.answered) throw new Error(`prober: ${probed.outcome.kind}`);
+    if (!read.outcome.answered) throw new Error(`reader: ${read.outcome.kind}`);
     return { results: probed.outcome.value.results, firstLine: read.outcome.value.firstLine };
   },
   prepare: ({ argv }) => {

@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const TRIAGE = Type.Object(
@@ -33,7 +33,7 @@ export default defineWorkflow({
       schema: TRIAGE,
     });
     // #endregion reader
-    if (!isAnswered(outcome)) return wf.stop(`triager: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`triager: ${outcome.reason}`);
     return { label: outcome.value.label };
   },
 });

@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "agentswf/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
@@ -17,6 +17,6 @@ export default defineWorkflow({
       schema: ANSWER,
       timeoutMs: 3 * 60_000,
     });
-    return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
+    return outcome.answered ? outcome.value : { unanswered: outcome.reason };
   },
 });

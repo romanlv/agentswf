@@ -1,9 +1,8 @@
 // Checked by `tsc --noEmit`, never run: story 032's workflow and its test, as an author writes them.
-import {
-  isAnswered,
-  type ParticipantRef,
-  type WorkflowContext,
-  type WorkflowDefinition,
+import type {
+  ParticipantRef,
+  WorkflowContext,
+  WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { answer, type ParticipantScript, testWorkflow } from ".";
 
@@ -26,7 +25,7 @@ const investigate: WorkflowDefinition<null, string> = {
     await coordinator.release("investigation done");
     // A run has no deadline unless `awf run --timeout` gives it one.
     const left = wf.deadline ? wf.deadline.unixMilliseconds - Date.now() : undefined;
-    return isAnswered(outcome) ? `${outcome.value} (${left ?? "no"} ms left)` : outcome.kind;
+    return outcome.answered ? `${outcome.value} (${left ?? "no"} ms left)` : outcome.kind;
   },
 };
 

@@ -1,12 +1,7 @@
 // The Datadog watcher's triage tick, from its style-c sketch: it triages signals into cases and
 // tells each changed case's run. Declared below: the case files' writer, and what the tick uses
 // from beyond story 034 (`singleton`).
-import {
-  defineWorkflow,
-  isAnswered,
-  type JsonValue,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type JsonValue, type OutputSchema } from "@agentswf/contract/workflow";
 import caseRun from "./dd-case";
 
 type Change = {
@@ -52,7 +47,7 @@ export default singleton(
           prompt: fill(TRIAGE.prompt, { lastTick: cases.lastTick() }),
           schema: Triage,
         });
-        if (!isAnswered(outcome)) throw new Error(`triage: ${outcome.kind}`);
+        if (!outcome.answered) throw new Error(`triage: ${outcome.kind}`);
         return outcome.value;
       });
       if (sources.some((s) => !s.ok)) return { changed: 0, skipped: "a pull failed" };

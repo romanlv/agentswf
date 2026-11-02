@@ -51,7 +51,7 @@ the prompt, works, and answers with `wfa result`. A turn ends exactly once, with
 
 **Outcome.** How a turn ended. `answered` carries `value`: the answer, checked against the turn's
 `schema`, or a string when there is none. Every other kind carries a `reason`: `unanswered`,
-`blocked`, `timed-out`, `failed` or `cancelled`. `isAnswered(outcome)` tells them apart and types
+`blocked`, `timed-out`, `failed` or `cancelled`. `outcome.answered` tells them apart and types
 the value. [Outcomes](/reference/workflow-api#outcomes) says what each kind means.
 
 **Harness.** The coding-agent CLI an agent runs in: `claude` (Claude Code), `codex`, `pi` or

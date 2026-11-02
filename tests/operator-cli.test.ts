@@ -2757,7 +2757,7 @@ describe("awf test", () => {
     const dir = runDirs.tempRunDir();
     await Bun.write(
       join(dir, "summarize.ts"),
-      `import { defineWorkflow, isAnswered } from "agentswf/workflow";
+      `import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
@@ -2767,7 +2767,7 @@ export default defineWorkflow<{ file: string }, string>({
   async run(workflow, { file }) {
     const agent = await workflow.agents.open({ key: "writer", runtime: "claude" });
     const { outcome } = await agent.run({ prompt: \`Summarize \${file}.\`, schema: SUMMARY });
-    if (!isAnswered(outcome)) throw new Error(outcome.kind);
+    if (!outcome.answered) throw new Error(outcome.kind);
     return outcome.value.summary;
   },
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),

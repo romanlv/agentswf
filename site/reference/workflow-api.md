@@ -31,7 +31,6 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | --- | --- |
 | [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools?, labels?, deadline? })`](#agents-open) | an agent |
 | [`agent.run({ prompt, schema?, timeoutMs?, deadline?, label?, nudge?, id? })`](#agent-run) | `{ outcome }`, in the agent's same session |
-| [`isAnswered(outcome)`](#isanswered) | narrows to `{ kind: "answered", value }` |
 | [`agent.compact({ prompt, timeoutMs?, deadline?, id? })`](#agent-compact) | an outcome; the harness's own compaction |
 | [`agent.set({ model?, effort?, timeoutMs?, deadline?, id? })`](#agent-set) | an outcome; later turns run at these |
 | [`agent.fork({ key, placement?, metered?, effort?, instructions?, labels?, layout?, keepPane?, tools? })`](#agent-fork) | a new agent on a copy of this one's session |
@@ -108,7 +107,7 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 
 ```ts
 // summarize.ts
-import { defineWorkflow, isAnswered } from "agentswf/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
@@ -121,7 +120,7 @@ export default defineWorkflow({
       prompt: `Read ${args.file} and summarize it in two sentences.`,
       schema: SUMMARY,
     });
-    return isAnswered(outcome) ? outcome.value : { summary: `no answer: ${outcome.reason}` };
+    return outcome.answered ? outcome.value : { summary: `no answer: ${outcome.reason}` };
   },
   // Turns the command line into args: `awf run summarize.ts -- src/index.ts`.
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
@@ -245,19 +244,17 @@ scope that has ended:
 | `failed` | `reason`, `retryable` and `login?`. `retryable` is `false` for every turn that runs today; only a [started turn](#agent-start) whose attempt ended before it did is `true`. `login` is set when the harness has no login, or it was refused: `{ harness, provider?, run }`, with `run` saying what the operator should run. |
 | `cancelled` | `reason`. The run, an enclosing scope or [`wf.agents.stop`](#agents-stop) stopped it. |
 
-Every outcome also has `usage`, the operation's record: its times, sessions and settings.
+Every outcome also has `answered`, `true` only for `answered`, and `usage`, the operation's
+record: its times, sessions and settings. Checking `answered` narrows `outcome.value` to the
+schema's type, and every other outcome to one with a `reason`:
+
+<<< @/../examples/site/reference/workflow-api.ts#isanswered
 
 A turn that fails or times out closes its agent, which takes no more turns; the calling session
 is the exception. A missing login fails every agent on that harness the same way, so a workflow
 that shouldn't go on stops on it:
 
 <<< @/../examples/site/reference/workflow-api.ts#login
-
-### isAnswered {#isanswered}
-
-`isAnswered(outcome)` is `true` for `answered`, and narrows `outcome.value` to the schema's type.
-
-<<< @/../examples/site/reference/workflow-api.ts#isanswered
 
 <a id="compacting-keep-the-agent-shrink-its-context"></a>
 

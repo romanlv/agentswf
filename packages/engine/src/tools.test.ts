@@ -6,7 +6,6 @@ import {
   type AgentRef,
   type AgentTools,
   type EventAgentRef,
-  isAnswered,
   type JsonObject,
   type JsonValue,
   type OutputSchema,
@@ -1558,7 +1557,7 @@ describe("with started turns", () => {
               ready.resolve();
             } else if (a.is(e)) waiting -= 1;
             else if (b.is(e)) {
-              said = isAnswered(e.data.outcome) ? e.data.outcome.value : e.data.outcome.kind;
+              said = e.data.outcome.answered ? e.data.outcome.value : e.data.outcome.kind;
               waiting -= 1;
             }
           }
@@ -1682,7 +1681,7 @@ describe("with started turns", () => {
         let said: JsonValue = null;
         await workflow.stage("look", async () => {
           const { outcome } = await agent.run({ prompt: "look" });
-          said = isAnswered(outcome) ? outcome.value : outcome.kind;
+          said = outcome.answered ? outcome.value : outcome.kind;
         });
         return said;
       }),
@@ -1729,7 +1728,7 @@ describe("with started turns", () => {
         });
         started = await agent.start({ prompt: "look" });
         const [end] = await workflow.receive();
-        return end && agent.is(end) && isAnswered(end.data.outcome) ? end.data.outcome.value : null;
+        return end && agent.is(end) && end.data.outcome.answered ? end.data.outcome.value : null;
       }),
       {
         ...startCase,

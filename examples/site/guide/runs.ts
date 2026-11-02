@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const PLAN = Type.Object(
@@ -33,7 +33,7 @@ export default defineWorkflow({
           prompt: `Write an implementation plan for ${ticket} in docs/${ticket}.md.`,
           schema: PLAN,
         });
-        if (!isAnswered(outcome)) return wf.stop(`planner: ${outcome.reason}`);
+        if (!outcome.answered) return wf.stop(`planner: ${outcome.reason}`);
         return outcome.value;
       },
     );
@@ -51,7 +51,7 @@ export default defineWorkflow({
           prompt: `Implement ${plan.doc} on a new branch.`,
           schema: BUILT,
         });
-        if (!isAnswered(outcome)) return wf.stop(`builder: ${outcome.reason}`);
+        if (!outcome.answered) return wf.stop(`builder: ${outcome.reason}`);
         return outcome.value;
       },
     );

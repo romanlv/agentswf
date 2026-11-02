@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const CHANGE = Type.Object(
@@ -37,7 +37,7 @@ export default defineWorkflow({
       prompt: "Add retries to the HTTP client in src/http.ts.",
       schema: CHANGE,
     });
-    if (!isAnswered(outcome)) return wf.stop(`implementer: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`implementer: ${outcome.reason}`);
 
     const questions = wf
       .usage()

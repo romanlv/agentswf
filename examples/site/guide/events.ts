@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  isAnswered,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 // #region schemas
@@ -55,7 +51,7 @@ export default defineWorkflow({
             "Fix it, commit and push.",
           schema: FIX,
         });
-        if (isAnswered(outcome))
+        if (outcome.answered)
           wf.log("pushed a fix", { commit: outcome.value.commit });
         else wf.log("no fix", { reason: outcome.reason });
       });

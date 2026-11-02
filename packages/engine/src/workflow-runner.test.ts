@@ -16,7 +16,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { DeadlineExceededError, isAnswered } from "@agentswf/contract/workflow";
+import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type {
   AgentRunHostFactory,
@@ -723,7 +723,7 @@ describe("runWorkflow", () => {
         deadline: future(),
         nudge: false,
       });
-      return isAnswered(result.outcome) ? result.outcome.value.answer : result.outcome.kind;
+      return result.outcome.answered ? result.outcome.value.answer : result.outcome.kind;
     });
 
     const result = await runNew(workflow, null, {

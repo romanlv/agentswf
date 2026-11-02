@@ -1,11 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
+import type { JsonObject } from "@agentswf/contract/workflow";
 import {
   appendMailbox,
   foldMailbox,
   RunMailbox,
   RunParked,
   readMailbox,
+  type TurnEnd,
   timerEventId,
 } from "./mailbox";
 import { createTempRunDirs } from "./testing";
@@ -419,4 +421,23 @@ test("a rerun's first select leaves a held event it doesn't take waiting, not ac
   const again = mailbox(runDir, 2);
   expect((await again.select([{ name: "dd.changes" }], undefined)).id).toBe("z");
   expect((await again.select([{ name: "dd.closed" }], undefined)).id).toBe("y");
+});
+
+test("a turn's end written before outcomes had `answered` reads back with it", async () => {
+  const runDir = runDirs.tempRunDir();
+  const end = (id: string, outcome: JsonObject): MailboxRecord => ({
+    version: MAILBOX_RECORD_VERSION,
+    at,
+    kind: "event",
+    id,
+    name: "agent:ended",
+    from: "reviewer",
+    data: { turn: id, meta: null, outcome: { ...outcome, usage: {} } },
+  });
+  await appendMailbox(runDir, end("a", { kind: "answered", value: "" }));
+  await appendMailbox(runDir, end("b", { kind: "blocked", reason: "a prompt" }));
+  const outcomes = (await readMailbox(runDir)).map(
+    (line) => (line as unknown as { data: TurnEnd }).data.outcome.answered,
+  );
+  expect(outcomes).toEqual([true, false]);
 });

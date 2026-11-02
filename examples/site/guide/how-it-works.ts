@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const VERDICT = Type.Object(
@@ -22,7 +22,7 @@ export default defineWorkflow({
           "Read README.md and check every command it shows against the code.",
         schema: VERDICT,
       });
-      if (!isAnswered(outcome))
+      if (!outcome.answered)
         return wf.stop(`${outcome.kind}: ${outcome.reason}`);
       return outcome.value;
     });

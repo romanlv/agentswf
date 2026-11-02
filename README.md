@@ -9,7 +9,7 @@ agents that never answer, answer in prose, hang, or quietly run up a bill.
 // Inside a workflow: open an agent, give it work, get a typed answer back.
 const reviewer = await wf.agents.open({ key: "reviewer", runtime: { harness: "codex", model: "gpt-6-luna" } });
 const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", schema: FINDINGS });
-if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
+if (outcome.answered) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
 ```
 
 > **Shaped by use.** agentswf is in its evaluation phase, and what people build with it decides
@@ -172,7 +172,7 @@ has.
 
 ```ts
 // hello/workflow.ts
-import { defineWorkflow, isAnswered } from "agentswf/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
@@ -189,7 +189,7 @@ export default defineWorkflow({
       schema: ANSWER,
       timeoutMs: 3 * 60_000,
     });
-    return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
+    return outcome.answered ? outcome.value : { unanswered: outcome.reason };
   },
 });
 ```

@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -89,7 +88,7 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
         });
         const ask = async (prompt: string) => {
           const { outcome } = await agent.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
-          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+          return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const problem =
           (await ask(`Remember this for later: the shed is ${args.colour}. Answer noted: true.`)) ??
@@ -112,8 +111,8 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
         return {
           runtime,
           compacted: compacted.kind,
-          ...(isAnswered(compacted) ? { summary: compacted.value } : { reason: compacted.reason }),
-          ...(isAnswered(outcome)
+          ...(compacted.answered ? { summary: compacted.value } : { reason: compacted.reason }),
+          ...(outcome.answered
             ? { recalled: outcome.value }
             : { problem: `${outcome.kind}: ${outcome.reason}` }),
         };

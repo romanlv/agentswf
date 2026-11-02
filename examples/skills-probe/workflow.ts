@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -114,7 +113,7 @@ export default defineWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
           schema: REPORT,
           timeoutMs: 4 * 60_000,
         });
-        return isAnswered(outcome)
+        return outcome.answered
           ? { agent: name, outcome: outcome.kind, ...outcome.value }
           : { agent: name, outcome: outcome.kind, reason: outcome.reason };
       },

@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type RuntimeSelection,
   type Workflow,
   type WorkflowContext,
@@ -150,7 +149,7 @@ async function runLens(wf: WorkflowContext, args: CatalogueArgs, lens: Lens): Pr
       schema: FINDINGS_SCHEMA,
     });
 
-    return isAnswered(outcome)
+    return outcome.answered
       ? {
           kind: "completed",
           lens,
@@ -194,7 +193,7 @@ async function verifyFindings(
           schema: VERDICT_SCHEMA,
         });
 
-        return isAnswered(outcome)
+        return outcome.answered
           ? { finding: applyVerdict(finding, outcome.value) }
           : { finding: notVerified(finding), failure: outcome.reason };
       } catch (error) {

@@ -3,7 +3,6 @@
 // GitLab are declared below.
 import {
   defineWorkflow,
-  isAnswered,
   type OutputSchema,
   type WorkflowContext,
 } from "@agentswf/contract/workflow";
@@ -110,7 +109,7 @@ const mrReview = defineWorkflow({
         if (e.name === "mr.changes") ledger.saw(e.data);
         if (e.name === "mr.rereview") ledger.askAgain();
         if (reviewer.is<Ask, Pass>(e)) {
-          if (isAnswered(e.data.outcome)) {
+          if (e.data.outcome.answered) {
             const pass = e.data.outcome.value;
             await wf.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
           } else if (e.data.outcome.kind !== "cancelled") {

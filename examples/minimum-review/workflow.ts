@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type RuntimeSelection,
   type Workflow,
   type WorkflowDefinition,
@@ -96,7 +95,7 @@ export function createMinimumReview(
             schema: reviewSchema(lens),
           });
 
-          return isAnswered(outcome)
+          return outcome.answered
             ? { kind: "completed", ...outcome.value }
             : { kind: "incomplete", lens, outcome: outcome.kind, reason: outcome.reason };
         },

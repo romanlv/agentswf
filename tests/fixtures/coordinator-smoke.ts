@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type OutputSchema,
 } from "../../packages/contract/src/workflow";
 
@@ -62,7 +61,7 @@ export default defineWorkflow<
         schema: ANSWER,
         timeoutMs,
       });
-      return isAnswered(outcome)
+      return outcome.answered
         ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
         : { runtime, outcome: `${outcome.kind}: ${outcome.reason}` };
     });

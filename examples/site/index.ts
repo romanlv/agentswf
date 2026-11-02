@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const DONE = Type.Object(
@@ -32,13 +32,13 @@ export default defineWorkflow({
     let prompt = `Implement this task: ${task}`;
     for (let round = 1; round <= 3; round++) {
       const work = await implementer.run<Done>({ prompt, schema: DONE });
-      if (!isAnswered(work.outcome))
+      if (!work.outcome.answered)
         return wf.stop(`implementer: ${work.outcome.reason}`);
       const review = await reviewer.run<Verdict>({
         prompt: "Review the change.",
         schema: VERDICT,
       });
-      if (!isAnswered(review.outcome))
+      if (!review.outcome.answered)
         return wf.stop(`reviewer: ${review.outcome.reason}`);
       if (review.outcome.value.approved)
         return { approved: true, rounds: round };

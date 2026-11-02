@@ -1,9 +1,5 @@
 // #region open
-import {
-  defineWorkflow,
-  isAnswered,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */
@@ -66,7 +62,7 @@ export default defineWorkflow({
         if (reviewer.is<Change, ReviewValue>(e)) {
           const { outcome, meta } = e.data;
           if (next?.head === meta.head) next = null;
-          if (!isAnswered(outcome)) {
+          if (!outcome.answered) {
             wf.log("review failed", {
               head: meta.head,
               reason: outcome.reason,

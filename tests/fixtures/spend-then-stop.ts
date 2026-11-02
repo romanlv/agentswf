@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type OutputSchema,
 } from "../../packages/contract/src/workflow";
 
@@ -32,7 +31,7 @@ export default defineWorkflow<{ mode: Mode }, null>({
       schema: ANSWER,
       timeoutMs: 3 * 60_000,
     });
-    if (!isAnswered(first.outcome)) throw new Error(`no first answer: ${first.outcome.reason}`);
+    if (!first.outcome.answered) throw new Error(`no first answer: ${first.outcome.reason}`);
     wf.log("answered");
     if (mode === "crash") throw new Error("variant crashed after spending");
     await agent.run({

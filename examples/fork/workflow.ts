@@ -2,7 +2,6 @@ import {
   type AgentPlacement,
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -103,7 +102,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
         });
         const note = async (prompt: string) => {
           const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
-          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+          return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const recall = async (agent: typeof worker) => {
           const { outcome } = await agent.run({
@@ -111,7 +110,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
             schema: RECALLED,
             timeoutMs: 4 * MINUTE,
           });
-          return isAnswered(outcome) ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
+          return outcome.answered ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
         };
         const problem = await note(
           `For later: this project's codename is ${args.codename}. Answer noted: true.`,
@@ -127,7 +126,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
             prompt: "Keep the project's codename.",
             timeoutMs: 5 * MINUTE,
           });
-          if (!isAnswered(compacted)) {
+          if (!compacted.answered) {
             return { name, problem: `compaction ${compacted.kind}: ${compacted.reason}` };
           }
         }

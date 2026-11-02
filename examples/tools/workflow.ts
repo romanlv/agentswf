@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type JsonValue,
   type TurnOutcome,
   tool,
@@ -132,9 +131,7 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
           runtime,
           outcome: outcome.kind,
           items,
-          ...(isAnswered(outcome)
-            ? { summary: outcome.value.summary }
-            : { reason: outcome.reason }),
+          ...(outcome.answered ? { summary: outcome.value.summary } : { reason: outcome.reason }),
         };
       },
       { label: "Triage" },

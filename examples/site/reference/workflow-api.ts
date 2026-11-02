@@ -2,7 +2,6 @@ import {
   choice,
   defineWorkflow,
   type EventAgentRef,
-  isAnswered,
   type JsonObject,
   type OutputSchema,
   score,
@@ -55,7 +54,7 @@ export const agents = defineWorkflow({
     // #endregion login
 
     // #region isanswered
-    if (!isAnswered(outcome)) return { error: `${outcome.kind}: ${outcome.reason}` };
+    if (!outcome.answered) return { error: `${outcome.kind}: ${outcome.reason}` };
     outcome.value.findings; // typed
     // #endregion isanswered
 
@@ -64,7 +63,7 @@ export const agents = defineWorkflow({
     const compacted = await builder.compact({
       prompt: "Keep the plan's decisions, the branch and the worktree. Drop file contents.",
     });
-    if (!isAnswered(compacted)) wf.log("compaction didn't finish", { reason: compacted.reason });
+    if (!compacted.answered) wf.log("compaction didn't finish", { reason: compacted.reason });
     // #endregion compact
 
     // #region set
@@ -160,7 +159,7 @@ export const composing = defineWorkflow({
           prompt: `Review for ${lens}.`,
           schema: FINDINGS,
         });
-        return isAnswered(outcome) ? outcome.value.findings : [];
+        return outcome.answered ? outcome.value.findings : [];
       },
       { label: "review", concurrency: 2 },
     );
@@ -234,7 +233,7 @@ export const composing = defineWorkflow({
         prompt: `Find the ticket doc for ${ticket}`,
         schema: DOC,
       });
-      if (!isAnswered(outcome)) return wf.stop(outcome.reason); // inside: a continue redoes doc-review
+      if (!outcome.answered) return wf.stop(outcome.reason); // inside: a continue redoes doc-review
       return outcome.value;
     });
     await wf.stage("notify", async () => {
@@ -281,7 +280,7 @@ export const ddCase = defineWorkflow({
     for (;;) {
       const events = await wf.receive({ label: `${kase.unseen()} unseen` });
       for (const e of events) {
-        if (investigator.is<string[]>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+        if (investigator.is<string[]>(e) && e.data.outcome.answered) kase.markGiven(e.data.meta);
         if (e.name === "dd.closed") await wf.stage(`close-${e.id}`, () => kase.close(e.data));
       }
       if (!investigator.turn && kase.needsLook()) {

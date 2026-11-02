@@ -2988,6 +2988,7 @@ class LogicalAgent implements AgentRef {
         .then(
           ({ outcome }) => outcome,
           (error: unknown): TurnOutcome<JsonValue> => ({
+            answered: false,
             kind: "failed",
             reason: messageOf(error),
             retryable: false,
@@ -3423,7 +3424,12 @@ class LogicalAgent implements AgentRef {
     const usage = () =>
       entry.settle({ settledAt: Math.min(Date.now(), deadline.unixMilliseconds) }, []);
     if (Date.now() >= deadline.unixMilliseconds) {
-      return { kind: "timed-out", reason: "settings deadline exceeded", usage: usage() };
+      return {
+        answered: false,
+        kind: "timed-out",
+        reason: "settings deadline exceeded",
+        usage: usage(),
+      };
     }
     const next: AgentExecution = { ...this.#execution, ...change };
     const pane = placementOf(next) === "pane";
@@ -3451,15 +3457,16 @@ class LogicalAgent implements AgentRef {
           cancelled !== undefined ? "cancelled" : expired ? "timed-out" : "failed",
         );
       }
-      if (cancelled !== undefined) return { kind: "cancelled", reason, usage: usage() };
+      if (cancelled !== undefined)
+        return { answered: false, kind: "cancelled", reason, usage: usage() };
       return expired
-        ? { kind: "timed-out", reason, usage: usage() }
-        : { kind: "failed", reason, retryable: false, usage: usage() };
+        ? { answered: false, kind: "timed-out", reason, usage: usage() }
+        : { answered: false, kind: "failed", reason, retryable: false, usage: usage() };
     } finally {
       removeCanceller?.();
     }
     this.#execution = next;
-    return { kind: "answered", value: null, usage: usage() };
+    return { answered: true, kind: "answered", value: null, usage: usage() };
   }
 
   /**
@@ -3733,14 +3740,23 @@ class LogicalAgent implements AgentRef {
       outcome.charges,
     );
     if (outcome.kind === "answered")
-      return { outcome: { kind: "answered", value: outcome.value as JsonValue, usage } };
+      return {
+        outcome: { answered: true, kind: "answered", value: outcome.value as JsonValue, usage },
+      };
     if (outcome.kind === "failed") {
       const login = outcome.login ? { login: outcome.login } : {};
       return {
-        outcome: { kind: "failed", reason: outcome.reason, retryable: false, ...login, usage },
+        outcome: {
+          answered: false,
+          kind: "failed",
+          reason: outcome.reason,
+          retryable: false,
+          ...login,
+          usage,
+        },
       };
     }
-    return { outcome: { kind: outcome.kind, reason: outcome.reason, usage } };
+    return { outcome: { answered: false, kind: outcome.kind, reason: outcome.reason, usage } };
   }
 
   /**
@@ -4036,10 +4052,10 @@ class LogicalAgent implements AgentRef {
     // Recorded `answered` with no value: it did what it was woken for, and takes no result.
     this.turnEnded(
       outcome.kind === "answered"
-        ? { kind: "answered", value: null, usage }
+        ? { answered: true, kind: "answered", value: null, usage }
         : outcome.kind === "failed"
-          ? { kind: "failed", reason: outcome.reason, retryable: false, usage }
-          : { kind: outcome.kind, reason: outcome.reason, usage },
+          ? { answered: false, kind: "failed", reason: outcome.reason, retryable: false, usage }
+          : { answered: false, kind: outcome.kind, reason: outcome.reason, usage },
       "turn",
       true,
     );
@@ -4074,17 +4090,23 @@ class LogicalAgent implements AgentRef {
         later,
       );
       if (native === "expired") {
-        return { kind: "timed-out", reason: "compaction deadline exceeded", usage };
+        return {
+          answered: false,
+          kind: "timed-out",
+          reason: "compaction deadline exceeded",
+          usage,
+        };
       }
       if (native.state === "completed") {
         return native.summary === undefined
           ? {
+              answered: false,
               kind: "failed",
               reason: native.detail ?? "the harness did not confirm a compaction",
               retryable: false,
               usage,
             }
-          : { kind: "answered", value: native.summary, usage };
+          : { answered: true, kind: "answered", value: native.summary, usage };
       }
       return reconcile<string>(native, usage);
     };
@@ -4439,20 +4461,41 @@ function reconcile<T extends JsonValue>(
 ): TurnOutcome<T> {
   switch (native.state) {
     case "completed":
-      return { kind: "unanswered", reason: "agent settled without an accepted result", usage };
+      return {
+        answered: false,
+        kind: "unanswered",
+        reason: "agent settled without an accepted result",
+        usage,
+      };
     case "blocked":
-      return { kind: "blocked", reason: native.detail ?? "agent is blocked", usage };
+      return {
+        answered: false,
+        kind: "blocked",
+        reason: native.detail ?? "agent is blocked",
+        usage,
+      };
     case "timed-out":
-      return { kind: "timed-out", reason: native.detail ?? "operation timed out", usage };
+      return {
+        answered: false,
+        kind: "timed-out",
+        reason: native.detail ?? "operation timed out",
+        usage,
+      };
     case "failed":
       return {
+        answered: false,
         kind: "failed",
         reason: native.detail ?? "harness operation failed",
         retryable: false,
         usage,
       };
     case "cancelled":
-      return { kind: "cancelled", reason: native.detail ?? "operation cancelled", usage };
+      return {
+        answered: false,
+        kind: "cancelled",
+        reason: native.detail ?? "operation cancelled",
+        usage,
+      };
   }
 }
 

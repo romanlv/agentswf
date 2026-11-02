@@ -1,7 +1,6 @@
 import {
   type AgentExecution,
   defineWorkflow,
-  isAnswered,
   type RuntimeSelection,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -79,7 +78,7 @@ export default defineWorkflow({
         "Plan how to add a --verbose flag to the CLI. Don't edit anything.",
       schema: PLAN,
     });
-    if (!isAnswered(plan.outcome))
+    if (!plan.outcome.answered)
       return wf.stop(`${plan.outcome.kind}: ${plan.outcome.reason}`);
     const files = await lister.run({
       prompt: [
@@ -89,7 +88,7 @@ export default defineWorkflow({
     });
     return {
       steps: plan.outcome.value.steps,
-      files: isAnswered(files.outcome) ? files.outcome.value : "",
+      files: files.outcome.answered ? files.outcome.value : "",
     };
   },
 });
@@ -154,7 +153,7 @@ export const reviewers = defineWorkflow({
       agent.run({ prompt: "Review the change in your area." }),
     );
     return notes.map(({ outcome }) =>
-      isAnswered(outcome) ? outcome.value : outcome.kind,
+      outcome.answered ? outcome.value : outcome.kind,
     );
   },
 });

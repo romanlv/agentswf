@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  isAnswered,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 const Deployed = Type.Object(
@@ -51,7 +47,7 @@ export default defineWorkflow({
         `since ${version} went out. Is it healthy?`,
       schema: CHECK,
     });
-    if (!isAnswered(outcome)) return wf.stop(`no check: ${outcome.kind}`);
+    if (!outcome.answered) return wf.stop(`no check: ${outcome.kind}`);
     return { service, version, checked: true, ...outcome.value };
   },
 });

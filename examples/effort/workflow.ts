@@ -3,7 +3,6 @@ import {
   defineWorkflow,
   type Effort,
   type ExecutionConfig,
-  isAnswered,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
@@ -116,9 +115,9 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
             outcome: outcome.kind,
             execution: outcome.usage.execution,
             sessions: outcome.usage.sessions.map(({ id }) => id),
-            ...(isAnswered(outcome) ? outcome.value : {}),
+            ...(outcome.answered ? outcome.value : {}),
           });
-          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+          return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const set = async (spec: { effort?: Effort; model?: string }) => {
           const outcome = await agent.set({ ...spec, timeoutMs: 3 * MINUTE });
@@ -128,7 +127,7 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
             execution: outcome.usage.execution,
             sessions: outcome.usage.sessions.map(({ id }) => id),
           });
-          return isAnswered(outcome) ? undefined : `set ${outcome.kind}: ${outcome.reason}`;
+          return outcome.answered ? undefined : `set ${outcome.kind}: ${outcome.reason}`;
         };
         const problem =
           (await ask(`Remember this word for later: ${args.word}. Answer it as \`word\`.`)) ??

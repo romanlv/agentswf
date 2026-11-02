@@ -3,7 +3,6 @@ import {
   choice,
   DecisionError,
   defineWorkflow,
-  isAnswered,
   score,
   yesNo,
 } from "@agentswf/contract/workflow";
@@ -90,8 +89,7 @@ export default defineWorkflow<{ ticket: string }, Routed>({
         `Which team owns it, is it a bug, how urgent?\n\n${ticket}`,
       schema: ROUTE,
     });
-    if (!isAnswered(outcome))
-      return wf.stop(`${outcome.kind}: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`${outcome.kind}: ${outcome.reason}`);
     return { ...outcome.value, by: "agent" };
     // #endregion route
   },

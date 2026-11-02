@@ -1,5 +1,5 @@
 // #region first
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const SCOPE = Type.Object(
@@ -33,8 +33,7 @@ export default defineWorkflow({
         "Read ISSUE.md. Which files would its fix change, and how risky is it?",
       schema: SCOPE,
     });
-    if (!isAnswered(outcome))
-      return wf.stop(`${outcome.kind}: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`${outcome.kind}: ${outcome.reason}`);
     return outcome.value; // { files: string[]; risk: "low" | "medium" | "high" }
   },
 });
@@ -64,14 +63,14 @@ export const planAndReview = defineWorkflow({
       prompt: "Read ISSUE.md and plan its fix.",
       schema: PLAN,
     });
-    if (!isAnswered(first.outcome))
+    if (!first.outcome.answered)
       return wf.stop(`no plan: ${first.outcome.reason}`);
     // The same session: it remembers the issue and the plan it just made.
     const cut = await planner.run<Plan>({
       prompt: "Cut your plan down to the smallest change that fixes the issue.",
       schema: PLAN,
     });
-    if (!isAnswered(cut.outcome))
+    if (!cut.outcome.answered)
       return wf.stop(`no smaller plan: ${cut.outcome.reason}`);
     // #endregion turns
 
@@ -80,7 +79,7 @@ export const planAndReview = defineWorkflow({
       prompt:
         "Keep the final plan and the files it names. Drop the files' contents.",
     });
-    if (!isAnswered(compacted))
+    if (!compacted.answered)
       wf.log("compaction didn't finish", { reason: compacted.reason });
     // #endregion compact
 
@@ -100,7 +99,7 @@ export const planAndReview = defineWorkflow({
         const { outcome } = await reviewer.run({
           prompt: "Review your plan. One line per problem.",
         });
-        return isAnswered(outcome)
+        return outcome.answered
           ? outcome.value
           : `${reviewer.key}: ${outcome.kind}`;
       }),
@@ -117,7 +116,7 @@ export const planAndReview = defineWorkflow({
     return {
       plan: cut.outcome.value,
       reviews,
-      title: isAnswered(title.outcome) ? title.outcome.value : null,
+      title: title.outcome.answered ? title.outcome.value : null,
     };
   },
 });
@@ -142,7 +141,7 @@ export const changelog = defineWorkflow({
     if (outcome.kind === "failed" && outcome.login) wf.stop(outcome.reason);
     // outcome.login.run: "run `claude`, then /login; …"
     // #endregion login
-    return isAnswered(outcome)
+    return outcome.answered
       ? outcome.value
       : wf.stop(`${outcome.kind}: ${outcome.reason}`);
   },

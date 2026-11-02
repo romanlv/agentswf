@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type OutputSchema,
 } from "../../packages/contract/src/workflow";
 
@@ -71,7 +70,7 @@ export default defineWorkflow<{ runtime: Runtime; n: number }, Trial[]>({
           schema: PLAN,
           timeoutMs: 6 * 60_000,
         });
-        return isAnswered(outcome)
+        return outcome.answered
           ? { key: planner.key, outcome: outcome.kind, decision: outcome.value.decision }
           : { key: planner.key, outcome: `${outcome.kind}: ${outcome.reason}` };
       },

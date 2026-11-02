@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const FINDINGS = Type.Object(
@@ -43,7 +43,7 @@ export default defineWorkflow({
           prompt: lensPrompt(lens),
           schema: FINDINGS,
         });
-        return isAnswered(outcome)
+        return outcome.answered
           ? { lens, findings: outcome.value.findings }
           : {
               lens,
@@ -88,7 +88,7 @@ export const strictReview = defineWorkflow({
         prompt: lensPrompt(lens),
         schema: FINDINGS,
       });
-      if (!isAnswered(outcome)) throw new Error(`${lens}: ${outcome.kind}`);
+      if (!outcome.answered) throw new Error(`${lens}: ${outcome.kind}`);
       return outcome.value.findings;
     });
     // #endregion strict

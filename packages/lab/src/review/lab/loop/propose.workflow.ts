@@ -5,7 +5,7 @@
 // from the tuning cases only, writes one changed review workflow to `candidate/workflow.ts`, and
 // answers with its hypothesis. `bundle/program.md`, the operator's, steers it; the rules of the
 // try are here. awf-lab checks the candidate's scope before anything runs it.
-import { defineWorkflow, isAnswered, type WorkflowInvocation } from "@agentswf/contract/workflow";
+import { defineWorkflow, type WorkflowInvocation } from "@agentswf/contract/workflow";
 import { runtimeOf } from "../../format/runtime";
 import { type Hypothesis, HypothesisSchema } from "./format";
 import { ALLOWED_IMPORTS } from "./scope";
@@ -43,7 +43,7 @@ export default defineWorkflow<Args, Hypothesis>({
       runtime: runtimeOf(args.runtime),
     });
     const { outcome } = await agent.run({ prompt: PROMPT, schema: HypothesisSchema });
-    if (!isAnswered(outcome)) throw new Error(`no proposal: ${outcome.kind}: ${outcome.reason}`);
+    if (!outcome.answered) throw new Error(`no proposal: ${outcome.kind}: ${outcome.reason}`);
     // Checked against the schema by `wfa result` as it was answered.
     return outcome.value as Hypothesis;
   },

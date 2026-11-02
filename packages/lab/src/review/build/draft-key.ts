@@ -1,11 +1,6 @@
 import { copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import {
-  type ExecutionConfig,
-  isAnswered,
-  type OutputSchema,
-  type WorkflowContext,
-} from "@agentswf/contract/workflow";
+import type { ExecutionConfig, OutputSchema, WorkflowContext } from "@agentswf/contract/workflow";
 import { restore, scratchDir } from "../fixtures/git";
 import type { GitLabDiscussion, GitLabMergeRequest, GitLabVersion } from "../fixtures/gitlab-types";
 import { type OrderedVersion, orderVersions } from "../fixtures/review-start";
@@ -149,7 +144,7 @@ export async function draftKey(
     let detail = "no attempt made";
     for (let attempt = 1; attempt <= options.attempts; attempt++) {
       const { outcome } = await agent.run({ prompt, schema: KEY_BODY, timeoutMs: 40 * 60_000 });
-      if (!isAnswered(outcome)) {
+      if (!outcome.answered) {
         detail = `no key: ${outcome.kind}: ${outcome.reason}`;
         prompt = NO_KEY;
         continue;
@@ -270,7 +265,7 @@ async function castVotes(
   let detail = "";
   for (let attempt = 1; attempt <= 2; attempt++) {
     const { outcome } = await agent.run({ prompt, schema: VOTE_ANSWER, timeoutMs: 20 * 60_000 });
-    if (!isAnswered(outcome)) {
+    if (!outcome.answered) {
       detail = `${outcome.kind}: ${outcome.reason}`;
       prompt = NO_VOTE;
       continue;

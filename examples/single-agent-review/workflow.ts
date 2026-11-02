@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type SkillSource,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
@@ -89,7 +88,7 @@ export default defineWorkflow<SingleReviewArgs, SingleReviewResult>({
       skills: args.skill ? [args.skill] : [],
     });
     const { outcome } = await agent.run({ prompt: reviewPrompt(args), schema: FINDINGS_SCHEMA });
-    if (!isAnswered(outcome)) throw new Error(`no review: ${outcome.kind}: ${outcome.reason}`);
+    if (!outcome.answered) throw new Error(`no review: ${outcome.kind}: ${outcome.reason}`);
     return {
       range: args.range,
       skill: args.skill

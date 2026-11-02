@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered, tool } from "@agentswf/contract/workflow";
+import { defineWorkflow, tool } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 // #region open
@@ -54,7 +54,7 @@ export default defineWorkflow({
     // What the agent recorded is kept, however its turn ended.
     return {
       findings,
-      ended: isAnswered(outcome) ? "answered" : outcome.reason,
+      ended: outcome.answered ? "answered" : outcome.reason,
     };
   },
 });

@@ -1,6 +1,5 @@
 import {
   defineWorkflow,
-  isAnswered,
   type OutputSchema,
   type Workflow,
   type WorkflowContext,
@@ -37,7 +36,7 @@ const caseRun = defineWorkflow({
       for (const e of events) {
         if (investigator.is<Given>(e)) {
           const given: Given = e.data.meta;
-          if (isAnswered(e.data.outcome)) void given.occurrences;
+          if (e.data.outcome.answered) void given.occurrences;
         }
         if (thread.is(e)) void e.data.text.length;
         // A second agent's end is still possible after the first's guard said no.
@@ -223,7 +222,7 @@ defineWorkflow({
     )) {
       if (next.expiry) return null;
       if (next.timer?.name.startsWith("remind-")) wf.timer(`remind-${next.timer.at}`, "2d");
-      if (next.ended && isAnswered(next.ended.outcome)) void next.ended.meta;
+      if (next.ended?.outcome.answered) void next.ended.meta;
     }
     // @ts-expect-error A branch named key would hide the answer's key.
     await wf.race("k", { key: approvals, other: "1h" });

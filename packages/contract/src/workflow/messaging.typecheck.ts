@@ -1,5 +1,4 @@
 import type { AgentRef, JsonValue, OutputSchema, PeerRef, WorkflowContext } from "./index";
-import { isAnswered } from "./index";
 
 // The sketches in docs/design/messaging.md's "Routes by shape", as a workflow writes them.
 declare const wf: WorkflowContext;
@@ -43,7 +42,7 @@ async function oneWayNothingOwed(): Promise<JsonValue> {
     }),
     wf.parallel(lenses, (lens) => lens.run({ prompt: lensPrompt(lens.key), schema: FINDINGS })),
   ]);
-  return isAnswered(fixed.outcome) ? fixed.outcome.value : null;
+  return fixed.outcome.answered ? fixed.outcome.value : null;
 }
 
 async function oneWayWithAnAnswer(): Promise<void> {
@@ -82,7 +81,7 @@ async function routeForOneStage(): Promise<{ steps: string[] }> {
       purpose: "Ask about the design while drafting the plan.",
     });
     const { outcome } = await planner.run({ prompt: planPrompt(ticket), schema: PLAN });
-    return isAnswered(outcome) ? outcome.value : wf.stop(outcome.reason);
+    return outcome.answered ? outcome.value : wf.stop(outcome.reason);
   });
   await wf.agents.stop("architect", "design questions are settled");
   return plan;

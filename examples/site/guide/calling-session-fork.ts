@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 
 // #region fork
 export default defineWorkflow<null, string>({
@@ -15,8 +15,7 @@ export default defineWorkflow<null, string>({
       prompt:
         "Write the pull request description for the change you just made. Run no commands.",
     });
-    if (!isAnswered(outcome))
-      return wf.stop(`no description: ${outcome.reason}`);
+    if (!outcome.answered) return wf.stop(`no description: ${outcome.reason}`);
     return outcome.value;
   },
   present: (description) => description,

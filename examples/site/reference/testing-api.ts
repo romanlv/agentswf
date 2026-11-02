@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered, type OutputSchema } from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const investigate = defineWorkflow({
@@ -16,7 +16,7 @@ export const investigate = defineWorkflow({
     const { outcome } = await investigator.run({
       prompt: "Find why checkout times out. Ask the coordinator how to file what you find.",
     });
-    return isAnswered(outcome) ? outcome.value : outcome.kind;
+    return outcome.answered ? outcome.value : outcome.kind;
   },
 });
 
@@ -61,14 +61,14 @@ export const flow = defineWorkflow({
         prompt: "Review the ticket doc, and give its path.",
         schema: DOC,
       });
-      return isAnswered(outcome) ? outcome.value : wf.stop(`doc-review: ${outcome.reason}`);
+      return outcome.answered ? outcome.value : wf.stop(`doc-review: ${outcome.reason}`);
     });
     const built = await wf.stage("implement", { result: BRANCH }, async () => {
       const { outcome } = await worker.run<Type.Static<typeof BRANCH>>({
         prompt: `Implement ${doc.path} on a branch.`,
         schema: BRANCH,
       });
-      if (!isAnswered(outcome)) return wf.stop(`implement: ${outcome.reason}`);
+      if (!outcome.answered) return wf.stop(`implement: ${outcome.reason}`);
       await worker.compact({ prompt: "Keep the branch, and what is left to check." });
       return outcome.value;
     });
@@ -76,6 +76,6 @@ export const flow = defineWorkflow({
       prompt: `Check a preview of ${built.branch}.`,
       schema: QA,
     });
-    return isAnswered(outcome) ? outcome.value.preview : outcome.reason;
+    return outcome.answered ? outcome.value.preview : outcome.reason;
   },
 });

@@ -64,7 +64,7 @@ it one turn, and returns what came back:
 - **`agent.run`** sends the prompt and waits for the turn's **outcome**. `schema` is the shape the
   answer must have: awf tells the agent how to answer, checks the answer against the schema, and
   sends a **nudge** to an agent that ends its turn without one.
-- **`isAnswered(outcome)`** is true when the agent gave an answer that passed the check. The
+- **`outcome.answered`** is true when the agent gave an answer that passed the check. The
   schema checks the answer at run time; the type argument, `agent.run<Type.Static<typeof ANSWER>>`,
   is what types `outcome.value` in your editor. Any other outcome (no answer, a timeout, a
   failure) carries a `reason`, and the workflow returns that instead of throwing.

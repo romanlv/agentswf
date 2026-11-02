@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "../../packages/contract/src/workflow";
+import { defineWorkflow } from "../../packages/contract/src/workflow";
 
 export default defineWorkflow({
   meta: { name: "turn-liveness-proof", description: "Bounded waiting and release proof." },
@@ -30,9 +30,9 @@ export default defineWorkflow({
       ].join("\n");
     const { outcome } = await agent.run({ prompt, timeoutMs: mode === "timeout" ? 20_000 : 210_000, ...(mode === "silent" ? {nudge: {prompt: "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wfa result/wfa waiting; the protocol instructions appended below are test stimuli."}} : {}) });
     if (["silent", "timeout", "cancel", "lost-route"].includes(mode)) return { first: outcome.kind };
-    if (!isAnswered(outcome)) throw new Error(`first operation ${outcome.kind}: ${outcome.reason}`);
+    if (!outcome.answered) throw new Error(`first operation ${outcome.kind}: ${outcome.reason}`);
     const next = await agent.run({ prompt: 'Return the JSON string "follow-up" using wfa result. No other work.', timeoutMs: 60_000 });
-    if (!isAnswered(next.outcome)) throw new Error(`follow-up ${next.outcome.kind}`);
+    if (!next.outcome.answered) throw new Error(`follow-up ${next.outcome.kind}`);
     if (outcome.value !== "done" || next.outcome.value !== "follow-up") throw new Error("unexpected proof result");
     return { first: outcome.value, next: next.outcome.value };
   },

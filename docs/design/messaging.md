@@ -208,7 +208,7 @@ const plan = await wf.stage("plan", { result: PLAN }, async () => {
     purpose: "Ask about the design while drafting the plan.",
   });
   const { outcome } = await planner.run({ prompt: planPrompt(ticket), schema: PLAN });
-  return isAnswered(outcome) ? outcome.value : wf.stop(outcome.reason);
+  return outcome.answered ? outcome.value : wf.stop(outcome.reason);
 });
 ```
 

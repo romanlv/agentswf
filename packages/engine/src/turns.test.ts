@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import { isAnswered } from "@agentswf/contract/workflow";
 import { appendMailbox, endIdOf, foldMailbox, readMailbox, recoverTurns } from "./mailbox";
 import { caseRun, createTempRunDirs, startCase } from "./testing";
 import { answer, reply, testWorkflow } from "./workflow-testing";
@@ -32,7 +31,7 @@ test("startCase returns at once; the end arrives at a wait with the turn's id, m
             return {
               same: e.data.turn === turn.id,
               given: e.data.meta.given,
-              answered: isAnswered(e.data.outcome) ? e.data.outcome.value : null,
+              answered: e.data.outcome.answered ? e.data.outcome.value : null,
               cleared: agent.turn === null,
             };
           }

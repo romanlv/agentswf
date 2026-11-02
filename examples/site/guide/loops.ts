@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const DONE = Type.Object(
@@ -68,7 +68,7 @@ export default defineWorkflow({
           timeoutMs: TURN_MS,
         });
       }
-      if (!isAnswered(work.outcome)) {
+      if (!work.outcome.answered) {
         return wf.stop(
           `implementer ${work.outcome.kind}: ${work.outcome.reason}`,
         );
@@ -85,7 +85,7 @@ export default defineWorkflow({
         schema: VERDICT,
         timeoutMs: TURN_MS,
       });
-      if (!isAnswered(review.outcome)) {
+      if (!review.outcome.answered) {
         return wf.stop(
           `reviewer ${review.outcome.kind}: ${review.outcome.reason}`,
         );

@@ -357,12 +357,17 @@ export type TurnLogin = {
   run: string;
 };
 
+/**
+ * How an operation settled. `answered` is the check a workflow makes: true only with a `value`,
+ * which may itself be falsy (`""`, `0`, `null`); `kind` says which way it went otherwise.
+ */
 export type TurnOutcome<T extends JsonValue> = (
-  | { kind: "answered"; value: T }
-  | { kind: "unanswered"; reason: string }
-  | { kind: "blocked"; reason: string }
-  | { kind: "timed-out"; reason: string }
+  | { answered: true; kind: "answered"; value: T }
+  | { answered: false; kind: "unanswered"; reason: string }
+  | { answered: false; kind: "blocked"; reason: string }
+  | { answered: false; kind: "timed-out"; reason: string }
   | {
+      answered: false;
       kind: "failed";
       reason: string;
       retryable: boolean;
@@ -372,12 +377,13 @@ export type TurnOutcome<T extends JsonValue> = (
        */
       login?: TurnLogin;
     }
-  | { kind: "cancelled"; reason: string }
+  | { answered: false; kind: "cancelled"; reason: string }
 ) & {
   /** Times and sessions across every delivery attempt made to settle this operation. */
   usage: OperationRecord;
 };
 
+/** @deprecated Check `outcome.answered`, which narrows the same way. */
 export function isAnswered<T extends JsonValue>(
   outcome: TurnOutcome<T>,
 ): outcome is Extract<TurnOutcome<T>, { kind: "answered" }> {

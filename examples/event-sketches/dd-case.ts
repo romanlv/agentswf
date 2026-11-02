@@ -3,7 +3,6 @@
 // so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
 import {
   defineWorkflow,
-  isAnswered,
   type JsonValue,
   type TurnOutcome,
   tool,
@@ -109,7 +108,7 @@ const caseRun = defineWorkflow({
       });
       for (const e of events) {
         if (investigator.is<Batch>(e)) {
-          if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+          if (e.data.outcome.answered) kase.markGiven(e.data.meta);
           else if (e.data.outcome.kind !== "cancelled") {
             kase.markFailed(e.id);
             // Its timer:due wakes the wait, at the run's time `retrying` reads.

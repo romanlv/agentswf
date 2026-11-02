@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
 import Type from "typebox";
 import scopeIssue, { changelog, PLAN, planAndReview, SCOPE } from "./agents";
@@ -91,7 +91,7 @@ describe("endings", () => {
           prompt: "Name a branch.",
           schema: Type.Object({ branch: Type.String({ pattern: "^feat/" }) }),
         });
-        return isAnswered(outcome) ? outcome.value : null;
+        return outcome.answered ? outcome.value : null;
       },
     });
     const run = await testWorkflow(PATTERNED, null, {

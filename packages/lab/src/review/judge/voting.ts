@@ -3,7 +3,6 @@ import type {
   InlineSandboxSpec,
   WorkflowContext,
 } from "@agentswf/contract/workflow";
-import { isAnswered } from "@agentswf/contract/workflow";
 import { runtimeName } from "../format/runtime";
 import type { FindingLabel } from "../format/scoring";
 import { ANSWER, claimedIn, type JudgedCase } from "./case";
@@ -72,7 +71,7 @@ async function ask(
       nudge: false,
       timeoutMs: turnMs,
     });
-    if (isAnswered(outcome)) {
+    if (outcome.answered) {
       const problems = labelProblems(outcome.value.labels, input.findings, input.key, {
         ...rules,
         voter: true,

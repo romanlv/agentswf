@@ -1,7 +1,6 @@
 import {
   defineWorkflow,
   type ExecutionConfig,
-  isAnswered,
   type PaneWorkspace,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
@@ -43,8 +42,7 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
       keepPane: "always",
     });
     const first = await lead.run(ask);
-    if (!isAnswered(first.outcome))
-      throw new Error(`the lead did not answer: ${first.outcome.kind}`);
+    if (!first.outcome.answered) throw new Error(`the lead did not answer: ${first.outcome.kind}`);
     const security = await lead.fork({
       key: "security",
       layout: { beside: "lead", side: "right" },
@@ -56,7 +54,7 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
     const answers = await wf.parallel([security, style], (agent) => agent.run(ask));
     return {
       answered: [first, ...answers].flatMap(({ outcome }) =>
-        isAnswered(outcome) ? [outcome.value.name] : [],
+        outcome.answered ? [outcome.value.name] : [],
       ),
     };
   },

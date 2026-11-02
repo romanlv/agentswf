@@ -1,4 +1,4 @@
-import { defineWorkflow, isAnswered } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import Type from "typebox";
 
 export const DONE = Type.Object(
@@ -39,13 +39,13 @@ export default defineWorkflow({
       prompt: "Make `bun test` pass.",
       schema: DONE,
     });
-    if (!isAnswered(fixed.outcome))
+    if (!fixed.outcome.answered)
       return wf.stop(`coder: ${fixed.outcome.reason}`);
     const tested = await tester.run<Type.Static<typeof DONE>>({
       prompt: "Run `bun test` and say what fails, if anything.",
       schema: DONE,
     });
-    if (!isAnswered(tested.outcome))
+    if (!tested.outcome.answered)
       return wf.stop(`tester: ${tested.outcome.reason}`);
 
     // #region private
@@ -61,7 +61,7 @@ export default defineWorkflow({
       prompt: "Review the uncommitted change in this repository.",
       schema: VERDICT,
     });
-    if (!isAnswered(review.outcome))
+    if (!review.outcome.answered)
       return wf.stop(`reviewer: ${review.outcome.reason}`);
     return {
       tests: tested.outcome.value.summary,
