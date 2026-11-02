@@ -879,6 +879,10 @@ Manual or live evaluation:
   and the llms files as `text/plain`. `bun run deploy` in `site/` builds and deploys, from a
   laptop with `wrangler login` or from CI with `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID` as repository secrets.
+- 2026-11-02, the operator's review: `/ai/` is cut. The agent learns awf from the `AGENTS.md`
+  that `awf init` writes and from `llms.txt`, never from that page, and the rest of it repeated
+  them. Its one part of value, what to check in a workflow an agent wrote, is Quick start's last
+  section, "Have your agent write the next one", which the landing page links.
 
 ## Human review
 

@@ -47,7 +47,7 @@ lines it lacks (`node_modules/` and `.awf/`). `--no-install` skips `bun install`
 workflow against its own copies of `agentswf/workflow` and `typebox` either way.
 
 `AGENTS.md` tells a coding agent working in the folder how to write and test a workflow, so you
-can ask one to write the next.
+can [ask one to write the next](#have-your-agent-write-the-next-one).
 
 ## 2. Read the workflow
 
@@ -171,6 +171,33 @@ awf logs                  # what the newest run and its agent did, merged by tim
 Runs stay out of your repository: awf keeps them out of git itself
 ([the record](/guide/how-it-works#the-record)), and the `.gitignore` that `awf init` wrote lists
 `.awf/` too.
+
+## Have your agent write the next one
+
+Open your coding agent in the folder and ask for the workflow:
+
+```text
+Write a workflow in review/ where one agent fixes the failing tests in the directory
+the run works in, and a second one reviews the fix, at most three rounds.
+```
+
+The `AGENTS.md` that `awf init` wrote does the rest: it sends the agent to
+[the workflow API](/reference/workflow-api), has it write a test, and keeps it on
+`bun run check` and `awf test` until both pass, without starting a real agent. Those catch
+what it gets wrong about the API. Before the first real run, read it for what they can't:
+
+- **The runtimes.** Which harness and model each agent runs on decides what the run costs and
+  which login it uses. An agent without `placement: "headless"` opens in a pane, which needs
+  [Herdr](https://herdr.dev). A headless claude agent needs `metered: true`, your consent to
+  per-token billing: check that the agent set it because you meant it.
+- **The loops.** Every loop needs a limit, and every turn's outcome needs handling: a turn can end
+  without an answer, and `outcome.reason` says why ([Outcomes](/reference/workflow-api#outcomes)).
+- **The prompts and schemas.** They are the agents' whole brief. A schema that is too loose lets
+  a vague answer through as a valid one.
+- **The test.** Check that it scripts the unhappy path too: a reviewer that never approves, an
+  agent that doesn't answer.
+
+Then run it on your project: `awf run review/workflow.ts --cwd ../my-project`.
 
 ## Next
 

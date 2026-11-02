@@ -103,7 +103,7 @@ bun run test    # awf test
 ```
 
 A release can improve the API. If it changed something your workflow uses, these show where,
-before any agent runs; hand the errors and the current [`llms.txt`](/ai/#what-the-agent-reads)
+before any agent runs; hand the errors and the current [`llms.txt`](https://agents.wf/llms.txt)
 to your coding agent, and it moves the workflow over.
 
 ## Catches
