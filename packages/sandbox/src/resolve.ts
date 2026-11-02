@@ -8,7 +8,7 @@ import type { Gitdir, ResolvedSandbox, SandboxProviders } from "./seam";
 const REACH_KEYS = ["read", "write", "network", "sockets", "webSearch"] as const;
 
 export type SandboxResolution = {
-  /** The environment key the sandbox runs under: the one the spec named, else the default. */
+  /** The environment key the sandbox runs under, the one the spec named. */
   provider: SandboxEnvironmentKey;
   sandbox: ResolvedSandbox<unknown>;
 };
@@ -70,8 +70,10 @@ export async function resolveSandbox(
   if (named.length > 1) {
     throw new Error(`a sandbox has one environment, not ${named.join(" and ")}`);
   }
-  const provider = named[0] ?? options.providers.default;
-  if (provider === undefined) throw new Error("no sandbox provider is installed");
+  const provider = named[0];
+  if (provider === undefined) {
+    throw new Error('a sandbox spec names its provider: add "srt": {} or "docker": {}');
+  }
   const installed = options.providers.installed[provider];
   if (!installed) {
     const why = options.providers.unavailable?.[provider];
@@ -79,7 +81,7 @@ export async function resolveSandbox(
       `the ${provider} sandbox provider is not ${why ? `usable: ${why}` : "installed"}`,
     );
   }
-  const environment = installed.environment(named[0] === undefined ? {} : spec[named[0]]);
+  const environment = installed.environment(spec[provider]);
 
   const home = await realpath(options.home ?? homedir());
   const runRoot = await realpath(options.runRoot);

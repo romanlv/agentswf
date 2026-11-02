@@ -488,7 +488,6 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       sandboxes: {
         providers: {
           installed: { srt: sandboxes.provider, docker: sandboxes.provider },
-          default: "srt",
         },
         sandboxesDir: directory(),
         machineRoot: directory(),

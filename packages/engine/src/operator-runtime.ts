@@ -282,9 +282,8 @@ export function herdrConfig(session: string): HerdrConfig {
 
 /**
  * The sandbox providers this machine has: srt when its CLI is on `PATH`, docker when its CLI is;
- * its daemon is first asked when a sandbox opens. srt is the default when installed, as it runs
- * the project's own toolchain, which an image lacks (story 004), and when it is there but cannot
- * be set up: a spec naming none then fails saying why, rather than moving to docker unsaid.
+ * its daemon is first asked when a sandbox opens. There is no default: a spec names its provider,
+ * since the two give agents different machines, the host's toolchain or an image.
  */
 export async function installSandboxes(
   environment: Readonly<Record<string, string | undefined>>,
@@ -304,10 +303,8 @@ export async function installSandboxes(
     ...(srt ? { srt: createSrtProvider(srt) } : {}),
     ...(docker ? { docker: createDockerProvider(docker) } : {}),
   };
-  const fallback = srt || unavailable.srt ? "srt" : docker ? "docker" : undefined;
   return {
     installed,
-    ...(fallback ? { default: fallback } : {}),
     ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
   };
 }

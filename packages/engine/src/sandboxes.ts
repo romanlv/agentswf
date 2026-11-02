@@ -7,6 +7,7 @@ import type { SandboxRecord } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
+  SandboxEnvironment,
   SandboxEnvironmentKey,
   SandboxRef,
 } from "@agentswf/contract/workflow";
@@ -306,7 +307,7 @@ export class RunSandboxes {
           network: [...resolved.network],
           ...(resolved.sockets.length > 0 ? { sockets: [...resolved.sockets] } : {}),
           ...(resolved.webSearch ? { webSearch: true } : {}),
-          [provider]: resolved.environment,
+          ...({ [provider]: resolved.environment } as SandboxEnvironment),
         },
         directory,
         gitdirs: resolved.gitdirs.map((gitdir) => ({ ...gitdir })),

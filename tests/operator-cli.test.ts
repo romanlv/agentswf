@@ -551,7 +551,7 @@ describe("awf run", () => {
       workflow,
       executableModule(
         "return null;",
-        'await arguments[0].sandboxes.open({ key: "box", network: ["registry.npmjs.org"] }); return null;',
+        'await arguments[0].sandboxes.open({ key: "box", network: ["registry.npmjs.org"], srt: {} }); return null;',
       ),
     );
     const runRoot = runDirs.tempRunDir();
@@ -563,7 +563,7 @@ describe("awf run", () => {
       stderr: () => undefined,
       installRuntime: async () => ({
         ...(await emptyRuntime()),
-        sandboxes: { installed: { srt: fake.provider }, default: "srt" },
+        sandboxes: { installed: { srt: fake.provider } },
       }),
     });
     expect(exitCode).toBe(0);

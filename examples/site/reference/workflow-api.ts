@@ -170,7 +170,7 @@ export const composing = defineWorkflow({
       key: "work",
       write: ["."], // the working directory is writable; everything else is read-only
       network: ["registry.npmjs.org"], // beyond each harness's own model API
-      srt: {}, // or docker: { image? }; omit both for the operator's default
+      srt: {}, // the provider, required: srt, or docker: { image? }
     });
 
     const coder = await wf.agents.open({ key: "code", runtime: "claude", sandbox: box });
@@ -178,7 +178,7 @@ export const composing = defineWorkflow({
     const reader = await wf.agents.open({
       key: "read",
       runtime: "claude",
-      sandbox: { read: ["/data"] }, // an inline spec: a private sandbox for this agent only
+      sandbox: { read: ["/data"], srt: {} }, // an inline spec: a private sandbox for this agent only
     });
     // #endregion sandbox
 

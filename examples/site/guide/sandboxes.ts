@@ -22,6 +22,7 @@ export default defineWorkflow({
       key: "work",
       write: ["."], // the working directory; everything else stays read-only
       network: ["registry.npmjs.org"], // beyond each harness's own model API
+      srt: {}, // the provider: srt on this machine, or docker: {} for a container
     });
     const coder = await wf.agents.open({
       key: "coder",
@@ -54,7 +55,7 @@ export default defineWorkflow({
     const reviewer = await wf.agents.open({
       key: "reviewer",
       runtime: "codex",
-      sandbox: {},
+      sandbox: { srt: {} },
     });
     // #endregion private
     const review = await reviewer.run<Type.Static<typeof VERDICT>>({

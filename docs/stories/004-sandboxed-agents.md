@@ -310,6 +310,11 @@ export interface SandboxDirectory {
 ([[#The srt provider]]), which a default image lacks, and macOS `node_modules` do not run in a Linux
 box. A workflow that wants docker's tighter base names `docker`.
 
+> Superseded 2026-11-01: a spec names exactly one provider, and there is no default. The two give
+> agents different machines, so whether a workflow's agents had its toolchain depended on what the
+> operator's machine had installed, unseen in the code. `SandboxEnvironment` lost its third arm,
+> `SandboxProviders` its `default`, and a spec naming none is refused at open.
+
 ### A fresh harness home per sandboxed agent
 
 A sandboxed agent never sees the operator's harness state. Protecting individual files cannot be

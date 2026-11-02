@@ -76,7 +76,7 @@ A sandbox limits what an agent can write and reach. It needs one of:
   ([Troubleshooting](/guide/troubleshooting#docker-the-sandbox-image-image-is-not-built)). A docker
   sandbox runs its own Herdr, so its panes show in the run's workspace.
 
-A run that opens no sandbox needs neither. Which one a sandbox uses, and how to open one, is on
+A run that opens no sandbox needs neither. Each sandbox names the one it uses:
 [Sandboxes](/guide/sandboxes#srt-or-docker).
 
 ## Editor types

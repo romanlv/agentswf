@@ -38,11 +38,10 @@ export type DockerEnvironment = { image?: string };
 export const SANDBOX_ENVIRONMENTS = ["srt", "docker"] as const;
 export type SandboxEnvironmentKey = (typeof SANDBOX_ENVIRONMENTS)[number];
 
-/** At most one environment. Naming one pins the provider; naming none uses the operator's default. */
+/** Exactly one environment, which names the provider: there is no default. */
 export type SandboxEnvironment =
   | { srt: SrtEnvironment; docker?: never }
-  | { docker: DockerEnvironment; srt?: never }
-  | { srt?: never; docker?: never };
+  | { docker: DockerEnvironment; srt?: never };
 
 export type SandboxSpec = SandboxReach & SandboxEnvironment;
 

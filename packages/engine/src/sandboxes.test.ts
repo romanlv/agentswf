@@ -108,7 +108,7 @@ function setup(
   runSpec?: unknown,
 ) {
   const fake = createFakeSandboxProvider(options);
-  const providers: SandboxProviders = { installed: { srt: fake.provider }, default: "srt" };
+  const providers: SandboxProviders = { installed: { srt: fake.provider } };
   const runtime: AgentRuntimeConfig = {
     aliases: {},
     host: host ?? createHeadlessRunHostFactory({}),
@@ -153,7 +153,7 @@ describe("sandboxed agents", () => {
     let result: Awaited<ReturnType<typeof run>>;
     try {
       result = await run(async (context) => {
-        const box = await context.sandboxes.open({ key: "shared", write: ["src"] });
+        const box = await context.sandboxes.open({ key: "shared", srt: {}, write: ["src"] });
         const coder = await context.agents.open({ key: "coder", runtime: headless, sandbox: box });
         const tester = await context.agents.open({
           key: "tester",
@@ -163,7 +163,7 @@ describe("sandboxed agents", () => {
         const reviewer = await context.agents.open({
           key: "reviewer",
           runtime: headless,
-          sandbox: {},
+          sandbox: { srt: {} },
         });
         const answers: JsonValue[] = [];
         for (const agent of [coder, tester, reviewer, coder]) {
@@ -239,7 +239,11 @@ describe("sandboxed agents", () => {
   test("a fork of a sandboxed agent opens in its private sandbox, its parent's session copied into its own home and forked there", async () => {
     const { run } = setup();
     const result = await run(async (context) => {
-      const worker = await context.agents.open({ key: "worker", runtime: headless, sandbox: {} });
+      const worker = await context.agents.open({
+        key: "worker",
+        runtime: headless,
+        sandbox: { srt: {} },
+      });
       await worker.run({ prompt: "go", nudge: false });
       const tests = await worker.fork({ key: "tests" });
       const { outcome } = await tests.run({ prompt: "go", nudge: false });
@@ -297,9 +301,10 @@ describe("sandboxed agents", () => {
       host,
     );
     await run(async (context) => {
-      await open(context, { runtime: { harness: "codex", model: "m" }, sandbox: {} }).catch(
-        () => undefined,
-      );
+      await open(context, {
+        runtime: { harness: "codex", model: "m" },
+        sandbox: { srt: {} },
+      }).catch(() => undefined);
       return null;
     });
     const terminal = await opened[0]?.occupant?.pane?.();
@@ -325,16 +330,25 @@ describe("sandboxed agents", () => {
       (c) => c.sandboxes.open({ key: "b", srt: {}, docker: {} } as never),
       "one environment",
     ],
-    ["an unknown field", (c) => c.sandboxes.open({ key: "b", mounts: [] } as never), "unknown"],
-    ["a bad domain", (c) => c.sandboxes.open({ key: "b", network: ["x.org:80"] }), "domain"],
-    ["~ re-allowed", (c) => c.sandboxes.open({ key: "b", read: ["~"] }), "would expose ~"],
-    ["the agent: namespace", (c) => c.sandboxes.open({ key: "agent:x" }), "agent: names"],
+    [
+      "an unknown field",
+      (c) => c.sandboxes.open({ key: "b", srt: {}, mounts: [] } as never),
+      "unknown",
+    ],
+    [
+      "a bad domain",
+      (c) => c.sandboxes.open({ key: "b", srt: {}, network: ["x.org:80"] }),
+      "domain",
+    ],
+    ["~ re-allowed", (c) => c.sandboxes.open({ key: "b", srt: {}, read: ["~"] }), "would expose ~"],
+    ["the agent: namespace", (c) => c.sandboxes.open({ key: "agent:x", srt: {} }), "agent: names"],
+    ["no provider", (c) => c.sandboxes.open({ key: "b" } as never), "names its provider"],
     ["an uninstalled provider", (c) => c.sandboxes.open({ key: "b", docker: {} }), "not installed"],
     [
       "a key already open",
       async (c) => {
-        await c.sandboxes.open({ key: "b" });
-        await c.sandboxes.open({ key: "b" });
+        await c.sandboxes.open({ key: "b", srt: {} });
+        await c.sandboxes.open({ key: "b", srt: {} });
       },
       "already open",
     ],
@@ -350,12 +364,13 @@ describe("sandboxed agents", () => {
     ],
     [
       "an agent outside the sandbox's reach",
-      async (c) => open(c, { cwd: root, sandbox: await c.sandboxes.open({ key: "b", cwd: work }) }),
+      async (c) =>
+        open(c, { cwd: root, sandbox: await c.sandboxes.open({ key: "b", srt: {}, cwd: work }) }),
       "outside sandbox b's reach",
     ],
     [
       "a pane",
-      (c) => open(c, { runtime: { harness: "codex", model: "m" }, sandbox: {} }),
+      (c) => open(c, { runtime: { harness: "codex", model: "m" }, sandbox: { srt: {} } }),
       "hosts no panes",
     ],
     [
@@ -363,7 +378,7 @@ describe("sandboxed agents", () => {
       async (c) => {
         const late = join(root, "late-repo");
         await mkdir(late, { recursive: true });
-        const box = await c.sandboxes.open({ key: "b", read: [late] });
+        const box = await c.sandboxes.open({ key: "b", srt: {}, read: [late] });
         await mkdir(join(late, ".git"), { recursive: true });
         try {
           return await open(c, { cwd: late, sandbox: box });
@@ -378,17 +393,28 @@ describe("sandboxed agents", () => {
       (c) =>
         open(c, {
           runtime: { harness: "claude", model: "m", placement: "headless", metered: true },
-          sandbox: {},
+          sandbox: { srt: {} },
         }),
       "a sandboxed claude needs CLAUDE_CODE_OAUTH_TOKEN",
     ],
-    ["an empty path", (c) => open(c, { sandbox: { read: [""] } }), "non-empty path"],
-    ["a missing path", (c) => open(c, { sandbox: { read: ["nowhere"] } }), "does not exist"],
-    ["the run root", (c) => open(c, { sandbox: { read: [dirname(c.cwd)] } }), "would expose"],
+    ["an empty path", (c) => open(c, { sandbox: { srt: {}, read: [""] } }), "non-empty path"],
+    [
+      "a missing path",
+      (c) => open(c, { sandbox: { srt: {}, read: ["nowhere"] } }),
+      "does not exist",
+    ],
+    [
+      "the run root",
+      (c) => open(c, { sandbox: { srt: {}, read: [dirname(c.cwd)] } }),
+      "would expose",
+    ],
     [
       "a cursor without its API key",
       (c) =>
-        open(c, { runtime: { harness: "cursor", model: "m", placement: "headless" }, sandbox: {} }),
+        open(c, {
+          runtime: { harness: "cursor", model: "m", placement: "headless" },
+          sandbox: { srt: {} },
+        }),
       "a sandboxed cursor needs CURSOR_API_KEY",
     ],
   ])("refuses %s before anything opens for an agent", async (_name, body, reason) => {
@@ -403,7 +429,7 @@ describe("sandboxed agents", () => {
   test("an agent that fails to open has its private sandbox closed at once, and recorded", async () => {
     const refusing = setup({ refuseAdmit: () => "the image lacks codex" });
     const refusal = await refusing.run(async (context) => {
-      const failed = await open(context, { sandbox: {} }).then(
+      const failed = await open(context, { sandbox: { srt: {} } }).then(
         () => "opened",
         (error: Error) => error.message,
       );
@@ -423,12 +449,12 @@ describe("sandboxed agents", () => {
     };
     const refused = setup({}, host);
     const result = await refused.run(async (context) => {
-      const failed = await open(context, { sandbox: {} }).then(
+      const failed = await open(context, { sandbox: { srt: {} } }).then(
         () => "opened",
         (error: Error) => error.message,
       );
       // Reopened the same way, it gives its own failure rather than a conflict.
-      const again = await open(context, { sandbox: {} }).then(
+      const again = await open(context, { sandbox: { srt: {} } }).then(
         () => "opened",
         (error: Error) => error.message,
       );
@@ -445,7 +471,7 @@ describe("sandboxed agents", () => {
   test("a reap that fails is logged, and the turn's answer stands", async () => {
     const { run, logs } = setup({ failReap: "the box is gone" });
     const result = await run(async (context) => {
-      const agent = await open(context, { sandbox: {} });
+      const agent = await open(context, { sandbox: { srt: {} } });
       return (await agent.run({ prompt: "go", nudge: false })).outcome.kind;
     });
     expect(result.value).toBe("answered");
@@ -457,7 +483,7 @@ describe("sandboxed agents", () => {
   test("a refreshed credential is written back to the operator after the turn", async () => {
     const { run } = setup();
     await run(async (context) => {
-      const agent = await open(context, { sandbox: {} });
+      const agent = await open(context, { sandbox: { srt: {} } });
       await agent.run({ prompt: "refresh and answer", nudge: false });
       return null;
     });
@@ -474,7 +500,7 @@ describe("sandboxed agents", () => {
     const { events, providers, runtime } = setup();
     const handle = await startNew(
       workflowOf(async (context) => {
-        const agent = await open(context, { sandbox: {} });
+        const agent = await open(context, { sandbox: { srt: {} } });
         await agent.run({ prompt: "wait for it", nudge: false });
         return null;
       }),
@@ -522,17 +548,17 @@ describe("sandboxed agents", () => {
   test("a reopened agent keeps its sandbox, and naming another is a conflict", async () => {
     const { run } = setup();
     const result = await run(async (context) => {
-      const box = await context.sandboxes.open({ key: "one" });
-      const other = await context.sandboxes.open({ key: "two" });
+      const box = await context.sandboxes.open({ key: "one", srt: {} });
+      const other = await context.sandboxes.open({ key: "two", srt: {} });
       await open(context, { key: "shared", sandbox: box });
-      await open(context, { key: "private", sandbox: { write: ["src"] } });
+      await open(context, { key: "private", sandbox: { srt: {}, write: ["src"] } });
       const tries = [
         open(context, { key: "shared", sandbox: box }),
         open(context, { key: "shared" }),
         open(context, { key: "shared", sandbox: other }),
-        open(context, { key: "shared", sandbox: {} }),
-        open(context, { key: "private", sandbox: { write: ["src"] } }),
-        open(context, { key: "private", sandbox: { write: ["."] } }),
+        open(context, { key: "shared", sandbox: { srt: {} } }),
+        open(context, { key: "private", sandbox: { srt: {}, write: ["src"] } }),
+        open(context, { key: "private", sandbox: { srt: {}, write: ["."] } }),
         open(context, { key: "private", sandbox: box }),
       ];
       return (await Promise.allSettled(tries)).map((tried) =>
@@ -554,7 +580,7 @@ describe("sandboxed agents", () => {
   test("an agent's door is a launcher and bundle of its own, by real paths", async () => {
     const { run, events } = setup();
     const result = await run(async (context) => {
-      await open(context, { sandbox: {} });
+      await open(context, { sandbox: { srt: {} } });
       return null;
     });
     const home = result.sandboxes![0]!.agents[0]!.home;
@@ -589,7 +615,7 @@ const installed = await installSandboxes(process.env);
 
 describe("the operator's sandbox for the whole run", () => {
   test("every agent runs in it, at the run's cwd, without the workflow asking", async () => {
-    const { events, run } = setup({}, undefined, { read: [join(work, "src")] });
+    const { events, run } = setup({}, undefined, { srt: {}, read: [join(work, "src")] });
     const result = await run(async (context) => {
       const answers: string[] = [];
       for (const key of ["reviewer", "verifier"]) {
@@ -610,17 +636,17 @@ describe("the operator's sandbox for the whole run", () => {
   });
 
   test.each<[string, (context: WorkflowContext) => Promise<unknown>]>([
-    ["a sandbox of its own", (c) => c.sandboxes.open({ key: "wide", read: [root] })],
-    ["an agent's inline sandbox", (c) => open(c, { sandbox: { read: [root] } })],
+    ["a sandbox of its own", (c) => c.sandboxes.open({ key: "wide", srt: {}, read: [root] })],
+    ["an agent's inline sandbox", (c) => open(c, { sandbox: { srt: {}, read: [root] } })],
   ])("refuses the workflow %s", async (_name, body) => {
-    const { events, run } = setup({}, undefined, {});
+    const { events, run } = setup({}, undefined, { srt: {} });
     const failure = await run(body as never).catch((error: unknown) => error);
     expect(String((failure as Error).message)).toContain("a workflow cannot open its own");
     expect(kinds(events)).not.toContain("admit");
   });
 
   test("a spec that can't open fails the run before the workflow starts", async () => {
-    const { events, run } = setup({}, undefined, { read: ["nowhere"] });
+    const { events, run } = setup({}, undefined, { srt: {}, read: ["nowhere"] });
     let started = false;
     const failure = await run(async () => {
       started = true;
@@ -660,10 +686,10 @@ describe("the operator's sandbox for the whole run", () => {
         cwd: work,
         signal: controller.signal,
         sandboxes: {
-          providers: { installed: { srt: slow }, default: "srt" },
+          providers: { installed: { srt: slow } },
           sandboxesDir: runDirs.tempRunDir(),
           machineRoot: runDirs.tempRunDir(),
-          run: {},
+          run: { srt: {} },
         },
       },
     ).catch((error: unknown) => error);
@@ -675,7 +701,7 @@ describe("the operator's sandbox for the whole run", () => {
   });
 
   test("agents opened at once share it, opened once", async () => {
-    const { events, run } = setup({}, undefined, {});
+    const { events, run } = setup({}, undefined, { srt: {} });
     const result = await run(async (context) => {
       const agents = await Promise.all(
         ["a", "b", "c"].map((key) => context.agents.open({ key, runtime: headless })),
@@ -748,7 +774,7 @@ describe("a run's sandboxes, opening as the run ends", () => {
     };
     const sandboxes = new RunSandboxes({
       sandboxes: {
-        providers: { installed: { srt: provider }, default: "srt" },
+        providers: { installed: { srt: provider } },
         sandboxesDir: runDirs.tempRunDir(),
         machineRoot: runDirs.tempRunDir(),
       },
@@ -763,7 +789,7 @@ describe("a run's sandboxes, opening as the run ends", () => {
 
   test("close waits for a sandbox still opening, closes it and records it", async () => {
     const { sandboxes, events, land } = gated();
-    const opening = sandboxes.open({ key: "slow" });
+    const opening = sandboxes.open({ key: "slow", srt: {} });
     const closing = sandboxes.close();
     land();
     await expect(opening).rejects.toThrow("the run's sandboxes are closed");
@@ -774,13 +800,13 @@ describe("a run's sandboxes, opening as the run ends", () => {
 
   test("a reopened agent is compared with its private sandbox while it still opens", async () => {
     const { sandboxes, land } = gated();
-    const first = { write: ["."] };
+    const first = { write: ["."], srt: {} };
     const seating = sandboxes.seat({ key: "a", sandbox: first, cwd: work, execution: headless });
-    const same = sandboxes.same("a", first, {}, work);
+    const same = sandboxes.same("a", first, { srt: {} }, work);
     land();
     await seating;
     expect(await same).toBe(false);
-    expect(await sandboxes.same("a", first, { write: ["."] }, work)).toBe(true);
+    expect(await sandboxes.same("a", first, { write: ["."], srt: {} }, work)).toBe(true);
     await sandboxes.close();
   });
 });

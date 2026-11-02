@@ -3,6 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isRecord } from "@agentswf/contract";
 import { isDomain, repositoryOf, resolveSandbox, withinReach } from "./resolve";
 import type { SandboxProvider, SandboxProviders } from "./seam";
 
@@ -19,14 +20,16 @@ const provider = (name: string): SandboxProvider<unknown> => ({
 });
 const providers: SandboxProviders = {
   installed: { srt: provider("srt"), docker: provider("docker") },
-  default: "srt",
 };
 const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".pi", "agent")];
+// The specs here test reach, so each runs under srt unless it names a provider of its own.
+const underSrt = (spec: unknown) =>
+  isRecord(spec) && !("srt" in spec) && !("docker" in spec) ? { ...spec, srt: {} } : spec;
 const resolve = (
   spec: unknown,
   extra: { inline?: boolean; providers?: SandboxProviders; runRoot?: string } = {},
 ) =>
-  resolveSandbox(spec, {
+  resolveSandbox(underSrt(spec), {
     key: "box",
     cwd: repo,
     runRoot,
@@ -79,6 +82,7 @@ describe("resolveSandbox", () => {
       read: ["~/notes", ".."],
       write: ["."],
       network: ["Registry.npmjs.org", "*.npmjs.org"],
+      srt: {},
     });
     expect(provider).toBe("srt");
     expect(sandbox).toEqual({
@@ -148,7 +152,7 @@ describe("resolveSandbox", () => {
     const inside = join(repo, "runs");
     await mkdir(inside, { recursive: true });
     const { sandbox } = await resolveSandbox(
-      { cwd: "src" },
+      { cwd: "src", srt: {} },
       { key: "box", cwd: repo, runRoot: inside, machineRoot, home, providers, harnessState },
     );
     expect(sandbox.gitdirs).toEqual([{ path: join(repo, ".git"), writable: false }]);
@@ -170,7 +174,7 @@ describe("resolveSandbox", () => {
     };
     for (const field of ["read", "write", "sockets"] as const) {
       for (const path of [coordinator, join(root, "elsewhere"), join(coordinator, "x.sock")]) {
-        await expect(resolveSandbox({ [field]: [path] }, options)).rejects.toThrow(
+        await expect(resolveSandbox({ [field]: [path], srt: {} }, options)).rejects.toThrow(
           "would expose the coordinator sockets",
         );
       }
@@ -192,11 +196,11 @@ describe("resolveSandbox", () => {
       controlRoot: doors,
     };
     for (const path of [doors, join(doors, "awf-run"), join(doors, "awf-run", "a1")]) {
-      await expect(resolveSandbox({ write: [path] }, options)).rejects.toThrow(
+      await expect(resolveSandbox({ write: [path], srt: {} }, options)).rejects.toThrow(
         "would expose the engine's doors",
       );
     }
-    const { sandbox } = await resolveSandbox({ write: [join(doors, "mine")] }, options);
+    const { sandbox } = await resolveSandbox({ write: [join(doors, "mine")], srt: {} }, options);
     expect(sandbox.write).toEqual([join(doors, "mine")]);
   });
 
@@ -219,7 +223,7 @@ describe("resolveSandbox", () => {
   test("harness state the operator moved is refused too", async () => {
     await expect(
       resolveSandbox(
-        { read: ["~/notes"] },
+        { read: ["~/notes"], srt: {} },
         {
           key: "box",
           cwd: repo,
@@ -301,12 +305,20 @@ describe("resolveSandbox", () => {
     }
   });
 
-  test("refuses a provider that is not installed, or none at all", async () => {
+  test("refuses a provider that is not installed", async () => {
     const only = { installed: { srt: provider("srt") } };
     await expect(resolve({ docker: {} }, { providers: only })).rejects.toThrow(
       "the docker sandbox provider is not installed",
     );
-    await expect(resolve({}, { providers: only })).rejects.toThrow("no sandbox provider");
+  });
+
+  test("refuses a spec that names no provider, though one is installed", async () => {
+    const options = { key: "box", cwd: repo, runRoot, machineRoot, home, providers, harnessState };
+    for (const spec of [{}, { write: ["."] }, { srt: undefined }]) {
+      await expect(resolveSandbox(spec, options)).rejects.toThrow(
+        'a sandbox spec names its provider: add "srt": {} or "docker": {}',
+      );
+    }
   });
 
   test("a provider's own check of its settings rejects", async () => {

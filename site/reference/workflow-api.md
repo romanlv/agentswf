@@ -482,7 +482,7 @@ The guide: [Sandboxes](/guide/sandboxes).
 | `network` | Domains reachable beyond each harness's model API: exact, or `*.example.com` for its subdomains only. No scheme, port, path or IP address. |
 | `sockets` | Host unix sockets the agents may connect to: a socket, or a directory of them, where they may create their own if it is also in `write`. srt only; docker refuses it. |
 | `webSearch` | `true` keeps the harnesses' model-side web tools, which are off inside otherwise. |
-| `srt` or `docker` | `srt: {}`, Anthropic's sandbox-runtime on your machine; `docker: { image? }`, a container running as your user. At most one; neither uses the operator's default. |
+| `srt` or `docker` | Required, exactly one: `srt: {}`, Anthropic's sandbox-runtime on your machine; `docker: { image? }`, a container running as your user. There is no default. |
 
 An inline spec on `open` takes the same fields but `key` and `cwd`, and is always private.
 

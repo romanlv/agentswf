@@ -432,12 +432,21 @@ machine mounted: name a narrower path.
 
 ```text
 the docker sandbox provider is not installed
-no sandbox provider is installed
 ```
 
-The spec names a provider that isn't on this machine, or names none and neither srt nor docker
-is. Install one: [Install](/guide/install#sandboxes). A provider that is installed but can't be
-used says why instead: `the srt sandbox provider is not usable: {why}`.
+The spec names a provider that isn't on this machine. Install it
+([Install](/guide/install#sandboxes)), or name the one you have. A provider that is installed but
+can't be used says why instead: `the srt sandbox provider is not usable: {why}`.
+
+### `a sandbox spec names its provider`
+
+```text
+a sandbox spec names its provider: add "srt": {} or "docker": {}
+```
+
+A spec has no default provider. In a workflow, `tsc` catches it first; in a JSON spec given to
+`awf run --sandbox`, add the field. [srt or docker](/guide/sandboxes#srt-or-docker) has which to
+pick.
 
 ### `is not on PATH`
 

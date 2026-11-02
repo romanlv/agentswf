@@ -56,9 +56,9 @@ under can return later, per provider (open question 7).
    beyond their models. It is common to every provider and means the same under each: srt enforces
    it by re-allowing a path, docker by mounting it. A path is seen at the same path inside.
 2. **Environment**: the base the agents start from, under a key named for the provider: the host
-   and its toolchain for `srt`, an image for `docker`. Naming the key pins the provider; leaving it
-   out uses the operator's default, srt when installed, else docker. srt is the default because it
-   runs the project's own toolchain, which an image lacks.
+   and its toolchain for `srt`, an image for `docker`. Every spec names exactly one, and there is
+   no default: the two give agents different machines, so a workflow says which it was written
+   for. (Until 2026-11-01 a spec could name none and get srt when installed, else docker.)
 3. **The instance**: an object with a key and a lifetime, from `open` to the end of the run.
    Sharing it is how agents share a box. A spec given inline to one agent is shorthand for a
    private instance.
@@ -100,8 +100,8 @@ const tester = await wf.agents.open({
   key: "tester", runtime: claude, ...headless, metered: true, sandbox: box,
 });
 
-// A spec instead of a ref: a private sandbox on the default provider.
-const reviewer = await wf.agents.open({ key: "reviewer", runtime: codex, ...headless, sandbox: {} });
+// A spec instead of a ref: a private sandbox, reading only.
+const reviewer = await wf.agents.open({ key: "reviewer", runtime: codex, ...headless, sandbox: { docker: {} } });
 
 // srt: the host's toolchain instead of an image. Only the environment key differs.
 const lint = await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });

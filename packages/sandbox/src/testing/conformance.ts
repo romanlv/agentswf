@@ -94,7 +94,7 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
           {
             read: reach.read,
             write: reach.write,
-            ...(environment ? { [environment.key]: environment.settings } : {}),
+            [environment?.key ?? "srt"]: environment?.settings ?? {},
           },
           {
             key,
@@ -104,7 +104,6 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
             harnessState: [],
             providers: {
               installed: { [environment?.key ?? "srt"]: setup.provider },
-              default: environment?.key ?? "srt",
             },
           },
         );

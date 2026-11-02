@@ -83,7 +83,6 @@ function inProcess(options: { spend?: number } = {}) {
             srt: createFakeSandboxProvider().provider,
             docker: createFakeSandboxProvider().provider,
           },
-          default: "srt",
         },
         cleanup: async () => undefined,
       }),

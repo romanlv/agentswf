@@ -730,12 +730,9 @@ function success(stdout: string): ProcessResult {
 }
 
 describe("installSandboxes", () => {
-  test("installs srt as the default when its CLI is on PATH, and nothing when nothing answers", async () => {
+  test("installs srt when its CLI is on PATH, and nothing when nothing answers", async () => {
     expect(await installSandboxes({ PATH: "/nonexistent", HOME: "/" })).toEqual({ installed: {} });
     const here = await installSandboxes(process.env);
-    if (Bun.which("srt")) {
-      expect(here.default).toBe("srt");
-      expect(here.installed.srt).toBeDefined();
-    }
+    if (Bun.which("srt")) expect(here.installed.srt).toBeDefined();
   });
 });

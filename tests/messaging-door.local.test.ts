@@ -66,14 +66,14 @@ describe.skipIf(!provider)("messaging through the srt door", () => {
       { purpose: "Ask about the design.", scope: messaging.attempt },
     );
     const { sandbox } = await resolveSandbox(
-      { write: ["."] },
+      { write: ["."], srt: {} },
       {
         key: "door",
         cwd: repo,
         runRoot: await mkdir(runRoot, { recursive: true }).then(() => realpathSync(runRoot)),
         machineRoot: join(home, ".awf"),
         harnessState,
-        providers: { installed: { srt: provider! }, default: "srt" },
+        providers: { installed: { srt: provider! } },
       },
     );
     await mkdir(join(directory, "homes", "reviewer"), { recursive: true });

@@ -98,7 +98,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
         const worker = await wf.agents.open({
           key: `worker:${name}`,
           runtime: RUNTIMES[item.runtime].execution,
-          ...(item.sandbox ? { sandbox: {} } : {}),
+          ...(item.sandbox ? { sandbox: { srt: {} } } : {}),
         });
         const note = async (prompt: string) => {
           const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });

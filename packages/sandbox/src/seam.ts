@@ -31,8 +31,6 @@ export interface SandboxProvider<E> {
 /** The providers an operator installed, keyed by the environment name a spec uses for each. */
 export type SandboxProviders = {
   readonly installed: Readonly<Partial<Record<SandboxEnvironmentKey, SandboxProvider<unknown>>>>;
-  /** The environment a spec that names none runs in; absent when nothing is installed. */
-  readonly default?: SandboxEnvironmentKey;
   /** Why a provider this machine has could not be set up: said when a spec names it. */
   readonly unavailable?: Readonly<Partial<Record<SandboxEnvironmentKey, string>>>;
 };

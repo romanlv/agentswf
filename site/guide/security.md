@@ -15,7 +15,7 @@ today: a [sandbox](/guide/sandboxes).
 
 An issue, a pull request from a stranger or a web page can carry instructions an agent may follow.
 Outside a sandbox, the text it reads decides how far it gets ([What agents may do](#what-agents-may-do)).
-Inside `sandbox: {}` the triager reads the working directory, writes nothing, reaches only its
+Inside `sandbox: { srt: {} }` the triager reads the working directory, writes nothing, reaches only its
 model, and sees nothing else under your home. The whole workflow, and the test that checks the
 sandbox it was given, are in
 [`examples/site/guide/security.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/security.ts).

@@ -28,32 +28,46 @@ async function acceptedShapes(): Promise<void> {
     webSearch: true,
     srt: {},
   });
-  const unpinned = { read: ["~/notes"] } satisfies SandboxSpec;
   const opened: AgentOpenSpec[] = [
     { key: "coder", runtime: { alias: "codex", ...headless }, sandbox: box },
     { key: "linter", runtime: "pi", sandbox: local },
-    { key: "reviewer", runtime: "codex", sandbox: {} },
-    { key: "reader", runtime: "codex", sandbox: unpinned },
+    { key: "reviewer", runtime: "codex", sandbox: { srt: {} } },
+    { key: "reader", runtime: "codex", sandbox: { read: ["~/notes"], srt: {} } },
     { key: "tester", runtime: "claude", sandbox: { write: ["."], docker: {} } },
   ];
   void [box.provider, opened];
 }
 
 function rejectedShapes(): void {
-  // @ts-expect-error A sandbox has at most one environment.
+  // @ts-expect-error A sandbox names its provider: there is no default.
+  const unnamed: SandboxSpec = { read: ["~/notes"] };
+  // @ts-expect-error An inline one too.
+  const unnamedInline: AgentOpenSpec = { key: "coder", runtime: "codex", sandbox: {} };
+  // @ts-expect-error A sandbox has one environment, not two.
   const twoEnvironments: SandboxOpenSpec = { key: "both", srt: {}, docker: {} };
   // @ts-expect-error srt takes no settings yet.
   const srtSettings: SandboxSpec = { srt: { image: "node" } };
   const lookAlike = { key: "build", provider: "srt" };
   // @ts-expect-error Only the engine makes a ref; a look-alike is not one.
   const forged: AgentOpenSpec = { key: "coder", runtime: "codex", sandbox: lookAlike };
+  const keyedBox = { key: "build", srt: {} };
   // @ts-expect-error An open spec is not an inline one: its key would name a shared sandbox.
-  const keyed: AgentOpenSpec = { key: "coder", runtime: "codex", sandbox: { key: "build" } };
+  const keyed: AgentOpenSpec = { key: "coder", runtime: "codex", sandbox: keyedBox };
   // @ts-expect-error An inline sandbox's working directory is the agent's.
-  const inlineCwd: InlineSandboxSpec = { cwd: "/elsewhere" };
+  const inlineCwd: InlineSandboxSpec = { cwd: "/elsewhere", srt: {} };
   // @ts-expect-error A ref's provider cannot be written into a spec.
-  const inlineProvider: InlineSandboxSpec = { provider: "docker" };
-  void [twoEnvironments, srtSettings, forged, keyed, inlineCwd, inlineProvider, ref];
+  const inlineProvider: InlineSandboxSpec = { provider: "docker", docker: {} };
+  void [
+    unnamed,
+    unnamedInline,
+    twoEnvironments,
+    srtSettings,
+    forged,
+    keyed,
+    inlineCwd,
+    inlineProvider,
+    ref,
+  ];
 }
 
 // Every environment key is a settings field in a spec, and every settings field is a key.

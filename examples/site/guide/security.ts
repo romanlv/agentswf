@@ -26,7 +26,7 @@ export default defineWorkflow({
     const triager = await wf.agents.open({
       key: "triager",
       runtime: "codex",
-      sandbox: {},
+      sandbox: { srt: {} },
     });
     const { outcome } = await triager.run<Type.Static<typeof TRIAGE>>({
       prompt: `Label this issue against the code in this repository:\n\n${args.issue}`,

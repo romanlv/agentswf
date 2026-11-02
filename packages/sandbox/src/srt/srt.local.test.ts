@@ -79,14 +79,19 @@ describe.skipIf(!provider)("srt on this machine", () => {
     Bun.spawnSync(["git", "init", "-q", repo]);
     await writeFile(join(repo, "src", "a.txt"), "tracked\n");
     const { sandbox } = await resolveSandbox(
-      { write: ["."], network: ["registry.npmjs.org"], sockets: [join(root, "sockets")] },
+      {
+        write: ["."],
+        network: ["registry.npmjs.org"],
+        sockets: [join(root, "sockets")],
+        srt: {},
+      },
       {
         key: "local",
         cwd: repo,
         runRoot: await mkdirReal(runRoot),
         machineRoot: join(home, ".awf"),
         harnessState,
-        providers: { installed: { srt: provider as SandboxProvider<unknown> }, default: "srt" },
+        providers: { installed: { srt: provider as SandboxProvider<unknown> } },
       },
     );
     for (const name of ["a1", "a2", "a3"]) {

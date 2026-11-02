@@ -15,14 +15,14 @@ write or an issue anyone can file, or when an agent must not see what another on
 
 <<< @/../examples/site/guide/sandboxes.ts#shared
 
-The coder and the tester run in one sandbox. Both can write the working directory, which is
-everything they need to fix and run the tests, and reach npm's registry besides their model.
-Nothing else is writable, and nothing else under your home directory is visible.
+The coder and the tester run in one sandbox, under srt. Both can write the working directory,
+which is everything they need to fix and run the tests, and reach npm's registry besides their
+model. Nothing else is writable, and nothing else under your home directory is visible.
 
 <<< @/../examples/site/guide/sandboxes.ts#private
 
-The reviewer gets a sandbox of its own, given inline. `{}` is the strictest one: it reads the
-working directory, writes nothing, and reaches only its model.
+The reviewer gets a sandbox of its own, given inline. `{ srt: {} }` is the strictest one: it
+reads the working directory, writes nothing, and reaches only its model.
 
 The whole workflow, and the test that checks what each agent was given, are in
 [`examples/site/guide/sandboxes.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/sandboxes.ts)
@@ -37,7 +37,7 @@ and the `.test.ts` beside it.
 | `network` | domains they can reach beyond their harness's model API: `registry.npmjs.org`, or `*.npmjs.org` for its subdomains |
 | `sockets` | host unix sockets they can connect to, such as a browser or a database you run; srt only |
 | `webSearch` | `true` keeps the harness's web search, which is off inside otherwise |
-| `srt` or `docker` | which provider holds it; omit both for the default |
+| `srt` or `docker` | which provider holds it: required, exactly one |
 
 `wf.sandboxes.open` also needs a `key`, which names it in the run's record, and takes a `cwd`, which
 defaults to the workflow's working directory. An inline spec takes neither. Relative paths are from the
@@ -56,9 +56,10 @@ only through a proxy that allows the spec's domains.
 
 <<< @/../examples/site/guide/sandboxes.ts#providers
 
-A spec that names neither runs under srt when `srt` is on your PATH, and docker otherwise. If srt
-is there but can't be set up, the sandbox fails with the reason; it doesn't fall back to docker.
-Naming a provider pins it: if it isn't installed, the sandbox doesn't open, and the error says so. What each needs on your machine is in
+Every spec names its provider; there is no default. The two give the agents a different machine,
+your toolchain or an image, so what works under one can fail under the other, and the workflow
+says which it was written for. A provider that isn't installed, or can't be set up, fails the
+sandbox with the reason; awf never moves it to the other. What each needs on your machine is in
 [Install](/guide/install#sandboxes).
 
 Panes work under both. An srt agent's pane opens in the run's Herdr as usual. A docker sandbox runs
@@ -102,8 +103,8 @@ You can put every agent of a run in one sandbox without touching the workflow:
 awf run --sandbox box.json review.ts
 ```
 
-`box.json` is an inline spec, such as `{"read": ["/data/request.md"], "srt": {}}`, with relative
-paths from `--cwd`. Every agent runs in it, at the run's working directory. A workflow that opens a
+`box.json` is an inline spec, such as `{"read": ["/data/request.md"], "srt": {}}`, naming its
+provider like any other, with relative paths from `--cwd`. Every agent runs in it, at the run's working directory. A workflow that opens a
 sandbox of its own, or gives an agent one, is refused:
 
 ```text

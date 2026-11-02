@@ -89,7 +89,7 @@ function run<Result extends JsonValue>(
     deadline: future(),
     cwd: work,
     sandboxes: {
-      providers: { installed: { srt: fake.provider }, default: "srt" },
+      providers: { installed: { srt: fake.provider } },
       sandboxesDir: runDirs.tempRunDir(),
       machineRoot: runDirs.tempRunDir(),
     },
@@ -106,7 +106,7 @@ describe("agent skills", () => {
     const alpha = await skill("alpha");
     const beta = await skill("beta");
     const result = await run(async (context) => {
-      const box = await context.sandboxes.open({ key: "shared" });
+      const box = await context.sandboxes.open({ key: "shared", srt: {} });
       const [one, two] = await Promise.all([
         context.agents.open({
           key: "one",
@@ -265,7 +265,11 @@ printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
   test("none named: a sandboxed agent records none, and a host pi given [] loads none", async () => {
     await rm(join(logs, "pi.log"), { force: true });
     const result = await run(async (context) => {
-      const boxed = await context.agents.open({ key: "boxed", runtime: codex, sandbox: {} });
+      const boxed = await context.agents.open({
+        key: "boxed",
+        runtime: codex,
+        sandbox: { srt: {} },
+      });
       const empty = await context.agents.open({ key: "empty", runtime: pi, skills: [] });
       await boxed.run({ prompt: "go" });
       await empty.run({ prompt: "go" });

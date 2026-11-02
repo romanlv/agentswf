@@ -31,17 +31,20 @@ const provider: SandboxProvider<unknown> = {
   environment: () => ({}),
   open: () => Promise.reject(new Error("not opened here")),
 };
-const providers: SandboxProviders = { installed: { srt: provider }, default: "srt" };
-const resolve = (cwd: string, spec: unknown) =>
-  resolveSandbox(spec, {
-    key: "box",
-    cwd,
-    runRoot,
-    machineRoot: join(home, ".awf"),
-    home,
-    providers,
-    harnessState: [],
-  });
+const providers: SandboxProviders = { installed: { srt: provider } };
+const resolve = (cwd: string, spec: object) =>
+  resolveSandbox(
+    { ...spec, srt: {} },
+    {
+      key: "box",
+      cwd,
+      runRoot,
+      machineRoot: join(home, ".awf"),
+      home,
+      providers,
+      harnessState: [],
+    },
+  );
 
 beforeAll(async () => {
   await mkdir(runRoot, { recursive: true });
