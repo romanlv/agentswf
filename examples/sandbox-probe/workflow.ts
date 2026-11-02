@@ -106,7 +106,7 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
         schema: REPORT,
         timeoutMs: 3 * 60_000,
       });
-      return outcome.kind === "answered"
+      return outcome.answered
         ? {
             agent: name,
             outcome: outcome.kind,

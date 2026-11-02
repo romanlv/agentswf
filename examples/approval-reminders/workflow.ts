@@ -52,8 +52,7 @@ export default defineWorkflow({
             prompt: `Write one short, polite sentence reminding the approver that ${doc} still awaits approval. This is reminder ${round}.`,
             schema: Reminder,
           });
-          const text =
-            drafted.outcome.kind === "answered" ? drafted.outcome.value.text : `Reminder: ${doc}.`;
+          const text = drafted.outcome.answered ? drafted.outcome.value.text : `Reminder: ${doc}.`;
           await approvals.post(text);
         });
     }

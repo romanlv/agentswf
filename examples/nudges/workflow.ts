@@ -67,8 +67,7 @@ export default defineWorkflow({
             prompt: `Write one short, friendly sentence nudging an engineer to answer this question: "${question}". This is nudge ${n} of ${maxNudges}.`,
             schema: Nudge,
           });
-          const text =
-            drafted.outcome.kind === "answered" ? drafted.outcome.value.text : `Nudge: ${question}`;
+          const text = drafted.outcome.answered ? drafted.outcome.value.text : `Nudge: ${question}`;
           await engineer.post(text);
         });
         if (n >= maxNudges) {

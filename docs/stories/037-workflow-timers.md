@@ -287,7 +287,7 @@ gets the reply from the race's record, and the nudge, which belonged to the race
 ### Case 3: a retry after a failed turn, inside dd-case's loop
 
 ```ts
-if (investigator.is(e) && !isAnswered(e.data.outcome)) {
+if (investigator.is(e) && !e.data.outcome.answered) {
   const failure = kase.markFailed(e.id);                          // backs off, from the files
   workflow.timer(`retry-${failure.id}`, failure.retryAt);
 }

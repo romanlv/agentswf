@@ -123,7 +123,7 @@ function report(
   where: string,
   outcome: TurnOutcome<{ results: CommandResult[] }>,
 ): AgentReport {
-  return outcome.kind === "answered"
+  return outcome.answered
     ? { agent, where, results: outcome.value.results }
     : { agent, where, failure: `${outcome.kind}: ${outcome.reason}` };
 }

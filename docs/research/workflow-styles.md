@@ -325,7 +325,7 @@ run: async (workflow, { ticket }) => {
   const planner = await workflow.agents.open({ key: "planner", runtime: RUNTIMES.planner });
   const doc = await workflow.stage("plan", { result: DOC }, async () => {
     const { outcome } = await planner.run({ prompt: `Draft a ticket doc for ${ticket}`, schema: DOC });
-    return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason);
+    return outcome.answered ? outcome.value : workflow.stop(outcome.reason);
   });
 
   // workflow code can't wait for a person: stop, and have the operator continue later
@@ -335,7 +335,7 @@ run: async (workflow, { ticket }) => {
   const implementer = await workflow.agents.open({ key: "implementer", runtime: RUNTIMES.implementer });
   await workflow.stage("implement", { result: WORK }, async () => {
     const { outcome } = await implementer.run({ prompt: `Implement ${doc.path}`, schema: WORK });
-    return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason);
+    return outcome.answered ? outcome.value : workflow.stop(outcome.reason);
   });
   // checklist: the same stop-until-present trick; reminders, the 14-day follow-up and the
   // weekly digest have no expression at all
@@ -821,7 +821,7 @@ export default defineExecutableWorkflow({
         const ended = events.find((e) => e.name === "turn.ended");
         if (ended) {
           turn = null;
-          if (!isAnswered(ended.data.outcome)) {
+          if (!ended.data.outcome.answered) {
             await workflow.stage(`failed-${round}`, () => thread.post(failedNote(ended.data.outcome)));
             replies.unshift(...batch.replies);
             continue;                                            // the batch is still unseen: retried with the next change
@@ -882,7 +882,7 @@ export default defineExecutableWorkflow({
         if (s.failure || s.comments.length > 0) {
           const fix = await workflow.stage(`fix-${round}`, { result: Type.Union([PUSHED, Type.Null()]) }, async () => {
             const { outcome } = await fixer.run({ prompt: fill(FIX, s), schema: PUSHED });
-            return isAnswered(outcome) ? outcome.value : null;
+            return outcome.answered ? outcome.value : null;
           });
           if (fix === null) continue;                  // kept: the next event retries the fix
           workflow.state.reset("comments", "failure");

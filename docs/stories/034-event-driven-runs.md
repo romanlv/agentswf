@@ -122,7 +122,7 @@ export default defineEventWorkflow({
         });
         for (const e of events) {                                // in order: each event is handled
           if (investigator.ended<Given, JsonValue>(e)) {
-            if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+            if (e.data.outcome.answered) kase.markGiven(e.data.meta);
             else if (e.data.outcome.kind !== "cancelled") kase.markFailed(e.id);   // sets retryAt, backing off
           }
           if (thread.replied(e)) kase.addReply(e.id, e.data);   // pending; by id, so twice adds once
