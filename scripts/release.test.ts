@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { accepted, manifestProblems, PACKAGES } from "./release";
 
@@ -64,8 +64,11 @@ describe("release", () => {
       JSON.parse(
         readFileSync(join(import.meta.dir, "..", "packages", dir, "package.json"), "utf8"),
       );
+    // A directory without a manifest, such as one a rename left holding node_modules, is no package.
     const publishable = readdirSync(join(import.meta.dir, "..", "packages")).filter(
-      (dir) => !manifest(dir).private,
+      (dir) =>
+        existsSync(join(import.meta.dir, "..", "packages", dir, "package.json")) &&
+        !manifest(dir).private,
     );
     expect([...PACKAGES].sort()).toEqual(publishable.sort());
     const byName = new Map(PACKAGES.map((dir) => [manifest(dir).name as string, dir]));
