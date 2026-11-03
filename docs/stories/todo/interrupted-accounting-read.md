@@ -2,7 +2,7 @@
 title: Keep the spend when Ctrl-C lands during the end-of-run read
 type: story
 status: todo
-priority: P2
+priority: P1
 epic: observability
 discovered_in: "story 003, live verification"
 depends_on: ["003"]

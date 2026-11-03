@@ -16,7 +16,7 @@ can choose otherwise.
 
 Why it matters: an agent's permission mode changes its time, what it may do unasked, and whether a
 turn stalls on a prompt nobody answers, and awf neither chooses nor records it. Each harness's
-handling is fixed in `packages/harness/src/spec.ts`: codex `--ask-for-approval never` with its own
+handling is fixed in its definition under `packages/harness/src/harnesses/`: codex `--ask-for-approval never` with its own
 sandbox off, cursor `--force`, claude `--allowed-tools Bash`, pi none. In a sandbox, claude's home
 sets `bypassPermissions` ([[permissions#Bypass only inside a sandbox]]).
 

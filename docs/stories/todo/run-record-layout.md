@@ -2,7 +2,7 @@
 title: A run's records, designed as a whole
 type: story
 status: todo
-priority: P2
+priority: P1
 epic: launch
 discovered_in: "038, documenting site/reference/data.md, 2026-11-01"
 depends_on: []

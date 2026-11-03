@@ -2,7 +2,7 @@
 title: Try review shapes and models against AIR's own review
 type: story
 status: todo
-priority: P1
+priority: P3
 epic: loop
 discovered_in: "story 013, the AIR review screen, 2026-10-01"
 depends_on: ["013"]

@@ -1,8 +1,8 @@
 # Evaluation environments
 
 Where an evaluated workflow runs, who builds that place, and how we know nothing in it can see the
-answer. **Decided 2026-09-29: option A**, built by [[010-eval-isolation|story 010]]. The options and
-the reasons are kept below.
+answer. **Decided 2026-09-29: the run's sandbox**, built by [[010-eval-isolation|story 010]]; the
+whole run in a container followed for workflows nobody wrote (story 013, task 2).
 
 Terms are the lab's ([`packages/lab`](../../packages/lab/docs/reference.md#The%20words)): a **dataset** of
 **cases**, each with a **key**; a **variant** is the workflow evaluated; a **trial** is one variant
@@ -138,92 +138,32 @@ That covers "configured once, not per workflow" without a published environment 
 `defineEnvironment`, with hooks for a new kind of case, waits for a second dataset kind:
 [`foundation.md`](../foundation.md) §10's rule for not building ahead.
 
-## Who holds the boundary: the options
+## Who holds the boundary
 
-### A. The run's sandbox: `awf run --sandbox {spec}`
+**The run's sandbox, `awf run --sandbox {spec}`.** awf-lab writes a sandbox spec for the trial
+(`read` the request, the configured provider) and passes it to `awf run` with `--cwd` the checkout.
+The engine opens that one sandbox before the workflow starts, so one that can't open fails the run
+before it counts as a trial, and every `agents.open` puts its agent there. A workflow that asks for
+a sandbox of its own is refused, since a sandbox inside a sandbox isn't something the providers do.
+It reuses story 004 whole: providers, per-agent homes seeded with credentials only, the git
+protections, and the rule that a sandbox is either whole or doesn't open. It reverses one story 004
+decision, "no operator ceiling": this is that ceiling, for one run, as a published CLI flag.
 
-awf-lab writes a sandbox spec for the trial (`read` the request, the configured provider) and
-passes it to `awf run` with `--cwd` the checkout. The engine opens that one sandbox before the
-workflow starts, so one that can't open fails the run before it counts as a trial, and every
-`agents.open` puts its agent there. A workflow that asks for a sandbox of
-its own is refused with a clear error, since a sandbox inside a sandbox isn't something the
-providers do.
+It covers agents, not the workflow's code, which still runs on the host and could read the key
+itself (the `oracle` and `comments` controls do so on purpose). That holds while people write
+variants. **The whole run in a container**, `{ "container": { "image" } }` in `awf-lab.json`, is
+for workflows nobody wrote, as the loop's proposer writes them: the key isn't in the container at
+all. It costs an image holding bun, awf and every harness CLI, credentials passed in, a container
+start per trial, and headless agents only.
 
-- **Reuses story 004 as it is:** providers, per-agent homes seeded with credentials only, the git
-  protections, and the rule that a sandbox is either whole or doesn't open.
-- **Small change:** one `awf run` flag, one place in the engine where an agent's sandbox is chosen,
-  and one refusal.
-- **A canary**, had one been kept, would need to run a command in the environment without a
-  model: a new `awf sandbox exec`, or awf-lab driving the `srt` and `docker` CLIs with the same spec.
-- **It covers agents, not the workflow's code,** which still runs on the host and could read the
-  key itself (the `oracle` and `comments` controls do so on purpose). That's fine while people write
-  variants, and not once autoresearch generates workflow code.
-- **It reverses a story 004 decision.** Story 004 said "no operator ceiling … a ceiling can return
-  later". This is that ceiling, for one run, and it becomes a published CLI surface. Nothing else
-  in the design changes.
-
-### B. The whole run in a container
-
-awf-lab starts one container per trial, like SWE-bench and Harbor. The checkout is mounted
-read-only, the request, the variant's file and the awf install are mounted, and the network is
-limited to the model APIs through the docker provider's proxy. `awf run` runs inside it; so do its
-agents, unsandboxed within the container.
-
-- **Covers everything,** the workflow's own code included: the key isn't in the container at all.
-  This is the only option that survives autoresearch writing workflows.
-- **The canary is trivial:** `docker run` with the same mounts and the probe script.
-- **Costs:**
-  - an image holding bun, awf and every harness CLI, kept current;
-  - credentials passed in: claude's token as an environment variable, codex's `auth.json` mounted
-    read-only;
-  - a container start per trial;
-  - headless agents only, since panes need the host's terminal;
-  - Docker Desktop on macOS.
-  - The lab gets its first infrastructure to support.
-- **Controls** that read the key (`oracle`, `comments`) need the dataset mounted: the environment
-  would have a "control" form, which is a second thing to explain.
-- **No engine change.** The boundary is entirely awf-lab's.
-
-### C. The variant sandboxes itself and awf-lab checks every record (story 010 as built)
-
-Rejected above: every workflow repeats it, and it's verified after the fact.
-
-### D. The whole run under srt on the host
-
-Rejected. awf-lab would have to rebuild the per-agent homes the sandbox package already builds.
-Without them, `~/.codex/sessions` holds the operator's past work on these repositories, which is a
-leak. Also, srt can't nest, so a workflow could never open a sandbox of its own.
-
-## Comparison
-
-| | A. run sandbox | B. run in a container | C. as built |
-| --- | --- | --- | --- |
-| Workflow changes | none | none | a flag in each |
-| Checked | never per trial: the engine's and providers' tests | never per trial: a probe of the image | every trial |
-| Covers the workflow's code | no | yes | no |
-| New surface | `awf run --sandbox` (published) | none in awf; an image in the lab | `--sandbox` on each example |
-| Reuses story 004 | all of it | the proxy only | all of it |
-| Runs on | srt or docker | docker | srt or docker |
-| Cost per trial | as today | plus a container start | as today |
-| To support | a flag and a refusal | an image, credentials, mounts | a check and its record field |
-
-## Recommendation
-
-**A, with the lifecycle, declared in `awf-lab.json`; built.** It is the smallest change
-that makes isolation a property of the setup. It reuses everything story 004 built and verified,
-and it removed code rather than adding it: story 010's first per-trial check, the `leaks` field,
-and both examples' `--sandbox` flags went. What stays from story 010 is the repository laid out as
-the reviewer's clone, the real scratch paths, and the default-branch check.
-
-**B when autoresearch starts generating workflow code.** That is the point at which the workflow is
-no longer trusted, and only a container covers it. The lifecycle and the config above
-don't change; a `container` setting beside `srt` and `docker` becomes another way to hold the same
-environment. The trigger
-is named so it isn't forgotten.
+Not chosen: each variant sandboxing itself while awf-lab checks every record (story 010's first
+build), since every workflow repeats it and it is verified after the fact; and the whole run under
+srt on the host, since awf-lab would rebuild the per-agent homes the sandbox package already builds,
+`~/.codex/sessions` would leak the operator's past work on these repositories, and srt can't nest.
 
 ## Decisions
 
-1. **A first** (the user, 2026-09-29).
+1. **The run's sandbox first** (the user, 2026-09-29); the container when the workflow isn't trusted.
 2. **No per-run canary.** The run's sandbox is opened by the same engine and provider code as every
    sandbox, which the engine's tests, the providers' conformance suite and the `sandbox-*` evals
    already prove; a canary would need a new `awf sandbox exec` or a second translation of the spec

@@ -1,7 +1,6 @@
-	# Workflow interface map
+# Workflow interface map
 
-This directory designs the interface; it does not specify an implementation. Stage 0 moved the
-source into `packages/`; what lives here is the map, not the code.
+This directory designs the interface; it does not specify an implementation.
 
 agents.wf has three distinct interfaces. Keeping them separate makes it clear which capabilities belong
 to workflow code, which belong to the engine, and which are visible to the agent running inside a
@@ -11,89 +10,18 @@ harness.
 | --- | --- | --- |
 | Workflow author | Public TypeScript interface | [`packages/contract/src/workflow/`](../../packages/contract/src/workflow/) |
 | Engine and harness adapter | Internal TypeScript interface | [`packages/harness/src/adapter.ts`](../../packages/harness/src/adapter.ts) |
-| Agent inside a session | Prompt, skills, harness tools, the workflow's tools, and result CLI | Described below |
+| Agent inside a session | Prompt, skills, harness tools, the workflow's tools, and `wfa` | Described below |
 
 The scenarios under [`examples/`](../../examples/) use only the public interface. They do not know how
 a terminal session is started or how an answer is collected.
 
 ## Public interface for workflow authors
 
-A workflow exports a `WorkflowDefinition` with metadata and one `run` function:
-
-```ts
-const workflow: WorkflowDefinition<Args, Result> = {
-  meta: { name, description },
-  async run(context, args) {
-    return orchestrate(context, args);
-  },
-};
-```
-
-`WorkflowContext` provides:
-
-- `agents` — open, reattach to, or stop logical agents, or take the session the run was started
-  from (`caller`, [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md)).
-- `participants` — connect a participant outside the run, such as a coordinator, or resolve
-  participants visible in this scope.
-- `messages` — grant one-way or two-way messaging routes between participants.
-- `call` — run a child workflow in its own scope.
-- `parallel` — apply an async operation with bounded local concurrency.
-- `steps` — run a named operation or sleep.
-- `emit` — send an event to a workflow with `events`, which starts or wakes its key's run; such a
-  run also has `key` and `receive`, its wait ([story 034](../stories/034-event-driven-runs.md)).
-- `usage()` — snapshot completed agent-operation times and sessions for the run. Tokens and cost
-  are read when the run ends and returned by the engine, not to workflow code.
-- `log()` — record workflow diagnostics.
-
-An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills: a
-path, or a public skill in a git repository, each copied to the agent, which then has exactly those
-and none of the operator's ([story 007](../stories/007-agent-skills.md)). Its working directory
-and deadline inherit from the current workflow scope:
-
-```ts
-const reviewer = await context.agents.open({
-  key: "reviewer:42",
-  instructions: "Review the change and record findings in the ledger.",
-  runtime: "reviewer",
-  skills: [{ path: new URL("./skills/air-code-review", import.meta.url) }],
-});
-```
-
-`AgentRef` has three ways to perform work:
-
-- `run()` queues one turn and waits for its terminal outcome. Its id is generated when omitted, and
-  one standard missing-answer nudge runs unless `nudge: false` disables it.
-- `start()`, on an agent of a workflow with `events`, begins a turn without awaiting it; its end
-  arrives at the run's wait as `agent:ended`, and `agent.turn` holds it until then.
-- `compact()` runs the harness's own compaction, with the spec's prompt as its focus (ADR 0007).
-  An `answered` outcome means the context was replaced; any other leaves it as it was.
-- `fork()` opens a new agent on a copy of the session, taken after the agent's earlier operations
-  by the harness's own fork with no model call (ADR 0009). It has its parent's harness, model,
-  working directory, sandbox and skills, and from then on neither sees the other's turns.
-
-The public call surface is:
-
-| Object | Calls |
-| --- | --- |
-| `AgentDirectory` | `open(spec)`, `attach(key, runtime?)`, `stop(key, reason?)` |
-| `ParticipantDirectory` | `connect(spec)`, `get(key)` |
-| `AgentRef` | `run(spec)`, `compact(spec)`, `set(spec)`, `fork(spec)` |
-| `EventAgentRef` | as `AgentRef`, and `start(spec)`, `turn`, `is(event)`; a source of its turns' ends |
-| `StartedTurn` | `id`, `cancel(reason?)`, `is(event)`; a source of its end |
-| `Messaging` | `allow(access)` |
-| `Steps` | `run(spec, operation)`, `sleep(spec)` |
-| `WorkflowContext` | `call(spec)`, `emit(target, name, data, options?)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)`, `sleep(name, when)`, `now()`; with `events`, `receive`, `race`, `select`, `timer`, `timers`, `signal`, `started` |
-
-Every turn ends as `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, or `cancelled`. An answered turn
-contains either text or JSON validated against the supplied `OutputSchema`. Every outcome carries
-its own usage record with delivery and settle times. Spend is not on it: a harness writes its last
-request after the answer is accepted, so the engine reads spend once the run ends and returns it with
-the run's result ([story 002](../stories/002-cost-and-time-accounting.md)). Unknown spend stays
-absent; known zero remains distinct from unavailable.
-
-Runtime aliases are engine configuration, not workflow definitions. A workflow normally names an
-alias and may constrain its harness or model. The resolved harness, model, and selected alias are
-available on `AgentRef.execution` and remain fixed for that logical agent.
+What a workflow author sees, `defineWorkflow`, `wf` and the agent ref, is documented once, on the
+site: [workflow API reference](https://agents.wf/reference/workflow-api)
+([`site/reference/workflow-api.md`](../../site/reference/workflow-api.md)). Runtime aliases are
+engine configuration, not workflow definitions: a workflow names an alias and may constrain its
+harness or model, and the resolved harness, model and alias stay fixed for that logical agent.
 
 ## Internal interface for the engine and adapters
 
@@ -153,7 +81,8 @@ Installing both Herdr and tmux does not introduce a second routing language; the
 which one opens the run.
 
 The engine reaches sessions only through the run host; `single-session-host.ts` places one
-`AgentSessionAdapter` behind that seam, and `session-core.ts` holds the session lifecycle shared
+`AgentSessionAdapter` behind that seam, and `placement-host.ts` combines a pane host and a headless
+one into the one run host, each opened when an agent first needs it. `session-core.ts` holds the session lifecycle shared
 behind the adapter. The shared harness table supplies provider-neutral interactive
 commands. Herdr's agent-kind mapping stays in the Herdr implementation, where a tmux or raw-PTY
 implementation does not need to know it.

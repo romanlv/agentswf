@@ -2,7 +2,7 @@
 title: Going on from a stopped run
 type: story
 status: todo
-priority: P1
+priority: P0
 epic: long-runs
 discovered_in: "implement-ticket flow.ts live runs, 2026-10-02"
 depends_on: ["021", "018"]
@@ -52,6 +52,8 @@ they do.
    - Bounded by its own deadline, so a forgotten run ends and reports as in (1).
    - Story 026's `keepPane: "on-failure"` already leaves such a pane open after the run, its
      harness released and its result channel closed. What (2) adds is the run waiting on it.
+   - An agent a person talks to while the run drives it is [[attended-agent]]'s lifecycle; design
+     them together.
    - The progress view shows the run as waiting on a person, with the pane to go to.
 3. **Continue from a stage**: [[018-workflow-stages|story 018]] builds the continue with fresh
    agents (`--id {run} --continue --from-stage {stage}`, [[runs-and-stages]]). What's left here:

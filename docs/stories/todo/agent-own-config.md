@@ -2,7 +2,7 @@
 title: An agent runs on the setup the workflow gives it, not the operator's
 type: story
 status: todo
-priority: P2
+priority: P1
 epic: agent-config
 discovered_in: "story 029, task 1, 2026-10-12"
 depends_on: []

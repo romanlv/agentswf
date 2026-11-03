@@ -18,7 +18,7 @@ Releasing one agent alone would close its pane and keep its session, and its nex
 the session in a new pane within the same attempt. Today nothing can:
 
 - the harness refuses a session whose pane closed: "this agent's pane was closed, so its session
-  cannot be continued" (`packages/harness/src/adapters/herdr.ts:1360-1366`), and compaction, `set`
+  cannot be continued" (`packages/harness/src/adapters/herdr.ts`), and compaction, `set`
   and fork refuse the same way;
 - ADR 0008 says why: a close acknowledgement doesn't prove the process gone, and a codex session a
   killed process held refused a second writer;

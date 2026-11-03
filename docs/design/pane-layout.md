@@ -60,7 +60,7 @@ The `?: never` fields only make the two shapes exclusive: a layout is a new tab 
 another, never both.
 
 ```ts
-type Layout =
+type PaneLayout =
   | {
       /** The Herdr session. Default: the run session, `awf` or `AWF_HERDR_SESSION`. */
       session?: string;
@@ -83,8 +83,8 @@ type Layout =
 /** Whether the pane stays after its agent is done. Default "never". */
 type KeepPane = "never" | "on-failure" | "always";
 
-interface AgentOpenSpec { /* … */ layout?: Layout; keepPane?: KeepPane }
-interface AgentForkSpec { /* … */ layout?: Layout; keepPane?: KeepPane }
+interface AgentOpenSpec { /* … */ layout?: PaneLayout; keepPane?: KeepPane }
+interface AgentForkSpec { /* … */ layout?: PaneLayout; keepPane?: KeepPane }
 ```
 
 Without `layout`, an agent is placed as today: a tab of its own, labelled by its key, in the run's
@@ -157,7 +157,7 @@ it falls back to a tab of its own.
 ### Refused at open
 
 These are fixed by the workflow's code and the agent's own spec, so the `open` or `fork` rejects with
-the reason, and nothing is placed. The types already refuse mixing the two shapes of `Layout`.
+the reason, and nothing is placed. The types already refuse mixing the two shapes of `PaneLayout`.
 
 | Case | Result |
 | --- | --- |
@@ -380,20 +380,6 @@ where it was placed: the session, the workspace (`run`, `origin`, or its name), 
 the key it went beside, a fallback's reason, and whether it was kept, or why a pane asked to be kept
 was closed instead. The run's closing lines name each fallback, each pane closed instead of kept,
 and each kept pane with how to reach it, once each.
-
-## What changes elsewhere
-
-- **The author surface**: `AgentOpenSpec` and `AgentForkSpec` gain `layout` and `keepPane`;
-  `docs/workflow-api.md`'s reference lines for `open` and `fork` change with them.
-- **ADR 0008**: "a pane that was closed is not reopened" becomes "a pane agent that is done is not
-  driven again": closed or kept, its later operations fail.
-- **The Herdr host**: a pane exists from open, before its harness, so its state tells *placed* from
-  *launched*; a cancel with nothing launched cancels nothing. Closing an agent closes its pane, not
-  its tab. A relaunch replaces its pane in place, through the topology's queue. The run's end closes
-  its workspace only when nothing in it is kept.
-- **The mark format**, above.
-- **The run session's start, sweep and restart** apply to every `awf-…` session a workflow names, not
-  only the one `AWF_HERDR_SESSION` names.
 
 ## Not in this design
 

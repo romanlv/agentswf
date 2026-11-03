@@ -1,43 +1,21 @@
 # Ideas
 
 Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](../foundation.md)
-§7 gives each one a home, and §10 says what has to happen before it is built.
+§7 gives each one a home, and §10 says what has to happen before it is built. An idea that became
+a story or a todo leaves this page.
 
 ## Agents
 
-- **Advanced forking.** Fork a session by creating a summary (compact) without destroying the
-  original session. Useful when additional agents or additional work are needed, or for side
-  quests that may or may not be used. (§7: no fork in any interface until E7's cost split is
-  settled.)
-- **Team of agents.** Agents talk to each other, with some checks enforced by the model. The main
-  thing: running agents can send messages to each other and wait for responses.
-  (§7, [`messaging.md`](messaging.md).)
-- **Unified skills and tools.** Agents may be given additional skills or tools, and there should be
-  one way to invoke them. Something like `skill:name` is less error-prone than the claude and codex
-  versions, which are not the same. (§7: model request-vs-granted first.)
-- **Context usage.** Detect when an agent is in the dumb zone: what percentage of its context is
-  used so far. (§7: `harness`, beside liveness and usage.)
-- Custom skills per agent: a path or a public skill, applied to this agent only, with or without the operator's — drafted as [story 007](../stories/007-agent-skills.md).
-- connecting to harness hooks in the code, and driving workflow with those signals, this should be integrated with event driven architecture
-- giving tools that connect to the workflow code, so agent gets cli tool and it executes the code in the same workflow
+- **Fork by summary.** Fork a session through a compaction, leaving the original intact: for
+  extra agents, extra work, or a side quest that may or may not be used. Today's fork copies the
+  session whole (ADR 0009).
+- **Harness hooks as events.** A harness's own hooks feed the workflow, so the code reacts to what
+  an agent does while it keeps working; part of the event-driven design.
 
-## Workflows
+## Subscriptions
 
-- [x] Call workflows from other workflows.
-- [ ] Checkpoints: input from the user stops everything until approval is given. (§7: an
-  admission barrier, not a signal.)
-- [x] Monorepo structure with multiple packages.
-- [ ] Modular structure.
-- [ ] Observability.
-- [x] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
-- [ ] Messaging as its own package? (§7 argues it cannot be one package.)
-- [x] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow — measured, and drafted as [story 006](../stories/006-typed-decisions.md).
-- [ ] initializer for new workflow, to setup tsconfig and empty workflow , it can also check what is currently available and add those harnesses as comments or new one
-
-## Subscription , proxy for other harnesses
-api to monitor usage, switch to different account/token
-wait for usage reset  
-provide cli commands to get stats from other harnesses
+- Switch an agent to another account or token when a plan runs out, instead of waiting for the
+  reset. `awf allowance` reads what is left (story 022).
 
 ## Evaluation and self-improvement
 
@@ -46,81 +24,64 @@ provide cli commands to get stats from other harnesses
   ([ADR 0002](../adr/0002-autoresearch-lives-here.md)).
 - **Self-improving.** Figure out how it works in the Hermes agent.
 - **Self-fixing.** Run workflows with another agent watching, making changes and improvements.
-- **awf powered by awf?** That can be quite cool.
+- **awf powered by awf.**
+- **Workflow stats.** Running and testing workflows as everyday work: an idea to improve one is
+  tried against a baseline, every run recorded and compared, and the case becomes a future test
+  case for the eval. An optimizer, GEPA style.
 
-## Messaging
-
-Still not sure whether messaging can be its own tool. In theory, ad-hoc workflows can be
-implemented with messaging/signalling plus some prompts. Or maybe it is just one of the commands in the toolchain and can be integrated.
 ## Collaboration strategies
-there could be different decisions to try out, like how information is shared, who decides
-e.g. it can be a like a trial with one judge, and prosecurtor, 3 judges in quick trial, company meeting etc... 
-those abstractions from real life can become inspiration for collaboration strategies
 
-## Building blocks 
-Maybe instead of pre-defined components, there should be logical blocks, that are documented and distributed as a complex code, and it's tied to the core api that is stable, but those logical concepts are evolving, they are like templates, like shadcn components, can be installed and modified locally 
+Different ways to share information and decide: a trial with one judge and a prosecutor, three
+judges in a quick trial, a company meeting. Abstractions from real life as inspiration for how
+agents collaborate.
 
-and this related to collaboration strategies as well
+## Building blocks
 
-## Recipes 
-section on recipes, common use cases and how to implement those 
-- important one, have a an agent that watches your workflow and fixes it automatically
+Instead of predefined components, documented logical blocks tied to the stable core API, which
+evolve on their own: templates installed and modified locally, like shadcn components. Related to
+collaboration strategies.
 
-## Sandboxing
+## Recipes
 
-Built for agents: a workflow opens sandboxes and puts agents in them (story 004). Running the
-whole workflow in one is still an idea. ([`permissions.md`](permissions.md) has the design.)
-%% this is done %%
+Common use cases and how to build them:
+
+- An agent that watches a workflow and fixes it.
+- **Review and fix**, kept as a skill (`/reviewfix`, `/reviewfix-fork`): review and fix the
+  current branch, configurable by harness and model, lenses, a time and cost budget; sweep
+  existing code and features; file further bugs as todos.
+- Integrations with other systems: patterns or boilerplates, most likely not a component.
+
 ## Memory
 
 Self-documenting and self-cleaning; maybe some kind of skills for now.
 
-## Events driven 
-agent session itself can generate events that other elements of the workflow can react to, so the agent keeps focusing on the task, but other parts of the workflow can be notified, to do other things. 
-Ideally it should be a context (meaning triggered) but not sure if it's possible or how to do it
-### state machine 
-it is a state machine or graph engineering now 
+## Events and state
 
-### state storage 
-currently in files in pre-defined format, but should have different connectors so it can be stored anywhere
-
-
-### Nice to have, from LangGraph and Mastra
-Read against the event-driven style comparison (`docs/research/workflow-styles.md`, 2026-10-24).
-Neither has an inbox, so events that arrive during a turn need one of awf's own; these three are
-worth taking on top of it:
-- **Reducers per event.** LangGraph declares how each update folds into state
-  (`comments: append`, `green: last`). A workflow could declare it once per event name, instead
-  of folding events by hand in every loop.
-- **The run as a picture.** LangGraph's current node answers "where is it now". awf could draw a
-  run's stages and waits, and mark where it is, for debugging and `awf runs`.
-- **Typed waits in both directions.** Mastra's `suspendSchema` says what a wait shows, and its `resumeSchema` what it
-  accepts. A wait's label and its event schema are the same pair.
-
-### Observing agents talking to each other
-Agent-to-agent messages are not events the workflow code sees. A route could opt in to being
-observed (`messages.allow({ between, observe: true })`), giving the code a copy (`reviewer:sent`)
-while the message still goes straight to the other agent. A copy only: the code never blocks or
-changes a message, since code in the path is a router, which a participant that goes to the code
-already is. Useful for limiting a debate to N rounds, reacting to "pass" before the turn ends,
-collaboration strategies that enforce who speaks when, and an audit trail. Nothing needs it yet
-(2026-10-25).
-
-## time intervals
-workflow can have cron schedule, and fake up later, to have a script to get some signals
-
-### Resumable workflows 
-if workflow died on specific step, it should be able to resume it from that step, without repeating from the start
-%% done %%
-
-## Integrations with other systems 
-related to loops 
-just needs some patterns or boilerplates to follow, does not need a separate component, most likely
-
-
-
-## Ready for loops 
-First class support to integrate with the loops (loop graphs). See where it stands
+- **State storage connectors.** State lives in files in a fixed format; connectors could store it
+  anywhere ([[workflow-state]]).
+- **A workflow as a state machine or graph.**
+- From LangGraph and Mastra, read against the event-driven style comparison
+  ([`workflow-styles.md`](../research/workflow-styles.md), 2026-10-24):
+  - **Reducers per event.** LangGraph declares how each update folds into state
+    (`comments: append`, `green: last`). A workflow could declare it once per event name, instead
+    of folding events by hand in every loop.
+  - **The run as a picture.** LangGraph's current node answers "where is it now". awf could draw a
+    run's stages and waits, and mark where it is, for debugging and `awf runs`.
+  - **Typed waits in both directions.** Mastra's `suspendSchema` says what a wait shows, and its
+    `resumeSchema` what it accepts. A wait's label and its event schema are the same pair.
+- **Observing agents talking to each other.** Agent-to-agent messages are not events the workflow
+  code sees. A route could opt in to being observed (`messages.allow({ between, observe: true })`),
+  giving the code a copy (`reviewer:sent`) while the message still goes straight to the other
+  agent. A copy only: code in the path is a router, which a participant that goes to the code
+  already is. Useful for limiting a debate to N rounds, reacting to "pass" before the turn ends,
+  collaboration strategies that enforce who speaks when, and an audit trail. Nothing needs it yet
+  (2026-10-25).
+- **A workflow router.** One interface that routes signals and events to the right workflow, like
+  OpenClaw.
+- **A scheduler.** A system service that watches running workflows, wakes those due, and shares
+  out tokens and budget. `awf tick` wakes what is due today; [[workflow-schedules]] is the next
+  step.
+- **Ready for loops.** First-class support for loop graphs.
 
 ## Markdown linting and schema
 
@@ -128,60 +89,36 @@ A separate package or tool: define a schema for Markdown files (required section
 frontmatter) and a linter that validates whether a file qualifies. Workflows could build agents or
 prompts on it — review lenses, for example.
 
-- follow up story can be obsidian plugin that validates doc edits against defined schema and provides feedback
-- markdown template, schema itself can define how MD file is serialized to JSON so it can become an input for code and still editable by hands
+- A follow-up could be an Obsidian plugin that validates doc edits against the schema and gives
+  feedback.
+- The schema can define how a Markdown file serializes to JSON, so it becomes input for code and
+  stays editable by hand.
 
-## Browser use 
+## Browser use
 
-self healing or self development workflow, when another agent can create cli to use specific app, and it it's just available for other agents, if it fails, then special developer can pick it up, investigate and self improve  
+A self-developing workflow: one agent builds a CLI for an app, and it is available to other
+agents; when it fails, a developer agent picks it up, investigates and improves it.
 
+## Debugging and observability
 
-## Ask question, human approval 
-especially for headless agents, there should be a way to ask questions 
-terminal based for now, but maybe later hooked to other tools (slack, telegram etc...)
-
-## Debugging and observability 
-
-Being able to see the agents tracing and inspecting thinking trace of each agent 
-This actually connects well with observability products, that show who called who and where time was spent in this workflow 
- 
+Seeing each agent's trace and thinking, as observability products show who called whom and where
+the time went. Story 030 drafts the OTel export.
 
 ## Use cases
-### plan becoming a workflow 
 
-doing all that research and investigation, and after that there is a todo plan, that in fact can become a workflow, and it can still be a markdown file, but file that can be linted and disected into json that feeds actual workflow 
+- **A plan becomes a workflow.** Research and investigation end in a todo plan, which can become a
+  workflow while staying a Markdown file: linted and dissected into JSON that feeds the workflow. A
+  good template for the work or the ticket is golden, worth figuring out and sharing.
+- **Chat to workflow.** Describe a workflow in Markdown, an agent clarifies it with you and
+  codifies it; when the doc changes, the diff is applied back to the code.
 
-in general having good template for the work or ticket is golden, it is worth figuring it out and sharing with the world
+## Writing
 
-markdown linting is very useful here
+What to write online: lessons learned, use cases of awf, experiments, guides and concepts, some
+from the stories built, some from the vision.
 
-## long running workflows 
-
-### scheduler 
-system service that monitors running workflows, schedules those that should be awaken, distributes tokens and resources budget
-
-## chat to workflow 
-describe your workflow in markdown file, agent will go through it and clarify things 
-later it can codify it, if you update the doc, the diff is analyzed and changes applied back 
-
-## run workflow with live agent 
-
-
-## Value prop 
-- build workflow with frontier model, run with cheap and fast
-- make your workflow deterministic , add checks and balances
-- agentic workflows independent of AI provider, running on your own infra
-- understand how it works, 
-
-follow the process, remind users or do something in background on their behalf...
-manage all your agentic loops locally
-
-
-
-## workflow router
-using a router for workflows, via single interface, like OpenClaw, which routes signals/events to proper workflow 
-
-
-## workflow stats 
-part of the lab, what if running and testing workflows is the part of your everyday work, what if you have an idea on how to improve workflow, and you are testing it agianst a baseline, all data is recorded, you can run and compare, and this case can become future test case, part of the eval
-- optimizer , GEPA style
+- A review loop with awf.
+- Finding an efficient workflow for a task, such as code review.
+- Why: repeatable, reliable workflows that are also cheap and fast; working with agents at scale;
+  trying agent organization patterns without losing your sanity orchestrating them; testing
+  harnesses and skills; knowing which tools work for your domain.

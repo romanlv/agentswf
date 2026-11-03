@@ -28,7 +28,7 @@ but several repositories have not yet been examined against the harder design pr
 | Adapter capability negotiation — what each host can do, such as fork or compact | MCP; openclaw `plugin-package-contract` | declared capabilities, negotiated at connect |
 | Messaging routes granted rather than ambient | openclaw `gateway-protocol` | a protocol package that plugins depend on, never the reverse |
 | Conformance kits that travel with a contract | pi `telemetry/src/testing/conformance.ts` | named here, only half-applied |
-| Mechanical boundary enforcement | openclaw `tsconfig.package-boundary.*` | `contract` purity is currently a rule, not a check |
+| Mechanical boundary enforcement | openclaw `tsconfig.package-boundary.*` | taken: `scripts/check-boundaries.ts` checks `contract` purity and the other boundaries |
 | Effect boundaries before unshelving the journal | Temporal | all non-determinism goes through activities (E6) |
 
 ---
@@ -212,17 +212,18 @@ activity client common core-bridge worker workflow testing plugin envconfig meta
 
 - **The package boundary *is* the constraint.** `workflow` is a separate package because workflow
   code runs under determinism constraints and must not be able to import the worker. That framing is
-  what makes open question 2 — author surface as a subpath or a package — a real question rather
+  what makes `foundation.md`'s open question 1 — author surface as a subpath or a package — a real question rather
   than a style preference.
 - `testing` as a first-class package shipping a time-skipping environment.
 - **Update is the checkpoint primitive, and it is not a signal.** `setHandler` takes an
   `UpdateDefinition`, a `SignalDefinition` or a `QueryDefinition`, and the three differ in exactly
-  the way `foundation.md` section 7 argues a checkpoint differs from `Signals.receive`. An Update
+  the way `foundation.md` section 7 argues a checkpoint differs from a signal. An Update
   carries an optional **validator**, returns a result to its caller through
   `WorkflowUpdateHandle.result()`, and — the decisive part, from the SDK's own implementation
   comment — **an Update with no handler is rejected at the end of the activation, while a Signal
-  with no handler buffers indefinitely**. An approval nobody is listening for must fail loudly. awf
-  currently has only the buffering half.
+  with no handler buffers indefinitely**. An approval nobody is listening for must fail loudly. In
+  awf, `emit` refuses a name the target doesn't declare, and a declared event waits in the run's
+  mailbox until a `receive` or `signal(name)` takes it: the buffering half, with no rejected one.
 - **The task token is the operation capability, already solved.** Async activity completion hands an
   out-of-process worker an opaque `taskToken`; that worker calls
   `client.activity.heartbeat(taskToken, details)` or completes against it, and the token identifies
@@ -251,10 +252,13 @@ activity client common core-bridge worker workflow testing plugin envconfig meta
 **Taken.**
 
 - **The step API, ergonomically.** `step.run(id, fn)` / `step.sleep` / `step.waitForEvent` /
-  `step.invoke` is the same surface as `Steps` and `Signals` in `interfaces/workflow.ts`, with years
-  of iteration behind it.
+  `step.invoke` is the same surface as awf's stages, `wf.receive`, `wf.sleep` and `call` in
+  `packages/contract/src/workflow/workflow.ts`, with years of iteration behind it. `wf.steps` and
+  `call` are typed but not built.
 - **Every wait has a deadline.** `step.waitForEvent` pairs correlation with a timeout. That closes
-  the unbounded-wait hole in `Signals.receive` without adding a new abstraction.
+  the unbounded-wait hole in a wait for an event without adding a new abstraction. In awf a timer
+  branch in `race` or `select` bounds such a wait; `receive` takes none, as a run parks there with
+  no process left.
 - `middleware-*` as separate packages is how a small extension surface stays small.
 
 **Rejected.** Nothing yet.
@@ -277,6 +281,50 @@ import.
 **Unmined.** `agents-extensions` as a shape, if per-adapter packages are ever extracted.
 
 ---
+
+## Harness OTel export
+
+**What it is.** claude's and codex's own OpenTelemetry export: [Claude Code
+monitoring](https://docs.claude.com/en/docs/claude-code/monitoring-usage), [Codex OTel
+config](https://developers.openai.com/codex/config-advanced). Read against: can usage come from
+exported telemetry instead of session files? (2026-10-10, [[028-run-logs-and-telemetry]].)
+
+**Taken.** Nothing: only claude and codex export, batched and lost on kill, so session files stay
+the source.
+
+**Rejected.** Usage from the export.
+
+**Unmined.** awf's own events exported as OTel, [[030-otel-export]].
+
+## Agent Client Protocol (ACP)
+
+**What it is.** JSON-RPC for driving coding agents, with sessions, streamed updates, permission
+requests and an explicit stop reason: [site](https://agentclientprotocol.com),
+[spec repo](https://github.com/zed-industries/agent-client-protocol),
+[Claude Code adapter](https://github.com/zed-industries/claude-code-acp). Read against: does it
+give the turn-completion signal Herdr's ambiguous `idle` cannot, and is it a run host?
+
+**Taken.** Nothing.
+
+**Rejected.** ACP as *the* harness seam (2026-11-02). Driving each harness's own CLI plugs in any
+harness, one without ACP support too, and keeps the native session a person can take over and
+debug.
+
+**Unmined.** An ACP adapter later, as one more host behind the run-host seam for harnesses that
+speak it, with its explicit stop reason as turn-completion evidence ([[herdr-pane-settlement]]).
+
+## Headless structured output
+
+**What it is.** A harness returning a schema-shaped answer itself: [Codex non-interactive
+mode](https://developers.openai.com/codex/noninteractive) (`--output-schema`), the [Codex
+SDK](https://developers.openai.com/codex/sdk) and the [Claude Agent
+SDK](https://docs.claude.com/en/docs/agent-sdk/overview). Read against: do they replace `wfa result`
+for headless agents, or only duplicate it?
+
+**Taken.** Nothing.
+
+**Rejected.** A second result channel (2026-11-02). It performed like `wfa result` and works only
+headless, while `wfa result` serves every placement.
 
 ## Candidates not read yet
 

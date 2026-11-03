@@ -34,3 +34,6 @@ What to settle:
 - Reading files mid-run. Today they are read only once the run has ended (story 002). A pane's
   transcript may not hold its last request yet, the same timing problem pane forks have.
 - Cursor logs none.
+- What a workflow does with it. The operator asked for an agent to compact when it reaches the
+  dumb zone, past some share of its context (from the inbox, 2026-11-02): a size the workflow can
+  read is enough to write that in code, with `agent.compact`.

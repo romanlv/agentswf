@@ -56,62 +56,58 @@ What a todo belongs to, one per file:
 
 ## Priorities
 
-- **P0** — blocks running the autoresearch loop again, or the operator's own workflows.
-- **P1** — next: what the operator's own workflows hit, or the loop's next research.
-- **P2** — real, not urgent; mostly waits on something above.
-- **P3** — for the public launch, or nice to have.
+The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as
+[agents.wf](https://agents.wf) promises: runs that are durable, where a crash costs only the stage
+that was running; an engine that handles an agent that goes quiet or hangs; a run that parks with
+no process left. The autoresearch loop is a long-term bet, and security edge cases wait.
 
-`_list.base` shows the same in Obsidian, sorted by priority. Set 2026-10-04 from the first live
-loop's report (data repository, `reports/2026-10-01-first-live-loop.md`) and the implement-ticket
-live runs.
+- **P0** — stands in the way of serious use: a run that can't be recovered or understood, what it
+  leaves running, an author surface that will change under its users.
+- **P1** — next: what a serious user hits soon after.
+- **P2** — real, not urgent; mostly waits on something above.
+- **P3** — the loop's research, the rest of the launch, or nice to have.
+
+`_list.base` shows the same in Obsidian, sorted by priority. Reset 2026-11-02, from the
+2026-10-04 list.
 
 ### P0
 
-- [[loop-next]] — the loop's own gaps from its first run: a proposer that thinks, spend a cut
-  can't hide, a loop that outlives its shell, a scorer checked before spending.
-- [[comparison-efficiency]] — a try that's no better stops at 8 cases, cases up to a look run in
-  parallel, a resolution at 1 trial. The report's "3 hours and $24 for one try".
-- [[020-agent-effort]] — now story 020, ready: an agent opens at an effort, and `set` switches
-  its model or effort mid-run, recorded. Its contract is settled.
-- [[021-turn-liveness-and-limits]] — now story 021, done: cooperative waiting and
-  repeated check-ins within one deadline. Financial ceilings remain in [[live-spend-limits]].
+- [[stopped-run-recovery]] — a stop says where and how to go on, and can keep its agent open
+  for a person to finish the step.
+- [[non-answered-evidence]] — a turn that didn't answer keeps its screen, so a misread `blocked`
+  can be told apart.
+- [[crash-leftovers-reaper]] — a later awf ends the agents, sandboxes and control-plane
+  directories a dead one left. A record format: designed first.
+- [[api-consolidation]] — one way to do each thing in the author API, proposed before more people
+  build on the beta. Design only.
 
 ### P1
 
-- [[live-spend-limits]] — observed-spend enforcement after live coverage and attribution are proved;
-  split from story 021 so accounting does not delay liveness.
-
-- [[stopped-run-recovery]] — a stop says how to go on, and can wait on a person; after story 018.
-- [[032-run-coordinator]] — now story 032, ready: an app outside awf, the coordinator, talks with
-  a run's agents over messaging routes; a Slack app is one such coordinator, outside this repository.
-- [[028-run-logs-and-telemetry]] — now story 028, awaiting human review: an agent reads a run with `awf runs` and `awf logs`; `operator-run-observation` folded in.
-- [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
-- [[readable-workflows]] — durations a person writes; the ticket workflow as its process.
-- [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
-- [[review-shapes-and-models]] — the research program once the loop is cheap.
-- [[crash-leftovers-reaper]] — a later awf ends the agents, sandboxes and control-plane
-  directories a dead one left, from records each owner writes as it launches.
 - [[woken-run-bounds]] — a woken run gets a deadline, and `awf tick` reaps an ended attempt still
   alive; one reading of liveness when `ps` can't answer.
+- [[run-record-layout]] — a run's folder designed as a whole, before leaving evaluation.
+- [[agent-own-config]] — an agent runs on the setup the workflow gives it, not the operator's.
+- [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
+- [[claude-file-login]] — a sandboxed claude signs in from a login file, not a setup token.
+- [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
+- [[interrupted-accounting-read]] — a Ctrl-C after the work is done keeps the spend.
 
 ### P2
 
-- [[billing-provenance]], [[interrupted-accounting-read]] — what spend records claim.
-- [[operator-settings]], [[context-size]].
-- [[herdr-pane-settlement]] — with start and non-answered diagnostics folded in.
-- [[mid-turn-messages]] — a message folded into a running claude turn; after story 029.
-- [[key-growth-from-runs]], [[jev-noise-audit]], [[second-case-kind]] — the lab's data and scorer.
-- [[workflow-in-sandbox]], [[sandbox-host-protection]] — containment.
-- [[sandbox-setsid-escape]] — what leaves a sandbox's process group is ended with it.
-- [[split-large-modules]].
-- [[run-record-layout]] — a run's folder designed as a whole: one journal for replay, the inbox
-  apart. Settle before leaving evaluation.
+- [[herdr-pane-settlement]] — measuring delivery and release in a pane.
+- [[live-spend-limits]], [[billing-provenance]], [[plan-percent-value]] — what spend records claim
+  and enforce.
+- [[operator-settings]], [[context-size]], [[agent-identity]], [[attended-agent]].
+- [[run-in-background]], [[mid-turn-messages]], [[workflow-state]], [[workflow-schedules]].
+- [[comparison-efficiency]], [[loop-next]] — the loop's next version, when it runs again.
+- [[workflow-in-sandbox]], [[sandbox-host-protection]], [[sandbox-setsid-escape]] — containment's
+  edge cases.
+- [[split-large-modules]], [[test-host-teardown]] — the repository's own.
 
 ### P3
 
-- [[agent-release]] — release one agent's pane while its run stays live; after story 036.
-- [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]] — the
-  launch.
-- [[judge-opus-voter]], [[workflow-test-generated-answers]],
-  [[workflow-test-virtual-time]].
-- [[test-host-teardown]] — a failing test still closes its Herdr hosts.
+- [[review-shapes-and-models]], [[key-growth-from-runs]], [[jev-noise-audit]],
+  [[second-case-kind]], [[judge-opus-voter]] — the loop's research and the lab's data.
+- [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]],
+  [[wfa-help]] — the launch.
+- [[agent-release]], [[workflow-test-generated-answers]], [[workflow-test-virtual-time]].

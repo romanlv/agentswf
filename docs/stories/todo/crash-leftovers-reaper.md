@@ -2,7 +2,7 @@
 title: Reap what a dead awf left running
 type: story
 status: todo
-priority: P1
+priority: P0
 epic: long-runs
 discovered_in: "cleanup audit, 2026-10-29: an orphaned bun test spun under PID 1 for 3.5 days"
 depends_on: []

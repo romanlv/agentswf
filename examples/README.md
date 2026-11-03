@@ -24,7 +24,7 @@ process authority.
 
 Most workflows are tested beside their file, every agent's answers scripted, through the real
 engine, for free. `quick-check/`, `keep-alive/` and `sandbox-probe/` have no test, as they exist
-to watch real agents, and `event-sketches/`' tests are placeholders until the sketches run. Run them
+to watch real agents, `output-schema/` is a helper checked by its typecheck, and `event-sketches/`' tests are placeholders until the sketches run. Run them
 with `bun test examples`, or one folder's, `bun test examples/feature-delivery`.
 Outside this repository `awf test` does the same; [Testing](../site/guide/testing.md) says how to
 write one.

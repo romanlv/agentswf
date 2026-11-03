@@ -4,32 +4,11 @@ Projects and essays not read yet, each with the question to read it against. Whe
 against its question, move it to [`reference.md`](reference.md) with what was taken, rejected and
 left unmined, and delete it here.
 
-## Before Stage 1 settles the harness seam
-
-- **Agent Client Protocol (ACP)**: [site](https://agentclientprotocol.com),
-  [spec repo](https://github.com/zed-industries/agent-client-protocol),
-  [Claude Code adapter](https://github.com/zed-industries/claude-code-acp). JSON-RPC for driving
-  coding agents, with sessions, streamed updates, permission requests and an explicit stop reason.
-  Does it give the turn-completion signal that Herdr's ambiguous `idle` cannot, and is it a run host? %% so much easier to use native harness, and you can take over control or debug if needed, this is intentional, we can use any cli harness this way %%
-- **Headless structured output**: [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive)
-  (`--output-schema`), [Codex SDK](https://developers.openai.com/codex/sdk)
-  ([TypeScript](https://github.com/openai/codex/tree/main/sdk/typescript)),
-  [Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview)
-  ([TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript)). Result channels E2 did
-  not measure: do they replace `wfa result` for headless agents, or only duplicate it?
-%% already looked into, similar performance and restricted only for headless mode %%
-
 ## Before the usage record format hardens
 
 - **OpenTelemetry GenAI semantic conventions**:
   [spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/). Standard names for token usage and
   agent spans. Should `SettledOperation` use them?
-- **Harness OTel export**: [Claude Code monitoring](https://docs.claude.com/en/docs/claude-code/monitoring-usage),
-  [Codex OTel config](https://developers.openai.com/codex/config-advanced). Can usage come from
-  exported telemetry instead of session files?
-  Checked 2026-10-10 in [[028-run-logs-and-telemetry]]: only claude and codex export, batched and
-  lost on kill, so session files stay the source; awf's own events export as OTel in
-  [[030-otel-export]].
 
 ## The run record and autoresearch
 
@@ -40,7 +19,7 @@ left unmined, and delete it here.
   [Terminal-Bench](https://www.tbench.ai). It drives Claude Code, Codex and others as installed
   agents in containers, with a trajectory format. It is the `harness` package, built by eval people.
 - **τ-bench, pass^k**: [arXiv 2406.12045](https://arxiv.org/abs/2406.12045). The chance that all
-  k runs succeed, not at least one. A candidate quality signal for open question 5.
+  k runs succeed, not at least one. A candidate quality signal for `foundation.md`'s open question 2.
 
 ## Before unshelving the journal
 
@@ -63,7 +42,6 @@ left unmined, and delete it here.
 
 ## Sandboxes (story 004)
 
-- **sandbox-runtime (srt)**: [repo](https://github.com/anthropic-experimental/sandbox-runtime).
 - **container-use**: [repo](https://github.com/dagger/container-use). One agent per container and
   branch.
 - **Codex sandbox modes**: [doc](https://github.com/openai/codex/blob/main/docs/sandbox.md). A

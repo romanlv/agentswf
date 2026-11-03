@@ -12,6 +12,8 @@ it, or collect a result from it. The one exception is the session a run was star
 
 ## Calling a child workflow
 
+Designed, not built: `wf.call` is on the author surface and throws `unavailable` at run time.
+
 Calling a workflow's `run` function directly is appropriate for a local helper. A reusable
 child needs a scoped context so its agent keys, step ids, signals, routes, and nested calls cannot
 collide with siblings.
@@ -25,8 +27,10 @@ export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonVal
   /** The workflow itself, as its file exports it. */
   workflow: WorkflowDefinition<Args, Result>;
   args: Args;
-  /** Parent participants exposed under child-local keys. */
-  participants?: Readonly<Record<PeerKey, PeerRef>>;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
+  /** The parent's peers exposed under child-local keys; a reserved key such as `operator` rejects. */
+  peers?: Readonly<Record<PeerKey, PeerRef>>;
   label?: string;
 }
 
@@ -40,7 +44,7 @@ export interface WorkflowContext {
 
 The call id forms one segment of the child's scope. Call ids have their own namespace; they do not
 collide with step ids. Repeating an identical call returns the same result; reusing the id with a
-different definition, arguments, participant bindings, or label rejects. Engine configuration
+different definition, arguments, peer bindings, or label rejects. Engine configuration
 bounds nesting depth, including recursive definitions.
 
 The child sees local keys. A bound participant is available through
@@ -78,7 +82,7 @@ const verdicts = await wf.parallel(reviewers, (reviewer) =>
     id: `review:${reviewer.name}`,
     workflow: reviewLoop,
     args: { base: "main", runtime: reviewer.runtime },
-    participants: { author },
+    peers: { author },
   }),
 );
 ```
@@ -149,7 +153,7 @@ ensures references belong to the current scope. Agents and outside participants 
 namespace within that scope, so `connect` rejects an occupied key. A reserved key, `operator`, `awf`, `system` or `user`, which
 an agent could read as authority, is refused from the start, so that no workflow comes to rely on
 it: by `connect`, by `agents.open`, so no agent's `wfa send` arrives "from operator", and by a call's
-`participants` map, so a child never sees an `operator` either.
+`peers` map, so a child never sees an `operator` either.
 
 An outside participant is named by the key it was connected under, across the whole run: unlike an
 agent's, it is not qualified by call path, so `connect` rejects a key any participant holds anywhere in the run, an agent's or an outside
@@ -221,7 +225,7 @@ const verdicts = await wf.parallel(reviewers, (reviewer) =>
     id: `review:${reviewer.name}`,
     workflow: reviewLoop,
     args: { base, runtime: reviewer.runtime, findingsPath: reviewer.findingsPath },
-    participants: { author },
+    peers: { author },
   }),
 );
 

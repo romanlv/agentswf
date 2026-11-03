@@ -13,7 +13,7 @@ depends_on: []
 Three source files have grown past 900 lines along seams a review found, and nothing stops the next
 one; plan the splits, then add a check and an AGENTS.md rule that hold the line.
 
-Why it matters: an agent reading `workflow-runner.ts` to change one turn helper loads 2,000 lines of
+Why it matters: an agent reading `workflow-runner.ts` to change one turn helper loads 4,800 lines of
 unrelated code, and two sessions editing the same big file on a shared main collide. The seams below
 are clear, but a split is a move of half a package: done ad hoc, mid-story, it fights every
 concurrent branch and blurs what a module owns. So it needs a plan first, and a check after, or the
@@ -22,7 +22,7 @@ files grow back.
 Notes:
 
 - Non-test source over 900 lines on 2026-10-01, with the seams the review found:
-  - `packages/engine/src/workflow-runner.ts` (1,983): `LogicalAgent` and its turn helpers
+  - `packages/engine/src/workflow-runner.ts` (1,983; 4,846 on 2026-11-02): `LogicalAgent` and its turn helpers
     (`HeldTurn`, `TurnAttempt`, `observe*`, `releaseTurn`, `reconcile`, `operationPrompt`) →
     `logical-agent.ts`; `ExecutionScope`, `runParallel`, `executeParallel` → `parallel.ts`;
     `resolveExecution`, `storedPlacement`, `constrainExistingExecution`, `resolveAlias`,
@@ -30,7 +30,7 @@ Notes:
     become shared; `startWorkflow` and `WorkflowOwner` stay, about 1,000 lines. `LogicalAgent.run`
     and `compact` repeat about 40 lines of admission (closed and scope checks, idempotent replay,
     queueing, progress, tracking) that one helper could hold.
-  - `packages/lab/src/review/lab/cli.ts` (1,687): argument parsing and usage; resolving subjects
+  - `packages/lab/src/review/lab/cli.ts` (1,687; 1,720 on 2026-11-02): argument parsing and usage; resolving subjects
     and selections; then one file per command (run and score, run against a baseline, loop, report,
     show, check, list), `list`'s rendering beside `renderCheck` and `renderShow`.
   - `packages/harness/src/adapters/herdr.ts` (1,141): `createHerdrCommands` with `startAgent`,

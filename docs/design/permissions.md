@@ -389,28 +389,22 @@ existing paths read-only and moves one the agent creates into `quarantine/` at t
 | `harness` | each harness's sandbox needs; `runProcess` running a sandboxed command; adapters launching through an occupant; the Herdr host's typed start; later, each adapter's grant translation |
 | `engine` | a run's sandboxes, homes and write-back, admission and close, the bundled launcher, the record; the bundled `wfa` (`src/agent-cli`), unchanged. Only `operator-runtime.ts` imports a provider, to install it |
 
-Providers know nothing about harnesses; harness knows the seam and no provider;
-`scripts/check-boundaries.ts` holds both. A provider's unit tests fix its profile or its `docker`
-arguments.
+The import rules are `AGENTS.md`'s boundary 4, held by `scripts/check-boundaries.ts`. A provider's
+unit tests fix its profile or its `docker` arguments.
 
-## Build order
+## Still to build
 
-The first level, in story 004:
-
-1. The seam, the author surface, a fresh home per agent, and the record.
-2. The srt provider, headless.
-3. The docker provider, its default image, proxy and relay, headless.
-4. Pane agents: under srt in the run's Herdr, under docker in the box's own.
-
-Then, in order of need:
+Story 004 built the seam, the srt and docker providers, and pane agents in both. What is left, in
+order of need:
 
 - **Credential rotation (X13):** whether a copy's refresh logs the operator out, and whether two
   refreshing copies trip reuse detection. It needs the operator's consent to measure.
 - **An operator-replaceable srt toolchain.** It is derived from `PATH` today.
-- **The whole workflow in a sandbox, and remote execution** ([[workflow-in-sandbox]]).
 - **The unsandboxed child's environment variables as an allowlist** instead of a two-variable
   denylist.
-- **The harness level, and `use` for tools and MCP servers.**
+- **What a sandbox can't protect by paths:** [[sandbox-host-protection]].
+- **The whole workflow in a sandbox, and remote execution:** [[workflow-in-sandbox]].
+- **The harness level, and `use` for tools and MCP servers:** [[agent-permission-mode]] first.
 
 ## Deliberately not built
 

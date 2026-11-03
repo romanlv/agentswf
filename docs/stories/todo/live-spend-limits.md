@@ -2,7 +2,7 @@
 title: Stop governed work at an observed spend threshold
 type: story
 status: todo
-priority: P1
+priority: P2
 epic: long-runs
 discovered_in: "021 turn liveness design review, 2026-10-04"
 depends_on: ["021"]

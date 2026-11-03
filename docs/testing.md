@@ -3,7 +3,7 @@
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
 the run's own accounting. Every live check here runs on subscription logins, and the estimate is
 what the same tokens would cost metered, a proxy for the quota used, with one exception: claude
-headless, which `sandbox-srt`, `sandbox-docker`, `compaction` and `review-judge` run, is billed per
+headless, which `sandbox-srt`, `sandbox-docker`, `compaction`, `effort` and `review-judge` run, is billed per
 token even on a subscription (E3), so its share of those evals is money.
 
 ## Levels
@@ -11,7 +11,7 @@ token even on a subscription (E3), so its share of those evals is money.
 ### 1. Offline — every change, free
 
 ```sh
-bun test          # ~970 tests, about two minutes
+bun test          # ~2,350 tests, about four minutes
 bun run check     # Biome, tsc, the package boundaries
 ```
 
@@ -20,8 +20,9 @@ fake Herdr CLI, and fake session files stand in for the harnesses' usage logs.
 
 A workflow's own logic is tested beside it, in `workflow.test.ts`, against `agentswf/testing`: each
 agent scripted, the real engine between them, milliseconds a test ([the testing
-API](../site/reference/testing-api.md) says how). Every example but `quick-check` and
-`sandbox-probe`, which exist to watch real agents, has one; `bun test examples` runs just those.
+API](../site/reference/testing-api.md) says how). Every example has one but `quick-check`,
+`keep-alive` and `sandbox-probe`, which exist to watch real agents, and `output-schema`, a helper
+its typecheck checks; `bun test examples` runs just those.
 Write one when a workflow gains a branch, a loop or a new outcome to handle, and change the
 workflow's tests with the workflow. The tests in `tests/` check what the engine and `awf run` do
 for a workflow, and `tests/workflow-api-samples.test.ts` runs the API pages' samples with `awf
@@ -105,6 +106,11 @@ What they cover between them:
   must read at least half its prompt from the cache, except a pane's cursor, which prints no
   usage. `bun tests/fork.eval.ts codex claude>headless` runs only those cases. 32 agents, ~2 min,
   ~$1.40 at list prices, the headless claude's share billed per token.
+- `effort` — effort and `set` (story 020) on claude, codex and pi, in panes and headless: each
+  agent opens at `low`, is set to `high`, then to another model, a turn between each. Its record
+  must say so, and so must what the harness itself logged it ran at: claude's transcript, codex's
+  rollout, pi's shell; its last turn must still know the word its first was told. 6 agents, ~1 min,
+  ~$0.50 at list prices, the headless claude's share billed per token.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
   each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
   with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;
@@ -176,10 +182,6 @@ What they cover between them:
   prelude that sets their environment and loads their secret. 3 agents, ~50 s, ~$0.16. Fails,
   saying why, where docker cannot run.
 
-A historical suite, before story 021 added `turn-liveness`, ran four at a time and took 2m 36s and ~$1.87 at list prices on 2026-10-01, the
-compaction eval the dearest at ~$0.63: pi needs 20k tokens of history before it compacts, and the
-headless claude is metered. Run one by one, before the sandbox probes ran one script per agent,
-it took about 17 min. These are historical measurements, not the current full-suite budget.
 Story 021 measured its final host/SRT waiting pair at about $0.23; each scenario can take
 1–3 minutes. See [[021-implementation-proof]] for exact runs and the incomplete Cursor matrix.
 
@@ -187,7 +189,8 @@ Not covered live, on purpose:
 
 - claude headless outside a sandbox, beyond what a feature needs: it is billed per token even on a
   subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
-  `compaction` runs it, as headless compaction is what it checks; and `review-judge` runs it, as
+  `compaction` and `effort` run it, as a headless claude's compaction and settings are what they
+  check; and `review-judge` runs it, as
   the panel runs its judges headless.
 - Combinatorial deadline, admission, check-in and cleanup races stay in deterministic offline
   tests. `turn-liveness` exercises their provider integration; it does not replace fake-clock
@@ -212,8 +215,9 @@ What the `harnesses` eval runs, without assertions: the answers print on stdout.
 
 ### 4. Acceptance — a real workload, dollars
 
-Catalogue review over a real diff: 19–21 agents, 8–14 min, $4–7. It lives outside this repository
-(see [`examples/README.md`](../examples/README.md)). Run it only when a story's acceptance says so,
+Catalogue review over a real diff: 19–21 agents, 8–14 min, $4–7. The workflow is
+`examples/catalogue-review/`; the lens catalogue it reads, and the entry point beside it, live
+outside this repository. Run it only when a story's acceptance says so,
 as story 002 did to check accounting against the session files.
 
 ## When to run what
@@ -229,7 +233,8 @@ as story 002 did to check accounting against the session files.
   harness's sandbox needs, or the engine's sandboxes; `skills` for `engine/src/skills`,
   `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
-  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `tools` for workflow tools, the
+  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `effort` for effort, `agent.set`
+  or a harness's settings flags; `tools` for workflow tools, the
   lesson, flags on `wfa tool` or `wfa result`, or a harness's shell limits; `calling-session` for
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
   activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
@@ -251,40 +256,3 @@ as story 002 did to check accounting against the session files.
   `tests/sandbox-probe.test.ts` and `tests/minimum-review-eval.test.ts` do.
 - End stdout with a JSON object holding `ok` and `estimateUsd`, and say in the file's header what a
   run costs.
-
-## Measured
-
-2026-09-24, on `469278e` plus story 003. Herdr 0.8.2; codex on the ChatGPT subscription, claude on
-claude.ai.
-
-- `bun run eval`: 3/3 passed in 63 s, ~$0.09 — `harnesses` ~$0.05, `minimum-review` ~$0.04,
-  `failed-run` under a cent.
-- Two more full runs: ~$0.16 (`harnesses` ~$0.11) and ~$0.12. Spend varies run to run.
-- 2026-09-26, on `a7c36ef` with Herdr 0.9.1: 3/3 passed in 72 s, ~$0.09 — `harnesses` ~$0.05,
-  `minimum-review` ~$0.05, `failed-run` under a cent.
-- 2026-09-26, `sandbox` under srt (story 004): passed in 2m 20s, ~$0.13, twice in a row once
-  its three failures were fixed (X22, X23, and a probe prompt codex's cheapest model would run).
-  Under docker it has not run: the daemon was not answering. Later luna declined every command
-  in one run of two, so the probe's codex is gpt-5.6-sol: 2m 41s, ~$0.30. `sandbox-panes-srt`
-  passed after Task 5's review fixes in 2m 40s, ~$0.29.
-- 2026-09-26, all evals after story 004's Task 5 and 6: 5 passed and `sandbox-docker` skipped (its
-  daemon did not answer) in 6m 13s, ~$0.58. `sandbox-srt` was ~$0.20, of which claude's $0.15 was
-  metered: it varies run to run.
-- 2026-09-26, docker once its daemon answered: `sandbox-docker` passed in 2m 39s, ~$0.29, and
-  `sandbox-panes-docker` in 2m 56s, ~$0.32, each on its first run; after Task 5's review, 2m 48s
-  (~$0.31) and 3m 07s (~$0.31). OrbStack stopped answering twice when several agents drove it at
-  once: if a docker eval fails for its daemon, try it again alone.
-- 2026-09-26, story 007: `skills` passed in 15 s, ~$0.06, its first run lost to a Haiku pane that
-  wrote over its own launcher. `harnesses`, `failed-run`, `minimum-review`, `sandbox-srt` and
-  `sandbox-panes-srt` passed, ~$0.73 in all. `sandbox-srt` needs `CLAUDE_CODE_OAUTH_TOKEN`
-  exported, and `minimum-review`'s preflight refuses one: run them apart. `minimum-review` also
-  fails if the repository changes while it runs, edits by hand included. A sandboxed claude pane
-  once declined the probe as pasted instructions.
-- 2026-09-26, story 007 review: `skills`, rewritten to prove each agent used its skill, passed
-  5/5 on its first run in 38 s, ~$0.08.
-- luna first failed `failed-run` 3 times in 4: it typed the launcher's macOS temp path
-  (`/var/folders/…/T/…/wf`) without the `/` before `T`. With the control plane under `/tmp` it
-  passed 4 of 4.
-- Before moving to the cheapest models, the same checks cost ~$0.50: `minimum-review` on sonnet and
-  gpt-5.6-sol was ~$0.29.
-- Catalogue review: 19 agents, 7 m 54 s, ~$6.77 (story 002).

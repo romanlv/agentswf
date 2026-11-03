@@ -2,7 +2,7 @@
 title: The loop's next version, from its first live run
 type: story
 status: todo
-priority: P0
+priority: P2
 epic: loop
 discovered_in: "story 013, task 6, the first live loop, 2026-10-01"
 depends_on: ["013", "020", comparison-efficiency]

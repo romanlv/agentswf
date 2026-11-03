@@ -1,5 +1,5 @@
 ---
-title: Test a workflow's deadlines on a virtual clock
+title: The engine's deadlines on a test's clock
 type: story
 status: todo
 priority: P3
@@ -8,11 +8,12 @@ discovered_in: "story 012, design review, 2026-09-30"
 depends_on: ["012"]
 ---
 
-# Test a workflow's deadlines on a virtual clock
+# The engine's deadlines on a test's clock
 
-A workflow test can't check its own deadlines deterministically, because every engine deadline is a
-real timer; a clock that skips while every fake is idle would make a hung agent under a 30-minute
-deadline time out in milliseconds, the same way every time.
+A test's clock skips to a workflow's next timer since story 037, but the engine's own deadlines (a
+turn's `timeoutMs`, `parallel`'s deadline, `--timeout`) are still real timers, so a test can't check
+them deterministically. On the same clock, a hung agent under a 30-minute deadline would time out
+in milliseconds, the same way every time.
 
 Why it matters: story 012's tests script `reply.timedOut()` to reach a timed-out turn, which is
 enough for what a workflow does with one. They can't check deadlines themselves: a `parallel`
@@ -20,10 +21,6 @@ whose deadline passes, or a run that ends mid-loop. In its prototype, a hung tur
 equalled the run's ended as `timed-out` in 4 runs of 6 and failed the run in the other 2.
 
 Notes:
-
-- [[037-workflow-timers|Story 037]] builds the clock for a workflow's timers and waits: it skips
-  to the next timer when the run would park. What remains here is the engine's own deadlines
-  (a turn's `timeoutMs`, `parallel`'s deadline, `--timeout`) on that clock.
 
 - Temporal's rule is the one to copy ([[workflow-testing]]): the clock skips while nothing runs,
   and a scripted step says how long it took (`.After(d)` in Temporal Go, Conductor's

@@ -2,8 +2,8 @@
 title: One way to do each thing in the author API
 type: story
 status: todo
-priority: P1
-epic: author-api
+priority: P0
+epic: authoring
 discovered_in: "a review of the workflow API while running the Datadog watcher, 2026-10-26"
 depends_on: ["034"]
 ---
@@ -15,10 +15,11 @@ where the author API offers two ways to do one thing, or carries options that be
 operator, and propose one surface for each. This story is the investigation and the proposal;
 nothing changes before the design is reviewed.
 
-Candidates, worst first, from [`workflow-api.md`](../../workflow-api.md)'s "At a glance":
+Candidates, worst first, from the [workflow API reference](https://agents.wf/reference/workflow-api)'s "At a glance":
 
-1. **Two kinds of workflow**, `defineExecutableWorkflow` and `defineEventWorkflow`. Already
-   [[034-event-driven-runs|story 034]] task 11; listed so the rest is weighed with it.
+1. **Two kinds of workflow.** Done in [[034-event-driven-runs|story 034]] task 11: one flat
+   `defineWorkflow`, `events` optional; `defineExecutableWorkflow` stays as a deprecated shim.
+   Listed so the rest is weighed with it.
 2. **Two ways to give an agent a turn.** `agent.run()` is awaited and returns the outcome;
    `agent.start()` is not, and its end comes as `agent:ended` at `receive`. An event workflow's
    agent has both. One turn API: `start()` returns a turn that is either awaited or heard at a
@@ -33,6 +34,8 @@ Candidates, worst first, from [`workflow-api.md`](../../workflow-api.md)'s "At a
    `caller()?.fork(x)`.
 5. **Pane placement in the author API.** `layout` and `keepPane` sit on `open`, `fork` and
    `forkCaller`. Where a pane goes is the operator's choice; a flag or config may hold it.
+   The word itself is unclear: `placement: "pane"` says where the agent is shown, not that it
+   runs interactive in a terminal.
 6. **Model and effort are set in three places**: `open`'s runtime, `agent.set`, and
    `fork({ effort })`.
 7. **`testWorkflow`**: two signatures, and an options bag of about twenty fields, several for one
@@ -58,9 +61,9 @@ Candidates, worst first, from [`workflow-api.md`](../../workflow-api.md)'s "At a
     and a route's `timeoutMs`, which only bounds a question to a participant. Each should follow
     from item 1's answer, not be a rule of its own.
 14. **Stopping an agent is two calls**: `agents.stop(key)` and the ref's own; one, on the ref.
-15. **Time has several shapes**: `--wait <seconds>`, `--timeout <duration>`, `timeoutMs` and
-    `deadline` in the API, `until` as epoch ms or a `Date`. One duration form on the CLI and one
-    in the API.
+15. **Time has several shapes**: `--wait {seconds}`, `--timeout {duration}`, `timeoutMs` and
+    `deadline` in the API, beside story 037's `When` and `Duration` for timers and `sleep`. One
+    duration form on the CLI and one in the API.
 16. **Smaller still**: records say `version` in some places and `v` in others;
     `participants.get` returns agents too; `OutputRecord` has no `ref` while the other records
     do; `TestRun` has accessor pairs for one fact; `EventTestOptions.event.id` and

@@ -1,6 +1,6 @@
 # Status
 
-Where awf stands, as of 2026-10-12. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-11-02. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
@@ -69,8 +69,9 @@ exists, the code is right, then this page.
   outside the denied regions; docker: the image), and reach the domains it names plus their
   models'. They get exactly the environment variables the provider sets, and each has a fresh
   harness home holding its credential and first-run answers, nothing else of the operator's.
-  `output.json` lists each sandbox and its agents. The providers:
-  - **srt**, the default where installed: headless claude, codex and pi, and claude, codex and pi
+  `output.json` lists each sandbox and its agents. A sandbox names its provider; there is no
+  default. The providers:
+  - **srt**: headless claude, codex and pi, and claude, codex and pi
     in panes of the run's Herdr, all verified live;
   - **docker**: headless agents in a container, with a filtering proxy and a relay for `wfa`, and
     claude, codex and pi in panes of the box's own Herdr, all verified live.
@@ -157,8 +158,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
   rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, now `wfa`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
-  from a clone. Left: tag v0.0.1 and run it on the operator's second machine, and reserve the
-  names.
+  from a clone. Since then `agentswf` and `@agentswf/*` are published on npm, at 0.1.0-beta.4,
+  from the public repository; what the story still holds open is in the story.
 - [010 — eval isolation](stories/010-eval-isolation.md): done. `awf run --sandbox {file}`
   puts every agent of a run in one operator sandbox and refuses a workflow's own; `awf-lab` runs
   every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
@@ -241,10 +242,8 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
 [026 — pane layout](stories/026-pane-layout.md) and
 [027 — a run forks the session that started it](stories/027-caller-fork.md).
 
-The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - [031 — `awf init`](stories/031-awf-init.md): awaiting human review. `awf init` writes a hello workflow,
-  its test and the config files; `agentswf/testing` is exported from the npm package, at
-  `0.1.0-beta.1`, unpublished.
+  its test and the config files; `agentswf/testing` is exported from the npm package.
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
@@ -268,20 +267,28 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer. A
   select's branch can be a time read from state, `wf.at(() => date)`, that follows the state
   as it moves (`examples/nudges`).
+- [038 — the agents.wf site](stories/038-agents-wf-site.md): done. agents.wf, VitePress, serves
+  the guide, patterns and reference for people and an `llms.txt` for agents; CI deploys it on a
+  push to main that touches what it reads.
+
+The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
 
-The todo inbox is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities)
-(2026-10-04). The P0s, so the loop can run again and the operator's own workflows can be trusted
-with a long run: the loop's tries made cheap to reject:
-[`comparison-efficiency`](stories/todo/comparison-efficiency.md) (stop a try at 8 cases unless
-promising, cases up to a look in parallel, a resolution at 1 trial) and
-[`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
-loop that outlives its shell, the scorer checked first).
+The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as the site
+promises (durable runs, an engine that handles a quiet or hung agent, a run that parks with no
+process left). The autoresearch loop is a long-term bet, so [`comparison-efficiency`](stories/todo/comparison-efficiency.md) and
+[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait. The todo inbox
+is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities). The P0s:
 
-Alongside: [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of story 018 and liveness.
-[`second-case-kind`](stories/todo/second-case-kind.md) waits behind the loop, by the user's choice
-(2026-09-30).
+- [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go
+  on, and can keep its agent open for a person to finish the step.
+- [`non-answered-evidence`](stories/todo/non-answered-evidence.md): a turn that didn't answer keeps
+  its screen, so a misread `blocked` can be told apart.
+- [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
+  one left running.
+- [`api-consolidation`](stories/todo/api-consolidation.md): one way to do each thing in the author
+  API, proposed before more people build on the beta.
 
 ## Known gaps
 

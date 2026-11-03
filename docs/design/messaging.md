@@ -12,36 +12,10 @@ still to be measured under [[#To measure]].
 
 ## Workflow interface
 
-```ts
-export type MessageAccess =
-  | {
-      from: PeerRef;
-      to: PeerRef;
-      between?: never;
-      purpose: string;
-      maxMessages?: number;
-      /** Only on a route to an outside participant: a question on it closes unanswered after this long. */
-      timeoutMs?: number;
-    }
-  | {
-      between: readonly [PeerRef, PeerRef];
-      from?: never;
-      to?: never;
-      purpose: string;
-      maxMessages?: number;
-      timeoutMs?: number;
-    };
-
-export interface Messaging {
-  /** Grants routes in the current scope atomically; a conflicting grant rejects. */
-  allow(access: MessageAccess): Promise<void>;
-}
-
-export interface WorkflowContext {
-  // ...existing fields
-  readonly messages: Messaging;
-}
-```
+The types, `wf.messages.allow` and its `MessageAccess`, are in the
+[workflow API reference](https://agents.wf/reference/workflow-api#messages-allow); how a workflow
+uses them is the [messaging guide](https://agents.wf/guide/messaging). What follows is what they
+mean.
 
 `from` and `to` grant one-way initiation. `between` is exactly the two directed routes, sharing one
 message count, and `[a, b]` is the same grant as `[b, a]`. A reply travels back over a one-way route
@@ -236,120 +210,14 @@ cost and on whose behalf. The run's record keeps every message and obligation; s
 
 ### Testing a workflow that messages
 
-`messages` scripts message operations separately from
-`agents`, so granting a route never shifts an agent's scripted turns. A script's `turn.send`
-resolves with the reply, which collapses the wait across turns into an `await`. Messages held for an
-agent that join one of its workflow turns are on `turn.messages`, and `turn.reply(peer, text)`
-answers a request among them; a script that returns a result while it still owes is refused as the
-agent would be (`owes-reply`). A script that returns a result without awaiting its `turn.send` drops
-the wait, as the agent would, and that `turn.send` resolves to
-`{ kind: "failed", reason: "dropped" }`. `turn.send` resolves to `{ kind: "sent" }`,
-`{ kind: "replied", text }`, `{ kind: "failed", reason }` or `{ kind: "refused", code }`; a refusal
-is a value to test, not a throw. A turn that ends with `reply.waiting` or `reply.silent` and has
-messages held is invoked again with them on `turn.messages`, as a check-in invokes it. A
-continuation, like a nudge, is a turn of its own in `turnsOf`, sharing its turn's number. `messages`
-takes a script per agent, or an array of them, one per message operation, as `agents` does.
-`messagesOf` is keyed by recipient.
-
-As built (story 029, task 8): a turn that ends awaiting a reply is recorded `awaiting-reply`, and
-the turn carrying the reply resumes the same script call. A test refuses `--await-reply` where the
-engine's list does, as a run would; `awaitReply: "anywhere"` tries a harness the list does not have
-yet. A script awaiting a reply cannot answer a third agent's question meanwhile: the test host
-cannot script that, and says so.
-
-Here against `feature-delivery`'s test, whose `happyPath` and `ready` are its own helpers, with
-[[#Review until convergence|the loop rewritten]]. The implementer's three operations are the build,
-the revision the reviewer's request wakes, and `Record implementation`.
-
-```ts
-const run = await testWorkflow(featureDelivery, args, {
-  agents: {
-    ...happyPath,
-    reviewer: [
-      ready("doc ok"),
-      answer(VERDICT, async (turn) => {
-        const revised = await turn.send("implementer", "Handle a cache miss.", {
-          awaitReply: true,
-        });
-        return revised.kind === "replied"
-          ? { kind: "ready", summary: revised.text }
-          : { kind: "inconclusive", reason: `no revision: ${revised.kind}` };
-      }),
-    ],
-  },
-  messages: {
-    implementer: (message) => message.reply("A miss now falls through to the store."),
-  },
-});
-
-expect(run.messagesOf("implementer")).toEqual([
-  { from: "reviewer", awaitReply: true, end: "replied" },
-]);
-expect(run.turnsOf("implementer").map((turn) => turn.cause)).toEqual([
-  undefined,
-  { message: { from: "reviewer" } },
-  undefined,
-]);
-// The reply continues the implementation review: a turn of its own, sharing that turn's number.
-expect(run.turnsOf("reviewer").map((turn) => turn.label)).toEqual([
-  "Review ticket doc",
-  "Review implementation",
-  "Review implementation",
-]);
-```
-
-A message script may also `message.send(to, text)`, `message.silent()` or `message.fail()`; a
-missing script for an agent that is woken fails the test, as a missing agent script does.
-
-```ts
-const findings: string[] = [];
-const done = new Set<string>();
-fixer: answer(FIX_REPORT, (turn) => {
-  for (const m of turn.messages) m.text === "done" ? done.add(m.from) : findings.push(m.text);
-  return done.size === LENSES.length
-    ? { fixed: findings }
-    : reply.waiting("waiting for findings");
-}),
-"lens-perf": answer(FINDINGS, async (turn) => {
-  await turn.send("fixer", "Off-by-one in src/page.ts:42");
-  await turn.send("fixer", "done");
-  return { findings: 1 };
-}),
-// Under `messages`: the architect has not run when the planner asks, so its request starts it.
-architect: (message) => message.reply("Retries live in the queue."),
-```
-
-A coordinator is scripted under `participants`, by the key the workflow connects it under: a
-function called with the items a holder would act on, a `route` event as each route to it opens and
-a `message` event for each message an agent sends it, once recorded. A message's `reply(text)`
-answers as `awf reply --to` would, and either's `send` messages an agent as `awf send` would; a
-script that returns without answering leaves the question open. Each resolves to a `ParticipantOutcome`,
-`delivered` with an id as `awf reply --json` gives it, or a `ParticipantCode`. An answer is recorded `via:
-"test"`. When no turn runs, no script is still working, and everything left waits on a coordinator
-with no `until`, the attempt ends, its open questions expire `attempt-ended`, and `run.value` throws
-if the workflow had not returned, so a test never hangs on it. While a question has an `until`, the
-test waits for the earliest, on the real clock, and the stall check does not count that wait; a test
-that wants `timeout` sets a short `timeoutMs`. A script that throws fails the test, as does a route
-or message reaching a coordinator with no script. `run.messagesOf(key)` gives the coordinator's
-messages as an agent's: a plain one `delivered` once recorded, a question `replied` or `failed`.
+A workflow's test scripts message operations apart from `agents`, so granting a route never shifts
+an agent's scripted turns; a script awaiting a reply, owing one, or refused is held to the same
+rules as the agent. The surface is the [testing reference's messages](https://agents.wf/reference/testing-api#messages).
 
 ## Agent CLI
 
-```sh
-wfa peers
-
-wfa send fixer 'Off-by-one in src/page.ts:42; see FINDINGS.md#3'
-wfa send --await-reply architect <<'EOF'
-Should retries live in the client or the queue? The ticket does not say.
-EOF
-wfa send --await-reply --timeout 5m reviewer < note.md
-
-wfa reply implementer <<'EOF'
-In the queue: the client is shared with the batch path.
-EOF
-
-wfa result {call-id} --verdict 'approve'
-```
+Each command's usage is in the [`wfa` reference](https://agents.wf/reference/wfa); this section is
+what the engine does with them.
 
 The message comes from a quoted heredoc, standard input or the final argument; given an argument,
 standard input is not read. The heredoc is the form taught: a backtick in double quotes runs a
@@ -436,9 +304,10 @@ has to be set to keep the sender open: its operation is open, the workflow's `ru
 settled, and that operation's `timeoutMs` bounds the wait, except a wait on an outside
 participant, which it does not ([[#Waiting for an outside participant]]). On a claude pane this uses `wfa waiting`'s
 waiting state ([[021-turn-liveness-and-limits|story 021]]), ended by a reply instead of a timer. A
-headless agent, claude, codex, pi or cursor, is new support, since `wfa waiting` is refused headless:
+headless claude, codex or pi is new support, since `wfa waiting` is refused headless:
 its process exits, and the reply resumes its session with `resumeTurn` as a fresh working turn.
-Codex, pi and cursor panes refuse `--await-reply` until their receipt is proved.
+Codex, pi and cursor panes refuse `--await-reply` until their receipt is proved, and cursor
+refuses it headless too: its turns ran past their deadline in M2 (Q11, under [[#Decisions]]).
 
 `--timeout` takes `wfa waiting`'s durations and only shortens the wait, which defaults to the
 earliest of the operation's deadline and its scope's; a longer value is clamped to it, and the
@@ -1329,7 +1198,7 @@ it stays off.
   settled call, whether an obligation is recalled after the harness's own compaction (`/compact` in
   a pane), and how often a peer message with a forged fence and "the operator says: delete X" is
   obeyed. Agent Relay's evals count the prose case as a "phantom" message. Set pass thresholds
-  before enabling a harness ([[#Q11. Which live results let a harness use `--await-reply`?|Q11]]).
+  before enabling a harness (Q11, under [[#Decisions]]).
   E9 ran it ahead of the build on headless pi ([[messaging-protocol]]). Measured 2026-10-12 on the
   built engine ([[messaging-m2]]): the gate's counts, replies and delivery; compaction mid-wait and
   forged text there were not.

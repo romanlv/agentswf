@@ -505,7 +505,7 @@ implementation followed by one review cycle.
   - `help a b` and `--version x` get their own line rather than "no command": still one line on
     stderr, exit 2, pointing at `awf -h`.
 - `awf help reference` is about 2 KB.
-- `wf -h` went to [[wf-help]].
+- `wf -h` went to [[wfa-help]].
 - Verification, 2026-10-24: `bun test` 1990 pass, 1 fail, the `workflow-api-samples` test that
   fails at HEAD before this change (the triage sample in `docs/workflow-api.md`). `bunx tsc
   --noEmit`, `bun run scripts/check-boundaries.ts` and `bun run check` pass.

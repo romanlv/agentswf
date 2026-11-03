@@ -30,6 +30,7 @@ rule is in `docs/foundation.md`'s naming note and ADRs 0005 and 0013.
 
 | Package | Owns |
 | --- | --- |
+| `packages/agentswf` | the published `agentswf`: the `awf` bin, `agentswf/workflow` and `agentswf/testing` |
 | `packages/contract` | types, schema, record formats. **Pure — no I/O, no `Bun.*`, no `node:`** |
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
 | `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs; `src/agent-cli` is the agent's `wfa` command |

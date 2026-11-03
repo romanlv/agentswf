@@ -81,8 +81,9 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   not be able to rewrite for the operator's next session.
 - `engine/src/operator-aliases.ts`, if `awf` should know it by a short name.
 - The live evals: `tests/harnesses.eval.ts`, `fork.eval.ts`, `compaction.eval.ts`,
-  `calling-session.eval.ts`, `skills.eval.ts` and the `sandbox-*` evals, with
-  `examples/quick-check`, `examples/compaction` and `examples/fork`. Each lists its harnesses.
+  `effort.eval.ts`, `calling-session.eval.ts`, `skills.eval.ts` and the `sandbox-*` evals, with
+  `examples/quick-check`, `examples/compaction`, `examples/effort` and `examples/fork`. Each lists
+  its harnesses.
 - `packages/lab` and `examples/single-agent-review` repeat `meteredHeadless` for claude, and
   `packages/lab/src/review/format/runtime.ts` every harness's effort levels, as they may not
   import the harness package.

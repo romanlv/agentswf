@@ -19,20 +19,15 @@ goes on. The other agents (about eight reviewers) stay out of sight as today.
 |              | fixer (attended)   |
 ```
 
-Today awf can show the progress half: `awf run` in a split pane draws its view there. It cannot show
-the fixer. Every opened pane agent goes to awf's own Herdr session (`awf`, story 024): one workspace
-per attempt, one tab per agent. From inside Herdr it can't be reached, since a nested attach is
-refused.
+Placing it is built: story 026's `layout` puts a pane agent in the workspace `awf run` was typed
+in (`workspace: "origin"`), beside another pane, and `keepPane` keeps it after the run. What is
+missing is the agent being the operator's to talk to while the run drives it.
 
 ## What is missing
 
-1. **Naming the agent to show.** An operator option, e.g. `awf run --show fixer`, rather than a
-   contract field, as [herdr-layout-policy](herdr-layout-policy.md) prefers. (S)
-2. **Opening it in the operator's session.** Split below the pane `awf run` runs in, instead of
-   in awf's session. `herdr.ts` already drives a second Herdr server for a sandbox box, which this
-   can follow. Route by agent key in `placement-host.ts`, or through the presentation policy
-   herdr-layout-policy proposes; teach `testing/herdr-cli.ts` `pane split`. (M)
-3. **Attended lifecycle.** The real work, and it needs an ADR amending ADR 0008 and story 021 §5.
+1. **Attended lifecycle.** The real work, and it needs an ADR amending ADR 0008 and story 021 §5.
+   [[stopped-run-recovery]]'s debug mode, a failed turn's agent kept open for a person, is the
+   same lifecycle; design them together.
    Today an opened agent is treated as the run's alone:
    - any outcome but answered closes its pane, never reopened (`session-core.ts` cancel,
      `closeAfterFailure` in `workflow-runner.ts`);
@@ -44,8 +39,8 @@ refused.
    The calling session (`--here`, ADR 0010) already has the rules an attended agent needs: an
    interrupt settles `cancelled`, nudges are off where an interrupt can't be told apart, no
    stop-finishing Esc, and its pane is never closed. Generalise them. (L)
-4. **Progress.** One line saying where the shown agent is (`describeRunSession`). (S)
-5. **Accepted risks, recorded.** The shown agent's notifications and sound play in the operator's
+2. **Progress.** One line saying where the shown agent is (`describeRunSession`). (S)
+3. **Accepted risks, recorded.** The shown agent's notifications and sound play in the operator's
    session, which is wanted here. An unsandboxed agent there can drive the operator's panes through
    `$HERDR_SOCKET_PATH`, the exposure story 024 removed. (S)
 
@@ -53,7 +48,6 @@ Operator typing into a driven pane mid-turn is unmeasured (ADR 0008, ADR 0010); 
 
 ## Later
 
-The fixer as a fork of the operator's own session, with a summary folded back into the main thread
-when the run ends. Refused today: a run does not fork the calling session (story 016). Close to
-`docs/design/ideas.md`'s side-quest fork. Talking to the fixer while it works, other than through
-its pane, is what messaging (`docs/design/messaging.md`) would give.
+The fixer as a fork of the operator's own session (`agents.forkCaller`, story 027), with a summary
+folded back into the main thread when the run ends. Close to `docs/design/ideas.md`'s fork by
+summary.

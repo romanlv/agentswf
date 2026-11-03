@@ -14,11 +14,12 @@ A workflow declares when it runs, such as every hour or `0 9 * * MON`, and `awf 
 wakes it when an occurrence is due, with that occurrence as its identity.
 
 Why it matters: the Datadog watcher's triage tick must run every hour, never two at once. Without
-a schedule it is a keyed event run, `dd-tick.main`, that parks with `until` an hour after its last
-tick, and all three of its workarounds are the workflow's own:
+a schedule it is a keyed event run, `dd-tick.main`, that parks until an hour after its last tick
+(written with `until` before story 037 replaced it with named timers), and all three of its
+workarounds are the workflow's own:
 
-- **Identity.** A wake by `until` returns no event, so nothing names the iteration a crash cut
-  short. The tick keeps `dd-cases/tick.json`, `{at, done}`, out of git, to name its stages.
+- **Identity.** A timed wake names no occurrence, so nothing names the iteration a crash cut
+  short; a named timer (`wf.timer`) may close this one. The tick keeps `dd-cases/tick.json`, `{at, done}`, out of git, to name its stages.
 - **Growth.** One run gains a triage, write and commit stage, an agent and its session every hour,
   and nothing retires them.
 - **Cron.** Something outside awf must run `awf tick`; nothing says how to install it.
@@ -35,7 +36,7 @@ Prior art in this repo:
   included, is a message in the inbox.
 - [[034-event-driven-runs|Story 034]] defers "schedules … and a scheduler, which can come later on
   top of `awf tick`", and compacting a run's mailbox.
-- `docs/design/ideas.md`: "time intervals" and "scheduler".
+- `docs/design/ideas.md`: "A scheduler".
 
 Decided (2026-10-26): a schedule is declared in the workflow's code, not in a cron entry per
 workflow. The one thing outside awf is what runs `awf tick` itself.

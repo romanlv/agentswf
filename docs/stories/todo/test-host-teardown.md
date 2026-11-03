@@ -2,7 +2,7 @@
 title: Close a test's hosts when it fails
 type: story
 status: todo
-priority: P3
+priority: P2
 epic: codebase
 discovered_in: "cleanup audit, 2026-10-29"
 depends_on: []

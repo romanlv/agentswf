@@ -13,6 +13,14 @@ model. Decided in [[0011-a-run-continues-from-its-stages|ADR 0011]], built by
 Read in order: the picture, the author API, the files, then one attempt from start to end. The rest
 is what breaks it, what stays, and what comes later.
 
+A workflow with `events` ([[034-event-driven-runs|story 034]]) runs on the same model, with two
+differences. Its run parks between events, ending the attempt `parked`, and the next event starts
+the next attempt; and a stage there is named by its one effect and runs once ever, its succeeded
+record reused wherever its name is entered, whatever version of the code recorded it. Named timers,
+signals and `race` record their answers in the run's mailbox so a later attempt reads the same
+([[037-workflow-timers|story 037]]); how a user sees it is the
+[durability guide](https://agents.wf/guide/durability#runs-that-wait-for-events).
+
 ## The model in one picture
 
 ```
@@ -82,6 +90,7 @@ type StageOptions<T> = {
 
 type Ending<Result> =
   | { kind: "completed"; value: Result; stages: StageSummary[] }
+  | { kind: "parked"; stages: StageSummary[]; label?: string; until?: string } // a run with events, waiting
   | { kind: "stopped" | "failed" | "timed-out" | "cancelled"; stage?: string; reason: string;
       stages: StageSummary[]; continue: string }; // continue: the command to go on
 
@@ -174,172 +183,16 @@ Why the project: the runs belong to the work, a person finds them where they wor
 project deletes its runs. Why not elsewhere in the tree: one folder, ignored, is what Terraform,
 pytest and others taught people to expect.
 
-### The layout
+### The files
 
-One folder per run, holding the run's current state. Attempts are small files in it, not folders,
-so restarting a run twenty times adds twenty small files.
-
-```
-.awf/
-  runs/
-    .gitignore                 *
-    {workflow}/                meta.name
-      {id}/                    one run; renaming it into place claims the id
-        run.json               the run's inputs; written once, before the claim
-        attempts/
-          1.json               one per `awf run`; creating it claims the attempt
-          2.json
-        stages/
-          doc-review.json      the current record of each stage: what a continue reuses
-          implement.json
-        replaced/
-          qa.1.json            a record a later attempt redid, moved here: {stage}.{attempt that ran it}
-        turns.jsonl            the run's event log: every turn, and what happened around them; appended
-        calls/{callId}/        call.json, candidates.jsonl, result.json
-        output.json            the last ended attempt's: what `--json` prints
-        report.md              the last ended attempt's, when the workflow writes one
-```
-
-Calls, the output and the report are shared by the run's attempts: calls are keyed by uuid, so
-attempts never collide. Sandboxes live outside the project, in
+One folder per run, holding the run's current state, at `.awf/runs/{workflow}/{id}/`: `run.json`,
+an `attempts/` file per `awf run`, a `stages/` record per stage, `replaced/` for records a later
+attempt redid, `turns.jsonl` (the run's event log), a `calls/{operationId}/` folder per turn,
+`output.json` and `report.md`; a run with events adds its mailbox. Each file and its fields are in
+the [data reference](https://agents.wf/reference/data)
+([`site/reference/data.md`](../../site/reference/data.md)), which is kept current; this section is
+why it is shaped this way. Sandboxes live outside the project, in
 `~/.awf/sandboxes/{workflow}/{id}/{uuid}/` ([[#Sandboxes]]).
-
-### Each file
-
-**`run.json`**: what the run is, fixed for its life.
-
-```json
-{
-  "version": 1,
-  "id": "PROJ-1515",
-  "workflow": "implement-ticket",
-  "argv": ["PROJ-1515"],
-  "cwd": "/Users/roman/dev/braintrust",
-  "sandbox": null,
-  "created": "2026-10-02T16:02:11Z"
-}
-```
-
-- `argv`, not the parsed args: a continue runs the current `prepare` on it, so a fix to parsing
-  applies, and a run whose argv no longer parses says so instead of reusing old args.
-- `cwd` and `sandbox`: every attempt of a run works in the same place, the same way. A continue
-  takes them from here; passing others is refused.
-- No status, no current stage, no last attempt: all are read off the other files, so they can't go
-  stale.
-
-**`attempts/{attempt}.json`**: one attempt: the claim that makes it the live one, then its ending.
-
-```json
-{
-  "version": 1,
-  "attempt": 2,
-  "file": "/Users/roman/dev/braintrust/agent/workflows/implement-ticket/flow.ts",
-  "workflowVersion": "1.2.1",
-  "flags": { "timeout": "10h" },
-  "pid": 48211,
-  "processStart": "2026-10-02T22:08:40Z",
-  "started": "2026-10-02T22:08:41Z",
-  "ended": "2026-10-02T22:41:09Z",
-  "outcome": "completed",
-  "stages": [
-    { "stage": "doc-review", "source": "reused", "outcome": "succeeded", "attempt": 1,
-      "spanMs": 0, "summary": "docs/PROJ-1515.md" },
-    { "stage": "qa", "source": "ran", "outcome": "succeeded", "attempt": 2,
-      "spanMs": 1712000, "summary": "preview ok" }
-  ],
-  "accounting": { … }
-}
-```
-
-Written twice, each time whole, and only by its own attempt:
-
-1. **At start**, without the ending. Creating it is the claim ([[#Why it is shaped like this]]).
-2. **At the end**, with `ended`, `outcome`, `stage` and `reason` (for any outcome but `completed`),
-   `stages`: each stage entered, `ran` or `reused`, with its outcome and summary (a stage the plan
-   stops as it is entered is there, `stopped`, as the view shows it, though it ran nothing and has
-   no record), and `accounting`:
-   its totals and `byStage`, which a run's total sums. `output.json` holds only the last attempt's,
-   and a turn's line has no spend to add up, so each attempt keeps its own.
-
-- `file`: the path it ran, for the record. Not identity.
-- `workflowVersion`: the workflow's `meta.version`, when it gives one; compared with each
-  record's on a continue.
-- `flags.fromStage`: only when `--from-stage` was given. `--values` isn't kept here: each value
-  it gave is in its stage's record.
-- `pid` and `processStart` make liveness checkable without a lock file: the attempt is live while it
-  has no `ended` and that process, started at that time, exists. A pid alone could be another
-  process after a reboot. Both sides read the start time the same way, `ps -o lstart= -p {pid}` in
-  UTC (macOS and Linux), and start times within one second match, since Linux derives `lstart`
-  from the boot time.
-
-**`stages/{stage}.json`**: the run's current record of a stage.
-
-```json
-{
-  "version": 1,
-  "stage": "mr",
-  "attempt": 1,
-  "outcome": "succeeded",
-  "started": "2026-10-02T16:33:05Z",
-  "ended": "2026-10-02T16:38:12Z",
-  "workflowVersion": "1.2.0",
-  "sessions": [{ "agent": "worker", "harness": "claude", "session": "5dbd8155-…" }],
-  "summary": "!2329",
-  "value": { "iid": 2329, "url": "https://…/merge_requests/2329" }
-}
-```
-
-- Written when the stage ends, by the attempt that ran it. Reusing it leaves the file alone.
-- When a later attempt redoes the stage, the file is moved, unchanged, to
-  `replaced/{stage}.{attempt}.json` ([[#The stage plan]]). A redone stage's old value often names a
-  worktree, branch or MR left behind; that is where it is still found.
-- `outcome`: `succeeded`, `stopped` (`wf.stop`) or `failed` (a throw, a value that fails its
-  check, a timeout, a cancellation), with a `reason` string for the last two. Only a succeeded
-  record is reused.
-- `attempt`: the attempt that ran it.
-- `value` is absent for a stage that returns nothing. It is stored as returned, after a JSON round
-  trip, and checked again by the current schema whenever it is reused.
-- `sessions`: the agents' native sessions the stage used, for [[stopped-run-recovery]] and for
-  reading what happened.
-- `provided: true`: no turn ran it; its value came from `--values`, or it returns nothing and was
-  passed ([[#Starting at a stage]]). Its `attempt` is the one it was given in. It is `succeeded`,
-  and reused as any other.
-
-**`turns.jsonl`**: the run's event log. Each turn, nudges included, and each compaction, as it
-settles, and around them what the run did: an attempt's start and end, a stage's, an operation's
-delivery and failure, a session named, an agent opened, stopped or forked, a workflow's `log` and a
-warning, a decision asked and ended. `kind` tells them apart, and each kind has its own `version`
-(`RUN_EVENT_VERSIONS` in `contract/records`); a line of a kind or version a reader does not know is
-skipped. A line names keys, never ids it was given: `attempt`, `stage`, `agent`, `operationId`.
-A line an older awf wrote has no `kind`, and is a turn. Observation only: nothing reads the log to
-decide what a run does, but a continue reads its turns, as before (ADR 0011). [[028-run-logs-and-telemetry]]
-has each kind's fields.
-
-```json
-{"version":1,"attempt":2,"kind":"turn","agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}
-```
-
-- `stage` is absent for a turn between stages.
-- Appended by the live attempt, a line per turn or compaction. A crash keeps every turn that
-  settled, so an `interrupted` attempt still has its sessions. Not its cost: what a turn spent is
-  read from its sessions once the attempt ends, and an interrupted attempt has no end. Reading it
-  from the sessions later is [[stopped-run-recovery]]'s.
-- A line that doesn't parse is skipped wherever it is: a crash can tear the last line, and the next
-  attempt appends after it.
-
-**`output.json`**: version 5, what `--json` prints. Replaced by each attempt that ends, so it may
-be an earlier attempt's than the last; its `attempt` says which.
-
-- `runId` (the run's id) and `attempt`.
-- `outcome` in the attempt file's words: `completed` with its `value`, or `stopped`, `failed`,
-  `timed-out` or `cancelled` with `reason` and `stage` (absent between stages).
-- `stages`, as in the attempt file, and `report`, whatever the outcome.
-- `accounting` in full: `byStage` has a row per stage entered, a reused one at zero, then
-  `(no stage)`; `grouping` says whether its rows are stages or, for a run without stages, key
-  prefixes.
-
-**`calls/{callId}/`**: a call's `call.json`, `candidates.jsonl` and `result.json`.
-**`report.md`**: the last ended attempt's report; removed when an attempt writes none.
 
 ### Why it is shaped like this
 
@@ -559,6 +412,7 @@ named is the last one reused before the stop.
 | Outcome | When | Exit code |
 | --- | --- | --- |
 | `completed` | the workflow returned | 0 |
+| `parked` | a run with events waits for its next event or timer, with no process left | 0 |
 | `stopped` | `wf.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage` and no value given, a `--from-stage` never reached | 3 |
 | `failed` | an exception | 1 |
 | `timed-out` | the attempt's deadline (`--timeout`) | 1 |
@@ -619,7 +473,7 @@ continue starts there. Its turns and sessions are in `turns.jsonl`; it has no co
 its sessions afterwards is [[stopped-run-recovery]]'s. Its panes and sandboxes may still be alive,
 so the next attempt names it, the stage of its last turn and its Herdr workspace, labelled with the
 attempt (`awf implement-ticket PROJ-1515 #2`), without asking Herdr whether it is still open, and
-leaves it: a person may be in it. Headless children are [[headless-orphans]].
+leaves it: a person may be in it. What a turn left running when awf dies is [[crash-leftovers-reaper]].
 
 **Two `awf run`s at once.** The same run: the attempt claim refuses the second. The same new id:
 the run claim refuses it. Different runs run side by side.
@@ -694,7 +548,7 @@ Each is a reader of the same files, or a row in the stage plan:
   after it.
 
 Not to copy: deterministic replay of whole functions (Temporal histories, Restate journals, DBOS
-step numbers), `patched()` branches, durable timers and signals, code hashing, idempotency TTLs,
+step numbers), `patched()` branches, code hashing, idempotency TTLs,
 and GitHub's rerun on the original commit, the opposite of continuing after a fix. A pause is a
 stop and then a continue, not a process kept alive waiting.
 
