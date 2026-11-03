@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  type ExecutionConfig,
-  type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
 import Value from "typebox/value";
 import { outputSchema } from "../output-schema";
@@ -82,7 +78,6 @@ export default defineWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
   meta: {
     name: "skills-probe",
     description: "Give agents one probe skill each and ask for what only a probe can make.",
-    whenToUse: "Use to check that each harness has exactly the skills a workflow names.",
   },
   async run(wf, plan) {
     const box = await wf.sandboxes.open({ key: "box", srt: {} });

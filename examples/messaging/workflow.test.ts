@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import { BUILT, CASES, messaging, REVIEW } from "./workflow";
 
 const built = answer(BUILT, { file: "slug.mjs" });

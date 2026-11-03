@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { tool, type WorkflowDefinition } from "@agentswf/contract/workflow";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
+import { defineWorkflow, tool } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 import toolsWorkflow, { Summary, tools } from "./workflow";
@@ -67,7 +67,7 @@ describe("tools", () => {
 
   test("a scripted message turn's call closes an item too", async () => {
     const closed: string[] = [];
-    const handoff: WorkflowDefinition<null, string[]> = {
+    const handoff = defineWorkflow<null, string[]>({
       meta: {
         name: "handoff",
         description: "A message hands an item to the agent that closes it.",
@@ -96,7 +96,7 @@ describe("tools", () => {
         await lead.run({ prompt: "Hand over a1." });
         return closed;
       },
-    };
+    });
     const run = await testWorkflow(handoff, null, {
       agents: {
         lead: answer(async (turn) => {

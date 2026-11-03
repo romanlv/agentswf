@@ -4,7 +4,7 @@ import {
   type Effort,
   type ExecutionConfig,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -91,8 +91,6 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
   meta: {
     name: "effort",
     description: "Open one agent per harness at an effort, switch its effort, then its model.",
-    whenToUse:
-      "Use to check that each harness runs at the effort and model awf sets, and that set switches them in the same session.",
   },
   async run(wf, args) {
     const checks = await wf.parallel(

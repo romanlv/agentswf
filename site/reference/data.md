@@ -182,6 +182,7 @@ earlier one.
 | Field | Meaning |
 | --- | --- |
 | `version` | `5` |
+| `ref` | the run's ref, `{workflow}/{runId}`, as the other run documents have it |
 | `runId`, `attempt` | the run's id, and the attempt that wrote this |
 | `workflow` | `name` and `file` |
 | `outcome` | `completed`, `parked`, `stopped`, `failed`, `timed-out` or `cancelled` |

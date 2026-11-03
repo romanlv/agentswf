@@ -5,7 +5,7 @@ import {
   type SandboxEnvironment,
   type TurnOutcome,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import Value from "typebox/value";
 import { outputSchema } from "../output-schema";
@@ -78,7 +78,6 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
     name: "sandbox-probe",
     description:
       "Run fixed shell commands in shared and private sandboxes, and report each output.",
-    whenToUse: "Use to check what agents in sandboxes reach, against canaries the caller planted.",
   },
   async run(wf, plan) {
     const environment: SandboxEnvironment =

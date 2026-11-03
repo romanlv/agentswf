@@ -336,7 +336,7 @@ Deprecate for one beta, then remove:
 
 ## 8. Order
 
-A deprecated name lives one beta after the one that deprecates it, logs once per run with its
+A deprecated name lives one beta after the one that deprecates it, logs once per attempt with its
 replacement, and none survives into 0.1.0.
 
 | Beta | What |

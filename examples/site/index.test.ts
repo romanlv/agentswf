@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import reviewLoop, { DONE, VERDICT } from "./index";
 
 const args = { task: "Add a --dry-run flag" };

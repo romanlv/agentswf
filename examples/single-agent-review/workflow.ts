@@ -3,7 +3,7 @@ import {
   type ExecutionConfig,
   type SkillSource,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -78,7 +78,6 @@ export default defineWorkflow<SingleReviewArgs, SingleReviewResult>({
   meta: {
     name: "single-agent-review",
     description: "One agent reviews a change in one turn, with a public review skill or none.",
-    whenToUse: "Use as a baseline review, or to measure what a review skill adds.",
   },
   async run(wf, args) {
     const agent = await wf.agents.open({

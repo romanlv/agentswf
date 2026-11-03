@@ -1,10 +1,5 @@
 // What the tool types must allow and refuse; type-checked, never run.
-import {
-  type AgentDirectory,
-  type JsonObject,
-  type ToolSpec,
-  tool,
-} from "@agentswf/contract/workflow";
+import { type AgentDirectory, type JsonObject, type ToolSpec, tool } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 

@@ -5,7 +5,7 @@ import {
   defineWorkflow,
   score,
   yesNo,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 // #endregion imports
 import Type from "typebox";
 

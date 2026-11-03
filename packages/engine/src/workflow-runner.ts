@@ -44,6 +44,7 @@ import {
   type CodeParticipantRef,
   type CompactionId,
   type CompactSpec,
+  DEPRECATED_DEFINITION,
   DeadlineExceededError,
   type Duration,
   type EmitOutcome,
@@ -67,10 +68,9 @@ import {
   type PlacementChoice,
   placementOf,
   type RaceBranches,
-  type ReceiveOptions,
+  REPORT_DEPRECATED,
   type RunResult,
   type RuntimeSelection,
-  type SelectOptions,
   type SettingsSpec,
   type SkillSource,
   type StageOptions,
@@ -83,8 +83,8 @@ import {
   type WaitOptions,
   type When,
   type WorkflowContext,
-  type WorkflowDefinition,
   type WorkflowEvent,
+  type WorkflowMeta,
 } from "@agentswf/contract/workflow";
 import {
   type AgentSkills,
@@ -132,6 +132,7 @@ import {
 } from "./deadlines";
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
+import { type Deprecated, RunDeprecations } from "./deprecations";
 import { parseWhen } from "./duration";
 import { emitEvent } from "./emit";
 import { messageOf } from "./errors";
@@ -191,13 +192,19 @@ import {
 } from "./sandboxes";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { asSource, branchOf, branchValue, source, takeOf } from "./sources";
+import { asSource, branchOf, branchValue, matches, source, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
 import type { EventWorkflow } from "./workflow-loader";
 
 export { WorkflowCancelledError } from "./deadlines";
+
+/** What the runner needs of a workflow: its meta and its run. */
+export type RunnableWorkflow<Args extends JsonValue, Result extends JsonValue> = {
+  readonly meta: WorkflowMeta;
+  run(context: WorkflowContext, args: Args): Promise<Result>;
+};
 
 export type RunWorkflowOptions = {
   /** Internal timing policy; workflow authors use the operation deadline. */
@@ -434,7 +441,7 @@ const FORK_TIMEOUT_MS = 60_000;
 const scopes = new AsyncLocalStorage<ExecutionScope>();
 
 export async function runWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  definition: WorkflowDefinition<Args, Result>,
+  definition: RunnableWorkflow<Args, Result>,
   args: Args,
   options: RunWorkflowOptions,
 ): Promise<WorkflowRunResult<Result>> {
@@ -447,7 +454,7 @@ export async function runWorkflow<Args extends JsonValue, Result extends JsonVal
  * handle's `result`'s.
  */
 export async function startWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  definition: WorkflowDefinition<Args, Result>,
+  definition: RunnableWorkflow<Args, Result>,
   args: Args,
   options: RunWorkflowOptions,
 ): Promise<WorkflowRunHandle<Result>> {
@@ -512,6 +519,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       });
     };
   const warn = say("warning");
+  const deprecations = new RunDeprecations((text) => warn(text));
+  if (definition.meta.whenToUse !== undefined) deprecations.used("whenToUse");
+  if ((definition as { [DEPRECATED_DEFINITION]?: unknown })[DEPRECATED_DEFINITION])
+    deprecations.used("defineExecutableWorkflow");
   // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
   const turns: TurnRecord[] = [];
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
@@ -636,6 +647,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ledger,
     onLog: warn,
     log: say("log"),
+    deprecations,
     events,
     onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
@@ -699,6 +711,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failure = ending;
     }
     bodyEnded = true;
+    deprecations.settle();
     // What the body left running enters no stage; one left open is failed once its turns settle.
     stages.seal(failed ? messageOf(failure) : "the workflow returned before the stage ended");
     const cutReading = () => reading.abort();
@@ -928,6 +941,7 @@ class WorkflowOwner {
       onLog?: Warn;
       /** The workflow's own log lines. */
       log(message: string, fields?: JsonObject): void;
+      deprecations: RunDeprecations;
       events: RunEventLog;
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
       awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
@@ -1013,17 +1027,6 @@ class WorkflowOwner {
             return Promise.reject(error);
           }
         },
-        attach: (key, runtime) => {
-          if (this.#caller?.key !== key) return unavailable("agents.attach");
-          const stopped = this.#agents.get(key)?.stopped;
-          if (stopped !== undefined) return Promise.reject(stoppedError(key, stopped));
-          if (runtime !== undefined) {
-            return Promise.reject(
-              new Error(`agent ${key} is the calling session, whose runtime is the operator's`),
-            );
-          }
-          return this.#caller.state;
-        },
         stop: (key, reason) => {
           try {
             return this.stopAgent(key, reason);
@@ -1084,16 +1087,8 @@ class WorkflowOwner {
       },
       participants: {
         connect: async (spec) => this.connectParticipant(spec),
-        get: async (key) =>
-          (this.#messaging.connected().includes(key) ? this.#outsideRefs.get(key) : undefined) ??
-          (this.#logical.get(key) as AgentRef | undefined) ??
-          null,
       },
       messages: { allow: async (access) => this.allowRoute(access) },
-      steps: {
-        run: () => unavailable("steps.run"),
-        sleep: () => unavailable("steps.sleep"),
-      },
       emit: async (target, run, name, data, emitOptions) => {
         if (this.#closed || this.#cleanupFailures.length)
           throw new Error("workflow context is closed");
@@ -1129,7 +1124,6 @@ class WorkflowOwner {
       },
       stage: ((name: string, ...rest: unknown[]) =>
         this.runStage(name, rest)) as WorkflowContext["stage"],
-      call: () => unavailable("call"),
       usage: () => options.ledger.records(),
       allowance: async (harness) => {
         if (this.#closed || this.#cleanupFailures.length)
@@ -1159,13 +1153,12 @@ class WorkflowOwner {
       this.context,
       mailbox
         ? {
-            receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec),
+            receive: (spec?: WaitOptions) => this.receive(mailbox, spec),
             race: (name: string, branches: RaceBranches, raceOptions?: WaitOptions) =>
               this.race(mailbox, name, branches, raceOptions),
-            select: (branches: Branches, selectOptions?: SelectOptions) =>
+            select: (branches: Branches, selectOptions?: WaitOptions) =>
               this.select(mailbox, branches, selectOptions),
             timer: (name: string, when: When) => this.timer(mailbox, name, when),
-            timers: () => source({}, { name: "timer:due" }),
             at: (read: () => Date | null) => timeRead(read),
             after: (duration: Duration) => {
               this.#notReading("wf.after()");
@@ -1239,6 +1232,7 @@ class WorkflowOwner {
       // A turn's end taken: its agent takes other work again.
       for (const event of taken) {
         if (event.name !== "agent:ended") continue;
+        this.#reporting((event.data as { outcome?: unknown }).outcome);
         const { turn } = event.data as unknown as TurnEnd;
         if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
         this.#logical.get(event.from)?.endTaken(turn);
@@ -1291,8 +1285,7 @@ class WorkflowOwner {
       throw new Error(
         `race ${name} has answered in this attempt; a wait in a loop is named per round, as approval-\${round}`,
       );
-    this.#raced.add(name);
-    const label = checkedLabel(raceOptions?.label);
+    const label = labelOf(raceOptions?.label);
     const given = branchesOf(`race ${name}`, branches, true);
     // A sleep's time may be a Date, its own timer as a duration is.
     const own = (source: unknown) => typeof source === "string" || source instanceof Date;
@@ -1302,6 +1295,9 @@ class WorkflowOwner {
         own(source) ? [] : [[branch, sourceTake(`race ${name}`, branch, source)] as const],
       ),
     );
+    this.#turnSources(takes.values());
+    // Only once its label and branches are checked: a refused race leaves its name to a retry.
+    this.#raced.add(name);
     const owned = new Map<string, string>();
     const pairs: (readonly [string, WaitTake])[] = given.map(([branch, source]) => {
       if (!own(source)) return [branch, takes.get(branch) as WaitTake] as const;
@@ -1331,7 +1327,7 @@ class WorkflowOwner {
   private select(
     mailbox: RunMailbox,
     branches: Branches,
-    selectOptions: SelectOptions | undefined,
+    selectOptions: WaitOptions | undefined,
   ): AsyncIterable<Next<Branches>> {
     const given = branchesOf("select", branches, false);
     const reads = new Map(
@@ -1347,6 +1343,7 @@ class WorkflowOwner {
           reads.has(branch) ? { name: AT_DUE, from: branch } : sourceTake("select", branch, source),
         ] as const,
     );
+    this.#turnSources(pairs.map(([, take]) => take));
     // Read at each pass of the wait: a time follows the state as it moves.
     const takes = (): WaitTake[] =>
       pairs.map(([branch, take]) => {
@@ -1354,16 +1351,12 @@ class WorkflowOwner {
         const due = read && this.#readTime(branch, read);
         return due === undefined ? take : { ...take, due };
       });
-    const labelOf = () => {
-      const given = selectOptions?.label;
-      return checkedLabel(typeof given === "function" ? given() : given);
-    };
     const next = async (): Promise<Next<Branches>> => {
       const scope = this.#beginWait("select");
       if (scope?.stage !== undefined)
         throw new Error(`select is in stage ${scope.stage}: a loop's wait is not a stage's`);
       const [event] = await this.#holdingWait(scope, async (signal) => [
-        await mailbox.select(takes, labelOf(), signal),
+        await mailbox.select(takes, labelOf(selectOptions?.label), signal),
       ]);
       const taken = event as WorkflowEvent<string, JsonValue>;
       const branch = branchOf(pairs, taken) as string;
@@ -1376,6 +1369,23 @@ class WorkflowOwner {
       }),
     };
   }
+
+  /** A started turn among a wait's branches, which naming its agent replaces. */
+  #turnSources(takes: Iterable<WaitTake>): void {
+    if ([...takes].some((take) => take.turn !== undefined))
+      this.options.deprecations.used("turn-source");
+  }
+
+  /** `outcome`, which a deprecated name the contract defines reports its use on. */
+  // Best effort: an outcome the workflow copies or freezes, or a stage reuses, reports nothing.
+  #reporting = <T>(outcome: T): T => {
+    if (typeof outcome === "object" && outcome !== null && !Object.isFrozen(outcome))
+      Object.defineProperty(outcome, REPORT_DEPRECATED, {
+        value: this.options.deprecations.reported,
+        configurable: true,
+      });
+    return outcome;
+  };
 
   #waiting = false;
   /** The races and sleeps this attempt has run, each by its name once. */
@@ -1462,14 +1472,16 @@ class WorkflowOwner {
   /** A wait: one at a time, and in a stage, the stage's batch. */
   private async receive(
     mailbox: RunMailbox,
-    spec: ReceiveOptions | undefined,
+    spec: WaitOptions | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
     const scope = this.#beginWait("receive()");
+    const label = receiveLabel(spec);
+    if (scope?.stage !== undefined) this.options.deprecations.used("stage-receive");
     if (scope?.stage !== undefined && this.#stageBatches.has(scope.stage))
       throw new Error(`stage ${scope.stage} has waited once; a stage holds one wait`);
     try {
       const taken = await this.#holdingWait(scope, (signal) =>
-        mailbox.receive(spec, scope?.stage, signal),
+        mailbox.receive(label, scope?.stage, signal),
       );
       if (scope?.stage !== undefined) {
         this.#stageBatches.set(scope.stage, taken);
@@ -1783,6 +1795,7 @@ class WorkflowOwner {
           ? await this.options.mailbox?.batchOf(name)
           : undefined;
       if (batch) {
+        this.options.deprecations.used("stage-receive");
         if (this.#waitedStages.has(name))
           throw new Error(
             `stage ${name} around a wait was entered again in this attempt, and would return the same batch forever; name it by what it waits for`,
@@ -1851,6 +1864,7 @@ class WorkflowOwner {
 
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    if (spec.labels !== undefined) this.options.deprecations.used("labels");
     scopes.getStore()?.assertAccepting();
     this.#assertFreeKey(spec.key, "an agent");
     if (this.#caller?.key === spec.key) {
@@ -2399,6 +2413,8 @@ class WorkflowOwner {
       livenessPolicy: this.options.livenessPolicy,
       ...(this.options.mailbox ? { turns: this.#turnsOf(key, this.options.mailbox) } : {}),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
+      deprecated: (name) => this.options.deprecations.used(name),
+      reporting: (outcome) => this.#reporting(outcome),
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
       keepAlive: () => this.#agents.get(key)?.keepAlive,
       defaultWindowMs: this.options.defaultWindowMs ?? DEFAULT_WINDOW_MS,
@@ -2439,6 +2455,7 @@ class WorkflowOwner {
     unopened?: AgentEntry,
   ): Promise<AgentRef> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    if (spec.labels !== undefined) this.options.deprecations.used("labels");
     const scope = scopes.getStore();
     scope?.assertAccepting();
     this.options.stages.checkOperation();
@@ -2807,6 +2824,9 @@ class LogicalAgent implements AgentRef {
         take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
+      deprecated(name: Deprecated): void;
+      /** An outcome as the workflow is handed it, which a deprecated name it is given reports on. */
+      reporting<T>(outcome: T): T;
       /** As the workflow wrote it; decides, at close, whether its pane stays. */
       keepPane(): KeepPane | undefined;
       /** As the workflow's last open of it gave it. */
@@ -2825,7 +2845,7 @@ class LogicalAgent implements AgentRef {
     const restored = options.turns?.restored();
     if (restored)
       this.#started = {
-        ref: turnRef(options.key, restored.turn, async () => false),
+        ref: turnRef(options.key, restored.turn, async () => false, options.deprecated),
         meta: restored.meta,
         ended: true,
         done: Promise.resolve(),
@@ -2940,24 +2960,30 @@ class LogicalAgent implements AgentRef {
     const refused = this.#refusedWhileStarted("start");
     if (refused) throw refused;
     const { meta = null, ...run } = spec;
+    if (run.id !== undefined) this.options.deprecated("call-id");
     const id = run.id ?? randomUUID();
     if (!isJsonValue(meta)) throw new Error("a turn's meta is a JSON value");
     const ended = Promise.withResolvers<void>();
     let written: TurnOutcome<JsonValue>["kind"] | undefined;
     const started = {
-      ref: turnRef(this.key, id, async (reason?: string) => {
-        if (started.ended) return false;
-        // Its turn waits for the handler, which would wait for the turn's end.
-        const inTool = refusedInTool(this.key, "cancel()");
-        if (inTool) throw inTool;
-        const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
-        // Its own operation only: one queued behind a message settles cancelled when it is reached.
-        const own = this.#stopsByTurn.get(id);
-        if (own) await own(stop);
-        else this.#cancelledTurns.set(id, stop.reason);
-        await started.done;
-        return written === "cancelled";
-      }),
+      ref: turnRef(
+        this.key,
+        id,
+        async (reason?: string) => {
+          if (started.ended) return false;
+          // Its turn waits for the handler, which would wait for the turn's end.
+          const inTool = refusedInTool(this.key, "cancel()");
+          if (inTool) throw inTool;
+          const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
+          // Its own operation only: one queued behind a message settles cancelled when it is reached.
+          const own = this.#stopsByTurn.get(id);
+          if (own) await own(stop);
+          else this.#cancelledTurns.set(id, stop.reason);
+          await started.done;
+          return written === "cancelled";
+        },
+        this.options.deprecated,
+      ),
       meta,
       ended: false,
       done: ended.promise,
@@ -3046,6 +3072,7 @@ class LogicalAgent implements AgentRef {
       return Promise.reject(error);
     }
     const opensWindow = !inTimeoutHandler();
+    if (spec.id !== undefined && !this.#launching) this.options.deprecated("call-id");
     const id = spec.id ?? randomUUID();
     const completeSpec = structuredClone({ ...spec, id }) as
       | AgentRunTextSpec
@@ -3107,7 +3134,12 @@ class LogicalAgent implements AgentRef {
         await this.options.afterOperation?.();
       }
     });
-    const tracked = this.options.track(result);
+    const tracked = this.options.track(
+      result.then((settled) => {
+        this.options.reporting(settled.outcome);
+        return settled;
+      }),
+    );
     scope?.track(tracked);
     this.#operations.set(id, { spec: completeSpec, result: tracked });
     return tracked as Promise<RunResult<string | T>>;
@@ -3124,6 +3156,7 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       return Promise.reject(error);
     }
+    if (spec.id !== undefined) this.options.deprecated("call-id");
     const id = spec.id ?? randomUUID();
     const completeSpec = structuredClone({ ...spec, id });
     const existing = this.#compactions.get(id);
@@ -3166,7 +3199,7 @@ class LogicalAgent implements AgentRef {
         await this.options.afterOperation?.();
       }
     });
-    const tracked = this.options.track(result);
+    const tracked = this.options.track(result.then(this.options.reporting));
     scope?.track(tracked);
     this.#compactions.set(id, { spec: completeSpec, result: tracked });
     return tracked;
@@ -3183,6 +3216,7 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       return Promise.reject(error);
     }
+    if (spec.id !== undefined) this.options.deprecated("call-id");
     const id = spec.id ?? randomUUID();
     const completeSpec = structuredClone({ ...spec, id });
     const existing = this.#sets.get(id);
@@ -3221,7 +3255,7 @@ class LogicalAgent implements AgentRef {
         this.#pendingSets.splice(this.#pendingSets.indexOf(change), 1);
       }
     });
-    const tracked = this.options.track(result);
+    const tracked = this.options.track(result.then(this.options.reporting));
     scope?.track(tracked);
     this.#sets.set(id, { spec: completeSpec, result: tracked });
     return tracked;
@@ -4183,10 +4217,27 @@ function checkedWhen(when: unknown): string | Date {
   throw new Error('sleep is for a duration, "2h", or until a Date');
 }
 
-function checkedLabel(label: unknown): string | undefined {
-  if (label !== undefined && typeof label !== "string")
-    throw new Error("a wait's label is a string");
-  return label;
+/** Receive's options as given, checked: what a typed caller can't get wrong, a plain one can. */
+function receiveLabel(options: unknown): string | undefined {
+  if (options === undefined) return undefined;
+  if (typeof options !== "object" || options === null) throw new Error("receive takes { label? }");
+  // `take: "all"` was the default, so only "oldest" asked for what receive no longer does.
+  const { take } = options as { take?: unknown };
+  if (take !== undefined && take !== "all")
+    throw new Error(
+      "receive takes every event not yet acknowledged; wf.select takes one at a time",
+    );
+  if ("until" in options)
+    throw new Error("receive has no until: a timer, wf.timer(name, when), wakes it");
+  return labelOf((options as WaitOptions).label);
+}
+
+/** A wait's label, a function's asked now. */
+function labelOf(label: unknown): string | undefined {
+  const given = typeof label === "function" ? label() : label;
+  if (given !== undefined && typeof given !== "string")
+    throw new Error("a wait's label is a string, or a function that returns one");
+  return given;
 }
 
 /** A wait's branches, by name, checked: a race may give a duration where a select may not. */
@@ -4254,11 +4305,14 @@ function turnRef(
   agent: string,
   id: string,
   cancel: (reason?: string) => Promise<boolean>,
+  deprecated: (name: Deprecated) => void,
 ): StartedTurn {
-  return source(
-    { id, cancel },
-    { name: "agent:ended", from: agent, turn: id },
-  ) as unknown as StartedTurn;
+  const take = { name: "agent:ended", from: agent, turn: id };
+  const is = (event: { name: string; from: string; data?: unknown }) => {
+    deprecated("turn-is");
+    return matches(event, take);
+  };
+  return asSource(Object.freeze({ id, cancel, is }), take) as unknown as StartedTurn;
 }
 
 class ExecutionScope {

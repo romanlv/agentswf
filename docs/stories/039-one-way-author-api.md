@@ -189,13 +189,13 @@ Rejected:
 - One `--id` meaning start or go on. It risks continuing by accident a run meant to be new.
 
 Deprecation rule: a deprecated name lives one beta after the beta that deprecates it, is logged
-once per run with its replacement, and none survives into 0.1.0.
+once per attempt with its replacement, and none survives into 0.1.0.
 
 ## Tasks at a glance
 
 Betas from the design's §8 in brackets.
 
-- [ ] 1. Unbuilt and unused names out, old forms deprecated, waits name the agent, `agentswf/workflow` an explicit list (A)
+- [x] 1. Unbuilt and unused names out, old forms deprecated, waits name the agent, `agentswf/workflow` an explicit list (A)
 - [ ] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
 - [ ] 3. One context type, and `--from-stage` for every run (B)
 - [ ] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
@@ -230,11 +230,11 @@ wait names the agent rather than its turn.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -242,7 +242,7 @@ Work:
   `agents.attach` and `participants.get` (design §6).
 - Deprecate agent `labels`, `meta.whenToUse`, a stage around `receive`, `isAnswered` and
   `defineExecutableWorkflow`, and the per-call `id` on `run`, `start`, `compact` and `set` (§2;
-  the design gives this no beta, so it goes with the others here). Each logs once per run, naming
+  the design gives this no beta, so it goes with the others here). Each logs once per attempt, naming
   its replacement.
 - A wait names the agent; a turn passed to `race`, `select` or `receive` is deprecated, and the
   turn keeps `id` and `cancel()` (§2).
@@ -254,7 +254,7 @@ Work:
 Done when:
 
 - A typecheck fixture shows each removed name fails to compile and each deprecated one compiles.
-- A run test shows each deprecated name logs its replacement once per run, a turn in `race`
+- A run test shows each deprecated name logs its replacement once per attempt, a turn in `race`
   included.
 - An engine test reads `ref` from a finished run's `output.json`.
 - `eventWorkflowProblem` and `placementOf` are not importable from `agentswf/workflow`.
@@ -404,7 +404,9 @@ Work:
 - `earlier: { stages, mailbox }` replaces `recorded` and `mailbox`.
 - `maxTurns` applies to every workflow.
 - Unknown option keys are refused.
-- The three-argument form is deprecated.
+- The three-argument form is deprecated. With it goes the last published signature naming the
+  engine's `RunnableWorkflow`, which took `WorkflowDefinition`'s place in task 1.
+- `agentswf/testing` exports an explicit list, as task 1 made `agentswf/workflow`'s.
 
 Done when:
 
@@ -564,6 +566,26 @@ Manual or live evaluation:
 
 Record reviews under the task they cover.
 
+### Task 1
+
+Architecture and scope review: no blocking findings.
+- Deprecations log once per attempt, not once per run: a parked run logs again on every wake.
+  Kept per attempt, which needs no record; the story, design, site and code now say so.
+- `isAnswered` reports through a function the engine attaches, non-enumerable, to each outcome it
+  hands the workflow. Accepted as the seam a pure contract allows, best effort, commented as such.
+- `testWorkflow`'s second overload now names the engine's `RunnableWorkflow`; `agentswf/testing` is
+  still `export *`. Both moved to task 6.
+- `author.ts` exported names only signatures need; trimmed to what an author writes or annotates.
+- `ref` added to `output.json` without a version bump, as data.md allows; made optional for files
+  written before it.
+
+Correctness and proof review:
+- A race whose function label threw had already burned its name; fixed, with a test.
+- Several deprecation sites were unproven, each masked by an earlier use logging first; each now has
+  a run of its own, the stage-around-`receive` replay and a continued attempt included.
+- `receive({ take: "all" })`, the old default, is accepted; only `"oldest"` is refused.
+- The reporter does nothing once the attempt has ended.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -574,6 +596,16 @@ Record reviews under the task they cover.
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 1
+
+- The explicit list is `@agentswf/contract/author`, which `agentswf/workflow` re-exports and the
+  engine's loader serves; the engine can't import `agentswf`, so one list lives where both reach.
+- `WorkflowDefinition` became the engine's internal `RunnableWorkflow`.
+- `SelectOptions` and `ReceiveOptions` were removed outright: one `WaitOptions` is one type.
+- Deprecations: one list, `engine/src/deprecations.ts`, which task 10 deletes with its uses.
+- A test that set a 10 ms nudge deadline before its agent opened failed under load, on `main` too;
+  it now sets the deadline after the open.
 
 ## Human review
 

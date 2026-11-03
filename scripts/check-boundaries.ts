@@ -319,14 +319,14 @@ const RULES: Rule[] = [
     pure: true,
     paths: (target) => containsPath(REVIEW, target) || containsPath(COMPARE, target),
   },
+  // An example imports what an author outside the repository does: `agentswf/workflow`.
   {
     dir: "examples",
     except: ["**/*.test.ts", "nudges/ledger.ts"],
-    allow: ["@agentswf/contract/workflow"],
     forbid: [
       {
-        pattern: /^@agentswf\/(engine|harness)/,
-        reason: "a workflow is written against the author surface, never the runtime",
+        pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
+        reason: "a workflow is written against the author surface, agentswf/workflow",
       },
     ],
     pure: true,
@@ -349,11 +349,10 @@ const RULES: Rule[] = [
   {
     dir: "examples",
     files: "**/*.test.ts",
-    allow: ["@agentswf/contract/workflow", "@agentswf/engine/workflow-testing"],
     forbid: [
       {
-        pattern: /^@agentswf\/(harness|engine(?!\/workflow-testing$))/,
-        reason: "a workflow's test uses the testing surface, never the engine or a harness",
+        pattern: /^(@agentswf\/|agentswf(?!\/(workflow|testing)$))/,
+        reason: "a workflow's test uses agentswf/workflow and agentswf/testing alone",
       },
     ],
   },

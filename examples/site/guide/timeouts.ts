@@ -3,7 +3,7 @@ import {
   DeadlineExceededError,
   defineWorkflow,
   type TurnOutcome,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 
 export const FINDINGS = Type.Object(

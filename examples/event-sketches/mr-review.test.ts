@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import mrReview, { type Finding, Pass } from "./mr-review";
 
 // Declared in the sketch, as the ledger and GitLab are: the loop's own repository gives them a body.

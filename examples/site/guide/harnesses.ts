@@ -2,7 +2,7 @@ import {
   type AgentExecution,
   defineWorkflow,
   type RuntimeSelection,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 
 // #region runtimes

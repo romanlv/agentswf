@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 
 // #region fork
 export default defineWorkflow<null, string>({

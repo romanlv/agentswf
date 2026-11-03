@@ -1,6 +1,6 @@
 // #region first
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import releaseNotes, { CHECK, NOTES } from "./release-notes";
 
 const args = { range: "v1.2.0...HEAD" };

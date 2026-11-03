@@ -1,6 +1,6 @@
 // The review loop's tick, from its style-c sketch: it tells each MR's run what changed on GitLab.
 // Sent without ids: events only notify, and the tick sends only what its own state says changed.
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import mrRun from "./mr-review";
 
 type Mr = { iid: number; head: string; labels: string[]; merged: boolean };

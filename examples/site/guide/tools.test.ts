@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import deadCode from "./tools";
 
 test("each finding the agent records reaches the workflow, and it can read them back", async () => {

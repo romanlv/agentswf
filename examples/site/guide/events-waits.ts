@@ -1,4 +1,4 @@
-import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
 import Type from "typebox";
 
 const Shipped = Type.Object(

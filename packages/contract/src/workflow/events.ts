@@ -102,13 +102,6 @@ export type ReceivedEvent<Events extends EventSchemas> =
   | ParticipantReplyEvent
   | TimerDueEvent;
 
-export type ReceiveOptions = {
-  /** What `awf runs` shows while the run waits here or is parked at this wait. */
-  label?: string;
-  /** `all`, the default: every event not yet acknowledged; `oldest`: the first of them alone. */
-  take?: "all" | "oldest";
-};
-
 export type EmitOptions = {
   /**
    * The event's id, as `awf emit --event-id` gives it: a repeat is a duplicate. Absent, awf makes

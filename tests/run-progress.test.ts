@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { WorkflowDefinition } from "../packages/contract/src/workflow";
+
 import {
   describeRunSession,
   PLAIN,
@@ -8,6 +8,7 @@ import {
 } from "../packages/engine/src/progress-view";
 import { createRun, writeStageRecord } from "../packages/engine/src/runs";
 import { createTempRunDirs, future, startNew, submit } from "../packages/engine/src/testing";
+import type { RunnableWorkflow } from "../packages/engine/src/workflow-runner";
 import { startWorkflow, type WorkflowRunSnapshot } from "../packages/engine/src/workflow-runner";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
@@ -307,7 +308,7 @@ describe("run progress by stage", () => {
       ended: "2026-10-02T16:12:00Z",
       sessions: [],
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "staged", description: "stages" },
       async run(context) {
         await context.stage("implement", async () => {
@@ -342,7 +343,7 @@ describe("run progress by stage", () => {
     const inside = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "staged", description: "stages" },
       async run(context) {
         await context.stage("qa", async () => {
@@ -377,7 +378,7 @@ describe("run progress by stage", () => {
     });
     let seen: WorkflowRunSnapshot | undefined;
     let handle: Awaited<ReturnType<typeof startWorkflow>> | undefined;
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "staged", description: "stages" },
       async run(context) {
         const worker = await context.agents.open({ key: "worker", runtime: "codex" });
@@ -441,7 +442,7 @@ describe("run progress", () => {
         },
       }),
     });
-    const definition: WorkflowDefinition<null, string[]> = {
+    const definition: RunnableWorkflow<null, string[]> = {
       meta: { name: "fixture", description: "fixture" },
       async run(workflow) {
         return workflow.parallel(
@@ -697,7 +698,7 @@ test("the runner records a deliberate stop while the workflow is still running",
       return {};
     },
   });
-  const workflow: WorkflowDefinition<null, null> = {
+  const workflow: RunnableWorkflow<null, null> = {
     meta: { name: "stop-progress", description: "stop-progress" },
     async run(context) {
       const lens = await context.agents.open({

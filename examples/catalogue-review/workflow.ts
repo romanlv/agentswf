@@ -3,10 +3,9 @@ import {
   type RuntimeSelection,
   type Workflow,
   type WorkflowContext,
-  type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import { matchesAny } from "./paths";
 import { presentCatalogueResult, reportCatalogueResult } from "./present";
 import { catalogueLensPrompt, type LensSource, verificationPrompt } from "./prompts";
@@ -73,11 +72,10 @@ type LensResult =
 const READ_ONLY =
   "Do not modify files. Perform the review yourself: do not delegate or launch subagents.";
 
-export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult> = {
+export const catalogueReview: Pick<Workflow<CatalogueArgs, CatalogueResult>, "meta" | "run"> = {
   meta: {
     name: "catalogue-review",
     description: "Review a diff through independent catalogue lenses and verify their findings.",
-    whenToUse: "Use for read-only reviews where each lens must inspect the diff independently.",
   },
 
   async run(wf, args) {
@@ -142,7 +140,6 @@ async function runLens(wf: WorkflowContext, args: CatalogueArgs, lens: Lens): Pr
       key: `lens:${lens.id}`,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}. ${READ_ONLY}`,
       runtime: lens.runtime ?? args.runtime,
-      labels: { lens: lens.id },
     });
     const { outcome } = await reviewer.run({
       prompt: catalogueLensPrompt(args.range, lens, args.request),
@@ -182,7 +179,6 @@ async function verifyFindings(
           key: `verifier:${index}`,
           instructions: `Try to refute this finding against the diff and surrounding code. ${READ_ONLY}`,
           runtime: args.verifierRuntime ?? args.runtime,
-          labels: { verifier: index },
         });
         const { outcome } = await verifier.run({
           prompt: verificationPrompt(

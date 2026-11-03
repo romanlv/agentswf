@@ -1,4 +1,4 @@
-import type { WorkflowContext } from "@agentswf/contract/workflow";
+import type { WorkflowContext } from "agentswf/workflow";
 import { list, md } from "./prompt";
 import {
   type AdditionalReview,

@@ -9,7 +9,6 @@ import type { ResultSubmitResponse } from "../packages/contract/src/wire";
 import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
-  JsonObject,
   JsonValue,
 } from "../packages/contract/src/workflow";
 import { createTempRunDirs, future, runNew, submit } from "../packages/engine/src/testing";
@@ -180,9 +179,10 @@ function dispatch(
     : session.start(turn as AgentTextTurnSpec, binding);
 }
 
-function lensOf(context: { activation: { labels?: JsonObject } }): ReviewLens {
-  const lens = context.activation.labels?.lens;
-  if (lens !== "correctness" && lens !== "maintainability") throw new Error("missing lens label");
+function lensOf(context: { activation: { key: string } }): ReviewLens {
+  const lens = context.activation.key.replace(/^reviewer:/, "");
+  if (lens !== "correctness" && lens !== "maintainability")
+    throw new Error("not a lens's reviewer");
   return lens;
 }
 

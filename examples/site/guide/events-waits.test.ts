@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import flagCleanup, { REMOVED, SMOKE } from "./events-waits";
 
 const shipped = {

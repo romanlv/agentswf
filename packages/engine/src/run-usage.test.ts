@@ -1,11 +1,6 @@
 import { afterAll, describe, expect, jest, test } from "bun:test";
 import type { TokenUsage } from "@agentswf/contract/records";
-import type {
-  JsonValue,
-  OutputSchema,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import type { JsonValue, OutputSchema, WorkflowContext } from "@agentswf/contract/workflow";
 import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import {
   createSingleSessionHostFactory,
@@ -20,6 +15,7 @@ import {
 } from "@agentswf/harness/testing";
 import { createRunLedger } from "./run-usage";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
@@ -948,7 +944,7 @@ function aborted(context: FakeAdapterTurnContext): Promise<void> {
 
 function workflow<Result extends JsonValue>(
   body: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
+): RunnableWorkflow<null, Result> {
   return { meta: { name: "usage", description: "fixture" }, run: body };
 }
 

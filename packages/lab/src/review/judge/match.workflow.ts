@@ -50,7 +50,6 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
     name: "review-match-judge",
     description:
       "Label a review's findings against a case's key: Jev matches what the key knows, voters with the code label the rest.",
-    whenToUse: "Run by awf-lab to score a review run (story 011).",
   },
   async run(wf, args) {
     const input = await readJudgedCase(args.fixture, args.findings);

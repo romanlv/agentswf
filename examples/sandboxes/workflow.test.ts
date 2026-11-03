@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import sandboxes, { AUDITOR_COMMANDS, REPORT, TEAM, teamCommands } from "./workflow";
 
 /** Each agent runs its commands, and every one succeeds with a line of output. */

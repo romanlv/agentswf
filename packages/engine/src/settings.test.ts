@@ -6,12 +6,12 @@ import type {
   RuntimeSelection,
   SettingsSpec,
   WorkflowContext,
-  WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeAdapter, type FakeSet } from "@agentswf/harness/testing";
 import { createTempRunDirs, future, runNew, submit } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -60,7 +60,7 @@ function run<Result extends JsonValue>(
     },
     host: createSingleSessionHostFactory(adapter),
   };
-  const workflow: WorkflowDefinition<null, Result> = {
+  const workflow: RunnableWorkflow<null, Result> = {
     meta: { name: "settings", description: "settings" },
     run: body,
   };

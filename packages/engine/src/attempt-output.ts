@@ -70,6 +70,7 @@ export async function keepRecords(
   } else {
     const record: OutputRecord = {
       version: OUTPUT_RECORD_VERSION,
+      ref: `${context.loaded.workflow.meta.name}/${settled.runId}`,
       runId: settled.runId,
       attempt: attempt.record.attempt,
       workflow: { name: context.loaded.workflow.meta.name, file: context.loaded.file },

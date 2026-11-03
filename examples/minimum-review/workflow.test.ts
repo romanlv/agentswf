@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import reviewLoop from "./review-loop";
 import { createMinimumReview, type ReviewLens, reviewSchema } from "./workflow";
 
@@ -60,8 +60,6 @@ describe("minimum-review", () => {
     expect(run.turnsOf("reviewer:correctness")[0]!.prompt).toBe(
       'Review target "src/report.ts" using only the correctness lens.',
     );
-    expect(run.agentOf("reviewer:correctness").labels).toEqual({ lens: "correctness" });
-    expect(run.agentOf("reviewer:maintainability").labels).toEqual({ lens: "maintainability" });
     expect(run.agents.every((agent) => agent.instructions?.includes("Do not delegate"))).toBe(true);
   });
 

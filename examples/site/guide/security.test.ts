@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import triage, { TRIAGE } from "./security";
 
 test("the triager reads the issue in a sandbox that writes nothing and reaches only its model", async () => {

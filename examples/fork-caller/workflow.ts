@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -16,8 +16,6 @@ export const forkCaller = defineWorkflow<null, ForkCallerResult>({
   meta: {
     name: "fork-caller",
     description: "Fork the agent session awf run was started from, and ask the fork what it knows.",
-    whenToUse:
-      "Use to check forkCaller live: run it with awf run, not --here, from a claude, codex or pi session.",
   },
   async run(wf) {
     const fork = await wf.agents.forkCaller({ key: "fork" });

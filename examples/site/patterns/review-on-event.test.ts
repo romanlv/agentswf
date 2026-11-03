@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import reviewOnEvent, { Review } from "./review-on-event";
 
 const opened = {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { testWorkflow } from "@agentswf/engine/workflow-testing";
+import { testWorkflow } from "agentswf/testing";
 import triage from "./workflow";
 
 const tickets = [

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import investigate, { FINDINGS } from "./people";
 
 test("the investigator reports, asks, and its next turn has the coordinator's answer", async () => {

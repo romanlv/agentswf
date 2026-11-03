@@ -29,10 +29,7 @@ test("the samples quoted from an example are still in it", () => {
   const quoted = samples.filter(({ file }) => file.startsWith("examples/"));
   expect(quoted.length).toBeGreaterThan(0);
   for (const { file, code } of quoted) {
-    const source = readFileSync(join(ROOT, file), "utf8").replaceAll(
-      "@agentswf/engine/workflow-testing",
-      "agentswf/testing",
-    );
+    const source = readFileSync(join(ROOT, file), "utf8");
     expect(lines(source)).toContain(lines(code));
   }
 });

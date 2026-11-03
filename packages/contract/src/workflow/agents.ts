@@ -1,3 +1,4 @@
+import { reportDeprecated } from "./deprecated";
 import type { AgentEnded, AgentEndedEvent, Matched } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerRef } from "./participants";
@@ -118,6 +119,7 @@ export interface AgentOpenSpec {
    * what it would have without awf: the operator's on the host, none in a sandbox.
    */
   skills?: readonly SkillRef[];
+  /** @deprecated Drop it: nothing reads an agent's labels. */
   labels?: JsonObject;
   /**
    * The sandbox this agent runs in: one this run opened, shared with its other agents, or a spec
@@ -283,8 +285,9 @@ export interface NudgeOptions {
 interface AgentRunBase {
   /**
    * Idempotency key scoped to this agent within one attempt: `run()` with an id it already ran
-   * returns that turn's result, and `start()` refuses it. A later attempt doesn't know it, so a
-   * turn started before a park is started again by the wake's rerun. Generated when omitted.
+   * returns that turn's result, and `start()` refuses it. Generated when omitted.
+   *
+   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
    */
   id?: TurnId;
   prompt: string;
@@ -388,6 +391,7 @@ export type TurnOutcome<T extends JsonValue> = (
 export function isAnswered<T extends JsonValue>(
   outcome: TurnOutcome<T>,
 ): outcome is Extract<TurnOutcome<T>, { kind: "answered" }> {
+  reportDeprecated(outcome, "isAnswered");
   return outcome.kind === "answered";
 }
 
@@ -402,12 +406,13 @@ export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValu
 };
 
 /**
- * A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`; as a
- * source, a wait takes that end.
+ * A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`, which a
+ * wait takes by naming the agent. A turn given to a wait as its source is deprecated: name the
+ * agent, `{ done: agent }`, which has at most one started turn.
  */
 export interface StartedTurn extends Source<Taken<AgentEnded>> {
   readonly id: TurnId;
-  /** True for this turn's `agent:ended`. */
+  /** @deprecated Use `agent.is(e)`: an agent has at most one started turn. */
   is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
     event: EventLike,
   ): event is AgentEndedEvent<Meta, T> & Matched;
@@ -419,7 +424,11 @@ export interface StartedTurn extends Source<Taken<AgentEnded>> {
 }
 
 export interface CompactSpec {
-  /** Idempotency key scoped to this agent. Generated when omitted. */
+  /**
+   * Idempotency key scoped to this agent. Generated when omitted.
+   *
+   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
+   */
   id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
@@ -434,6 +443,7 @@ export interface AgentForkSpec extends PlacementChoice {
   key: AgentKey;
   /** Given with its first turn; it already knows what this agent was told. */
   instructions?: string;
+  /** @deprecated Drop it: nothing reads an agent's labels. */
   labels?: JsonObject;
   /** Absent, the fork takes its parent's effort when it is taken, as it takes its model. */
   effort?: Effort;
@@ -449,7 +459,11 @@ export interface AgentForkSpec extends PlacementChoice {
 }
 
 export interface SettingsSpec {
-  /** Idempotency key scoped to this agent. Generated when omitted. */
+  /**
+   * Idempotency key scoped to this agent. Generated when omitted.
+   *
+   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
+   */
   id?: SettingsId;
   /** Another model of the same harness. */
   model?: string;
@@ -512,8 +526,6 @@ export interface AgentDirectory {
    * so does a reserved key, `operator`, `awf`, `system` or `user`.
    */
   open(spec: AgentOpenSpec): Promise<AgentRef>;
-  /** Returns null when absent; rejects when an existing agent conflicts with the requirements. */
-  attach(key: AgentKey, runtime?: RuntimeSelection): Promise<AgentRef | null>;
   /**
    * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
    * where `keepPane` says, kept and released (ADR 0008). Its key is not opened again. Resolves
@@ -593,5 +605,4 @@ export interface EventAgentOpenSpec extends AgentOpenSpec {
 /** The agents of a run of a workflow with `events`. */
 export interface EventAgentDirectory extends AgentDirectory {
   open(spec: EventAgentOpenSpec): Promise<EventAgentRef>;
-  attach(key: AgentKey, runtime?: RuntimeSelection): Promise<EventAgentRef | null>;
 }

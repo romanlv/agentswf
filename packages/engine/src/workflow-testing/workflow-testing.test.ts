@@ -9,10 +9,10 @@ import {
   type JsonValue,
   type RuntimeSelection,
   score,
-  type WorkflowDefinition,
   yesNo,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, reply, testWorkflow } from ".";
 
 const PLAN = Type.Object({ steps: Type.Array(Type.String()) }, { additionalProperties: false });
@@ -26,9 +26,9 @@ const VERDICT = Type.Object(
 );
 
 function workflowOf<Args extends JsonValue, Result extends JsonValue>(
-  run: WorkflowDefinition<Args, Result>["run"],
-): WorkflowDefinition<Args, Result> {
-  return { meta: { name: "test", description: "a test", whenToUse: "in tests" }, run };
+  run: RunnableWorkflow<Args, Result>["run"],
+): RunnableWorkflow<Args, Result> {
+  return { meta: { name: "test", description: "a test" }, run };
 }
 
 /** Plans, reports each step, and summarizes: one agent asked three schemas in one session. */
@@ -1180,7 +1180,6 @@ describe("testWorkflow with a calling session", () => {
       workflowOf<null, JsonValue>(async (workflow) => {
         const caller = await workflow.agents.caller({ key: "author" });
         const again = await workflow.agents.caller({ key: "author" });
-        const attached = await workflow.agents.attach("author");
         const other = await workflow.agents
           .caller({ key: "other" })
           .catch((error) => error.message);
@@ -1194,7 +1193,7 @@ describe("testWorkflow with a calling session", () => {
           deadline: { unixMilliseconds: Date.now() + 60_000 },
         });
         return {
-          same: caller === again && caller === attached,
+          same: caller === again,
           other,
           opened,
           compacted: compacted.kind === "failed" ? compacted.reason : compacted.kind,

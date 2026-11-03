@@ -37,8 +37,6 @@ export interface ParticipantDirectory {
    * to it is open.
    */
   connect(spec: ParticipantSpec): Promise<ParticipantRef>;
-  /** Finds an agent or connected participant visible in this workflow scope. */
-  get(key: PeerKey): Promise<PeerRef | null>;
 }
 
 export interface CodeParticipantSpec extends ParticipantSpec {

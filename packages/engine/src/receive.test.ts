@@ -360,17 +360,16 @@ test("sleep past its time goes on; one still to come parks the run until it", as
   expect(run.parked).toEqual({ until: until.toISOString() });
 });
 
-test("select takes each event it names, one at a time, timers made in the loop too", async () => {
+test("select takes each event it names, one at a time, in the order of their at", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       const seen: string[] = [];
-      workflow.timer("a", new Date(0));
       for await (const next of workflow.select({
         changes: workflow.signal("dd.changes"),
-        timer: workflow.timers(),
+        b: workflow.timer("b", new Date(1)),
+        a: workflow.timer("a", new Date(0)),
       })) {
-        seen.push(next.key === "timer" ? next.timer.name : next.key);
-        if (next.timer?.name === "a") workflow.timer("b", new Date(1));
+        seen.push(next.key);
         if (seen.length === 3) break;
       }
       return seen;

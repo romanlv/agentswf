@@ -1,10 +1,5 @@
 // This workflow's own helper, not awf's API: copy it and change it.
-import type {
-  AgentRef,
-  JsonValue,
-  OutputSchema,
-  WorkflowContext,
-} from "@agentswf/contract/workflow";
+import type { AgentRef, JsonValue, OutputSchema, WorkflowContext } from "agentswf/workflow";
 
 export type Session = ReturnType<typeof session>;
 

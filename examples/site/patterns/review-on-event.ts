@@ -1,5 +1,5 @@
 // #region open
-import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
 import Type from "typebox";
 
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */

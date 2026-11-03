@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import checkDocs, { CHECK } from "./workflows";
 
 const args = { files: ["README.md", "docs/setup.md"] };

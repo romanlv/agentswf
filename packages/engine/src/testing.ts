@@ -10,7 +10,6 @@ import {
   type JsonValue,
   type OutputSchema,
   type WorkflowContext,
-  type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentSessionAdapter } from "@agentswf/harness/adapter";
@@ -19,6 +18,7 @@ import Type from "typebox";
 import { writeJson } from "./files";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun, openRun, type Run, readAttempts } from "./runs";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { type RunWorkflowOptions, runWorkflow, startWorkflow } from "./workflow-runner";
 
 export function createTempRunDirs(): {
@@ -140,7 +140,7 @@ export const DOC = Type.Object({ path: Type.String() }, { additionalProperties: 
 export function workflowOf<Result extends JsonValue>(
   run: (workflow: WorkflowContext) => Promise<Result>,
   meta: { name?: string; version?: string } = {},
-): WorkflowDefinition<null, Result> {
+): RunnableWorkflow<null, Result> {
   const { name = "staged", version } = meta;
   return {
     meta: { name, description: name, ...(version === undefined ? {} : { version }) },
@@ -168,7 +168,7 @@ export function answering(): AgentSessionAdapter {
  * `answering()`. Its folder is `{runRoot}/{workflow}/r1`.
  */
 export async function runAttempt<Result extends JsonValue>(
-  workflow: WorkflowDefinition<null, Result>,
+  workflow: RunnableWorkflow<null, Result>,
   options: {
     runRoot: string;
     attempt?: number;
@@ -206,7 +206,7 @@ export async function runAttempt<Result extends JsonValue>(
 
 /** `startWorkflow` as the first attempt of a new run of the workflow under `options.runRoot`. */
 export async function startNew<Args extends JsonValue, Result extends JsonValue>(
-  definition: WorkflowDefinition<Args, Result>,
+  definition: RunnableWorkflow<Args, Result>,
   args: Args,
   options: Omit<RunWorkflowOptions, "run">,
 ) {
@@ -224,7 +224,7 @@ export async function startNew<Args extends JsonValue, Result extends JsonValue>
 
 /** `runWorkflow` as the first attempt of a new run of the workflow under `options.runRoot`. */
 export async function runNew<Args extends JsonValue, Result extends JsonValue>(
-  definition: WorkflowDefinition<Args, Result>,
+  definition: RunnableWorkflow<Args, Result>,
   args: Args,
   options: Omit<RunWorkflowOptions, "run">,
 ) {

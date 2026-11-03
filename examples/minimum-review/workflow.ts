@@ -2,10 +2,9 @@ import {
   defineWorkflow,
   type RuntimeSelection,
   type Workflow,
-  type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -68,7 +67,7 @@ const DEFAULT_OPERATION_TIMEOUT_MS = 5 * 60 * 1_000;
 export function createMinimumReview(
   runtimes: ReviewRuntimes,
   operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
-): WorkflowDefinition<MinimumReviewArgs, MinimumReviewResult> {
+): Pick<Workflow<MinimumReviewArgs, MinimumReviewResult>, "meta" | "run"> {
   if (!Number.isSafeInteger(operationTimeoutMs) || operationTimeoutMs <= 0) {
     throw new Error("operation duration must be a positive safe integer");
   }
@@ -76,7 +75,6 @@ export function createMinimumReview(
     meta: {
       name: "minimum-review",
       description: "Review one target concurrently through correctness and maintainability lenses.",
-      whenToUse: "Use as the minimum end-to-end proof of isolated structured review turns.",
     },
 
     async run(wf, args) {
@@ -87,7 +85,6 @@ export function createMinimumReview(
             key: `reviewer:${lens}`,
             instructions: instructionFor(lens),
             runtime: runtimes[lens],
-            labels: { lens },
           });
           const { outcome } = await reviewer.run({
             timeoutMs: operationTimeoutMs,

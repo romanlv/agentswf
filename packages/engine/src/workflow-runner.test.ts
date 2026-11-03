@@ -14,7 +14,6 @@ import type {
   RuntimeSelection,
   RuntimeTarget,
   WorkflowContext,
-  WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
@@ -31,6 +30,7 @@ import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type DecisionScope, RunDecisions } from "./decisions/directory";
 import { openRun, readAccepted, readTurns } from "./runs";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
@@ -883,7 +883,7 @@ describe("runWorkflow", () => {
   });
 
   test("an earlier legacy nudge deadline caps the initial attempt", async () => {
-    const nudgeDeadline = future(10);
+    let nudgeDeadline = future();
     const adapter = createFakeAdapter({
       script: () => ({
         act: async () => {
@@ -893,6 +893,7 @@ describe("runWorkflow", () => {
     });
     const workflow = workflowOf("late-first-attempt", async (context) => {
       const agent = await openReviewer(context);
+      nudgeDeadline = future(10);
       const result = await agent.run({ prompt: "Review.", nudge: { deadline: nudgeDeadline } });
       return result.outcome.kind;
     });
@@ -2577,12 +2578,10 @@ describe("agents.stop", () => {
     const result = await runNew(
       workflowOf("stop-caller", async (context) => {
         const caller = (await context.agents.caller({ key: "author" }))!;
-        expect(await context.agents.attach("author")).toBe(caller);
         expect(await context.agents.stop("author", "finished editing")).toBe(true);
         expect(releases).toEqual(["finished editing"]);
         for (const lookup of [
           () => context.agents.caller({ key: "author" }),
-          () => context.agents.attach("author"),
           () => context.agents.forkCaller({ key: "child" }),
         ]) {
           await expect(lookup()).rejects.toThrow("agent author was stopped (finished editing)");
@@ -3058,7 +3057,7 @@ async function causeOf(result: Promise<unknown>): Promise<unknown> {
 function workflowOf<Result extends JsonValue>(
   name: string,
   run: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
+): RunnableWorkflow<null, Result> {
   return { meta: { name, description: name }, run };
 }
 

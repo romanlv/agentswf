@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import { matchesAny } from "./paths";
 import { presentCatalogueResult, reportCatalogueResult } from "./present";
 import { FINDINGS_SCHEMA, type RawFinding, VERDICT_SCHEMA } from "./schema";

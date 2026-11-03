@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import review, { FINDINGS_SCHEMA } from "./workflow";
 
 const prepare = (...argv: string[]) => review.prepare({ argv, cwd: "/work" });

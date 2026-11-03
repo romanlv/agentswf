@@ -51,7 +51,6 @@ export const buildReviewFixtures = defineWorkflow<Args, Result>({
   meta: {
     name: "build-review-fixtures",
     description: "Freeze GitLab MRs as review fixtures and draft their answer keys.",
-    whenToUse: "Use to build or complete a review fixture set from a list of MRs (story 005).",
   },
   async run(wf, args) {
     const source = glabSource(args.hostname ? { hostname: args.hostname } : {});

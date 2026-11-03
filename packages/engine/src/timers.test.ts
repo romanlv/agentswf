@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import type { WorkflowDefinition } from "@agentswf/contract/workflow";
+
 import { defineWorkflow } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { caseRun, createTempRunDirs, runNew, startCase } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
 const DAY = 86_400_000;
@@ -125,7 +126,7 @@ test("a workflow without events waits for its timer in its process, as awf run r
   expect(run.ms).toBeGreaterThanOrEqual(140);
 });
 
-async function startPlain(workflow: WorkflowDefinition<null, string>) {
+async function startPlain(workflow: RunnableWorkflow<null, string>) {
   const started = Date.now();
   const result = await runNew(workflow, null, {
     runRoot: runDirs.tempRunDir(),

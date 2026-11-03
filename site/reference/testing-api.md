@@ -323,7 +323,7 @@ the sandbox evals check what a real provider enforces.
 - **`run.compactionsOf(key)`** and **`run.setsOf(key)`** are its compactions and model or effort
   switches; **`run.compactions`** and **`run.sets`** have everyone's.
 - **`run.agentOf(key)`** is what an agent was opened with: `key`, `execution`, `instructions`,
-  `labels`, `skills`, `sandbox`, pane `layout` and `keepPane`, `layoutFallback` when its `layout`
+  `labels` (deprecated), `skills`, `sandbox`, pane `layout` and `keepPane`, `layoutFallback` when its `layout`
   couldn't be used, `keptPane` when its pane was kept, and `forkedFrom` for a fork. It throws for a
   key never opened. **`run.agents`** lists them all.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,

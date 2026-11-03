@@ -273,6 +273,7 @@ describe("awf run", () => {
     expect(result.artifacts.startsWith(runRoot)).toBe(true);
     expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
     const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
+    expect(saved.ref).toBe(`review-loop/${saved.runId}`);
     expect(saved.accounting).toMatchObject({
       basis: "list prices 2026-10-07",
       billing: "subscription",
@@ -2763,7 +2764,7 @@ import Type from "typebox";
 export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
 
 export default defineWorkflow<{ file: string }, string>({
-  meta: { name: "summarize", description: "Summarize a file.", whenToUse: "In tests." },
+  meta: { name: "summarize", description: "Summarize a file." },
   async run(workflow, { file }) {
     const agent = await workflow.agents.open({ key: "writer", runtime: "claude" });
     const { outcome } = await agent.run({ prompt: \`Summarize \${file}.\`, schema: SUMMARY });

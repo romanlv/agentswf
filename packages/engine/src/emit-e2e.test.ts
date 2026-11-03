@@ -71,8 +71,10 @@ test("an event starts a detached run, which parks; the next continues it, from a
   expect((await readAttempts(run)).at(-1)?.unacknowledged).toBe(0);
   expect(await Bun.file(join(run.dir, "process.log")).text()).toContain("◇ parked: 1 seen");
   const output = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+    ref: string;
     value: unknown;
   };
+  expect(output.ref).toBe("e2e-case/k");
   expect(output.value).toEqual({ seen: [1, 2] });
   expect(await send(3)).toBe(0);
   expect(out.at(-1)).toBe("refused e2e-case/k: returned");

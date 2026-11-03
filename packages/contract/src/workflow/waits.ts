@@ -101,12 +101,11 @@ export type Next<B> = {
   };
 }[keyof B & string];
 
+/** The options of `receive`, `race` and `select`. */
 export interface WaitOptions {
-  /** What `awf runs` shows while the run waits here or is parked at this wait. */
-  label?: string;
-}
-
-export interface SelectOptions {
-  /** As a wait's label; a function is asked again at each wait. */
+  /**
+   * What `awf runs` shows while the run waits here or is parked at this wait. A function is asked
+   * at each wait: a select's every pass.
+   */
   label?: string | (() => string);
 }

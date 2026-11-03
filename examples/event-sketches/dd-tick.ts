@@ -1,7 +1,7 @@
 // The Datadog watcher's triage tick, from its style-c sketch: it triages signals into cases and
 // tells each changed case's run. Declared below: the case files' writer, and what the tick uses
 // from beyond story 034 (`singleton`).
-import { defineWorkflow, type JsonValue, type OutputSchema } from "@agentswf/contract/workflow";
+import { defineWorkflow, type JsonValue, type OutputSchema } from "agentswf/workflow";
 import caseRun from "./dd-case";
 
 type Change = {

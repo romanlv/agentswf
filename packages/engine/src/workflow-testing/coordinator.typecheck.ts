@@ -1,14 +1,11 @@
 // Checked by `tsc --noEmit`, never run: story 032's workflow and its test, as an author writes them.
-import type {
-  ParticipantRef,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import type { ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, type ParticipantScript, testWorkflow } from ".";
 
 declare const runtime: string;
 
-const investigate: WorkflowDefinition<null, string> = {
+const investigate: RunnableWorkflow<null, string> = {
   meta: { name: "investigate", description: "watches checkout-api" },
   async run(wf: WorkflowContext) {
     const investigator = await wf.agents.open({ key: "investigator", runtime });

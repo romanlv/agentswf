@@ -21,7 +21,6 @@ export const panelJudge = defineWorkflow<Args, ScorerResult>({
   meta: {
     name: "review-panel-judge",
     description: "Label a review's findings against a fixture's answer key with a panel of judges.",
-    whenToUse: "Run by a scorer that names the panel; match first is awf-lab's own.",
   },
   async run(wf, args) {
     const input = await readJudgedCase(args.fixture, args.findings);

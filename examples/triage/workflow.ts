@@ -1,10 +1,4 @@
-import {
-  choice,
-  defineWorkflow,
-  score,
-  type WorkflowInvocation,
-  yesNo,
-} from "@agentswf/contract/workflow";
+import { choice, defineWorkflow, score, type WorkflowInvocation, yesNo } from "agentswf/workflow";
 
 /** Synthetic tickets, so a run sends nothing private. */
 const SAMPLE_TICKETS = [
@@ -57,8 +51,6 @@ export default defineWorkflow<TriageArgs, TriageResult>({
   meta: {
     name: "triage",
     description: "Route support tickets with a decision model: team, bug or not, and urgency.",
-    whenToUse:
-      "Use to see a decision model answer typed questions with probabilities, for well under a cent.",
   },
   async run(wf, { tickets }) {
     const triaged = await wf.parallel(

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  JsonValue,
-  ParticipantRef,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import type { JsonValue, ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, type ParticipantScript, reply, testWorkflow } from "./index";
 
 const PURPOSE = "report findings that hold up; ask when the logs can't settle it";
@@ -16,7 +12,7 @@ function investigate(
     beside?: (workflow: WorkflowContext, coordinator: ParticipantRef) => Promise<unknown>;
     run?: boolean;
   } = {},
-): WorkflowDefinition<null, JsonValue> {
+): RunnableWorkflow<null, JsonValue> {
   return {
     meta: { name: "investigate", description: "watches checkout-api" },
     async run(workflow) {
@@ -128,7 +124,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("a question on a stage's route keeps the stage open until it is answered", async () => {
     const order: string[] = [];
-    const staged: WorkflowDefinition<null, JsonValue> = {
+    const staged: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "staged", description: "a stage's route" },
       async run(workflow) {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
@@ -271,7 +267,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("waiting on the coordinator doesn't count: an answer after the deadline would have passed", async () => {
-    const waited: WorkflowDefinition<null, JsonValue> = {
+    const waited: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "waited", description: "an answer past the deadline" },
       async run(workflow) {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
@@ -305,7 +301,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("the moved deadline still bounds the work after the wait", async () => {
-    const slow: WorkflowDefinition<null, JsonValue> = {
+    const slow: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "slow", description: "work after the answer" },
       async run(workflow) {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
@@ -356,7 +352,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("a deadline the workflow set around the asker ends its wait, cancelled", async () => {
-    const bounded: WorkflowDefinition<null, JsonValue> = {
+    const bounded: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "bounded", description: "a parallel's deadline" },
       async run(workflow) {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
@@ -384,7 +380,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("reserved keys, taken keys, and timeoutMs between agents are refused", async () => {
-    const refusals: WorkflowDefinition<null, JsonValue> = {
+    const refusals: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "refusals", description: "keys" },
       async run(workflow) {
         const errors: string[] = [];
@@ -404,11 +400,6 @@ describe("a coordinator in a workflow's test", () => {
         await tried(() =>
           workflow.messages.allow({ between: [a, b], purpose: "Talk.", timeoutMs: 1 }),
         );
-        expect(await workflow.participants.get("coordinator")).toMatchObject({
-          key: "coordinator",
-        });
-        expect(await workflow.participants.get("a")).toBe(a);
-        expect(await workflow.participants.get("nobody")).toBeNull();
         return errors;
       },
     };

@@ -116,15 +116,6 @@ const nav: DefaultTheme.NavItem[] = [
   { text: `v${version}`, link: `https://www.npmjs.com/package/agentswf/v/${version}` },
 ];
 
-/**
- * Examples import the workspace's names for the author surface; a reader's workflow imports the
- * published ones, which `awf test` and `awf run` serve as the same modules.
- */
-const PUBLIC_IMPORTS: [from: string, to: string][] = [
-  ['"@agentswf/contract/workflow"', '"agentswf/workflow"'],
-  ['"@agentswf/engine/workflow-testing"', '"agentswf/testing"'],
-];
-
 export default defineConfig({
   title: "agents.wf",
   description: "Workflows for coding agents, in TypeScript.",
@@ -134,15 +125,6 @@ export default defineConfig({
   srcExclude: ["**/AGENTS.md", "**/README.md", "parts/**"],
   sitemap: { hostname: "https://agents.wf" },
   markdown: {
-    // Before VitePress's own plugins, so this fence runs innermost: after `<<<` has read the file.
-    preConfig(md) {
-      const fence = md.renderer.rules.fence!;
-      md.renderer.rules.fence = (tokens, idx, ...rest) => {
-        const token = tokens[idx]!;
-        for (const [from, to] of PUBLIC_IMPORTS) token.content = token.content.replaceAll(from, to);
-        return fence(tokens, idx, ...rest);
-      };
-    },
     config(md) {
       // A `mermaid` fence is drawn at build time: the page gets a static SVG and no script, and
       // its `.md` keeps the Mermaid text, which agents read as it is.

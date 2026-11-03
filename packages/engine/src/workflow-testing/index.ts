@@ -21,7 +21,6 @@ import {
   type ParticipantReply,
   type RuntimeAliases,
   type Workflow,
-  type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
@@ -32,6 +31,7 @@ import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, idProblem, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import type { EventWorkflow } from "../workflow-loader";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { ParticipantScripts } from "./coordinators";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
@@ -257,12 +257,12 @@ export async function testWorkflow<
   options: EventTestOptions<NoInfer<Events>, NoInfer<Args>>,
 ): Promise<TestRun<Result>>;
 export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  workflow: WorkflowDefinition<Args, Result> & { readonly events?: undefined },
+  workflow: RunnableWorkflow<Args, Result> & { readonly events?: undefined },
   args: NoInfer<Args>,
   options?: TestOptions,
 ): Promise<TestRun<Result>>;
 export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  workflow: WorkflowDefinition<Args, Result> | Workflow<Args, Result, EventSchemas>,
+  workflow: RunnableWorkflow<Args, Result> | Workflow<Args, Result, EventSchemas>,
   args: NoInfer<Args>,
   options: TestOptions = {},
 ): Promise<TestRun<Result>> {
@@ -275,7 +275,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     options = eventOptions;
   }
   const started = withEvents && eventOptions && startOf(withEvents, eventOptions);
-  const definition = workflow as WorkflowDefinition<Args, Result>;
+  const definition = workflow as RunnableWorkflow<Args, Result>;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
     noun: "compaction",
@@ -394,7 +394,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let settled: { value: Result } | { error: unknown };
   /** What the workflow returned, before the run settled: a test that waits out a question keeps it. */
   let returned: { value: Result } | undefined;
-  const watched: WorkflowDefinition<Args, Result> = {
+  const watched: RunnableWorkflow<Args, Result> = {
     ...definition,
     run: async (context, given) => {
       const value = await definition.run(context, given);

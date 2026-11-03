@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type JsonValue,
-  type OutputSchema,
-  tool,
-  type WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import { type JsonValue, type OutputSchema, tool } from "@agentswf/contract/workflow";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, reply, testWorkflow } from "./index";
 
 const VERDICT: OutputSchema<{ kind: string; summary?: string; reason?: string }> = {
@@ -31,7 +27,7 @@ const FIX_REPORT: OutputSchema<{ fixed: string[] }> = {
  * ticket doc, then reviews the implementation, asking the implementer for a revision by message,
  * and the implementer records it.
  */
-const reviewLoop: WorkflowDefinition<null, JsonValue> = {
+const reviewLoop: RunnableWorkflow<null, JsonValue> = {
   meta: { name: "review-loop", description: "review until both agree" },
   async run(workflow) {
     const implementer = await workflow.agents.open({ key: "implementer", runtime: "claude" });
@@ -66,7 +62,7 @@ const reviewer = (ask = true) => [
 ];
 
 /** b is working when a asks it, so the question joins b's own turn. */
-const asksBack: WorkflowDefinition<null, JsonValue> = {
+const asksBack: RunnableWorkflow<null, JsonValue> = {
   meta: { name: "asks-back", description: "a question joins a workflow turn" },
   async run(workflow) {
     const a = await workflow.agents.open({ key: "a", runtime: "codex" });
@@ -117,7 +113,7 @@ describe("scripted messaging", () => {
 
   test("lenses report to a fixer that waits for all of them", async () => {
     const LENSES = ["lens-perf", "lens-safety"];
-    const lenses: WorkflowDefinition<null, JsonValue> = {
+    const lenses: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "lenses", description: "lenses and a fixer" },
       async run(workflow) {
         const fixer = await workflow.agents.open({ key: "fixer", runtime: "claude" });
@@ -159,7 +155,7 @@ describe("scripted messaging", () => {
   });
 
   test("a question to an agent that has not run starts it", async () => {
-    const planning: WorkflowDefinition<null, JsonValue> = {
+    const planning: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "planning", description: "a planner asks an architect" },
       async run(workflow) {
         const planner = await workflow.agents.open({ key: "planner", runtime: "codex" });
@@ -293,7 +289,7 @@ describe("scripted messaging", () => {
 
   test("a turn that ends silent is run again with the messages held for it", async () => {
     const sent = Promise.withResolvers<void>();
-    const notes: WorkflowDefinition<null, JsonValue> = {
+    const notes: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "notes", description: "a note held for a busy agent" },
       async run(workflow) {
         const writer = await workflow.agents.open({ key: "writer", runtime: "codex" });
@@ -328,7 +324,7 @@ describe("scripted messaging", () => {
   });
 
   test("a message script may send on, and a note it sends comes with its reply", async () => {
-    const planning: WorkflowDefinition<null, JsonValue> = {
+    const planning: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "planning", description: "an architect notes before it replies" },
       async run(workflow) {
         const planner = await workflow.agents.open({ key: "planner", runtime: "codex" });
@@ -372,7 +368,7 @@ describe("scripted messaging", () => {
 
   test("a script awaiting a reply when its call times out is let go, its wait cancelled", async () => {
     let awaited: unknown;
-    const timing: WorkflowDefinition<null, JsonValue> = {
+    const timing: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "timing", description: "an asker's call times out" },
       async run(workflow) {
         const asker = await workflow.agents.open({ key: "asker", runtime: "codex" });
@@ -429,7 +425,7 @@ describe("scripted messaging", () => {
 });
 
 describe("a tool call while a reply is awaited", () => {
-  const slow: WorkflowDefinition<null, JsonValue> = {
+  const slow: RunnableWorkflow<null, JsonValue> = {
     meta: { name: "slow-tool", description: "slow-tool" },
     async run(workflow) {
       const impl = await workflow.agents.open({ key: "impl", runtime: "claude" });

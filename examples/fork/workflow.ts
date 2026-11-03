@@ -3,7 +3,7 @@ import {
   defineWorkflow,
   type ExecutionConfig,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -85,8 +85,6 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
   meta: {
     name: "fork",
     description: "Fork one worker per harness and placement, then ask each what it knows.",
-    whenToUse:
-      "Use to check that a fork starts from its parent's context, compacted or not, and that neither sees the other's turns after it.",
   },
   run: async (wf, args) => ({
     codename: args.codename,

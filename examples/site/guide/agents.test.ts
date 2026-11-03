@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defineWorkflow } from "@agentswf/contract/workflow";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 import scopeIssue, { changelog, PLAN, planAndReview, SCOPE } from "./agents";
 

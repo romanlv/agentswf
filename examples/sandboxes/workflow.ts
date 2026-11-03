@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  type ExecutionConfig,
-  type TurnOutcome,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type ExecutionConfig, type TurnOutcome } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -65,7 +61,6 @@ export default defineWorkflow<null, SandboxesResult>({
     name: "sandboxes",
     description:
       "Run a team of headed agents in one docker container, then a headless pi under srt.",
-    whenToUse: "Use to see what agents in a sandbox can read, write and reach.",
   },
   async run(wf) {
     const container = await wf.sandboxes.open({

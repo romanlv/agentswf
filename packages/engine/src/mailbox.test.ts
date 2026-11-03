@@ -54,12 +54,6 @@ test("a wait takes every waiting event in arrival order, and the next acknowledg
   expect(foldMailbox(await readMailbox(runDir)).unacknowledged).toEqual([]);
 });
 
-test("take: oldest takes one at a time", async () => {
-  const box = mailbox(await withEvents("a", "b"));
-  expect(ids(await box.receive({ take: "oldest" }))).toEqual(["a"]);
-  expect(ids(await box.receive({ take: "oldest" }))).toEqual(["b"]);
-});
-
 test("an id appended twice is one event, the first kept", async () => {
   const runDir = await withEvents("a");
   await appendMailbox(runDir, { ...event("a"), data: { second: true } } as MailboxRecord);
@@ -82,7 +76,7 @@ test("a timer due fires into the mailbox as timer:due, at its due time, from its
   const due = Date.parse(at) + 60_000;
   const box = mailbox(runDir, 1, () => due + 5_000);
   box.setTimer("retry", due, "1m");
-  expect(await box.receive({ label: "retrying" })).toEqual([
+  expect(await box.receive("retrying")).toEqual([
     {
       id: timerEventId("retry"),
       name: "timer:due",
@@ -116,11 +110,10 @@ test("a cancelled timer doesn't fire, and its timer:due not taken is withdrawn",
   box.setTimer("quiet", due + 10_000, "10s");
   box.setTimer("late", due, "0m");
   await appendMailbox(runDir, { ...event("a"), at: new Date(due + 1).toISOString() });
-  expect(ids(await box.receive({ take: "oldest" }))).toEqual([timerEventId("late")]);
+  expect(ids(await box.receive(undefined)).sort()).toEqual(["a", timerEventId("late")].sort());
   await box.cancelTimer("quiet");
   const state = foldMailbox(await readMailbox(runDir));
   expect(state.timers.get("quiet")?.cancelled).toBe(true);
-  expect(ids(await box.receive(undefined))).toEqual(["a"]);
 });
 
 test("a race takes only what it names, recorded, and a rerun gets the same answer", async () => {
@@ -218,12 +211,6 @@ test("a first wait in a stage leaves a crash's held batch to the first wait outs
   expect(ids(await next.receive(undefined))).toEqual(["a"]);
 });
 
-test("a wait's options are checked", async () => {
-  const box = mailbox(runDirs.tempRunDir());
-  await expect(box.receive({ take: "latest" as "all" })).rejects.toThrow('"all" or "oldest"');
-  await expect(box.receive({ until: 1 } as never)).rejects.toThrow("a timer");
-});
-
 test("an event sent as the run parks is taken: parking checks again under the run's lock", async () => {
   const runDir = runDirs.tempRunDir();
   let parked = false;
@@ -271,7 +258,7 @@ test("with nothing to take and nothing running, the wait parks: its ending writt
       },
     },
   });
-  await expect(box.receive({ label: "idle" })).rejects.toBeInstanceOf(RunParked);
+  await expect(box.receive("idle")).rejects.toBeInstanceOf(RunParked);
   // The wait's own record, then the check and the ending, each under the lock.
   expect(order).toEqual(["lock", "unlock", "lock", "park idle", "unlock"]);
 });

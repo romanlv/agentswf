@@ -1110,6 +1110,8 @@ export const OUTPUT_RECORD_VERSION = 5 as const;
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
+  /** The run's ref, `{workflow}/{runId}`, as the other run documents carry it; absent in a file written before it was added. */
+  ref?: string;
   /** The run's id, the same in every attempt. */
   runId: string;
   /** The attempt that wrote this record: `output.json` is the last ended attempt's. */

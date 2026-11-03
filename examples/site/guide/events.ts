@@ -1,4 +1,4 @@
-import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
+import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
 import Type from "typebox";
 
 // #region schemas
@@ -105,16 +105,16 @@ export const ciFixByRace = defineWorkflow({
       return wf.stop("send ci.failed to start it");
     const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
     // #region race
-    const fix = await fixer.start({
+    await fixer.start({
       prompt: `CI job ${failed.data.job} failed: ${failed.data.url}. Fix it, commit and push.`,
     });
     const first = await wf.race(
       "fix-or-close",
-      { fixed: fix, closed: wf.signal("pr.closed") },
+      { fixed: fixer, closed: wf.signal("pr.closed") },
       { label: `fixing #${failed.data.pr}` },
     );
     if (first.closed) {
-      await fix.cancel("the pull request closed");
+      await fixer.turn?.cancel("the pull request closed");
       return { pr: first.closed.data.pr, fix: "cancelled" };
     }
     return { pr: failed.data.pr, fix: first.fixed.outcome.kind };

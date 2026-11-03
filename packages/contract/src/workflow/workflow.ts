@@ -1,6 +1,5 @@
 import type { AgentDirectory, EventAgentDirectory, HarnessKind, OperationRecord } from "./agents";
 import type { HarnessAllowance } from "./allowance";
-import type { WorkflowCallSpec } from "./composition";
 import type { DecisionDirectory } from "./decisions";
 import type {
   EmitOptions,
@@ -10,7 +9,6 @@ import type {
   OwnEvent,
   OwnEventOf,
   ReceivedEvent,
-  ReceiveOptions,
 } from "./events";
 import type { Workflow } from "./executable";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
@@ -25,42 +23,23 @@ import type {
   Next,
   RaceBranches,
   RaceChecked,
-  SelectOptions,
   Signal,
-  Source,
-  Taken,
   TimeRead,
   Timer,
-  TimerDue,
   WaitOptions,
   When,
 } from "./waits";
 
 export type WorkflowRunId = string;
-export type StepId = string;
 
 export interface WorkflowMeta {
   /** What its runs are kept under; a file may move or be copied and stay the same workflow. */
   name: string;
   description: string;
+  /** @deprecated Drop it: nothing reads it. */
   whenToUse?: string;
   /** Semver, recorded with each attempt. */
   version?: string;
-}
-
-export interface StepSpec {
-  /** Idempotency key scoped to this workflow context. Reusing it with a different spec rejects. */
-  id: StepId;
-  label?: string;
-}
-
-export interface Steps {
-  run<T extends JsonValue>(
-    spec: StepSpec & { deadline?: AbsoluteDeadline },
-    operation: () => Promise<T>,
-  ): Promise<T>;
-  /** Its requested duration is already a bound, so sleep has no second deadline. */
-  sleep(spec: StepSpec & { milliseconds: number }): Promise<void>;
 }
 
 export interface ParallelOptions {
@@ -99,7 +78,6 @@ export interface WorkflowContext {
   readonly decisions: DecisionDirectory;
   readonly participants: ParticipantDirectory;
   readonly messages: Messaging;
-  readonly steps: Steps;
   parallel<Item, Result>(
     items: readonly Item[],
     operation: (item: Item, index: number) => Promise<Result>,
@@ -127,10 +105,6 @@ export interface WorkflowContext {
    * bare call doesn't.
    */
   stop(reason: string): never;
-
-  call<Args extends JsonValue, Result extends JsonValue>(
-    spec: WorkflowCallSpec<Args, Result>,
-  ): Promise<Result>;
 
   /**
    * Sends an event to the run of the workflow `target` whose id is `run`: the run starts if it has
@@ -168,12 +142,6 @@ export interface WorkflowContext {
   now(): Date;
 }
 
-/** What a call and the runner need of a workflow: its meta and its run. */
-export interface WorkflowDefinition<Args extends JsonValue, Result extends JsonValue> {
-  readonly meta: WorkflowMeta;
-  run(context: WorkflowContext, args: Args): Promise<Result>;
-}
-
 /**
  * A run of a workflow with `events`: named by whoever starts it or sends to it, started by an event
  * or `awf run --id`, and
@@ -185,13 +153,14 @@ export interface EventWorkflowContext<Events extends EventSchemas>
   extends Omit<WorkflowContext, "participants" | "agents" | "stage"> {
   readonly agents: EventAgentDirectory;
   readonly participants: CodeParticipantDirectory;
-  /**
-   * As `WorkflowContext.stage`, and a stage around a wait: `stage(name, () => wf.receive(…))`
-   * returns the batch that wait took, then and on every rerun, read back from the mailbox, so a
-   * wait in straight-line code takes no later events. The batch counts as acknowledged. Its work is
-   * the wait alone: one that returns other events than one wait took fails the stage.
-   */
+  /** As `WorkflowContext.stage`. */
   stage(name: string, work: () => Promise<void>): Promise<void>;
+  /**
+   * A stage around a wait, `stage(name, () => wf.receive(…))`, returns the batch that wait took,
+   * then and on every rerun. Its work is the wait alone.
+   *
+   * @deprecated Wait with `wf.race(…)`, which is recorded under its name, outside a stage.
+   */
   stage(
     name: string,
     work: () => Promise<ReceivedEvent<Events>[]>,
@@ -207,7 +176,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * a crash, the first call returns the batch taken and not acknowledged, alone. In a stage, it
    * returns the stage's recorded batch on a rerun.
    */
-  receive(options?: ReceiveOptions): Promise<ReceivedEvent<Events>[]>;
+  receive(options?: WaitOptions): Promise<ReceivedEvent<Events>[]>;
 
   /**
    * Waits for the first of `branches` and returns it under its branch's name, recorded under
@@ -227,7 +196,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * loop returns or breaks. An event is acknowledged when the loop asks for the next; after a crash,
    * the one taken and not acknowledged comes back once. What no branch names stays in the mailbox.
    */
-  select<B extends Branches>(branches: Checked<B>, options?: SelectOptions): AsyncIterable<Next<B>>;
+  select<B extends Branches>(branches: Checked<B>, options?: WaitOptions): AsyncIterable<Next<B>>;
 
   /**
    * A timer, recorded the first time `name` is called: due `when`, a duration from then or a time.
@@ -235,9 +204,6 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * has no `@`, which a race's own timers use.
    */
   timer(name: string, when: When): Timer;
-
-  /** Any of the run's timers, told apart by `name`: one a loop made is caught without a branch of its own. */
-  timers(): Source<Taken<TimerDue>>;
 
   /**
    * A select's branch due at the time `read` returns from the run's state, or never for `null`;

@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@agentswf/contract": "workspace:*",
-    "@agentswf/engine": "workspace:*",
+    "agentswf": "workspace:*",
     "typebox": "^1.3.34"
   }
 }

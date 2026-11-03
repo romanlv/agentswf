@@ -92,30 +92,26 @@ test("a workflow's test installs the fakes, never a provider, and imports no tes
   }
 });
 
-test("an example's test uses the testing surface, never the engine's internals", async () => {
+test("an example imports agentswf/workflow, and its test agentswf/testing, as an author's do", async () => {
   const at = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
   try {
     for (const [path, contents] of Object.entries({
-      "examples/package.json": manifest(
-        "@agentswf/examples",
-        "@agentswf/contract",
-        "@agentswf/engine",
-      ),
+      "examples/package.json": manifest("@agentswf/examples", "agentswf", "@agentswf/engine"),
       "examples/review/workflow.ts":
-        'import "@agentswf/contract/workflow";\nimport "@agentswf/engine/workflow-testing";\n',
+        'import "agentswf/workflow";\nimport "agentswf/testing";\nimport "@agentswf/contract/workflow";\nimport "typebox";\n',
       "examples/review/workflow.test.ts":
-        'import "bun:test";\nimport "node:fs";\nimport "@agentswf/engine/workflow-testing";\nimport "./workflow";\nimport "@agentswf/engine";\nimport "@agentswf/engine/testing";\nimport "@agentswf/harness";\nimport "../../packages/engine/src/workflow-runner";\n',
+        'import "bun:test";\nimport "node:fs";\nimport "agentswf/testing";\nimport "agentswf/workflow";\nimport "./workflow";\nimport "@agentswf/engine/workflow-testing";\nimport "agentswf";\nimport "../../packages/engine/src/workflow-runner";\n',
     })) {
       await mkdir(dirname(join(at, path)), { recursive: true });
       await writeFile(join(at, path), contents);
     }
     expect((await boundaryProblems(at)).filter((problem) => !problem.includes("stale"))).toEqual([
-      "examples/review/workflow.test.ts: imports @agentswf/engine — a workflow's test uses the testing surface, never the engine or a harness",
-      "examples/review/workflow.test.ts: imports @agentswf/engine/testing — a workflow's test uses the testing surface, never the engine or a harness",
-      "examples/review/workflow.test.ts: imports @agentswf/harness — a workflow's test uses the testing surface, never the engine or a harness",
-      "examples/review/workflow.test.ts: imports @agentswf/harness, but @agentswf/examples does not declare @agentswf/harness",
+      "examples/review/workflow.test.ts: imports @agentswf/engine/workflow-testing — a workflow's test uses agentswf/workflow and agentswf/testing alone",
+      "examples/review/workflow.test.ts: imports agentswf — a workflow's test uses agentswf/workflow and agentswf/testing alone",
       "examples/review/workflow.test.ts: path import ../../packages/engine/src/workflow-runner escapes examples",
-      "examples/review/workflow.ts: imports @agentswf/engine/workflow-testing — a workflow is written against the author surface, never the runtime",
+      "examples/review/workflow.ts: imports @agentswf/contract/workflow — a workflow is written against the author surface, agentswf/workflow",
+      "examples/review/workflow.ts: imports @agentswf/contract/workflow, but @agentswf/examples does not declare @agentswf/contract",
+      "examples/review/workflow.ts: imports agentswf/testing — a workflow is written against the author surface, agentswf/workflow",
     ]);
   } finally {
     await rm(at, { recursive: true, force: true });

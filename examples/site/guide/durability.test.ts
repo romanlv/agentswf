@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import fixIssue, { BUILT, PLAN, VERDICT } from "./durability";
 
 const args = { issue: "#212: dates before 1970 parse as null" };

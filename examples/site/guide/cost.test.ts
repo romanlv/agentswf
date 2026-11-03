@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { HarnessAllowance } from "@agentswf/contract/workflow";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
+import type { HarnessAllowance } from "agentswf/workflow";
 import summarize from "./cost";
 
 const claude = (sessionPercent: number): HarnessAllowance => ({

@@ -8,7 +8,6 @@ import type {
   JsonValue,
   OutputSchema,
   WorkflowContext,
-  WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
@@ -19,7 +18,7 @@ import {
 } from "@agentswf/harness/testing";
 import { submitControl } from "./agent-cli/client";
 import { createTempRunDirs, future, runNew } from "./testing";
-import type { WorkflowRunError } from "./workflow-runner";
+import type { RunnableWorkflow, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -58,7 +57,7 @@ async function run<T extends JsonValue>(
     host: createSingleSessionHostFactory(adapter),
   };
   const runRoot = runDirs.tempRunDir();
-  const definition: WorkflowDefinition<null, T> = {
+  const definition: RunnableWorkflow<null, T> = {
     meta: { name: "messaging", description: "messaging" },
     run: (context) => workflow(context),
   };

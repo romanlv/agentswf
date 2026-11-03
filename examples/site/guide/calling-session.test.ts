@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import testMyChange, { CHANGED, TESTED } from "./calling-session";
 import describeChange from "./calling-session-fork";
 

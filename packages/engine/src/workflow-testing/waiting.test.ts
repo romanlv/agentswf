@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import type { WorkflowDefinition } from "@agentswf/contract/workflow";
+import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, reply, testWorkflow } from "./index";
 
-const workflow: WorkflowDefinition<null, string> = {
+const workflow: RunnableWorkflow<null, string> = {
   meta: { name: "waiting-test", description: "waiting test" },
   async run(ctx) {
     const agent = await ctx.agents.open({ key: "worker", runtime: "claude" });
@@ -48,7 +48,7 @@ test("an async check-in answer is not raced by a tiny real-time response window"
 
 for (const runtime of ["codex", "pi", "claude-headless"]) {
   test(`${runtime} scripted placement refuses cooperative waiting`, async () => {
-    const unsupported: WorkflowDefinition<null, string> = {
+    const unsupported: RunnableWorkflow<null, string> = {
       meta: { name: "unsupported-wait", description: "unsupported wait" },
       async run(ctx) {
         const agent = await ctx.agents.open({

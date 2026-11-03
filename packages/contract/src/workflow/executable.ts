@@ -1,12 +1,7 @@
+import { DEPRECATED_DEFINITION } from "./deprecated";
 import type { EventSchemas, NoColonNames } from "./events";
 import type { JsonValue } from "./json";
-import type {
-  EventWorkflowContext,
-  StageOutcome,
-  WorkflowContext,
-  WorkflowDefinition,
-  WorkflowMeta,
-} from "./workflow";
+import type { EventWorkflowContext, StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
 
 export const WORKFLOW_KIND = "awf.workflow/v1" as const;
 
@@ -163,14 +158,18 @@ export function defineExecutableWorkflow<
   Result extends JsonValue = JsonValue,
 >(
   spec: Omit<WorkflowParts<Args, Result>, "meta" | "prepare"> & {
-    readonly definition: WorkflowDefinition<Args, Result>;
+    readonly definition: {
+      readonly meta: WorkflowMeta;
+      run(context: WorkflowContext, args: Args): Promise<Result>;
+    };
   } & ([Args] extends [null]
       ? { prepare?: WorkflowParts<Args, Result>["prepare"] }
       : { prepare: WorkflowParts<Args, Result>["prepare"] }),
 ): Workflow<Args, Result> {
   const { definition, ...rest } = spec;
-  return defineWorkflow({ ...rest, ...definition } as PrepareSpec<Args, Result> &
+  const workflow = defineWorkflow({ ...rest, ...definition } as PrepareSpec<Args, Result> &
     WithoutEvents<Args, Result>);
+  return Object.assign(workflow, { [DEPRECATED_DEFINITION]: true });
 }
 
 function noArguments({ argv }: WorkflowInvocation): null {

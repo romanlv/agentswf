@@ -288,7 +288,12 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
 - [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
-  way to do each thing in the author API, before more people build on the beta. Ready; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+  way to do each thing in the author API, before more people build on the beta. In progress; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+  Task 1 built: `wf.steps`, `wf.call`, `receive({ take })`, `wf.timers()`, `WorkflowDefinition`,
+  `agents.attach` and `participants.get` are gone; agent `labels`, `meta.whenToUse`, a stage
+  around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
+  a wait are deprecated, each logged once per attempt with its replacement; `agentswf/workflow` is an
+  explicit list, which the examples import; `output.json` has `ref`.
 
 ## Known gaps
 

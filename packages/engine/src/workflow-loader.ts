@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import * as workflowSurface from "@agentswf/contract/workflow";
+import * as workflowSurface from "@agentswf/contract/author";
 import {
   type EventSchemas,
   eventWorkflowProblem,

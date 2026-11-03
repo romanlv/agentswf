@@ -1,12 +1,7 @@
 // The Datadog watcher's case run, from agent/workflows/datadog-watcher/style-c-sketch.md: one run
 // per case, named by the case id. A type-checked sketch: the case's files are declared below, and
 // so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
-import {
-  defineWorkflow,
-  type JsonValue,
-  type TurnOutcome,
-  tool,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type JsonValue, type TurnOutcome, tool } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 

@@ -18,7 +18,7 @@
 //   [--revisions 3] [--reviewer security=claude]…
 // The planner's skill is copied into the run's records, and claude takes no skill from inside its
 // working directory, so the records go outside the repo.
-import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
+import { defineWorkflow, type WorkflowContext } from "agentswf/workflow";
 import { parseArgs } from "./cli";
 import { md } from "./prompt";
 import {
@@ -109,7 +109,6 @@ export const featureDelivery = defineWorkflow<FeatureArgs, Handoff>({
   meta: {
     name: "feature-delivery",
     description: "Plan, implement, review, and prepare a feature for human review.",
-    whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
     version: "1.0.0",
   },
   run: deliverFeature,

@@ -20,6 +20,7 @@
     "./wire": "./src/wire.ts",
     "./participant": "./src/participant.ts",
     "./workflow": "./src/workflow/index.ts",
+    "./author": "./src/workflow/author.ts",
     "./testing": "./src/testing/fixtures.ts"
   },
   "files": [

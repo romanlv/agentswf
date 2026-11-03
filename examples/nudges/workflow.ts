@@ -1,4 +1,4 @@
-import { type Duration, defineWorkflow } from "@agentswf/contract/workflow";
+import { type Duration, defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 import { Ledger } from "./ledger";

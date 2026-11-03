@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  type ExecutionConfig,
-  type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -74,8 +70,6 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
   meta: {
     name: "compaction",
     description: "Compact one agent per harness with a focus, then ask what it kept.",
-    whenToUse:
-      "Use to check that each harness compacts natively, that the focus reaches its compaction, and that the agent goes on afterwards in the same session.",
   },
   async run(wf, args) {
     const checks = await wf.parallel(

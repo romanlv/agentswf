@@ -11,7 +11,6 @@ import {
   AWF_ID_PREFIX,
   type JsonValue,
   type OperationRecord,
-  type ReceiveOptions,
   type TurnOutcome,
   type WorkflowEvent,
 } from "@agentswf/contract/workflow";
@@ -627,12 +626,11 @@ export class RunMailbox {
    * nothing.
    */
   async receive(
-    options: ReceiveOptions | undefined,
+    label: string | undefined,
     stage?: string,
     /** Rejects the wait: the run ended, or the scope it waits in was cancelled. */
     signal?: AbortSignal,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    const { label, take } = checked(options);
     if (stage !== undefined) {
       const batch = await this.batchOf(stage);
       if (batch) return batch;
@@ -645,7 +643,7 @@ export class RunMailbox {
     return this.#wait(
       {
         ...(label === undefined ? {} : { label }),
-        take,
+        take: "all",
         ...(stage === undefined ? {} : { stage }),
       },
       signal,
@@ -971,20 +969,4 @@ async function mailboxSize(runDir: string): Promise<number> {
     (stats) => stats.size,
     () => 0,
   );
-}
-
-/** A wait's options as given, checked: what a typed caller can't get wrong, a plain one can. */
-function checked(options: ReceiveOptions | undefined): {
-  label?: string;
-  take: "all" | "oldest";
-} {
-  if (options !== undefined && (typeof options !== "object" || options === null))
-    throw new Error("receive takes { label?, take? }");
-  const { label, take = "all" } = options ?? {};
-  if (label !== undefined && typeof label !== "string")
-    throw new Error("receive's label is a string");
-  if (take !== "all" && take !== "oldest") throw new Error('receive\'s take is "all" or "oldest"');
-  if ("until" in (options ?? {}))
-    throw new Error("receive has no until: a timer, wf.timer(name, when), wakes it");
-  return { ...(label === undefined ? {} : { label }), take };
 }

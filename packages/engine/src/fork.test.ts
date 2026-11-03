@@ -4,7 +4,6 @@ import type {
   JsonValue,
   OutputSchema,
   WorkflowContext,
-  WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig, HarnessOperationBinding } from "@agentswf/harness/adapter";
@@ -14,6 +13,7 @@ import {
   type FakeFork,
 } from "@agentswf/harness/testing";
 import { createTempRunDirs, future, runNew, submit } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -58,7 +58,7 @@ function run<Result extends JsonValue>(
   adapter: ReturnType<typeof forkingAdapter>,
   body: (context: WorkflowContext) => Promise<Result>,
 ) {
-  const workflow: WorkflowDefinition<null, Result> = {
+  const workflow: RunnableWorkflow<null, Result> = {
     meta: { name: "fork", description: "fork" },
     run: body,
   };

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import caseRun, { type Case, DAY, needsTurn } from "./dd-case";
 
 // The case's files are declared in the sketch; task 9 of story 034 gives them a body, and these run.

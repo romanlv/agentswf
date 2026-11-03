@@ -216,12 +216,13 @@ defineWorkflow({
     const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
     const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
     const expiry = wf.timer("doc-expires", new Date("2026-11-12T09:00:00Z"));
+    const remind = wf.timer("remind", "2d");
     for await (const next of wf.select(
-      { reply: approvals, expiry, timer: wf.timers(), ended: investigator },
+      { reply: approvals, expiry, remind, ended: investigator },
       { label: () => `${wf.now().toISOString()}` },
     )) {
       if (next.expiry) return null;
-      if (next.timer?.name.startsWith("remind-")) wf.timer(`remind-${next.timer.at}`, "2d");
+      if (next.remind) void next.remind.name;
       if (next.ended?.outcome.answered) void next.ended.meta;
     }
     // @ts-expect-error A branch named key would hide the answer's key.

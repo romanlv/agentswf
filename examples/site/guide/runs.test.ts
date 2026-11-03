@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import shipTicket, { BUILT, PLAN } from "./runs";
 
 const args = { ticket: "ABC-1" };

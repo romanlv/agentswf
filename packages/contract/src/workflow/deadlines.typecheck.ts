@@ -6,17 +6,13 @@ import type {
   AgentRunTextSpec,
   CompactSpec,
   ParallelOptions,
-  StepSpec,
   TurnOutcome,
-  WorkflowCallSpec,
   WorkflowContext,
-  WorkflowDefinition,
 } from "./index";
 
 declare const deadline: AbsoluteDeadline;
 declare const context: WorkflowContext;
 declare const agentRef: AgentRef;
-declare const workflow: WorkflowDefinition<null, string>;
 
 const turn = {
   prompt: "Review the change",
@@ -29,12 +25,6 @@ const inheritedTurn = { prompt: "Review the change", nudge: {} } satisfies Agent
 const disabledNudge = { prompt: "Review the change", nudge: false } satisfies AgentRunTextSpec;
 const inheritedParallel = { concurrency: 2 } satisfies ParallelOptions;
 const inheritedOpen = { key: "reviewer", runtime: "default" } satisfies AgentOpenSpec;
-const inheritedCall = {
-  id: "child",
-  workflow,
-  args: null,
-} satisfies WorkflowCallSpec<null, string>;
-const inheritedStep = { id: "step" } satisfies StepSpec;
 const inheritedCompact = { prompt: "Keep the plan." } satisfies CompactSpec;
 const boundedCompact = { prompt: "Keep the plan.", timeoutMs: 60_000 } satisfies CompactSpec;
 // A fork is bounded by the workflow scope, as an agent's opening is.
@@ -58,8 +48,6 @@ void [
   disabledNudge,
   inheritedParallel,
   inheritedOpen,
-  inheritedCall,
-  inheritedStep,
   inheritedCompact,
   boundedCompact,
   terminalKind,

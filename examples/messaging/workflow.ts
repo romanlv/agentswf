@@ -3,7 +3,7 @@ import {
   type ExecutionConfig,
   type OutputSchema,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 
 // An implementer writes slugify() in a fresh folder; a reviewer who knows the house style it was
 // not told runs the code, asks for the fix by message, and checks again. Nothing to set up:
@@ -72,7 +72,6 @@ export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResul
   meta: {
     name: "messaging",
     description: "A reviewer asks an implementer for a fix by message and waits for it.",
-    whenToUse: "Use to see agent messaging work end to end, for a few cents.",
   },
   async run(wf, { runtime }) {
     const execution = RUNTIMES[runtime];

@@ -1,4 +1,4 @@
-import type { SkillRef, WorkflowContext } from "@agentswf/contract/workflow";
+import type { SkillRef, WorkflowContext } from "agentswf/workflow";
 import type { AdditionalReviewer, FeatureArgs, Role } from "./schema";
 import { session } from "./session";
 
@@ -29,7 +29,6 @@ export async function openTeam(wf: WorkflowContext, args: FeatureArgs) {
         ...ROLES[role],
         key: role,
         runtime: args.runtimes[role],
-        labels: { role, ticket: args.ticket },
       }),
     );
 
@@ -50,7 +49,6 @@ export async function openTeam(wf: WorkflowContext, args: FeatureArgs) {
           runtime,
           instructions:
             "Independently review the implementation. Do not defer judgment to prior reviewers.",
-          labels: { role: "additional-reviewer", reviewer: name, ticket: args.ticket },
         }),
         name,
       ),

@@ -12,7 +12,6 @@ import {
   type StartedTurn,
   tool,
   type WorkflowContext,
-  type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
@@ -23,6 +22,7 @@ import { logsCommand } from "./logs-command";
 import { readTurns } from "./runs";
 import { caseRun, createTempRunDirs, exchange, future, runNew, startCase } from "./testing";
 import { ToolCalls, toolsLesson } from "./tools";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
@@ -100,7 +100,7 @@ async function withTools(
       },
     }),
   });
-  const workflow: WorkflowDefinition<null, null> = {
+  const workflow: RunnableWorkflow<null, null> = {
     meta: { name: "tools", description: "tools" },
     async run(context) {
       const agent = await context.agents.open({ key: "triager", runtime: "fake", tools });
@@ -336,7 +336,7 @@ describe("a handler", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, string> = {
+    const workflow: RunnableWorkflow<null, string> = {
       meta: { name: "nested", description: "nested" },
       async run(context) {
         const helper = await context.agents.open({ key: "helper", runtime: "fake" });
@@ -386,7 +386,7 @@ describe("tools on a spec", () => {
     tool({ description, input: CLOSE, handler: () => description });
 
   test("over a limit, they are refused at open", async () => {
-    const workflow: WorkflowDefinition<null, string[]> = {
+    const workflow: RunnableWorkflow<null, string[]> = {
       meta: { name: "limits", description: "limits" },
       async run(context) {
         const refusals: string[] = [];
@@ -434,7 +434,7 @@ describe("tools on a spec", () => {
       }),
     });
     const json = JSON.parse(JSON.stringify(CLOSE)) as typeof CLOSE;
-    const workflow: WorkflowDefinition<null, string> = {
+    const workflow: RunnableWorkflow<null, string> = {
       meta: { name: "reopen", description: "reopen" },
       async run(context) {
         const open = (tools?: AgentTools) =>
@@ -486,7 +486,7 @@ describe("tools on a spec", () => {
     });
     const who = (prefix: string) =>
       tool({ description: "Who calls.", handler: (_input, call) => `${prefix} ${call.agent}` });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "forks", description: "forks" },
       async run(context) {
         const parent = await context.agents.open({
@@ -544,7 +544,7 @@ describe("a call in a message turn, and at an operation's end", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "message-turn", description: "message-turn" },
       async run(context) {
         const asker = await context.agents.open({ key: "asker", runtime: "fake" });
@@ -645,7 +645,7 @@ describe("a call in a message turn, and at an operation's end", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "staged", description: "staged" },
       async run(context) {
         const helper = await context.agents.open({ key: "helper", runtime: "fake" });
@@ -686,7 +686,7 @@ describe("the calling session's forks", () => {
     );
     config.host = { ...config.host, caller: { harness: "fake", cwd: process.cwd() } };
     const tools = { list: tool({ description: "List.", handler: () => "x" }) };
-    const workflow: WorkflowDefinition<null, string[]> = {
+    const workflow: RunnableWorkflow<null, string[]> = {
       meta: { name: "caller-forks", description: "caller-forks" },
       async run(context) {
         const caller = (await context.agents.caller({ key: "author" }))!;
@@ -886,7 +886,7 @@ describe("more of a handler's limits", () => {
           () => refused.push(`${what}: ran`),
           (error: Error) => refused.push(`${what}: ${error.message.split(":")[0]}`),
         );
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "limits-in-handler", description: "limits-in-handler" },
       async run(context) {
         let a!: AgentRef;
@@ -1003,7 +1003,7 @@ describe("more of a handler's limits", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "top-level", description: "top-level" },
       async run(context) {
         const helper = await context.agents.open({ key: "helper", runtime: "fake" });
@@ -1057,7 +1057,7 @@ describe("more of tools on a spec", () => {
       ({
         who: tool({ description: "Who.", input: schema as never, handler: () => name }),
       }) as AgentTools;
-    const workflow: WorkflowDefinition<null, string[]> = {
+    const workflow: RunnableWorkflow<null, string[]> = {
       meta: { name: "matching", description: "matching" },
       async run(context) {
         const run = (agent: AgentRef) => agent.run({ prompt: "work", schema: TEXT, nudge: false });
@@ -1194,7 +1194,7 @@ describe("the tools lesson", () => {
       properties: { answer: { type: "string" } },
       required: ["answer"],
     };
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "lesson", description: "lesson" },
       async run(context) {
         const run = (agent: AgentRef) =>
@@ -1256,7 +1256,7 @@ describe("the tools lesson", () => {
       properties: { verdict: { type: "string", enum: ["noise", "real"] } },
       required: ["verdict"],
     };
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "verdict-lesson", description: "verdict-lesson" },
       async run(context) {
         const agent = await context.agents.open({
@@ -1298,7 +1298,7 @@ describe("the tools lesson", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "message-lesson", description: "message-lesson" },
       async run(context) {
         const asker = await context.agents.open({ key: "asker", runtime: "fake" });
@@ -1357,7 +1357,7 @@ describe("tool records and awf logs", () => {
         },
       }),
     });
-    const workflow: WorkflowDefinition<null, null> = {
+    const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "records", description: "records" },
       async run(context) {
         const agent = await context.agents.open({
@@ -1592,7 +1592,7 @@ describe("with started turns", () => {
     const sent = Promise.withResolvers<void>();
     const heard = Promise.withResolvers<string>();
     let b!: AgentRef;
-    const workflow: WorkflowDefinition<null, JsonValue> = {
+    const workflow: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "held", description: "held" },
       async run(context) {
         const a = await context.agents.open({

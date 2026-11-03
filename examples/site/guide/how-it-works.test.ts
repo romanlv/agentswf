@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, testWorkflow } from "agentswf/testing";
 import checkReadme, { VERDICT } from "./how-it-works";
 
 test("the reviewer's checked answer is the run's result, kept as the review stage", async () => {

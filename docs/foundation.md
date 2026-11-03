@@ -188,7 +188,8 @@ that reads and writes them does not.
 @agentswf/contract/schema       validate, describe, formatErrors — pure
 @agentswf/contract/records      run-record formats and their version — not the file I/O
 @agentswf/contract/wire         control-plane messages, with runtime-decodable schemas
-@agentswf/contract/workflow     the author surface: what a workflow imports
+@agentswf/contract/workflow     the workflow types, the engine's view of them
+@agentswf/contract/author       the author surface: what a workflow imports as agentswf/workflow
 @agentswf/contract/participant  what a participant outside the run speaks
 ```
 
@@ -280,7 +281,7 @@ engine        → contract, sandbox, harness    (a provider: operator-runtime.ts
 agent-cli     → contract            (engine/src/agent-cli, bundled as `wfa`)
 agentswf      → contract, engine
 lab           → contract            (runs `awf run`)
-examples/     → contract/workflow   (their tests: engine/workflow-testing too)
+examples/     → agentswf/workflow   (their tests: agentswf/testing too)
 scripts/*     → any
 ```
 

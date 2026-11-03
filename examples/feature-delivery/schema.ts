@@ -1,4 +1,4 @@
-import type { RuntimeSelection } from "@agentswf/contract/workflow";
+import type { RuntimeSelection } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 

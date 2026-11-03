@@ -87,7 +87,7 @@ stale without a red check. Two sources:
 - **A page's own sample**, in `examples/site/`, at the page's path: `examples/site/guide/agents.ts`
   for `/guide/agents`. Root `tsc --noEmit`, Biome and the boundaries check it as they check every
   example. A runnable sample is a workflow with a `*.test.ts` beside it, written as an example's
-  test is (`@agentswf/engine/workflow-testing`); root `bun test` runs it, as `awf test` would.
+  test is (`agentswf/testing`); root `bun test` runs it, as `awf test` would.
 
 Show part of a file with a region, and the import picks out the lines between the markers:
 
@@ -102,9 +102,9 @@ const agent = await wf.agents.open({ key: "reviewer", runtime: "claude" });
 ```
 
 `@/` is `site/`, so `@/../` is the repository root, from any page. An example's file imports
-`@agentswf/contract/workflow` and `@agentswf/engine/workflow-testing`; the page shows
-`agentswf/workflow` and `agentswf/testing`, the names a reader's workflow imports and `awf` serves.
-A top-level declaration in a sample is exported, or `noUnusedLocals` fails it.
+`agentswf/workflow` and `agentswf/testing`, the names a reader's workflow imports and `awf` serves,
+so the page shows what it imports. A top-level declaration in a sample is exported, or
+`noUnusedLocals` fails it.
 
 `/reference/workflow-api` keeps its own check instead: `tests/workflow-api-samples.test.ts` runs
 the samples written on the page.
@@ -138,7 +138,7 @@ One page owns each of these; every other page says it in a clause at most and li
 | `wf.stop` and what it means for a run | `/guide/workflows` |
 | Nudges: the default, custom, `nudge: false`, a claude TUI agent's `wfa waiting` | `/guide/timeouts` |
 | `parallel`'s deadline rejecting and dropping gathered results | `/guide/timeouts` |
-| Timers: a name's fixed time, moving one (cancel and rename, or `wf.at`), `wf.timers`, when a due timer fires | `/guide/timers` |
+| Timers: a name's fixed time, moving one (cancel and rename, or `wf.at`), when a due timer fires | `/guide/timers` |
 | `testWorkflow` doesn't call `prepare`; deadlines are real time in tests | `/guide/testing` |
 | Exit codes and how a run ends; the commands (`--id`, `--continue`, `--from-stage`, `--values`) and the stage rules | `/guide/runs` |
 | What survives a failure, stop or crash; what a code change between attempts does | `/guide/durability` |

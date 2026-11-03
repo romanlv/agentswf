@@ -7,7 +7,7 @@ import {
   score,
   tool,
   yesNo,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 
 // The workflow API page's samples: each region is a call as the page shows it, checked here.

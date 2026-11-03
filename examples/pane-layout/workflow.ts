@@ -3,7 +3,7 @@ import {
   type ExecutionConfig,
   type PaneWorkspace,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -25,8 +25,6 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
     name: "pane-layout",
     description:
       "Place a lead and two reviewers in one tab, two columns with the right one stacked, and keep the lead's pane.",
-    whenToUse:
-      'Use to see pane layout live: run it from a Herdr pane, and its tab opens there ("origin"), or pass run or a workspace name.',
   },
   async run(wf, args) {
     const steps = { timeoutMs: 5 * 60_000 };

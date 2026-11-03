@@ -1,7 +1,4 @@
-import {
-  defineWorkflow,
-  type RuntimeSelection,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type RuntimeSelection } from "agentswf/workflow";
 
 // #region cheap
 export const SMALL = {

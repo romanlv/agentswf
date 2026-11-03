@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import type { JsonValue, WorkflowDefinition } from "@agentswf/contract/workflow";
+import type { JsonValue } from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { readStageRecords } from "./runs";
 import { createTempRunDirs, DOC, runAttempt, workflowOf } from "./testing";
+import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowRunError } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
@@ -316,7 +317,7 @@ describe("a continue's records", () => {
   const attempt = (
     root: string,
     n: number,
-    workflow: WorkflowDefinition<null, JsonValue>,
+    workflow: RunnableWorkflow<null, JsonValue>,
     fromStage?: string,
     values?: Record<string, JsonValue>,
   ) => runAttempt(workflow, { runRoot: root, attempt: n, fromStage, values });

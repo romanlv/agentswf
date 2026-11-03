@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "agentswf/testing";
 import fixTests, { DONE, VERDICT } from "./sandboxes";
 
 test("the coder and the tester share one sandbox; the reviewer has a private reader", async () => {

@@ -1,4 +1,4 @@
-import { defineWorkflow, tool } from "@agentswf/contract/workflow";
+import { defineWorkflow, tool } from "agentswf/workflow";
 import Type from "typebox";
 
 // #region open

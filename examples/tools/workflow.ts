@@ -5,7 +5,7 @@ import {
   type TurnOutcome,
   tool,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 import { RUNTIMES as QUICK } from "../quick-check/workflow";
@@ -78,7 +78,6 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
   meta: {
     name: "tools",
     description: "An agent closes backlog items through the workflow's tools.",
-    whenToUse: "Use to check that agents call a workflow's tools from their prompt alone.",
   },
   async run(wf, args) {
     const triages = await wf.parallel(

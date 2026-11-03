@@ -1,5 +1,5 @@
 // #region file
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 export const CHECK = Type.Object(

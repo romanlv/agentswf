@@ -4,7 +4,7 @@ import {
   type JsonValue,
   type TurnOutcome,
   type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -63,8 +63,6 @@ export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
   meta: {
     name: "quick-check",
     description: "Ask one agent per runtime questions with known answers.",
-    whenToUse:
-      "Use to smoke-test a harness, its result channel, a follow-up in the same session, and the run's accounting, for a few cents.",
   },
   async run(wf, args) {
     const checks = await wf.parallel(

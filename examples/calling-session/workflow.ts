@@ -1,8 +1,4 @@
-import {
-  defineWorkflow,
-  type ExecutionConfig,
-  type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -37,8 +33,6 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
     name: "calling-session",
     description:
       "Drive the session awf run --here was started from through dependent steps, with a second agent checking its work.",
-    whenToUse:
-      "Use to check that a session can be taken over: run it with awf run --here from claude, codex, pi or cursor in a Herdr pane.",
   },
   async run(wf, args) {
     const author = await wf.agents.caller({ key: "author" });

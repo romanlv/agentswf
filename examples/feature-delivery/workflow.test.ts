@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, type Script, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, reply, type Script, testWorkflow } from "agentswf/testing";
 import { VERDICT, WORK } from "./schema";
 import feature, { featureDelivery } from "./workflow";
 
@@ -181,12 +181,9 @@ describe("feature-delivery", () => {
     ]);
   });
 
-  test("the planner opens with its skill and its labels", async () => {
+  test("the planner opens with its skill", async () => {
     const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
-    expect(run.agentOf("planner")).toMatchObject({
-      skills: ["ticket-doc"],
-      labels: { role: "planner", ticket: "ABC-1" },
-    });
+    expect(run.agentOf("planner")).toMatchObject({ skills: ["ticket-doc"] });
   });
 
   test("the author answers the reviewer, and cannot reopen the review once it is approved", async () => {

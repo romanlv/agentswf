@@ -1,10 +1,9 @@
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 
 export default defineWorkflow<{ fail: boolean }, string>({
   meta: {
     name: "log-color-check",
     description: "Logs two lines, opens no agent.",
-    whenToUse: "Never.",
   },
   async run(wf, args) {
     wf.log("an ordinary log line");

@@ -94,8 +94,8 @@ What sends events on a schedule or from a webhook, and what wakes a run whose ti
 call returns the event that started the run. Each call acknowledges what the last one returned.
 Events that arrive while the run is busy, as two failures did during a fix, wait and come back
 together from the next call, so the code can act on the latest and skip the rest.
-`receive({ take: "oldest" })` returns one at a time. `label` is what `awf runs` shows while the
-run waits there.
+[`select`](#race-and-select) takes one at a time. `label` is what `awf runs` shows while the run
+waits there.
 
 A run parks when it waits with nothing else of it working: no agent turn, no stage, and nothing in
 the mailbox for the wait to take. Waiting while a turn runs keeps the process, so an agent can work
@@ -113,8 +113,8 @@ can take events while the agent works, and a pull request closing mid-fix cuts i
 
 <<< @/../examples/site/guide/events.ts#race
 
-A branch is a declared event (`wf.signal(name)`), an agent (any of its turns' ends), a started
-turn, a [participant routed to the code](/guide/people#a-participant-routed-to-the-code), whose
+A branch is a declared event (`wf.signal(name)`), an agent (the end of the turn it started), a
+[participant routed to the code](/guide/people#a-participant-routed-to-the-code), whose
 messages come to your code instead of an agent, or a [timer](/guide/timers). The answer names the
 branch that won, so `if (first.closed)` narrows it. The race is recorded under its name,
 `fix-or-close`, so a run woken after parking gets the same answer back and walks on.

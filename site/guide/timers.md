@@ -121,11 +121,8 @@ The example and its test are in
 
 ## Many timers
 
-A run can hold any number, each under its own name. `wf.timers()` is a branch that takes any of
-them, told apart by `name`. A `select` with a branch `retry: wf.timers()` catches every
-`retry-{id}` a failed job makes, without a branch per timer: `next.retry.name` says which.
-
-In a `receive` loop, `timer.is(e)` picks out one timer's event, and any timer's has
+A run can hold any number, each under its own name, and a wait names each timer it takes as a
+branch. In a `receive` loop, `timer.is(e)` picks out one timer's event, and any timer's has
 `e.name === "timer:due"` and its name in `e.from`.
 
 ## When a timer fires
@@ -155,7 +152,7 @@ In a `receive` loop, `timer.is(e)` picks out one timer's event, and any timer's 
 ## See also
 
 - [Waiting on time](/reference/workflow-api#waiting-on-time) in the workflow API:
-  [`wf.timer`](/reference/workflow-api#timer), [`wf.timers`](/reference/workflow-api#timers),
+  [`wf.timer`](/reference/workflow-api#timer),
   [`wf.at`](/reference/workflow-api#at), [`wf.after`](/reference/workflow-api#after).
 - [Events](/guide/events): the mailbox, `receive`, `race` and `select`.
 - [Hosting events](/guide/hosting-events): `awf tick`, which fires a parked run's timers.
