@@ -146,9 +146,7 @@ type RecordedTurn = {
  * neither failed nor was stopped. Otherwise Herdr does, as for a harness with no record.
  */
 function recordSpeaks(turn: RecordedTurn | undefined): turn is RecordedTurn {
-  return (
-    turn !== undefined && turn.accepted && (turn.state === "watching" || turn.state === "ended")
-  );
+  return turn?.accepted === true && (turn.state === "watching" || turn.state === "ended");
 }
 
 /** The outcome a dialog Herdr shows ends a turn with, where it shows one. */
