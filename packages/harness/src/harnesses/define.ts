@@ -247,6 +247,8 @@ export type HarnessSpec = {
       file?: string,
     ): Promise<TurnRecordPlace>;
     reducer(marker: string, lead?: string): TurnReducer;
+    /** A reducer that ends at its own compaction, read from the session's file. */
+    compaction(): TurnReducer;
     /** The session a file of its place is, by its path there. */
     session(file: string): string | undefined;
   };

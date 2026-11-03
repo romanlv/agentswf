@@ -92,3 +92,21 @@ export function codexTurnPlace(
     ...(sessionFile ? { known: sessionFile } : {}),
   };
 }
+
+/** codex's own compaction, read from its rollout: a `compacted` row, then its task's end. */
+export function createCodexCompactionReducer() {
+  let compacted = false;
+  let ended: TurnReading["ended"];
+  return {
+    push(value: unknown): TurnReading {
+      const row = record(value);
+      const type = record(row?.payload)?.type;
+      if (row && !ended) {
+        if (row.type === "compacted") compacted = true;
+        else if (compacted && (type === "task_complete" || type === "turn_aborted"))
+          ended = "completed";
+      }
+      return { accepted: compacted, received: compacted, ...(ended ? { ended } : {}) };
+    },
+  };
+}

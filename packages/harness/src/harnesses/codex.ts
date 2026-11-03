@@ -2,7 +2,11 @@ import { basename } from "node:path";
 import { codexActivity } from "../activity/rows";
 import { jsonLines, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
-import { codexTurnPlace, createCodexTurnReducer } from "../turns/codex";
+import {
+  codexTurnPlace,
+  createCodexCompactionReducer,
+  createCodexTurnReducer,
+} from "../turns/codex";
 import { readCodexAllowance } from "../usage/allowance";
 import { readCodexBilling } from "../usage/billing";
 import {
@@ -247,6 +251,7 @@ const CODEX = {
       return codexTurnPlace(since, home, own);
     },
     reducer: (marker) => createCodexTurnReducer(marker),
+    compaction: createCodexCompactionReducer,
     session: (file) => codexRolloutId(basename(file)),
   },
   findSession: (marker, since, cwd, home) =>
