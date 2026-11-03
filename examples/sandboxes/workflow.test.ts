@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import sandboxes, { AUDITOR_COMMANDS, REPORT, TEAM, teamCommands } from "./workflow";
 
 /** Each agent runs its commands, and every one succeeds with a line of output. */
@@ -54,7 +54,7 @@ describe("sandboxes", () => {
 
   test("an agent that ends without a report is reported as its failure, and the rest go on", async () => {
     const run = await testWorkflow(sandboxes, null, {
-      agents: { "*": ran, grace: reply.blocked("waiting on a permission prompt") },
+      agents: { "*": ran, grace: noAnswer.blocked("waiting on a permission prompt") },
     });
     expect(run.value.reports[1]).toEqual({
       agent: "grace",

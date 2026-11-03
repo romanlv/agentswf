@@ -62,7 +62,7 @@ test("null is no deadline, and a time returned and left in state neither spins n
     }),
     startCase,
   );
-  expect(run.parked).toEqual({});
+  expect(run.ending).toMatchObject({ kind: "parked" });
   expect(() => run.value).toThrow("the run parked");
 });
 

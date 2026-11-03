@@ -88,12 +88,12 @@ Ran 2 tests across 1 file. [110.00ms]
 ```
 
 `awf test` runs every `*.test.ts` and `*.spec.ts` under the folder with each agent replaced by a
-scripted reply. No agent starts and nothing is metered. The test `awf init` wrote,
+script. No agent starts and nothing is metered. The test `awf init` wrote,
 `hello/workflow.test.ts`, checks both ways the workflow can end:
 
 <<< @/../packages/engine/src/init-template/hello/workflow.test.ts.template{ts} [hello/workflow.test.ts]
 
-`answer(ANSWER, …)` scripts the agent's typed answer; `reply.silent()` scripts an agent that never
+`answer(ANSWER, …)` scripts the agent's typed answer; `noAnswer.silent()` scripts an agent that never
 answers, so the test sees awf nudge it once and the workflow return why it got nothing. Every
 script and what a test can check are in the [testing API](/reference/testing-api).
 

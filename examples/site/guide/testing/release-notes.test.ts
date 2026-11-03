@@ -1,6 +1,6 @@
 // #region first
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import releaseNotes, { CHECK, NOTES } from "./release-notes";
 
 const args = { range: "v1.2.0...HEAD" };
@@ -44,13 +44,16 @@ test("a claimed breaking change goes to a checker on codex, which can overrule i
 // #region outcomes
 test("a writer that never answers is nudged once, then the run stops with why", async () => {
   const run = await testWorkflow(releaseNotes, args, {
-    agents: { writer: reply.silent() },
+    agents: { writer: noAnswer.silent() },
   });
   expect(run.turnsOf("writer").map((turn) => turn.nudge)).toEqual([
     false,
     true,
   ]);
-  expect(run.stopped?.reason).toStartWith("no notes: ");
+  expect(run.ending).toMatchObject({
+    kind: "stopped",
+    reason: expect.stringMatching(/^no notes: /),
+  });
   expect(() => run.value).toThrow();
 });
 
@@ -58,7 +61,7 @@ test("a checker whose harness fails leaves the writer's word, marked unchecked",
   const run = await testWorkflow(releaseNotes, args, {
     agents: {
       writer: answer(NOTES, { notes: "Removed --legacy.", breaking: true }),
-      checker: reply.failed("harness crashed"),
+      checker: noAnswer.failed("harness crashed"),
     },
   });
   expect(run.value).toMatchObject({ breaking: true, checked: false });

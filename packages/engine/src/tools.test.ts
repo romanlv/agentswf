@@ -1511,7 +1511,7 @@ describe("with started turns", () => {
       }),
       { ...startCase, agents: { investigator: calls } },
     );
-    expect(run.parked).toEqual({ label: "idle" });
+    expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
     expect(taken).toEqual([true]);
   });
 
@@ -1652,7 +1652,6 @@ describe("with started turns", () => {
         a: async (message) => {
           const poked = await message.tool("poke_b");
           heard.resolve(poked.kind === "result" ? (poked.output ?? "") : poked.error);
-          return message.silent();
         },
       },
     });

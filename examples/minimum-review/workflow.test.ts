@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import reviewLoop from "./review-loop";
 import { createMinimumReview, type ReviewLens, reviewSchema } from "./workflow";
 
@@ -66,7 +66,7 @@ describe("minimum-review", () => {
   test("a silent lens is nudged, then kept as incomplete, and counts no findings", async () => {
     const run = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": reply.silent(),
+        "reviewer:correctness": noAnswer.silent(),
         "reviewer:maintainability": review("maintainability", [coupled]),
       },
     });
@@ -83,7 +83,7 @@ describe("minimum-review", () => {
   test("each incomplete lens keeps its own outcome and reason", async () => {
     const failed = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": reply.failed("correctness went failed"),
+        "reviewer:correctness": noAnswer.failed("correctness went failed"),
         "reviewer:maintainability": review("maintainability", [coupled]),
       },
     });
@@ -95,8 +95,8 @@ describe("minimum-review", () => {
     });
     const run = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": reply.timedOut("correctness went timed-out"),
-        "reviewer:maintainability": reply.blocked("maintainability went blocked"),
+        "reviewer:correctness": noAnswer.timedOut("correctness went timed-out"),
+        "reviewer:maintainability": noAnswer.blocked("maintainability went blocked"),
       },
     });
     expect(run.value).toEqual({
@@ -145,7 +145,7 @@ describe("minimum-review", () => {
     test("an incomplete lens fails the run, naming it", async () => {
       const run = await testWorkflow(reviewLoop, args, {
         agents: {
-          "reviewer:correctness": reply.failed("harness crashed"),
+          "reviewer:correctness": noAnswer.failed("harness crashed"),
           "reviewer:maintainability": review("maintainability", []),
         },
       });

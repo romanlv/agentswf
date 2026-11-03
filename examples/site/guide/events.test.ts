@@ -16,7 +16,10 @@ test("a failure starts the run, the fixer pushes a fix, and the run parks", asyn
   });
   expect(run.turnsOf("fixer")).toHaveLength(1);
   expect(run.turnsOf("fixer")[0]!.prompt).toContain("CI job unit failed");
-  expect(run.parked?.label).toBe("waiting on CI for #212");
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    label: "waiting on CI for #212",
+  });
 });
 
 test("failures that arrive during a fix are one batch: the latest gets the next fix", async () => {
@@ -32,7 +35,7 @@ test("failures that arrive during a fix are one batch: the latest gets the next 
   expect(
     run.turnsOf("fixer").map((t) => t.prompt.match(/job (\w+)/)?.[1]),
   ).toEqual(["unit", "e2e"]);
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
 });
 
 test("the pull request closing ends the run for good", async () => {

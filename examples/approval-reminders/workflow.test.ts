@@ -44,7 +44,13 @@ describe("approval", () => {
       agents: { writer },
       maxTimers: 0,
     });
-    expect(run.parked?.label).toBe("awaiting approval of rfc-12, round 1");
-    expect(run.parked?.until).toBe(run.timers.find((t) => t.name === "approval-1@remind")?.due);
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      label: "awaiting approval of rfc-12, round 1",
+    });
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      until: run.timers.find((t) => t.name === "approval-1@remind")?.due,
+    });
   });
 });

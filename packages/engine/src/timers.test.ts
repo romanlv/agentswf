@@ -71,7 +71,7 @@ test("a loop of timers that nothing answers parks after maxTimers, and the test 
     }),
     { ...startCase, maxTimers: 5 },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(() => run.value).toThrow("skipped to 5 timers (maxTimers)");
   expect(run.timers.filter((t) => t.state === "fired")).toHaveLength(5);
 });
@@ -108,7 +108,7 @@ const followUp = defineWorkflow({
 test("a workflow without events sleeps: on the test's clock in no time, or parks at maxTimers 0", async () => {
   expect((await testWorkflow(followUp, null)).value).toBe(14);
   const parked = await testWorkflow(followUp, null, { maxTimers: 0 });
-  expect(parked.parked?.until).toBeDefined();
+  expect(parked.ending).toMatchObject({ kind: "parked", until: expect.any(String) });
   expect(parked.stages.map((record) => record.stage)).toEqual(["release"]);
 });
 

@@ -13,7 +13,7 @@ import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun } from "./runs";
 import { answering, caseRun, createTempRunDirs, future, startCase } from "./testing";
 import { runWorkflow } from "./workflow-runner";
-import { answer, type TestRun, testWorkflow } from "./workflow-testing";
+import { answer, noAnswer, reply, type TestRun, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -257,3 +257,78 @@ test("a stage around receive replayed by a continue logs, as each attempt logs i
   expect(await attempt(1)).toEqual({ value: 1, logs: [line] });
   expect(await attempt(2)).toEqual({ value: 1, logs: [line] });
 });
+
+test("testing's reply.…, run.stopped and run.parked work as before, each logged once", async () => {
+  const run = await plainRun(
+    "old-test-forms",
+    async (wf) => {
+      const a = await wf.agents.open({ key: "a", runtime: "claude" });
+      const b = await wf.agents.open({ key: "b", runtime: "claude" });
+      const first = await a.run({ prompt: "One." });
+      const second = await b.run({ prompt: "Two." });
+      return wf.stop(`${first.outcome.kind}, ${second.outcome.kind}`);
+    },
+    { agents: { a: reply.failed("crashed"), b: reply.failed("crashed") } },
+  );
+  expect(run.turns.map((turn) => turn.outcome)).toEqual(["failed", "failed"]);
+  expect(run.stopped).toEqual({ reason: "failed, failed" });
+  expect(run.stopped).toEqual({ reason: "failed, failed" });
+  expect(run.parked).toBeUndefined();
+  expect(said(run)).toEqual({ "test-reply": 1, "run-stopped": 1, "run-parked": 1 });
+});
+
+test("a reply.… met only by a compaction logs", async () => {
+  const run = await plainRun(
+    "old-compaction",
+    async (wf) => {
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      await agent.run({ prompt: "One." });
+      return (await agent.compact({ prompt: "Keep it." })).kind;
+    },
+    { compactions: { a: reply.failed("nothing to compact") } },
+  );
+  expect(run.value).toBe("failed");
+  expect(said(run)).toEqual({ "test-reply": 1 });
+});
+
+test("an event's id, the start's or a scripted one's, is its id in the mailbox, logged once", async () => {
+  const run = await testWorkflow(
+    caseRun(async (wf) => {
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      await agent.run({ prompt: "One." });
+      return (await wf.receive()).length;
+    }),
+    {
+      id: "k",
+      event: { name: "dd.changes", data: { case: "k" }, id: "start-1" },
+      agents: { a: answer("yes") },
+      events: [{ during: "a#1", name: "dd.changes", data: { case: "k" }, id: "next-1" }],
+    },
+  );
+  expect(eventIds(run)).toEqual(["start-1", "next-1"]);
+  expect(said(run)).toEqual({ "test-event-id": 1 });
+});
+
+test("testing's new forms log nothing", async () => {
+  const run = await testWorkflow(
+    caseRun(async (wf) => {
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      const { outcome } = await agent.run({ prompt: "One." });
+      await wf.receive();
+      return wf.stop(outcome.kind);
+    }),
+    {
+      id: "k",
+      event: { name: "dd.changes", data: { case: "k" }, eventId: "start-1" },
+      agents: { a: noAnswer.failed() },
+      events: [{ during: "a#1", name: "dd.changes", data: { case: "k" }, eventId: "next-1" }],
+    },
+  );
+  expect(run.ending).toMatchObject({ kind: "stopped", reason: "failed" });
+  expect(eventIds(run)).toEqual(["start-1", "next-1"]);
+  expect(said(run)).toEqual({});
+});
+
+function eventIds(run: TestRun<JsonValue>): string[] {
+  return run.mailbox.flatMap((record) => (record.kind === "event" ? [record.id] : []));
+}

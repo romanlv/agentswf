@@ -1,5 +1,5 @@
 import { constants } from "node:os";
-import type { StageNeed, StageRecord } from "@agentswf/contract/records";
+import type { StageRecord } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type AttemptOutcome,
@@ -37,8 +37,6 @@ export type AttemptEnd = {
    * the run's stages to choose from.
    */
   choose?: readonly StageRecord[];
-  /** The stages whose values `--values` gives, to start at a later one. */
-  needs?: readonly StageNeed[];
 };
 
 /** What a started run came to: the result it returned, or what it threw. */
@@ -107,12 +105,12 @@ export function decideEnding(
       reason: stop?.reason ?? errorDetail(error),
       stages,
       continue: goOn(stop, stages),
+      ...(stop?.needs ? { needs: [...stop.needs] } : {}),
     },
     ...(settled ? { settled } : {}),
     exitCode: cancellation ? signalExitCode(cancellation.reason) : OUTCOMES[kind].exitCode!,
     ...(beside ? { alsoFailed: beside } : {}),
     ...(stop instanceof FromStageUnreached ? { choose: stop.recorded } : {}),
-    ...(stop?.needs ? { needs: stop.needs } : {}),
   };
 }
 

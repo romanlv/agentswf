@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
 import { appendMailbox, endIdOf, foldMailbox, readMailbox, recoverTurns } from "./mailbox";
 import { caseRun, createTempRunDirs, startCase } from "./testing";
-import { answer, reply, testWorkflow } from "./workflow-testing";
+import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -121,7 +121,7 @@ test("cancel returns once the cancelled end is in the mailbox, and at once on an
         kind: end && agent.is(end) ? end.data.outcome.kind : null,
       };
     }),
-    { ...startCase, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: noAnswer.hang() } },
   );
   expect(run.value).toEqual({ cancelled: true, again: false, kind: "cancelled" });
 });
@@ -134,7 +134,7 @@ test("code that throws with a turn running cancels it, and its end is written fi
       await agent.start({ prompt: "look" });
       throw new Error("a bug");
     }),
-    { ...startCase, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: noAnswer.hang() } },
   );
   expect(() => run.value).toThrow("a bug");
   expect(
@@ -150,7 +150,7 @@ test("a return cancels a running turn", async () => {
       await agent.start({ prompt: "look" });
       return "merged";
     }),
-    { ...startCase, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: noAnswer.hang() } },
   );
   expect(run.value).toBe("merged");
   expect(
@@ -168,7 +168,7 @@ test("a run doesn't park while a started turn runs, and parks once its end is ta
     }),
     { ...startCase, agents: { investigator: slow("done", 200) } },
   );
-  expect(run.parked).toEqual({ label: "idle" });
+  expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
   expect(ends(run.mailbox)).toHaveLength(1);
 });
 
@@ -262,7 +262,10 @@ const crashed: MailboxRecord[] = [
     execution: { harness: "claude", model: "m" },
   },
 ];
-const woken = { id: "k", event: { name: "dd.changes" as const, data: { case: "k" }, id: "c1" } };
+const woken = {
+  id: "k",
+  event: { name: "dd.changes" as const, data: { case: "k" }, eventId: "c1" },
+};
 
 test("after a crash, the code's first wait takes the turn's failed end, with its meta", async () => {
   const run = await testWorkflow(
@@ -398,7 +401,6 @@ test("a message held during a started turn doesn't keep the next start() out", a
       messages: {
         investigator: (message) => {
           handled.push(message.text);
-          return message.silent();
         },
       },
     },

@@ -10,7 +10,7 @@ import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readStageRecords, readTurns } from "./runs";
 import { createTempRunDirs, DOC, future, runAttempt, runNew, workflowOf } from "./testing";
 import { WorkflowRunError } from "./workflow-runner";
-import { answer, reply, testWorkflow } from "./workflow-testing";
+import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -229,7 +229,7 @@ describe("workflow.stage", () => {
         return null;
       }),
       null,
-      { agents: { worker: reply.hang() }, timeoutMs: 300, stallMs: 5_000 },
+      { agents: { worker: noAnswer.hang() }, timeoutMs: 300, stallMs: 5_000 },
     );
     expect(() => run.value).toThrow();
     expect(run.stages).toEqual([

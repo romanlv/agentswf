@@ -1,4 +1,4 @@
-import type { SandboxRecord } from "@agentswf/contract/records";
+import type { SandboxRecord, TurnRecord } from "@agentswf/contract/records";
 import {
   type MessageResponse,
   REPLY_CODES,
@@ -38,27 +38,30 @@ import {
   type FakeSet,
 } from "@agentswf/harness/testing";
 import { submitControl, submitResult, submitWaiting } from "../agent-cli/client";
+import type { Deprecated } from "../deprecations";
 import {
+  deprecatedAs,
   type Message,
   type MessageOutcome,
   type MessageScripts,
+  noAnswer,
+  outcomeOf,
   type ReceivedMessage,
-  reply,
   type Scripts,
   type SendOptions,
   type Step,
+  type TestTurnOutcome,
   type ToolOutcome,
   type Turn,
-  type TurnOutcome,
 } from "./script";
 
 /**
  * A turn as the workflow wrote it, and how it ended. `messages` are those it was shown, absent when
  * none were.
  */
-export type TurnRecord = Omit<Turn, "signal" | "messages" | "send" | "reply" | "tool"> & {
+export type TestTurn = Omit<Turn, "signal" | "messages" | "send" | "reply" | "tool"> & {
   messages?: readonly Message[];
-  outcome: TurnOutcome;
+  outcome: TestTurnOutcome;
 };
 
 /** A compaction as the workflow asked for it, and how it ended. */
@@ -69,7 +72,7 @@ export type CompactionRecord = {
   id: string;
   /** The spec's prompt: what the harness is to keep and drop. */
   focus: string;
-  outcome: TurnOutcome;
+  outcome: TestTurnOutcome;
 };
 
 /** A switch of an agent's model or effort, as the host was asked for it. */
@@ -114,12 +117,17 @@ export type AgentSandbox = Pick<SandboxRecord, "key" | "provider" | "spec" | "do
 
 export type ScriptedHost = {
   factory: AgentRunHostFactory;
-  turns: TurnRecord[];
+  turns: TestTurn[];
   compactions: CompactionRecord[];
   sets: SetRecord[];
   agents: OpenedAgent[];
   /** Turns started and not yet ended, for a stalled run's message. */
-  inFlight(): TurnRecord[];
+  inFlight(): TestTurn[];
+  /**
+   * Once the run has ended, gives each operation's last turn, and each compaction, the outcome the
+   * engine recorded for it in `turns`: a turn before that, a nudge's or a wait's, keeps its own.
+   */
+  settle(recorded: readonly TurnRecord[]): void;
 };
 
 /**
@@ -137,8 +145,10 @@ export function createScriptedHost(
     onActivity(): void;
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
+    /** A script ended a turn through a deprecated name, for the run to log. */
+    onDeprecated(name: Deprecated): void;
     /** A turn began, before its script answers: what a test sends during it goes now. */
-    onTurnStarted?(turn: TurnRecord): Promise<void>;
+    onTurnStarted?(turn: TestTurn): Promise<void>;
   },
   /**
    * The session the run is started from, as `awf run --here` finds one, and the model its files
@@ -146,12 +156,14 @@ export function createScriptedHost(
    */
   caller?: { harness: string; cwd: string; model?: string; here?: boolean },
 ): ScriptedHost {
-  const turns: TurnRecord[] = [];
+  const turns: TestTurn[] = [];
   const compactions: CompactionRecord[] = [];
   const compactionCounts = new Map<string, number>();
   const sets: SetRecord[] = [];
   const agents: OpenedAgent[] = [];
-  const open = new Set<TurnRecord>();
+  const open = new Set<TestTurn>();
+  /** Each turn's operation, which the engine's record of it names. */
+  const operationOf = new Map<TestTurn, string>();
   const counts = new Map<string, number>();
   /** Each fork's session, by the agent it copied and that agent's turns so far. */
   const forks = new Map<string, NonNullable<OpenedAgent["forkedFrom"]>>();
@@ -172,7 +184,7 @@ export function createScriptedHost(
               turns: callerKey === undefined ? 0 : (counts.get(callerKey) ?? 0),
             }),
         }));
-  const end = (record: TurnRecord, outcome: TurnOutcome) => {
+  const end = (record: TestTurn, outcome: TestTurnOutcome) => {
     record.outcome = outcome;
     open.delete(record);
     events.onActivity();
@@ -304,7 +316,7 @@ export function createScriptedHost(
   const invoke = (
     context: FakeAdapterTurnContext,
     operation: Operation,
-    record: TurnRecord,
+    record: TestTurn,
     shown: readonly Message[],
   ): Invocation => {
     const { activation, authored } = context;
@@ -338,8 +350,8 @@ export function createScriptedHost(
           reply: (text, options) => turn.reply(woke!.from, text, options),
           send: turn.send,
           tool: turn.tool,
-          silent: reply.silent,
-          fail: (reason) => reply.failed(reason),
+          silent: deprecatedAs("message-silent", noAnswer.silent),
+          fail: deprecatedAs("message-fail", noAnswer.failed),
         } satisfies ReceivedMessage,
         operation.message!,
       );
@@ -353,7 +365,9 @@ export function createScriptedHost(
       if (was === "running") invocation.stopped.resolve({ step: taken });
       else if (was === "suspended") {
         failTest(
-          `agent "${turn.agent}" turn ${turn.n}: its script went on after its turn ended awaiting a reply; await only the host's calls`,
+          taken.kind === "script-error"
+            ? taken.message
+            : `agent "${turn.agent}" turn ${turn.n}: its script went on after its turn ended awaiting a reply; await only the host's calls`,
         );
       }
     });
@@ -364,7 +378,7 @@ export function createScriptedHost(
   const until = async (
     invocation: Invocation,
     context: FakeAdapterTurnContext,
-    record: TurnRecord,
+    record: TestTurn,
   ): Promise<FakeAdapterTurn> => {
     const { operation } = invocation;
     const stopped = await Promise.race([invocation.stopped.promise, whenAborted(context.signal)]);
@@ -400,7 +414,7 @@ export function createScriptedHost(
   const perform = (
     step: Step,
     context: FakeAdapterTurnContext,
-    record: TurnRecord,
+    record: TestTurn,
     invocation?: Invocation,
   ): FakeAdapterTurn => {
     if (step.kind === "script-error") {
@@ -411,7 +425,7 @@ export function createScriptedHost(
       return {
         act: async () => {
           // Submitted is answered, even though the engine then releases the turn.
-          let outcome: TurnOutcome = "cancelled";
+          let outcome: TestTurnOutcome = "cancelled";
           try {
             // As an agent's `wfa send` returns before it can run `wfa result`.
             if (invocation) await Promise.allSettled([...invocation.calls]);
@@ -443,6 +457,7 @@ export function createScriptedHost(
       };
     }
     const { ending } = step;
+    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") {
       return {
         act: async () => {
@@ -465,7 +480,7 @@ export function createScriptedHost(
       return {
         act: async (turn) => {
           await whenAborted(turn.signal);
-          end(record, "hang");
+          end(record, "cancelled");
         },
       };
     }
@@ -476,10 +491,10 @@ export function createScriptedHost(
           `agent "${record.agent}" turn ${record.n}: only the calling session can be interrupted by the operator`,
         );
       }
-      end(record, "interrupted");
+      end(record, "cancelled");
       return { state: "cancelled", detail: "interrupted by the operator" };
     }
-    end(record, ending.kind);
+    end(record, outcomeOf(ending.kind));
     return ended(ending, context.activation.execution.harness);
   };
 
@@ -492,10 +507,11 @@ export function createScriptedHost(
       n,
       id: context.id,
       focus: context.prompt,
-      outcome: "hang",
+      // Until it ends: one the run leaves running is cancelled with it.
+      outcome: "cancelled",
     };
     compactions.push(record);
-    const done = (outcome: TurnOutcome) => {
+    const done = (outcome: TestTurnOutcome) => {
       record.outcome = outcome;
       events.onActivity();
     };
@@ -541,12 +557,13 @@ export function createScriptedHost(
       return { summary: step.value };
     }
     const { ending } = step;
+    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") return failTest("compaction cannot report waiting");
     if (ending.kind === "hang") {
       return {
         act: async (turn) => {
           await whenAborted(turn.signal);
-          done("hang");
+          done("cancelled");
         },
       };
     }
@@ -555,7 +572,7 @@ export function createScriptedHost(
         `agent "${activation.key}" compaction ${n}: a compaction is not interrupted by the operator`,
       );
     }
-    done(ending.kind);
+    done(outcomeOf(ending.kind));
     return ended(ending, activation.execution.harness);
   };
 
@@ -591,7 +608,7 @@ export function createScriptedHost(
           ]
         : [],
     );
-    const record: TurnRecord = {
+    const record: TestTurn = {
       agent: activation.key,
       n,
       // A continuation that delivers nothing is a reminder of a reply owed: a nudge.
@@ -605,9 +622,11 @@ export function createScriptedHost(
       ...(context.settings.effort === undefined ? {} : { effort: context.settings.effort }),
       ...(authored.cause === undefined ? {} : { cause: authored.cause }),
       ...(shown.length === 0 ? {} : { messages: shown }),
-      outcome: "hang",
+      // Until it ends: one the run leaves running is cancelled with it.
+      outcome: "cancelled",
     };
     turns.push(record);
+    operationOf.set(record, binding.operationId);
     open.add(record);
     if (!record.nudge && context.kind === "turn") await events.onTurnStarted?.(record);
 
@@ -758,6 +777,26 @@ export function createScriptedHost(
     sets,
     agents,
     inFlight: () => [...open],
+    settle(recorded) {
+      const engine = new Map(
+        recorded.flatMap((line) =>
+          line.kind === "turn" ? [[line.operationId, line.outcome]] : [],
+        ),
+      );
+      const last = new Map<string, TestTurn>();
+      for (const turn of turns) last.set(operationOf.get(turn)!, turn);
+      for (const [operation, turn] of last) turn.outcome = engine.get(operation) ?? turn.outcome;
+      // Matched by place: the harness's compact() carries no operation id, and an agent's compactions run in order,
+      // one `compact` line per compaction the host saw.
+      const compacted = recorded.filter((line) => line.kind === "compact");
+      const seen = new Map<string, number>();
+      for (const compaction of compactions) {
+        const n = seen.get(compaction.agent) ?? 0;
+        seen.set(compaction.agent, n + 1);
+        const line = compacted.filter((each) => each.agent === compaction.agent)[n];
+        if (line) compaction.outcome = line.outcome;
+      }
+    },
   };
 }
 
@@ -848,7 +887,7 @@ function refusedCompaction(activation: HarnessActivation, hasRun: boolean): stri
 }
 
 type Ended = Exclude<
-  Extract<Step, { kind: "reply" }>["ending"],
+  Extract<Step, { kind: "no-answer" }>["ending"],
   { kind: "waiting" | "hang" | "interrupted" }
 >;
 
@@ -861,7 +900,7 @@ function ended(ending: Ended, harness: string): FakeAdapterTurn {
   return check
     ? {
         state: "failed",
-        ...loginFailure(harness, check, { ...provider, said: "reply.needsLogin()" }),
+        ...loginFailure(harness, check, { ...provider, said: "noAnswer.needsLogin()" }),
       }
     : {
         state: "failed",

@@ -55,8 +55,9 @@ test("between the release and its first day, the run is parked at the race", asy
     agents: { engineer: smoke },
     maxTimers: 0,
   });
-  expect(run.parked?.label).toBe("watching 2.4.0");
-  expect(run.parked?.until).toBe(
-    run.timers.find((t) => t.name === "first-day@quiet")?.due,
-  );
+  expect(run.ending).toMatchObject({ kind: "parked", label: "watching 2.4.0" });
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    until: run.timers.find((t) => t.name === "first-day@quiet")?.due,
+  });
 });

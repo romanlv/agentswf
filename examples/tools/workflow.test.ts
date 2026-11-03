@@ -110,7 +110,6 @@ describe("tools", () => {
             kind: "result",
             output: "Closed.",
           });
-          return message.silent();
         },
       },
     });

@@ -100,7 +100,7 @@ export class ParticipantScripts implements CoordinatorPort {
     const script = this.#scripts[coordinator];
     if (!script) {
       this.#events.onScriptError(
-        `${event.kind === "route" ? "a route" : "a message"} reached coordinator "${coordinator}", which has no script under coordinators`,
+        `${event.kind === "route" ? "a route" : "a message"} reached participant "${coordinator}", which has no script under participants`,
       );
       return;
     }
@@ -111,7 +111,7 @@ export class ParticipantScripts implements CoordinatorPort {
       .then(() => script(event))
       .catch((error: unknown) =>
         this.#events.onScriptError(
-          `coordinator "${coordinator}"'s script threw: ${error instanceof Error ? error.message : String(error)}`,
+          `participant "${coordinator}"'s script threw: ${error instanceof Error ? error.message : String(error)}`,
         ),
       )
       .finally(() => {

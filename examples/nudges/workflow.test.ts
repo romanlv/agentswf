@@ -48,7 +48,10 @@ describe("nudges", () => {
       agents: { writer },
       maxTimers: 0,
     });
-    expect(run.parked?.label).toBe("awaiting an answer, 0 nudged");
-    expect(run.parked?.until).toBeDefined();
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      label: "awaiting an answer, 0 nudged",
+      until: expect.any(String),
+    });
   });
 });

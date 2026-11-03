@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import timedReview, { FINDINGS } from "./timeouts";
 
 test("both reviews answer within the budget", async () => {
@@ -25,7 +25,7 @@ test("a reviewer that goes quiet is nudged in the workflow's words, and answers"
     {
       agents: {
         "review:correctness": answer(FINDINGS, (turn) =>
-          turn.nudge ? { findings: ["partial: paging"] } : reply.silent(),
+          turn.nudge ? { findings: ["partial: paging"] } : noAnswer.silent(),
         ),
         "review:tests": answer(FINDINGS, { findings: [] }),
       },
@@ -43,7 +43,7 @@ test("a turn past its timeoutMs ends timed-out, and the run goes on to the next"
     { minutes: 20 },
     {
       agents: {
-        "review:correctness": reply.timedOut(),
+        "review:correctness": noAnswer.timedOut(),
         "review:tests": answer(FINDINGS, { findings: ["no test for paging"] }),
       },
     },
@@ -55,20 +55,24 @@ test("no answer at all stops the run on purpose, saying why", async () => {
   const run = await testWorkflow(
     timedReview,
     { minutes: 20 },
-    { agents: { "review:*": reply.silent() } },
+    { agents: { "review:*": noAnswer.silent() } },
   );
-  expect(run.stopped?.reason).toBe(
-    "no review answered: unanswered, unanswered",
-  );
+  expect(run.ending).toMatchObject({
+    kind: "stopped",
+    reason: "no review answered: unanswered, unanswered",
+  });
 });
 
 test("past the parallel deadline, the review stops instead of failing", async () => {
   const run = await testWorkflow(
     timedReview,
     { minutes: 0.001 },
-    { agents: { "review:*": reply.hang() } },
+    { agents: { "review:*": noAnswer.hang() } },
   );
-  expect(run.stopped?.reason).toBe("the reviews took over 0.001 minutes");
+  expect(run.ending).toMatchObject({
+    kind: "stopped",
+    reason: "the reviews took over 0.001 minutes",
+  });
   // One at a time: the second review never started.
   expect(run.turnsOf("review:tests")).toHaveLength(0);
 });

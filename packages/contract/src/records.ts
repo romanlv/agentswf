@@ -23,7 +23,12 @@ import type {
 import type { HarnessAllowance } from "./workflow/allowance";
 import type { DecisionRecord, Question } from "./workflow/decisions";
 import type { EmitOutcome, EventId } from "./workflow/events";
-import type { AttemptOutcome, StageSummary, UnfinishedOutcome } from "./workflow/executable";
+import type {
+  AttemptOutcome,
+  StageNeed,
+  StageSummary,
+  UnfinishedOutcome,
+} from "./workflow/executable";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -477,8 +482,7 @@ export type StageRecord = {
   provided?: true;
 };
 
-/** A stage a run can't start at a later stage without: its value, which `--values` gives. */
-export type StageNeed = { stage: string; schema: JsonSchema };
+export type { StageNeed } from "./workflow/executable";
 
 export const TURN_RECORD_VERSION = 1 as const;
 

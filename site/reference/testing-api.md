@@ -18,26 +18,27 @@ has the types, with every field documented.
   [`testWorkflow(eventWorkflow, options)`](#a-workflow-with-events) for a workflow with events;
   [`awf test`](#awf-test) runs the files.
 - **Script a turn:** [`answer(SCHEMA, value | (turn) => …)`](#answer), [`answer("text")`](#answer),
-  [`reply.silent()`, `blocked()`, `failed()`, `timedOut()`, `hang()`, `interrupted()`,
-  `needsLogin()`, `waiting()`](#reply); a script is [one entry or a list](#scripts), and a
-  function gets [the turn](#the-turn).
+  [`noAnswer.silent()`, `blocked()`, `failed()`, `timedOut()`, `hang()`, `interrupted()`,
+  `needsLogin()`](#noanswer); a script is [one entry or a list](#scripts), and a function gets
+  [the turn](#the-turn).
 - **Options:** [`agents`](#scripts), [`compactions`](#compactions), [`messages`](#messages),
-  [`awaitReply`](#awaitreply), [`participants`](#participants), [`decisions`](#decisions),
+  [`participants`](#participants), [`decisions`](#decisions),
   [`allowance`](#allowance), [`runtimes`](#runtimes), [`caller`](#caller),
   [`timeoutMs`](#time), [`stallMs`](#time), [`maxTimers`](#time), [`files`](#files),
   [`cwd`](#files), [`recorded`, `fromStage`, `values`](#continuing-over-recorded-stages); with
   events, [`id`, `args`, `event`, `events`, `maxTurns`, `mailbox`](#a-workflow-with-events).
   [Options](#options) has them in one table, with defaults.
-- **Read the result:** [`run.value`, `run.turnsOf(key)`, `run.agentOf(key)`, `run.messagesOf(key)`
-  and the rest](#what-the-run-did).
+- **Read the result:** [`run.value`, `run.ending`, `run.turnsOf(key)`, `run.agentOf(key)`,
+  `run.messagesOf(key)` and the rest](#what-the-run-did).
 - **Know what fails:** [what fails the test, not the workflow](#what-fails-the-test-not-the-workflow).
+- **Old forms:** [Deprecated](#deprecated) lists the ones that still work, and what replaces each.
 
 ## `testWorkflow` {#testworkflow}
 
 ```ts
 // summarize.test.ts
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import summarize, { SUMMARY } from "./summarize";
 
 test("returns the reader's summary", async () => {
@@ -50,7 +51,7 @@ test("returns the reader's summary", async () => {
 
 test("a reader that never answers is nudged once, then the summary says why", async () => {
   const run = await testWorkflow(summarize, { file: "README.md" }, {
-    agents: { reader: reply.silent() },
+    agents: { reader: noAnswer.silent() },
   });
   expect(run.value.summary).toStartWith("no answer:");
   expect(run.turnsOf("reader").map((turn) => turn.nudge)).toEqual([false, true]);
@@ -73,7 +74,6 @@ test("a reader that never answers is nudged once, then the summary says why", as
 | [`agents`](#scripts) | none | each agent's script, by key or pattern |
 | [`compactions`](#compactions) | each compaction answers `""` | each agent's compactions |
 | [`messages`](#messages) | none | each agent's script for a message that wakes it |
-| [`awaitReply`](#awaitreply) | `"listed"` | where an agent may await a reply |
 | [`participants`](#participants) | none | each participant's script, by key |
 | [`decisions`](#decisions) | none | each decision's answers, by key or pattern |
 | [`allowance`](#allowance) | every harness reads `none` | what `wf.allowance` reads |
@@ -119,26 +119,26 @@ const run = await testWorkflow(featureDelivery, args, {
 - **`answer(SCHEMA, value)`** answers a turn that asks for `SCHEMA`, with a value typed by it and
   checked against it as a real answer is.
 - **`answer(SCHEMA, (turn) => …)`** answers from [the turn](#the-turn). It may be `async`, and may
-  return a `reply.…()` instead of a value; then it is called again for the nudge, with
+  return a `noAnswer.…()` instead of a value; then it is called again for the nudge, with
   `turn.nudge` true.
 - **`answer("text")`** and **`answer((turn) => "…")`** answer a turn that asks for text.
 
 The entry's schema must be the turn's, compared as JSON Schema, or the test fails.
 
-### `reply` {#reply}
+### `noAnswer` {#noanswer}
 
-A `reply` ends a turn without an answer. It takes no schema.
+A `noAnswer` ends a turn without an answer, so it takes no schema. The turn's `outcome` in
+[`run.turns`](#what-the-run-did) is the one the engine recorded.
 
-| Call | The turn |
-| --- | --- |
-| `reply.silent()` | ends with no answer; awf nudges it once, as in a real run, and the same entry meets the nudge |
-| `reply.blocked(reason?)` | ends `blocked`; the reason defaults to a permission prompt |
-| `reply.failed(reason?)` | ends `failed`, as a crashed harness does |
-| `reply.timedOut(reason?)` | ends `timed-out` at once |
-| `reply.hang()` | holds until the engine cancels it, for a deadline or a sibling's failure |
-| `reply.interrupted()` | ends `cancelled`, as when the operator stops the calling session's turn in its pane; never nudged. On any other agent the test fails |
-| `reply.needsLogin(provider?)` | fails with `login` set, as a missing login does, naming the agent's harness |
-| `reply.waiting(reason, timeoutMs?)` | reports `wfa waiting`, which only a claude TUI agent the run opened may; elsewhere, the calling session included, the test fails |
+| Call | The turn | Its `outcome` |
+| --- | --- | --- |
+| `noAnswer.silent()` | ends with no answer; awf nudges it once, as in a real run, and the same entry meets the nudge | `unanswered` |
+| `noAnswer.blocked(reason?)` | ends `blocked`; the reason defaults to a permission prompt | `blocked` |
+| `noAnswer.failed(reason?)` | ends `failed`, as a crashed harness does | `failed` |
+| `noAnswer.timedOut(reason?)` | ends `timed-out` at once | `timed-out` |
+| `noAnswer.hang()` | holds until the engine cancels it, for a deadline or a sibling's failure | `timed-out` past a deadline, else `cancelled` |
+| `noAnswer.interrupted()` | ends `cancelled`, as when the operator stops the calling session's turn in its pane; never nudged. On any other agent the test fails | `cancelled` |
+| `noAnswer.needsLogin(provider?)` | fails with `login` set, as a missing login does, naming the agent's harness | `failed` |
 
 ### The turn {#the-turn}
 
@@ -155,7 +155,8 @@ A function entry gets the turn as the workflow asked it:
 ### `compactions` {#compactions}
 
 `compactions` scripts an agent's compactions apart from its turns, as `agents` does: `answer("…")`
-or a `reply`, or a list, one per compaction. An agent with none here has every compaction answer
+or a `noAnswer`, or a list, one per compaction. A silent one fails, as the engine fails a
+compaction its harness never confirms. An agent with none here has every compaction answer
 `""`. [`run.compactionsOf(key)`](#what-the-run-did) lists them.
 
 ## Messages
@@ -185,15 +186,13 @@ const asking = (change: string, summary: string) =>
   the agent is told.
 - **`messages`** maps an agent's key, or a pattern, to the script for each message that wakes it:
   `(message) => …`, or a list, one per message. `message` has `from`, `text`, `asks`, `answers`
-  and `turn`, and `reply`, `send`, `tool`, `silent()` and `fail(reason?)`; returning ends the turn
-  as `silent()` does. An agent a message wakes with no script here fails the test.
+  and `turn`, and `reply`, `send` and `tool`. Returning nothing ends the turn without a reply,
+  and one owed is reminded once; returning a [`noAnswer`](#noanswer), such as
+  `noAnswer.failed(reason)`, ends it that way. An agent a message wakes with no script here fails
+  the test, and so does a script that throws.
 - **[`run.messagesOf(key)`](#what-the-run-did)** is the messages an agent got and how each ended;
   a turn's `cause` says which message started it.
-
-### `awaitReply` {#awaitreply}
-
-`"listed"`, the default, lets an agent await a reply where a real run would, by its harness and
-placement. `"anywhere"` lets a test await one on a harness the engine doesn't list yet.
+- An agent awaits a reply where a real run would let it, by its harness and placement.
 
 ## Participants
 
@@ -291,7 +290,7 @@ Without it, both answer `null`.
 
 - **`timeoutMs`** is the run's deadline, none unless given, as `awf run` has none without
   `--timeout`. Deadlines are real time: a turn's `timeoutMs` runs on the clock, and
-  `reply.timedOut()` ends a turn as timed out at once.
+  `noAnswer.timedOut()` ends a turn as timed out at once.
 - **`stallMs`**, 2 s by default: nothing starting or ending for that long fails the test, so a
   stuck test fails rather than hangs. A wait for a participant question's `until` doesn't count.
 - **The clock is virtual.** Where the run would park with a timer to come, the test moves its
@@ -317,9 +316,18 @@ the sandbox evals check what a real provider enforces.
 - **`run.value`** is what the workflow returned. If it threw, reading `value` throws, with the
   workflow's error as the cause: `expect(() => run.value).toThrow("lens ids must be unique")`.
   So does a run that parked.
-- **`run.turnsOf(key)`** is one agent's turns in order, nudges included: `agent`, `prompt`,
-  `schema`, `label`, `n`, `nudge`, `cwd`, `model`, `effort`, `stage`, `cause`, `messages` and `outcome`.
-  **`run.turns`** has everyone's, in the order they started.
+- **`run.ending`** is how the attempt ended, the `Ending` a workflow's
+  [`present` and `report`](/reference/workflow-api#ending) get: `completed` with its
+  `value`, `parked` with its last wait's `label` and `until`, or `stopped`, `failed`, `timed-out`
+  or `cancelled` with the `stage` it ended in, the `reason`, and the command that goes on; each
+  with its `stages`. `expect(run.ending).toMatchObject({ kind: "stopped", stage: "plan" })`.
+- **`run.turnsOf(key)`** is one agent's turns, `TestTurn`s, in order, nudges included: `agent`,
+  `prompt`, `schema`, `label`, `n`, `nudge`, `cwd`, `model`, `effort`, `stage`, `cause`,
+  `messages` and `outcome`. A call's last turn has the outcome the engine recorded for it:
+  `answered`, `unanswered`, `blocked`, `failed`, `timed-out` or `cancelled`. A turn before it
+  is `unanswered` when a nudge followed, `waiting` for a check-in, and `awaiting-reply` for a
+  script that awaits one. **`run.turns`** has everyone's, in
+  the order they started.
 - **`run.compactionsOf(key)`** and **`run.setsOf(key)`** are its compactions and model or effort
   switches; **`run.compactions`** and **`run.sets`** have everyone's.
 - **`run.agentOf(key)`** is what an agent was opened with: `key`, `execution`, `instructions`,
@@ -331,10 +339,8 @@ the sandbox evals check what a real provider enforces.
   with a `reason`.
 - **`run.decisions`**, **`run.logs`** and **`run.stages`** are the decision calls, log lines and
   stage records.
-- **`run.stopped`** is `{ reason, stage?, needs? }` when the attempt stopped, as `wf.stop` stops
-  it.
 - **`run.timers`** is each timer, its `due` time, and `state`: `fired`, `cancelled` or `pending`.
-- **`run.emits`**, **`run.parked`** and **`run.mailbox`** are for
+- **`run.emits`** and **`run.mailbox`** are for
   [a workflow with events](#a-workflow-with-events).
 
 Under `parallel`, read agents by key, not by index. To prove two agents work at once, make one's
@@ -360,7 +366,10 @@ const run = await testWorkflow(caseRun, {
     },
   ],
 });
-expect(run.parked?.label).toBe("waiting on the thread about checkout-timeouts");
+expect(run.ending).toMatchObject({
+  kind: "parked",
+  label: "waiting on the thread about checkout-timeouts",
+});
 expect(run.turnsOf("investigator")[1]?.prompt).toContain("is it the index?");
 expect(run.emits).toEqual([]);
 ```
@@ -378,8 +387,9 @@ expect(run.emits).toEqual([]);
   (`after: "{agent}#{n}"`) and the run waits live in a `keepAlive` window. A reply's `author`
   defaults to `engineer`. An event whose turn never runs, or an `after` event the run parked before
   sending, fails the test.
-- **`id`**, optional on `event` and on each of `events`, is the event's id in the run's mailbox,
-  `awf.start` and `awf.test.{n}` by default; one given twice fails the test. Each is stamped with
+- **`eventId`**, optional on `event` and on each of `events`, is the event's id in the run's
+  mailbox, as `awf emit --event-id` gives it, `awf.start` and `awf.test.{n}` by default; one given
+  twice fails the test. Each is stamped with
   the test's clock as it is sent.
 - `n` counts the turns the workflow started: a nudge or a wake for a message keeps the turn's
   number, so with one, `#2` is not `turnsOf(agent)[1]`.
@@ -390,8 +400,8 @@ expect(run.emits).toEqual([]);
   run that starts more fails the test, so a loop that never parks doesn't hang it.
 - **`mailbox`** lays out what an earlier attempt left, and the test is its continue.
 - The test returns when the run parks or returns; `run.value` throws for a parked run.
-- **`run.parked`** is `{ label?, until? }` of the wait it parked at; **`run.mailbox`** is its
-  mailbox as it left it.
+- **`run.ending`** is `parked`, with the `label` and `until` of the wait it parked at;
+  **`run.mailbox`** is its mailbox as it left it.
 - **`run.emits`** is every event it sent another workflow, `{ ref, name, data, eventId? }`, the
   `eventId` its `wf.emit` gave; a test starts no other run, so none is delivered.
 
@@ -419,8 +429,7 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 - a turn past a list's end, or a list entry never reached;
 - an answer the turn's schema refuses, or a result while the agent owes a reply;
 - a script that throws;
-- `reply.interrupted()` on an agent other than the calling session, or `reply.waiting()` where
-  `wfa waiting` isn't offered;
+- `noAnswer.interrupted()` on an agent other than the calling session;
 - a stall: nothing starting or ending for `stallMs`, so a stuck test fails rather than hangs;
 - with events, more than `maxTurns` turns, or a scripted event never sent.
 
@@ -434,3 +443,23 @@ awf test summarize.test.ts -t nudged   # one file, the tests whose names match
 `awf test` serves `agentswf/workflow`, `agentswf/testing` and `typebox` itself, so nothing needs
 installing, and takes paths, `-t`, `--watch` and `--timeout` (5 s a test by default). Its help is
 on [the `awf` reference](/reference/awf#test).
+
+## Deprecated
+
+These still compile and work until 0.1.0. Each test that uses one logs it once, in `run.logs`,
+as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read.
+
+| Old form | Instead |
+| --- | --- |
+| `reply.silent()`, `reply.failed()` and the rest | `noAnswer.silent()`, `noAnswer.failed()`: the same calls. A reply answers. |
+| `message.silent()` in a message script | Return nothing. |
+| `message.fail(reason)` in a message script | Return `noAnswer.failed(reason)`. |
+| `run.stopped` | [`run.ending`](#what-the-run-did), whose `kind` is `stopped`. |
+| `run.parked` | `run.ending`, whose `kind` is `parked`. |
+| `id` on `event` and on each of `events` | `eventId`. |
+
+A turn's `outcome` changed without a deprecation: it is the one the engine recorded, where it was
+the script's word. A turn its script left silent is `unanswered`, where it was `silent`;
+`needsLogin()` is `failed`, `interrupted()` is `cancelled`, `hang()` is `timed-out` or
+`cancelled`, and a silent compaction is `failed`. A test that
+compares an outcome with the old word fails, and `tsc --noEmit` flags the comparison.

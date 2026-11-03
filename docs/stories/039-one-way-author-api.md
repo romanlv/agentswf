@@ -196,7 +196,7 @@ once per attempt with its replacement, and none survives into 0.1.0.
 Betas from the design's §8 in brackets.
 
 - [x] 1. Unbuilt and unused names out, old forms deprecated, waits name the agent, `agentswf/workflow` an explicit list (A)
-- [ ] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
+- [x] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
 - [ ] 3. One context type, and `--from-stage` for every run (B)
 - [ ] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
 - [ ] 5. One duration and `timeout` in the API (B)
@@ -267,16 +267,17 @@ Outcome: in a test, `reply` only ever means answering.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
 - `reply.*` becomes `noAnswer.*`, and `message.silent()`/`fail()` become returning nothing, or
-  throwing (§5).
+  returning `noAnswer.failed(reason)` (§5). A throw stays a script error that fails the test, so
+  a failing `expect` in a message script can't become a failed turn the workflow tolerates.
 - `run.ending` replaces `run.stopped` and its sibling accessors.
 - An event's id is `eventId`, in test options and in scripted events.
 - `TestTurn` and `TestTurnOutcome` replace testing's `TurnRecord` and `TurnOutcome`, and record the
@@ -586,6 +587,26 @@ Correctness and proof review:
 - `receive({ take: "all" })`, the old default, is accepted; only `"oldest"` is refused.
 - The reporter does nothing once the attempt has ended.
 
+### Task 2
+
+Architecture and scope review:
+- A throwing message script failed the turn, so a failing `expect` in one became a failed agent a
+  workflow could tolerate. Reversed: a throw fails the test; `return noAnswer.failed(reason)`
+  fails the turn. The design's §5 example and task 2's Work say so.
+- A `listenDeprecations` seam in the runner was unneeded: the test owns one `RunDeprecations`.
+- The recorded outcome was re-derived from the script, and a hung turn the engine timed out read
+  `cancelled`. Turns now take the engine's recorded outcome, matched by operation id.
+- `needs` had no home on `run.ending`: added to the contract's `Ending`, from the stop, so `report`
+  sees it too; the on-disk records are unchanged.
+- `awaitReply` was taken off the surface through a symbol key on `TestOptions`; an internal
+  `runTest` that `testWorkflow` wraps replaced it.
+
+Correctness and proof review: the hung-turn outcome and the weakened `needs` assertion above, and a
+cast that could build an invalid ending, now an explicit narrow. A targeted re-review of the fixes
+found the records unchanged and asked for a test pinning `needs` in `output.json` (added), and a
+throw after a suspended turn reported as the throw (fixed). Compactions are still matched to the
+engine's records by position: the harness's `compact` carries no operation id.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -606,6 +627,41 @@ Correctness and proof review:
 - Deprecations: one list, `engine/src/deprecations.ts`, which task 10 deletes with its uses.
 - A test that set a 10 ms nudge deadline before its agent opened failed under load, on `main` too;
   it now sets the deadline after the open.
+
+### Task 2
+
+- A test logs its own deprecated forms through a `RunDeprecations` of its own, made before the
+  run, whose lines go into `run.logs` as the runner's warnings do, `{ message }`. It is told an
+  event's `id` from the options; a `reply.…()` value, built before any run, carries its
+  deprecated name, which the scripted host reports when it consumes the entry, as do
+  `message.silent()` and `fail()`; and `run.stopped` and `run.parked` report on first read. Those
+  two are not enumerable, so spreading a run reads neither. The runner's own instance keeps task
+  1's names; the two sets don't overlap, and the runner gained no seam.
+- A turn's `outcome` is the engine's: once the run has ended, each operation's last turn takes the
+  outcome its line in the run's turns records, matched by operation id, and each compaction the
+  agent's compaction line in order (its operation id is the engine's own). A turn before that keeps
+  the host's word: `unanswered` when a nudge followed, `waiting`, or `awaiting-reply`. This is a
+  value change, not a name, so it can't be deprecated: `silent` is now `unanswered`; `needsLogin`
+  `failed`; `interrupted` `cancelled`; `hang` `timed-out` past a deadline, else `cancelled`; a
+  silent compaction `failed`. `tsc` flags a test comparing the old word, and the testing reference
+  says so beside its deprecated table. In flight, a turn is known by the host's open set.
+- `TurnRecord` and `TurnOutcome` were never exported from `agentswf/testing`, so they get no
+  deprecated aliases: `TestTurn` and `TestTurnOutcome` are simply exported.
+- A message script that throws fails the test, as a throwing `answer(fn)` does, so a failing
+  `expect` inside one can't pass as a failed turn the workflow catches. Failing the turn on purpose
+  is `return noAnswer.failed(reason)`; `message.fail()` is deprecated in favour of it. This departs
+  from the design's "or throwing".
+- `testWorkflow` wraps `runTest(workflow, args, options, engine?)` in `run-test.ts`, which
+  `index.ts` doesn't export; the engine's own tests call it with `{ awaitReply: "anywhere" }`.
+  `waiting` stays in `script.ts`, likewise unexported.
+- `run.ending` is `decideEnding`'s, as `awf run` decides it. Its `continue` names the workflow's
+  file where it has one, a workflow with events, and its name otherwise: a plain workflow carries
+  no path. An attempt the test ended because everything waited on a participant is `cancelled`
+  with that reason, or `completed` if the workflow returned.
+- `Ending`'s unfinished kinds gained `needs?: StageNeed[]`, as the attempt record already had, so
+  `present`, `report` and `run.ending` see what a stop for `--values` needs; `StageNeed` moved to
+  the contract's `workflow/executable.ts`, re-exported from records, and `AttemptEnd.needs` went,
+  its readers taking the ending's.
 
 ## Human review
 

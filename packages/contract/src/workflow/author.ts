@@ -75,6 +75,7 @@ export type {
 export type {
   AttemptOutcome,
   Ending,
+  StageNeed,
   StageSummary,
   UnfinishedOutcome,
   Workflow,

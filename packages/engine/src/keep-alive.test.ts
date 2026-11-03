@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
 import { defineWorkflow, type EventAgentOpenSpec } from "@agentswf/contract/workflow";
 import { caseRun, startCase } from "./testing";
-import { answer, reply, testWorkflow } from "./workflow-testing";
+import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
 type KeepAlive = NonNullable<EventAgentOpenSpec["keepAlive"]>;
 
@@ -37,7 +37,7 @@ test("an event in the window is taken by the same attempt; the run parks once it
       events: [changes("investigator#1")],
     },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(run.turnsOf("investigator")).toHaveLength(2);
   // Once, after the second turn's window; its compaction is the agent's.
   expect(calls).toHaveLength(1);
@@ -94,7 +94,7 @@ test("a turn onTimeout runs, awaited or started, opens no window; a turn after i
     }),
     { ...startCase, agents: { investigator: answer("done") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(run.turnsOf("investigator").map((turn) => turn.prompt)).toEqual([
     "look",
     "wrap up",
@@ -120,7 +120,7 @@ test("a handler's own turns, awaited and started, with nothing after them, leave
     }),
     { ...startCase, agents: { investigator: answer("done") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toHaveLength(1);
   expect(run.turnsOf("investigator")).toHaveLength(3);
   // No window after the handler's turns: it parks well before another would pass.
@@ -157,7 +157,7 @@ test("an event during onTimeout is returned once it finishes, and its turn opens
       events: [{ during: "investigator#2", name: "dd.changes", data: { case: "k" } }],
     },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(order).toEqual(["start", "handler", "handler done", "event", "handler", "handler done"]);
 });
 
@@ -198,7 +198,7 @@ test("a window that passes while another agent works is handled at the next idle
       },
     },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls.investigator).toHaveLength(1);
   expect(calls.investigator[0]).toBeGreaterThanOrEqual(lensEnded);
   expect(calls.lens).toHaveLength(1);
@@ -230,7 +230,7 @@ test("two agents' windows pass each on its own clock; the run parks after the la
     }),
     { ...startCase, agents: { quick: answer("a"), slow: answer("b") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toEqual(["quick", "slow"]);
   expect(at.quick).toBeLessThan(at.slow! - 200);
   expect(Date.now() - started).toBeGreaterThanOrEqual(500);
@@ -246,9 +246,9 @@ test("a turn that fails closes the agent: no window, no onTimeout, and the run p
         calls.push("handler");
       },
     }),
-    { ...startCase, agents: { investigator: reply.failed("harness crashed") } },
+    { ...startCase, agents: { investigator: noAnswer.failed("harness crashed") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toEqual([]);
   expect(Date.now() - started).toBeLessThan(2_000);
 });
@@ -263,7 +263,7 @@ test("a handler that throws is logged, and the run parks anyway", async () => {
     }),
     { ...startCase, agents: { investigator: answer("looked") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(run.logs.map((line) => line.message)).toContain(
     "awf: agent investigator's onTimeout threw: no focus",
   );
@@ -335,10 +335,10 @@ test("a peer's message that reaches the agent during its handler is the peer's t
           return "noted";
         }),
       },
-      messages: { investigator: (message) => message.silent() },
+      messages: { investigator: () => undefined },
     },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   // Called again for the window the message's turn opened.
   expect(calls).toEqual([0, 1]);
 });
@@ -377,7 +377,7 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
       agents: { investigator: answer("looked") },
     },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toEqual([]);
 });
 
@@ -420,7 +420,7 @@ test("a reopen takes the new keepAlive; one that leaves it out keeps what the ag
     }),
     { ...startCase, agents: { investigator: answer("looked") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toEqual(["second"]);
 });
 
@@ -434,7 +434,7 @@ test("in a test, a window that gives no timeoutMs is short, not the hour, so the
     }),
     { ...startCase, agents: { investigator: answer("looked") } },
   );
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(calls).toEqual(["handler"]);
 });
 

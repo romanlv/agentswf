@@ -33,7 +33,7 @@ test("a reply scripted during a turn is taken at the next wait and given to the 
       },
     ],
   });
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
   expect(run.turnsOf("investigator").map((turn) => turn.prompt)).toEqual([
     "Look. Replies: ",
     "Look. Replies: engineer: is it the unique index?",
@@ -114,7 +114,7 @@ test("events due at one turn arrive in the order given, an own event from the op
       ...startCase,
       agents: { investigator: answer("done") },
       events: [
-        { during: "investigator#1", name: "dd.changes", data: { case: "k" }, id: "c2" },
+        { during: "investigator#1", name: "dd.changes", data: { case: "k" }, eventId: "c2" },
         {
           during: "investigator#1",
           name: "participant:reply",
@@ -131,7 +131,7 @@ test("events due at one turn arrive in the order given, an own event from the op
   ]);
 });
 
-test("files outside the run's directory, and an id given twice, are refused", async () => {
+test("files outside the run's directory, and an eventId given twice, are refused", async () => {
   await expect(
     testWorkflow(
       caseRun(async () => null),
@@ -143,8 +143,8 @@ test("files outside the run's directory, and an id given twice, are refused", as
       caseRun(async () => null),
       {
         id: "k",
-        event: { name: "dd.changes", data: { case: "k" }, id: "c1" },
-        events: [{ during: "a#1", name: "dd.changes", data: { case: "k" }, id: "c1" }],
+        event: { name: "dd.changes", data: { case: "k" }, eventId: "c1" },
+        events: [{ during: "a#1", name: "dd.changes", data: { case: "k" }, eventId: "c1" }],
       },
     ),
   ).rejects.toThrow("given twice");

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import reviewLoop, { DONE, VERDICT } from "./index";
 
 const args = { task: "Add a --dry-run flag" };
@@ -48,8 +48,11 @@ describe("the landing page's review loop", () => {
 
   test("an implementer that fails stops the run, naming it", async () => {
     const run = await testWorkflow(reviewLoop, args, {
-      agents: { implementer: reply.failed("harness crashed") },
+      agents: { implementer: noAnswer.failed("harness crashed") },
     });
-    expect(run.stopped?.reason).toBe("implementer: harness crashed");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: "implementer: harness crashed",
+    });
   });
 });

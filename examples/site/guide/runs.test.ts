@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import shipTicket, { BUILT, PLAN } from "./runs";
 
 const args = { ticket: "ABC-1" };
@@ -8,9 +8,9 @@ const built = { branch: "abc-1", summary: "built" };
 
 test("a builder that never answers stops the attempt in build, with plan recorded", async () => {
   const run = await testWorkflow(shipTicket, args, {
-    agents: { planner: answer(PLAN, plan), builder: reply.silent() },
+    agents: { planner: answer(PLAN, plan), builder: noAnswer.silent() },
   });
-  expect(run.stopped).toMatchObject({ stage: "build" });
+  expect(run.ending).toMatchObject({ kind: "stopped", stage: "build" });
   expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
     ["plan", "succeeded"],
     ["build", "stopped"],
@@ -36,7 +36,12 @@ test("--from-stage build with no plan recorded stops, naming the value it needs"
     fromStage: "build",
     agents: {},
   });
-  expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["plan"]);
+  expect(run.ending).toMatchObject({
+    kind: "stopped",
+    stage: "plan",
+    needs: [expect.objectContaining({ stage: "plan" })],
+    continue: expect.stringContaining("--from-stage build --values {file}"),
+  });
 });
 
 test("--from-stage build with --values starts at build, the plan provided", async () => {

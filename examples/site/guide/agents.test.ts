@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 import scopeIssue, { changelog, PLAN, planAndReview, SCOPE } from "./agents";
@@ -20,9 +20,12 @@ describe("scope-issue", () => {
 
   test("any other ending stops the run with its kind and reason", async () => {
     const run = await testWorkflow(scopeIssue, null, {
-      agents: { scoper: reply.blocked("a permission prompt is showing") },
+      agents: { scoper: noAnswer.blocked("a permission prompt is showing") },
     });
-    expect(run.stopped?.reason).toBe("blocked: a permission prompt is showing");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: "blocked: a permission prompt is showing",
+    });
   });
 });
 
@@ -45,7 +48,7 @@ const TWO_TURNS = defineWorkflow({
 
 describe("endings", () => {
   test("unanswered and blocked leave the agent open for another turn", async () => {
-    for (const ending of [reply.silent(), reply.blocked()]) {
+    for (const ending of [noAnswer.silent(), noAnswer.blocked()]) {
       const run = await testWorkflow(TWO_TURNS, null, {
         agents: { a: [ending, answer("ok")] },
       });
@@ -54,7 +57,7 @@ describe("endings", () => {
   });
 
   test("failed and timed-out close the agent: its next turn rejects", async () => {
-    for (const ending of [reply.failed(), reply.timedOut()]) {
+    for (const ending of [noAnswer.failed(), noAnswer.timedOut()]) {
       const run = await testWorkflow(TWO_TURNS, null, {
         agents: { a: [ending] },
       });
@@ -74,7 +77,7 @@ describe("endings", () => {
       },
     });
     const run = await testWorkflow(LOGIN, null, {
-      agents: { a: reply.needsLogin() },
+      agents: { a: noAnswer.needsLogin() },
     });
     expect(run.value).toMatchObject({
       harness: "claude",
@@ -118,7 +121,7 @@ describe("plan-and-review", () => {
           answer("Expire the cache on write"),
         ],
         security: answer("No problems."),
-        tests: reply.failed("codex exited"),
+        tests: noAnswer.failed("codex exited"),
       },
       compactions: { planner: answer("The plan: expire the cache on write.") },
     });

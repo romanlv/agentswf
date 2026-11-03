@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import review, { FINDINGS_SCHEMA } from "./workflow";
 
 const prepare = (...argv: string[]) => review.prepare({ argv, cwd: "/work" });
@@ -77,7 +77,7 @@ describe("single-agent-review", () => {
 
   test("a review that never comes fails the run with why", async () => {
     const run = await testWorkflow(review, prepare(), {
-      agents: { reviewer: reply.blocked("waiting on a permission prompt") },
+      agents: { reviewer: noAnswer.blocked("waiting on a permission prompt") },
     });
     expect(() => run.value).toThrow("no review: blocked: waiting on a permission prompt");
   });

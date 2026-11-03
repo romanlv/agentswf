@@ -249,6 +249,7 @@ await testWorkflow(review, { args, agents, earlier: { stages: { plan } } });
   // after
   agents: { tests: noAnswer.failed("codex exited") }
   messages: { closer: async (m) => { …; } }      // returning nothing already ends it silently
+  // and m.fail(reason) is return noAnswer.failed(reason); a throw still fails the test
   ```
 
 - **How the attempt ended is one field**, the `Ending` the workflow's `present` and `report` get:

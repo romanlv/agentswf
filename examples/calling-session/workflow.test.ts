@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import Type from "typebox";
 import { callingSession } from "./workflow";
 
@@ -48,7 +48,7 @@ describe("calling-session", () => {
     const run = await testWorkflow(
       callingSession,
       { helper: false },
-      { caller: { harness: "codex" }, agents: { author: reply.interrupted() } },
+      { caller: { harness: "codex" }, agents: { author: noAnswer.interrupted() } },
     );
     expect(() => run.value).toThrow("no number: cancelled");
   });

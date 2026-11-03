@@ -11,7 +11,7 @@ test("the first wait takes the event that started the run, under the id it made"
       const [first] = await workflow.receive({ label: "first" });
       return { run: workflow.runId, id: first?.id ?? null, data: first?.data ?? null };
     }),
-    { id: "kombo", event: { name: "dd.changes", data: { case: "kombo" }, id: "83d34d7" } },
+    { id: "kombo", event: { name: "dd.changes", data: { case: "kombo" }, eventId: "83d34d7" } },
   );
   expect(run.value).toEqual({ run: "kombo", id: "83d34d7", data: { case: "kombo" } });
 });
@@ -25,7 +25,7 @@ test("a run started by its id, with no event, parks at its first wait", async ()
     }),
     { id: "kombo" },
   );
-  expect(run.parked).toEqual({ label: "nothing yet" });
+  expect(run.ending).toMatchObject({ kind: "parked", label: "nothing yet" });
   expect(run.stages.map((record) => record.stage)).toEqual(["setup"]);
   await expect(
     testWorkflow(
@@ -75,7 +75,7 @@ test("a stage around a wait returns its batch, and one returning other events fa
       const batch = await workflow.stage("approval-1", () => workflow.receive());
       return batch.map((e) => e.id);
     }),
-    { id: "k", event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" }, eventId: "e1" } },
   );
   expect(kept.value).toEqual(["e1"]);
 
@@ -84,7 +84,7 @@ test("a stage around a wait returns its batch, and one returning other events fa
     caseRun(async (workflow) => {
       for (;;) await workflow.stage("approval-1", () => workflow.receive());
     }),
-    { id: "k", event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" }, eventId: "e1" } },
   );
   expect(() => again.value).toThrow("around a wait was entered again in this attempt");
 
@@ -162,7 +162,7 @@ test("one wait at a time", async () => {
   );
   expect(second).toContain("one wait at a time");
   // The first, with nothing to take and no turn running, parked the run.
-  expect(run.parked).toBeDefined();
+  expect(run.ending.kind).toBe("parked");
 });
 
 test("a starting event's data is checked against its schema", async () => {
@@ -217,7 +217,11 @@ test("a wait with nothing to take and no turn running parks the run, at its labe
     }),
     { id: "k", event: { name: "dd.changes", data: { case: "k" } }, maxTimers: 0 },
   );
-  expect(run.parked).toEqual({ label: "3 unseen", until: until.toISOString() });
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    label: "3 unseen",
+    until: until.toISOString(),
+  });
   expect(() => run.value).toThrow("the run parked");
 });
 
@@ -235,7 +239,7 @@ test("code that catches its park still parks, whatever it does after", async () 
     }),
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
-  expect(run.parked).toEqual({ label: "idle" });
+  expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
   expect(() => run.value).toThrow("the run parked");
 });
 
@@ -248,7 +252,7 @@ test("a wait in a stage that parks leaves the stage unrecorded, for the next att
     }),
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
-  expect(run.parked).toEqual({ label: "approval" });
+  expect(run.ending).toMatchObject({ kind: "parked", label: "approval" });
   expect(run.stages.map((s) => s.stage)).toEqual([]);
 });
 
@@ -268,7 +272,7 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
     }),
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
-  expect(run.parked).toEqual({ label: "idle" });
+  expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
   expect(order).toEqual(["slow done"]);
   expect(run.stages).toMatchObject([{ stage: "slow", outcome: "succeeded" }]);
 });
@@ -321,7 +325,7 @@ test("a race takes the first of what it names, under its branch, and cancels its
         started: workflow.started?.id ?? null,
       };
     }),
-    { ...startCase, event: { ...startCase.event, id: "c0" } },
+    { ...startCase, event: { ...startCase.event, eventId: "c0" } },
   );
   expect(run.value).toEqual({ key: "changes", id: "c0", started: "c0" });
   expect(run.mailbox.filter((r) => r.kind.startsWith("timer"))).toMatchObject([
@@ -357,7 +361,7 @@ test("sleep past its time goes on; one still to come parks the run until it", as
     }),
     { ...startCase, maxTimers: 0 },
   );
-  expect(run.parked).toEqual({ until: until.toISOString() });
+  expect(run.ending).toMatchObject({ kind: "parked", until: until.toISOString() });
 });
 
 test("select takes each event it names, one at a time, in the order of their at", async () => {

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, reply, testWorkflow } from "./index";
+import { answer, noAnswer, testWorkflow } from "./index";
+import { waiting } from "./script";
 
 const workflow: RunnableWorkflow<null, string> = {
   meta: { name: "waiting-test", description: "waiting test" },
@@ -17,7 +18,7 @@ test("scripted waiting is acknowledged through the real control plane and preser
   let calls = 0;
   const run = await testWorkflow(workflow, null, {
     agents: {
-      worker: [answer(() => (++calls < 4 ? reply.waiting("job", 1) : "done")), answer("next")],
+      worker: [answer(() => (++calls < 4 ? waiting("job", 1) : "done")), answer("next")],
     },
   });
   expect(run.value).toBe("done/next");
@@ -35,7 +36,7 @@ test("an async check-in answer is not raced by a tiny real-time response window"
     agents: {
       worker: [
         answer(async (turn) => {
-          if (!turn.nudge) return reply.silent();
+          if (!turn.nudge) return noAnswer.silent();
           await Bun.sleep(75);
           return "done";
         }),
@@ -66,7 +67,7 @@ for (const runtime of ["codex", "pi", "claude-headless"]) {
         runtimes: {
           pi: { harness: "pi", model: "test" },
         },
-        agents: { worker: answer((turn) => (turn.nudge ? "done" : reply.waiting("job", 1))) },
+        agents: { worker: answer((turn) => (turn.nudge ? "done" : waiting("job", 1))) },
       }),
     ).rejects.toThrow("waiting rejected");
   });

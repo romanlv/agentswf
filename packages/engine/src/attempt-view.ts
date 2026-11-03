@@ -71,7 +71,7 @@ export function printEnding(
     records: pathFrom(shellCwd, context.run.dir, { home: context.home }),
     ...(kept.report ? { report: pathFrom(shellCwd, kept.report, { home: context.home }) } : {}),
     ...(end.choose?.length ? { choose: listRecorded(end.choose, context.now) } : {}),
-    ...(end.needs ? { needs: end.needs } : {}),
+    ...("needs" in end.ending && end.ending.needs ? { needs: end.ending.needs } : {}),
     ...(settled?.panes ? { panes: settled.panes } : {}),
     // As the run's Herdr workspace is labelled.
     runWorkspace: `awf ${context.workflow.meta.name} ${context.run.id} #${context.n}`,

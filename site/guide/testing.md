@@ -55,24 +55,24 @@ loop; an exact key wins over a pattern.
 
 ## Scripting outcomes
 
-A test earns its keep on the turns that don't go to plan. `reply` ends a turn without an answer,
-the way a real agent can:
+A test earns its keep on the turns that don't go to plan. `noAnswer` ends a turn without an
+answer, the way a real agent can:
 
 <<< @/../examples/site/guide/testing/release-notes.test.ts#outcomes
 
-- **`reply.silent()`** ends the turn with no answer. awf sends one
+- **`noAnswer.silent()`** ends the turn with no answer. awf sends one
   [nudge](/guide/how-it-works#the-words), as it would on a real run, and the same script entry
   meets the nudge with `turn.nudge` true; still silent, the turn ends `unanswered`.
-- **`reply.blocked()`**, **`reply.failed()`** and **`reply.timedOut()`** end it `blocked`,
-  `failed` and `timed-out`, each with a reason you can pass. **`reply.hang()`** holds it until
+- **`noAnswer.blocked()`**, **`noAnswer.failed()`** and **`noAnswer.timedOut()`** end it
+  `blocked`, `failed` and `timed-out`, each with a reason you can pass. **`noAnswer.hang()`** holds it until
   the engine cancels it, to test a deadline or a sibling's failure cancelling it under
   `wf.parallel`.
-- **`run.stopped`** has the `reason` and `stage` when the workflow stopped with
-  [`wf.stop`](/guide/workflows), and reading
-  **`run.value`** then throws, as it does when the workflow threw.
+- **`run.ending`** is how the attempt ended, the `Ending` a workflow's `report` gets: `kind`
+  `stopped` with the `reason` and `stage` when the workflow stopped with
+  [`wf.stop`](/guide/workflows), and reading **`run.value`** then throws, as it does when the
+  workflow threw.
 
-`reply.needsLogin()` and `reply.waiting()` and every other script are in
-[Scripts](/reference/testing-api#scripts).
+`noAnswer.needsLogin()` and every other script are in [Scripts](/reference/testing-api#scripts).
 
 ## Asserting what the run did
 
@@ -120,7 +120,7 @@ as they do on `awf run`; `runtimes` in the options adds or replaces others.
   `stallMs` in `testWorkflow`'s options changes it. A loop whose turns keep answering never
   stalls, so it runs until `awf test`'s per-test timeout, 5 s unless `--timeout` says otherwise.
 - **Deadlines are real time.** A turn's `timeoutMs` runs on the clock, so keep them short in a
-  test, or end the turn at once with `reply.timedOut()`.
+  test, or end the turn at once with `noAnswer.timedOut()`.
 - **Sandboxes are fakes.** They confine nothing; a test checks what each agent was given, not what
   a real sandbox enforces.
 - **Messages, decisions, events and stages have scripts too.** An agent messaging another, a

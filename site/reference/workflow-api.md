@@ -153,7 +153,7 @@ attempt entered: `stage`, `source` (`"ran"` or `"reused"`), `outcome` (`succeede
 | --- | --- |
 | `completed` | `value`. |
 | `parked` | `label?`, its last wait's label, and `until?`, an ISO time: a workflow with events waiting with nothing to do. |
-| `stopped`, `failed`, `timed-out`, `cancelled` | `stage?`, the stage it ended in; `reason`; `continue`, the command that goes on. |
+| `stopped`, `failed`, `timed-out`, `cancelled` | `stage?`, the stage it ended in; `reason`; `continue`, the command that goes on; `needs?`, the stages whose values `--values` must give to start part-way, each `{ stage, schema }`, when it stopped for them. |
 
 The result, every agent's usage and how the attempt ended are kept in `output.json`, in
 `.awf/runs/{workflow}/{id}` under the working directory, for failed and cancelled runs too.
@@ -961,5 +961,8 @@ naming what replaces it.
 | `wf.stage(name, () => wf.receive())` | [`wf.race(name, …)`](#race), which is recorded under its name, outside a stage. |
 | `isAnswered(outcome)` | `outcome.answered`, which narrows the same way. |
 | `defineExecutableWorkflow({ definition: { meta, run }, prepare })` | `defineWorkflow({ meta, run, prepare })`. |
+
+A test's old forms, such as `reply.silent()` and `run.stopped`, are on
+[the testing API page](/reference/testing-api#deprecated).
 
 What's next is in [`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md).

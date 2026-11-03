@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import { matchesAny } from "./paths";
 import { presentCatalogueResult, reportCatalogueResult } from "./present";
 import { FINDINGS_SCHEMA, type RawFinding, VERDICT_SCHEMA } from "./schema";
@@ -193,8 +193,8 @@ describe("catalogue review run", () => {
     const run = await testWorkflow(executable, prepare(), {
       agents: {
         "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
-        "lens:deploys": reply.failed("harness crashed"),
-        "verifier:0": reply.timedOut("verifier timed out"),
+        "lens:deploys": noAnswer.failed("harness crashed"),
+        "verifier:0": noAnswer.timedOut("verifier timed out"),
       },
     });
     expect(run.value.failures).toEqual([

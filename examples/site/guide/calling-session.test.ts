@@ -28,7 +28,10 @@ describe("test-my-change", () => {
 
   test("started without --here, there is no calling session, and it says how to start", async () => {
     const run = await testWorkflow(testMyChange, null);
-    expect(run.stopped?.reason).toContain("awf run --here");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: expect.stringContaining("awf run --here"),
+    });
   });
 });
 
@@ -47,6 +50,9 @@ describe("describe-change", () => {
 
   test("with no session to fork, forkCaller answers null", async () => {
     const run = await testWorkflow(describeChange, null);
-    expect(run.stopped?.reason).toContain("no session to fork");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: expect.stringContaining("no session to fork"),
+    });
   });
 });

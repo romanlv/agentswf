@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { type JsonValue, type OutputSchema, tool } from "@agentswf/contract/workflow";
+import { DEPRECATIONS } from "../deprecations";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, reply, testWorkflow } from "./index";
+import { answer, noAnswer, testWorkflow } from "./index";
+import { runTest, type TestOptions } from "./run-test";
+import { waiting } from "./script";
 
 const VERDICT: OutputSchema<{ kind: string; summary?: string; reason?: string }> = {
   type: "object",
@@ -61,6 +64,12 @@ const reviewer = (ask = true) => [
   }),
 ];
 
+/** As `testWorkflow`, with an agent free to await a reply on any harness, the fake's included. */
+const testAnywhere = <Result extends JsonValue>(
+  workflow: RunnableWorkflow<null, Result>,
+  options: TestOptions,
+) => runTest(workflow, null, options, { awaitReply: "anywhere" });
+
 /** b is working when a asks it, so the question joins b's own turn. */
 const asksBack: RunnableWorkflow<null, JsonValue> = {
   meta: { name: "asks-back", description: "a question joins a workflow turn" },
@@ -75,8 +84,7 @@ const asksBack: RunnableWorkflow<null, JsonValue> = {
 
 describe("scripted messaging", () => {
   test("the review loop: a question wakes the idle implementer, and its reply resumes the same call", async () => {
-    const run = await testWorkflow(reviewLoop, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(reviewLoop, {
       agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
       messages: {
         implementer: (message) => message.reply("A miss now falls through to the store."),
@@ -139,7 +147,7 @@ describe("scripted messaging", () => {
             m.text === "done" ? done.add(m.from) : findings.push(m.text);
           return done.size === LENSES.length
             ? { fixed: [...findings].sort() }
-            : reply.waiting("waiting for findings");
+            : waiting("waiting for findings");
         }),
         "lens-*": answer(FINDINGS, async (turn) => {
           await turn.send("fixer", `Finding from ${turn.agent}`);
@@ -169,8 +177,7 @@ describe("scripted messaging", () => {
         return outcome.kind === "answered" ? outcome.value : outcome.kind;
       },
     };
-    const run = await testWorkflow(planning, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(planning, {
       agents: {
         planner: answer(async (turn) => {
           const asked = await turn.send("architect", "Where do retries live?", {
@@ -200,8 +207,7 @@ describe("scripted messaging", () => {
 
   test("a send without a reply asked for resolves sent; returning without awaiting a wait drops it", async () => {
     let dropped: unknown;
-    const run = await testWorkflow(reviewLoop, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(reviewLoop, {
       agents: {
         implementer: [answer("built"), answer("recorded")],
         reviewer: [
@@ -216,17 +222,16 @@ describe("scripted messaging", () => {
           }),
         ],
       },
-      messages: { implementer: (message) => message.silent() },
+      messages: { implementer: () => undefined },
     });
     expect(run.value).toEqual({ kind: "sent" });
     expect(dropped).toEqual({ kind: "failed", reason: "dropped" });
   });
 
   test("a peer that stays silent is reminded once, and the asker's wait fails", async () => {
-    const run = await testWorkflow(reviewLoop, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(reviewLoop, {
       agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
-      messages: { implementer: (message) => message.silent() },
+      messages: { implementer: () => undefined },
     });
     expect(run.value).toEqual({ kind: "inconclusive", reason: "no revision: failed" });
     expect(run.messagesOf("implementer")).toMatchObject([
@@ -240,12 +245,35 @@ describe("scripted messaging", () => {
     ]);
   });
 
+  test("message.silent() and message.fail(), deprecated, end the turn as before, each logged once", async () => {
+    const said = (logs: { message: string }[], name: "message-silent" | "message-fail") => {
+      const { old, instead } = DEPRECATIONS[name];
+      return logs.filter((log) => log.message === `awf: ${old} is deprecated; ${instead}`).length;
+    };
+    const silent = await testAnywhere(reviewLoop, {
+      agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
+      messages: { implementer: (message) => message.silent() },
+    });
+    expect(silent.value).toEqual({ kind: "inconclusive", reason: "no revision: failed" });
+    // Reminded once: the script ran twice, and its run said so once.
+    expect(silent.turnsOf("implementer").filter((turn) => turn.cause)).toHaveLength(2);
+    expect(said(silent.logs, "message-silent")).toBe(1);
+
+    const failed = await testAnywhere(reviewLoop, {
+      agents: { implementer: answer("built"), reviewer: reviewer() },
+      messages: { implementer: (message) => message.fail("harness crashed") },
+    });
+    expect(() => failed.value).toThrow(
+      "agent implementer's message operation failed: harness crashed",
+    );
+    expect(said(failed.logs, "message-fail")).toBe(1);
+  });
+
   test("a script that answers while it owes a reply fails the test", async () => {
     // b's own run is open before a asks, so the question joins it rather than waking b.
     const working = Promise.withResolvers<void>();
     await expect(
-      testWorkflow(asksBack, null, {
-        awaitReply: "anywhere",
+      testAnywhere(asksBack, {
         agents: {
           a: answer(async (turn) => {
             await working.promise;
@@ -254,7 +282,7 @@ describe("scripted messaging", () => {
           }),
           b: answer((turn) => {
             working.resolve();
-            return turn.messages.length > 0 ? "done" : reply.waiting("for a's question");
+            return turn.messages.length > 0 ? "done" : waiting("for a's question");
           }),
         },
       }),
@@ -263,8 +291,7 @@ describe("scripted messaging", () => {
 
   test("a question that joins a workflow turn is answered with turn.reply, then the result is taken", async () => {
     const working = Promise.withResolvers<void>();
-    const run = await testWorkflow(asksBack, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(asksBack, {
       agents: {
         a: answer(async (turn) => {
           await working.promise;
@@ -274,7 +301,7 @@ describe("scripted messaging", () => {
         b: answer(async (turn) => {
           working.resolve();
           const question = turn.messages.find((message) => message.asks);
-          if (!question) return reply.waiting("for a's question");
+          if (!question) return waiting("for a's question");
           const replied = await turn.reply(question.from, "Yes.");
           return replied.kind;
         }),
@@ -307,7 +334,7 @@ describe("scripted messaging", () => {
         writer: answer(async (turn) => {
           if (turn.messages.length > 0) return turn.messages.map((m) => m.text).join(" ");
           await sent.promise;
-          return reply.silent();
+          return noAnswer.silent();
         }),
         lens: answer(async (turn) => {
           await turn.send("writer", "Mind the cache.");
@@ -318,7 +345,7 @@ describe("scripted messaging", () => {
     });
     expect(run.value).toBe("Mind the cache.");
     expect(run.turnsOf("writer").map(({ n, nudge, outcome }) => [n, nudge, outcome])).toEqual([
-      [1, false, "silent"],
+      [1, false, "unanswered"],
       [1, false, "answered"],
     ]);
   });
@@ -334,8 +361,7 @@ describe("scripted messaging", () => {
         return outcome.kind === "answered" ? outcome.value : outcome.kind;
       },
     };
-    const run = await testWorkflow(planning, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(planning, {
       agents: {
         planner: answer(async (turn) => {
           const asked = await turn.send("architect", "Where?", { awaitReply: true });
@@ -353,10 +379,9 @@ describe("scripted messaging", () => {
   });
 
   test("a message script that fails fails the run, as any operation the run owns does", async () => {
-    const run = await testWorkflow(reviewLoop, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(reviewLoop, {
       agents: { implementer: answer("built"), reviewer: reviewer() },
-      messages: { implementer: (message) => message.fail("harness crashed") },
+      messages: { implementer: () => noAnswer.failed("harness crashed") },
     });
     expect(() => run.value).toThrow(
       "agent implementer's message operation failed: harness crashed",
@@ -364,6 +389,41 @@ describe("scripted messaging", () => {
     expect(run.messagesOf("implementer")).toMatchObject([
       { from: "reviewer", awaitReply: true, end: "failed" },
     ]);
+  });
+
+  test("a script that throws once its turn ended awaiting a reply fails the test as a throw", async () => {
+    await expect(
+      testAnywhere(reviewLoop, {
+        agents: {
+          implementer: answer("built"),
+          reviewer: [
+            answer("doc ok"),
+            answer(VERDICT, async (turn) => {
+              void turn.send("implementer", "Why?", { awaitReply: true });
+              await Bun.sleep(30);
+              throw new Error("lost the thread");
+            }),
+          ],
+        },
+        // Still thinking when the asker throws: nothing has resumed the asker.
+        messages: { implementer: () => Bun.sleep(200) },
+      }),
+    ).rejects.toThrow("its script threw: lost the thread");
+  });
+
+  test("a message script that throws fails the test, not the workflow", async () => {
+    await expect(
+      testAnywhere(reviewLoop, {
+        agents: { implementer: answer("built"), reviewer: reviewer() },
+        messages: {
+          implementer: () => {
+            throw new Error("expected a question");
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'agent "implementer" turn 2, woken by reviewer: its message script threw: expected a question',
+    );
   });
 
   test("a script awaiting a reply when its call times out is let go, its wait cancelled", async () => {
@@ -379,8 +439,7 @@ describe("scripted messaging", () => {
         return outcome.kind;
       },
     };
-    const run = await testWorkflow(timing, null, {
-      awaitReply: "anywhere",
+    const run = await testAnywhere(timing, {
       agents: {
         asker: answer(async (turn) => {
           awaited = await turn.send("slow", "Why?", { awaitReply: true });
@@ -400,8 +459,7 @@ describe("scripted messaging", () => {
 
   test("an agent a message wakes with no message script fails the test", async () => {
     await expect(
-      testWorkflow(reviewLoop, null, {
-        awaitReply: "anywhere",
+      testAnywhere(reviewLoop, {
         agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
       }),
     ).rejects.toThrow(
@@ -411,11 +469,10 @@ describe("scripted messaging", () => {
 
   test("a list of message scripts is one per message operation, and one left over fails the test", async () => {
     await expect(
-      testWorkflow(reviewLoop, null, {
-        awaitReply: "anywhere",
+      testAnywhere(reviewLoop, {
         agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
         messages: {
-          implementer: [(message) => message.reply("Done."), (message) => message.silent()],
+          implementer: [(message) => message.reply("Done."), () => undefined],
         },
       }),
     ).rejects.toThrow(
@@ -445,8 +502,7 @@ describe("a tool call while a reply is awaited", () => {
 
   for (const order of ["after the send", "before it"] as const) {
     test(`a slow one, ${order}, still lets the turn end to wait for the reply`, async () => {
-      const run = await testWorkflow(slow, null, {
-        awaitReply: "anywhere",
+      const run = await testAnywhere(slow, {
         agents: {
           impl: answer("built"),
           rev: answer(async (turn) => {

@@ -19,7 +19,8 @@ const parked = () =>
 test("it parks at the race, due an hour after the deploy", async () => {
   const run = await parked();
   const settled = run.timers.find((t) => t.name === "settle@settled");
-  expect(run.parked).toEqual({
+  expect(run.ending).toMatchObject({
+    kind: "parked",
     label: "api v42 settling",
     until: settled?.due,
   });

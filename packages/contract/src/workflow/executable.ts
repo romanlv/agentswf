@@ -1,3 +1,4 @@
+import type { JsonSchema } from "../schema";
 import { DEPRECATED_DEFINITION } from "./deprecated";
 import type { EventSchemas, NoColonNames } from "./events";
 import type { JsonValue } from "./json";
@@ -25,6 +26,9 @@ export type StageSummary = {
   /** Reused from a value given rather than one a turn produced; see `StageRecord.provided`. */
   provided?: true;
 };
+
+/** A stage a run can't start at a later stage without: its value, which `--values` gives. */
+export type StageNeed = { stage: string; schema: JsonSchema };
 
 /**
  * How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no
@@ -58,6 +62,11 @@ export type Ending<Result> =
       stages: StageSummary[];
       /** The command that goes on from here. */
       continue: string;
+      /**
+       * The stages whose values `--values` must give to start part-way, in the order reached;
+       * absent unless it stopped for them.
+       */
+      needs?: StageNeed[];
     };
 
 type WorkflowParts<Args extends JsonValue, Result extends JsonValue> = {

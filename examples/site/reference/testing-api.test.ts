@@ -35,7 +35,10 @@ test("a reply during the first turn gets a second, then the run parks", async ()
       },
     ],
   });
-  expect(run.parked?.label).toBe("waiting on the thread about checkout-timeouts");
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    label: "waiting on the thread about checkout-timeouts",
+  });
   expect(run.turnsOf("investigator")[1]?.prompt).toContain("is it the index?");
   expect(run.emits).toEqual([]);
 });

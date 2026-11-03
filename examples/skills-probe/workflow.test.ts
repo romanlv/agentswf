@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import probe, { AGENTS, type AgentName, REPORT, type SkillsPlan } from "./workflow";
 
 // Two probe skills on disk, as the host that runs the probe writes them.
@@ -68,7 +68,7 @@ describe("skills-probe", () => {
     const run = await testWorkflow(
       probe,
       { ...plan, agents: ["host-pi", "box-pi"] },
-      { agents: { "host-pi": found, "box-pi": reply.failed("pi crashed") } },
+      { agents: { "host-pi": found, "box-pi": noAnswer.failed("pi crashed") } },
     );
     expect(probe.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
       ["host-pi: stamp -, seal seal-host-pi; probe-b", "box-pi: failed: pi crashed"].join("\n"),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import checkDocs, { CHECK } from "./workflows";
 
 const args = { files: ["README.md", "docs/setup.md"] };
@@ -41,16 +41,14 @@ test("one agent checks each file in turn; present and report render the result",
 
 test("a file with no answer stops the run with the reason, and the report hands it off", async () => {
   const run = await testWorkflow(checkDocs, args, {
-    agents: { checker: reply.failed("codex exited") },
+    agents: { checker: noAnswer.failed("codex exited") },
   });
-  expect(run.stopped?.reason).toBe("README.md: failed: codex exited");
-  expect(run.turnsOf("checker")).toHaveLength(1);
-  const report = checkDocs.report?.(undefined, {
+  expect(run.ending).toMatchObject({
     kind: "stopped",
-    reason: run.stopped!.reason,
-    stages: [],
-    continue: "awf run check-docs.ts --id {id} --continue",
+    reason: "README.md: failed: codex exited",
   });
+  expect(run.turnsOf("checker")).toHaveLength(1);
+  const report = checkDocs.report?.(undefined, run.ending);
   expect(report).toStartWith(
     "# Check stopped\n\nREADME.md: failed: codex exited",
   );

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import checkReadme, { VERDICT } from "./how-it-works";
 
 test("the reviewer's checked answer is the run's result, kept as the review stage", async () => {
@@ -14,12 +14,15 @@ test("the reviewer's checked answer is the run's result, kept as the review stag
 
 test("a reviewer that never answers is checked in on once, then the run stops with why", async () => {
   const run = await testWorkflow(checkReadme, null, {
-    agents: { reviewer: reply.silent() },
+    agents: { reviewer: noAnswer.silent() },
   });
   expect(run.turnsOf("reviewer").map((turn) => turn.nudge)).toEqual([
     false,
     true,
   ]);
-  expect(run.stopped?.reason).toStartWith("unanswered:");
-  expect(run.stopped?.stage).toBe("review");
+  expect(run.ending).toMatchObject({
+    kind: "stopped",
+    stage: "review",
+    reason: expect.stringMatching(/^unanswered:/),
+  });
 });

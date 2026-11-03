@@ -13,7 +13,7 @@ import {
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, reply, testWorkflow } from ".";
+import { answer, noAnswer, testWorkflow } from ".";
 
 const PLAN = Type.Object({ steps: Type.Array(Type.String()) }, { additionalProperties: false });
 const STATUS = Type.Object(
@@ -130,9 +130,9 @@ describe("testWorkflow", () => {
 
   describe("each reply ends the turn its way", () => {
     for (const [name, given, kind] of [
-      ["blocked", reply.blocked("a permission prompt"), "blocked"],
-      ["failed", reply.failed("harness crashed"), "failed"],
-      ["timedOut", reply.timedOut(), "timed-out"],
+      ["blocked", noAnswer.blocked("a permission prompt"), "blocked"],
+      ["failed", noAnswer.failed("harness crashed"), "failed"],
+      ["timedOut", noAnswer.timedOut(), "timed-out"],
     ] as const) {
       test(name, async () => {
         const run = await testWorkflow(solo({ schema: true }), null, { agents: { solo: given } });
@@ -143,22 +143,22 @@ describe("testWorkflow", () => {
 
     test("silent: the engine nudges once, and the reply ends the nudge too", async () => {
       const run = await testWorkflow(solo({ schema: true }), null, {
-        agents: { solo: reply.silent() },
+        agents: { solo: noAnswer.silent() },
       });
       expect(run.value).toMatchObject({ kind: "unanswered" });
       expect(run.turns.map((turn) => [turn.n, turn.nudge, turn.outcome])).toEqual([
-        [1, false, "silent"],
-        [1, true, "silent"],
+        [1, false, "unanswered"],
+        [1, true, "unanswered"],
       ]);
     });
 
     test("a function sees the nudge and can answer it", async () => {
       const run = await testWorkflow(solo({ schema: true }), null, {
-        agents: { solo: answer(VERDICT, (turn) => (turn.nudge ? ok : reply.silent())) },
+        agents: { solo: answer(VERDICT, (turn) => (turn.nudge ? ok : noAnswer.silent())) },
       });
       expect(run.value).toEqual({ kind: "answered", value: ok });
       expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([
-        [false, "silent"],
+        [false, "unanswered"],
         [true, "answered"],
       ]);
     });
@@ -172,10 +172,13 @@ describe("testWorkflow", () => {
           return outcome.kind;
         }),
         null,
-        { agents: { solo: reply.needsLogin() } },
+        { agents: { solo: noAnswer.needsLogin() } },
       );
-      expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([[false, "needs-login"]]);
-      expect(run.stopped?.reason).toStartWith("codex needs a login: run `codex login`");
+      expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([[false, "failed"]]);
+      expect(run.ending).toMatchObject({
+        kind: "stopped",
+        reason: expect.stringMatching(/^codex needs a login: run `codex login`/),
+      });
 
       const seen = await testWorkflow(
         workflowOf<null, JsonValue>(async (workflow) => {
@@ -184,7 +187,7 @@ describe("testWorkflow", () => {
           return outcome.kind === "failed" ? (outcome.login ?? null) : null;
         }),
         null,
-        { agents: { solo: reply.needsLogin("openai") } },
+        { agents: { solo: noAnswer.needsLogin("openai") } },
       );
       expect(seen.value).toEqual({
         harness: "codex",
@@ -204,12 +207,12 @@ describe("testWorkflow", () => {
           agents: {
             "review:fast": answer(VERDICT, async () => {
               await slowStarted;
-              return reply.failed();
+              return noAnswer.failed();
             }),
             "review:slow": answer(VERDICT, (turn) => {
               turn.signal.addEventListener("abort", () => cancelled.push(turn.agent));
               started();
-              return reply.hang();
+              return noAnswer.hang();
             }),
           },
         },
@@ -228,7 +231,7 @@ describe("testWorkflow", () => {
         agents: {
           "review:fast": answer(VERDICT, async () => {
             await slowStarted;
-            return reply.failed();
+            return noAnswer.failed();
           }),
           "review:slow": answer(VERDICT, () => {
             started();
@@ -310,6 +313,124 @@ describe("testWorkflow", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  describe("run.ending is how the attempt ended, as present and report get it", () => {
+    const shipping = workflowOf<null, string>(async (workflow) => {
+      const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
+      let ready = false;
+      await workflow.stage("plan", async () => {
+        const { outcome } = await agent.run({ prompt: "Plan.", schema: VERDICT });
+        if (!outcome.answered) return workflow.stop(`no plan: ${outcome.kind}`);
+        ready = (outcome.value as { ready: boolean }).ready;
+      });
+      if (!ready) throw new Error("not ready");
+      return "shipped";
+    });
+
+    test("completed, with its value and stages", async () => {
+      const run = await testWorkflow(shipping, null, { agents: { solo: answer(VERDICT, ok) } });
+      expect(run.ending).toEqual({
+        kind: "completed",
+        value: "shipped",
+        stages: [expect.objectContaining({ stage: "plan", outcome: "succeeded" })],
+      });
+    });
+
+    test("stopped, in its stage, with why and the command that goes on", async () => {
+      const run = await testWorkflow(shipping, null, { agents: { solo: noAnswer.blocked() } });
+      expect(run.ending).toEqual({
+        kind: "stopped",
+        stage: "plan",
+        reason: "no plan: blocked",
+        stages: [expect.objectContaining({ stage: "plan", outcome: "stopped" })],
+        continue: "awf run test --id test --continue",
+      });
+    });
+
+    test("failed, with what the workflow threw", async () => {
+      const run = await testWorkflow(shipping, null, {
+        agents: { solo: answer(VERDICT, { ready: false, notes: ["no tests"] }) },
+      });
+      expect(run.ending).toMatchObject({ kind: "failed", reason: "not ready" });
+      expect(run.ending).not.toHaveProperty("stage");
+      expect(() => run.value).toThrow("not ready");
+    });
+
+    test("timed out at the test's timeoutMs", async () => {
+      const run = await testWorkflow(shipping, null, {
+        agents: { solo: noAnswer.hang() },
+        timeoutMs: 50,
+      });
+      expect(run.ending).toMatchObject({ kind: "timed-out", stage: "plan" });
+      expect(run.turns.map((turn) => turn.outcome)).toEqual(["timed-out"]);
+    });
+  });
+
+  describe("a turn's outcome is the one the engine recorded for its operation", () => {
+    const hanging = (timeoutMs?: number) =>
+      workflowOf<null, string>(async (workflow) => {
+        const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
+        const { outcome } = await agent.run({
+          prompt: "Review.",
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        });
+        return outcome.kind;
+      });
+
+    test("a hang past its turn's deadline is timed-out", async () => {
+      const run = await testWorkflow(hanging(50), null, { agents: { solo: noAnswer.hang() } });
+      expect(run.value).toBe("timed-out");
+      expect(run.turns.map((turn) => turn.outcome)).toEqual(["timed-out"]);
+    });
+
+    test("a hang a sibling's failure ends is cancelled", async () => {
+      const siblings = workflowOf<null, JsonValue>(async (workflow) =>
+        workflow.parallel(["slow", "broken"], async (key) => {
+          const agent = await workflow.agents.open({ key, runtime: "codex" });
+          const { outcome } = await agent.run({ prompt: "Go." });
+          if (!outcome.answered) throw new Error(`${key}: ${outcome.kind}`);
+          return outcome.value;
+        }),
+      );
+      const run = await testWorkflow(siblings, null, {
+        agents: { slow: noAnswer.hang(), broken: noAnswer.failed() },
+      });
+      expect(() => run.value).toThrow("broken: failed");
+      expect(run.turnsOf("slow").map((turn) => turn.outcome)).toEqual(["cancelled"]);
+      expect(run.turnsOf("broken").map((turn) => turn.outcome)).toEqual(["failed"]);
+    });
+
+    test("needsLogin is failed, and interrupted cancelled", async () => {
+      const login = await testWorkflow(hanging(), null, {
+        agents: { solo: noAnswer.needsLogin() },
+      });
+      expect(login.turns.map((turn) => turn.outcome)).toEqual(["failed"]);
+      const interrupted = await testWorkflow(
+        workflowOf<null, string>(async (workflow) => {
+          const me = await workflow.agents.caller({ key: "me" });
+          return me ? (await me.run({ prompt: "Fix it." })).outcome.kind : "no caller";
+        }),
+        null,
+        {
+          agents: { me: noAnswer.interrupted() },
+          caller: { harness: "claude", model: "claude-opus-5-5" },
+        },
+      );
+      expect(interrupted.value).toBe("cancelled");
+      expect(interrupted.turns.map((turn) => turn.outcome)).toEqual(["cancelled"]);
+    });
+
+    test("a silent turn its nudge answers is unanswered, then answered", async () => {
+      const run = await testWorkflow(hanging(), null, {
+        agents: { solo: answer((turn) => (turn.nudge ? "done" : noAnswer.silent())) },
+      });
+      expect(run.value).toBe("answered");
+      expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([
+        [false, "unanswered"],
+        [true, "answered"],
+      ]);
+    });
   });
 
   describe("scripts are found by key", () => {
@@ -555,7 +676,7 @@ describe("testWorkflow", () => {
 
     test("a hang nothing cancels", async () => {
       await expect(
-        testWorkflow(solo(), null, { stallMs: 100, agents: { solo: reply.hang() } }),
+        testWorkflow(solo(), null, { stallMs: 100, agents: { solo: noAnswer.hang() } }),
       ).rejects.toThrow(/the run stalled.*in flight: "solo" turn 1$/);
     });
   });
@@ -804,7 +925,11 @@ describe("testWorkflow compactions", () => {
           builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
         },
         compactions: {
-          builder: [answer("kept the plan"), reply.failed("nothing to compact"), reply.silent()],
+          builder: [
+            answer("kept the plan"),
+            noAnswer.failed("nothing to compact"),
+            noAnswer.silent(),
+          ],
         },
       },
     );
@@ -819,7 +944,7 @@ describe("testWorkflow compactions", () => {
     expect(run.compactionsOf("builder").map((c) => c.outcome)).toEqual([
       "answered",
       "failed",
-      "silent",
+      "failed",
     ]);
   });
 
@@ -833,9 +958,10 @@ describe("testWorkflow compactions", () => {
     });
     const run = await testWorkflow(hanging, null, {
       agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
-      compactions: { builder: reply.hang() },
+      compactions: { builder: noAnswer.hang() },
     });
     expect(run.value).toEqual({ compacted: "timed-out", built: "answered" });
+    expect(run.compactionsOf("builder").map((c) => c.outcome)).toEqual(["timed-out"]);
   });
 
   test("a compaction id reused with another focus rejects; the same spec returns the same outcome", async () => {
@@ -1028,7 +1154,7 @@ describe("testWorkflow with a calling session", () => {
   test("an interrupted turn is cancelled, not nudged, and the session takes the next", async () => {
     const run = await testWorkflow(steps(["Plan.", "Fix."]), null, {
       caller: { harness: "claude" },
-      agents: { author: [reply.interrupted(), answer("fixed")] },
+      agents: { author: [noAnswer.interrupted(), answer("fixed")] },
     });
     expect(run.value).toEqual(["cancelled", "fixed"]);
     expect(run.turnsOf("author").map((turn) => turn.nudge)).toEqual([false, false]);
@@ -1042,7 +1168,7 @@ describe("testWorkflow with a calling session", () => {
         author: answer(() => {
           if (!first) return "fixed";
           first = false;
-          return reply.hang();
+          return noAnswer.hang();
         }),
       },
     });
@@ -1052,13 +1178,13 @@ describe("testWorkflow with a calling session", () => {
   test("an unanswered turn is nudged where the harness shows an interrupt, and not where it can't", async () => {
     const shows = await testWorkflow(steps(["Plan."]), null, {
       caller: { harness: "claude" },
-      agents: { author: answer((turn) => (turn.nudge ? "planned" : reply.silent())) },
+      agents: { author: answer((turn) => (turn.nudge ? "planned" : noAnswer.silent())) },
     });
     expect(shows.value).toEqual(["planned"]);
     expect(shows.turnsOf("author").map((turn) => turn.nudge)).toEqual([false, true]);
     const hides = await testWorkflow(steps(["Plan."]), null, {
       caller: { harness: "cursor" },
-      agents: { author: reply.silent() },
+      agents: { author: noAnswer.silent() },
     });
     expect(hides.value).toEqual(["unanswered"]);
     expect(hides.turnsOf("author")).toHaveLength(1);
@@ -1212,7 +1338,7 @@ describe("testWorkflow with a calling session", () => {
 
   test("an agent the run opened cannot be scripted as interrupted", async () => {
     await expect(
-      testWorkflow(solo(), null, { agents: { solo: reply.interrupted() } }),
+      testWorkflow(solo(), null, { agents: { solo: noAnswer.interrupted() } }),
     ).rejects.toThrow('agent "solo" turn 1: only the calling session can be interrupted');
   });
 });
@@ -1575,11 +1701,11 @@ describe("testWorkflow layouts", () => {
     });
     const run = await testWorkflow(keeping, null, {
       agents: {
-        "kept-failed": [reply.failed()],
+        "kept-failed": [noAnswer.failed()],
         "closed-answered": [answer(PLAN, { steps: [] })],
         "kept-always": [answer(PLAN, { steps: [] })],
-        "closed-never": [reply.failed()],
-        "closed-default": [reply.failed()],
+        "closed-never": [noAnswer.failed()],
+        "closed-default": [noAnswer.failed()],
       },
     });
     expect(run.agents.filter((agent) => agent.keptPane).map((agent) => agent.key)).toEqual([
@@ -1601,7 +1727,7 @@ describe("testWorkflow layouts", () => {
       return null;
     });
     const run = await testWorkflow(leaving, null, {
-      agents: { left: [answer(PLAN, { steps: [] }), reply.hang()] },
+      agents: { left: [answer(PLAN, { steps: [] }), noAnswer.hang()] },
     });
     expect(run.agentOf("left").keptPane).toBe(true);
   });

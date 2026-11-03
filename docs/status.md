@@ -294,6 +294,12 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
   a wait are deprecated, each logged once per attempt with its replacement; `agentswf/workflow` is an
   explicit list, which the examples import; `output.json` has `ref`.
+  Task 2 built: in `agentswf/testing`, `noAnswer.*` replaces `reply.*`, a message script returns
+  nothing or `noAnswer.failed()` instead of `message.silent()` and `fail()`, `run.ending` replaces
+  `run.stopped` and `run.parked`, and an event's id is `eventId`, each old form deprecated and
+  logged once per attempt; `TestTurn` and `TestTurnOutcome` are exported, a turn records the
+  engine's outcome (`unanswered`, not `silent`), `Ending` carries `needs`, and `awaitReply` and
+  `reply.waiting` are gone.
 
 ## Known gaps
 

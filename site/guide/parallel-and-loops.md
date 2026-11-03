@@ -169,8 +169,8 @@ The rest of the round is the review, and what the next round is told:
 
 A test scripts each agent by key, so parallel branches are read by key, not by position; to check
 item order, the [parallel sample's test](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/parallel.test.ts)
-makes the first item's answer wait for the last's. A scripted `reply.failed()`,
-`reply.timedOut()` or `reply.silent()` drives each branch of a loop for free; the
+makes the first item's answer wait for the last's. A scripted `noAnswer.failed()`,
+`noAnswer.timedOut()` or `noAnswer.silent()` drives each branch of a loop for free; the
 [loop sample's test](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/loops.test.ts)
 covers approval, the bound, a replacement and a stop. [Testing](/guide/testing) has the rest.
 

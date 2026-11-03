@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import reviewLoop, { DONE, VERDICT } from "./loops";
 
 const args = { task: "Accept ISO week dates" };
@@ -39,7 +39,7 @@ describe("the loops page's review loop", () => {
   test("a failed implementer is replaced once, and the new one gets the open changes", async () => {
     const run = await testWorkflow(reviewLoop, args, {
       agents: {
-        implementer: [done, reply.failed("harness crashed")],
+        implementer: [done, noAnswer.failed("harness crashed")],
         "implementer#2": done,
         reviewer: [rejected("Accept week 53"), approved],
       },
@@ -53,27 +53,36 @@ describe("the loops page's review loop", () => {
   test("a second failure stops the run with its reason", async () => {
     const run = await testWorkflow(reviewLoop, args, {
       agents: {
-        implementer: reply.timedOut("no progress"),
-        "implementer#2": reply.failed("harness crashed"),
+        implementer: noAnswer.timedOut("no progress"),
+        "implementer#2": noAnswer.failed("harness crashed"),
         reviewer: approved,
       },
     });
-    expect(run.stopped?.reason).toBe("implementer failed: harness crashed");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: "implementer failed: harness crashed",
+    });
     expect(run.turnsOf("reviewer")).toHaveLength(0);
   });
 
   test("a missing login stops at once, with no replacement", async () => {
     const run = await testWorkflow(reviewLoop, args, {
-      agents: { implementer: reply.needsLogin(), reviewer: approved },
+      agents: { implementer: noAnswer.needsLogin(), reviewer: approved },
     });
-    expect(run.stopped?.reason).toContain("login");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: expect.stringContaining("login"),
+    });
     expect(run.agents.map((agent) => agent.key)).not.toContain("implementer#2");
   });
 
   test("a reviewer that never answers stops the run", async () => {
     const run = await testWorkflow(reviewLoop, args, {
-      agents: { implementer: done, reviewer: reply.silent() },
+      agents: { implementer: done, reviewer: noAnswer.silent() },
     });
-    expect(run.stopped?.reason).toStartWith("reviewer unanswered:");
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: expect.stringMatching(/^reviewer unanswered:/),
+    });
   });
 });

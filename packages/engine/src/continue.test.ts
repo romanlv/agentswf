@@ -7,7 +7,18 @@ import { readStageRecords } from "./runs";
 import { createTempRunDirs, DOC, runAttempt, workflowOf } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowRunError } from "./workflow-runner";
-import { answer, testWorkflow } from "./workflow-testing";
+import { answer, type TestRun, testWorkflow } from "./workflow-testing";
+
+/** How the attempt stopped, read from `run.ending`: its reason, stage and needs, or nothing. */
+function stopOf(run: TestRun<JsonValue>) {
+  const { ending } = run;
+  if (ending.kind !== "stopped") return undefined;
+  return {
+    reason: ending.reason,
+    ...(ending.stage === undefined ? {} : { stage: ending.stage }),
+    ...(ending.needs === undefined ? {} : { needs: ending.needs }),
+  };
+}
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -178,7 +189,7 @@ describe("testWorkflow over recorded stages", () => {
         null,
         { recorded },
       );
-      expect(run.stopped).toEqual({ stage: "doc-review", reason });
+      expect(stopOf(run)).toEqual({ stage: "doc-review", reason });
     },
   );
 
@@ -220,7 +231,7 @@ describe("testWorkflow over recorded stages", () => {
     expect(() => returned.value).toThrow(
       "stop was caught: doc-review's record no longer fits its result schema",
     );
-    expect(returned.stopped).toBeUndefined();
+    expect(stopOf(returned)).toBeUndefined();
   });
 
   test("two stages at once are refused on a continue too, when the first is reused", async () => {
@@ -242,7 +253,7 @@ describe("testWorkflow over recorded stages", () => {
 describe("a new run started at a stage", () => {
   test("stops naming every stage the start point needs a value for, with its schema", async () => {
     const run = await testWorkflow(startable, null, { fromStage: "qa" });
-    expect(run.stopped).toEqual({
+    expect(stopOf(run)).toEqual({
       reason: "nothing recorded for doc-review",
       stage: "doc-review",
       needs: [
@@ -271,7 +282,7 @@ describe("a new run started at a stage", () => {
       null,
       { fromStage: "qa" },
     );
-    expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["doc-review"]);
+    expect(stopOf(run)?.needs?.map(({ stage }) => stage)).toEqual(["doc-review"]);
     expect(run.turns).toEqual([]);
   });
 
@@ -280,7 +291,7 @@ describe("a new run started at a stage", () => {
       fromStage: "qa",
       values: { "doc-review": { path: "docs/a.md" } },
     });
-    expect(run.stopped).toMatchObject({ stage: "review", needs: [{ stage: "review" }] });
+    expect(stopOf(run)).toMatchObject({ stage: "review", needs: [{ stage: "review" }] });
     expect(run.stages.map(({ stage, provided, summary }) => [stage, provided, summary])).toEqual([
       ["doc-review", true, "docs/a.md"],
       ["implement", true, undefined],
@@ -306,10 +317,10 @@ describe("a new run started at a stage", () => {
       fromStage: "qa",
       values: { "doc-review": { file: "docs/a.md" } },
     });
-    expect(run.stopped?.reason).toStartWith(
+    expect(stopOf(run)?.reason).toStartWith(
       "doc-review's value in --values does not fit its result:",
     );
-    expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["doc-review", "review"]);
+    expect(stopOf(run)?.needs?.map(({ stage }) => stage)).toEqual(["doc-review", "review"]);
   });
 });
 
@@ -451,7 +462,7 @@ describe("workflow.stop", () => {
     });
     const first = await testWorkflow(flow, null);
     expect(() => first.value).toThrow("no preview environment");
-    expect(first.stopped).toEqual({ reason: "no preview environment", stage: "qa" });
+    expect(stopOf(first)).toEqual({ reason: "no preview environment", stage: "qa" });
     expect(first.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
       ["doc-review", "succeeded"],
       ["qa", "stopped"],
@@ -470,10 +481,10 @@ describe("workflow.stop", () => {
       return null;
     });
     const first = await testWorkflow(flow, null);
-    expect(first.stopped).toEqual({ reason: "no doc" });
+    expect(stopOf(first)).toEqual({ reason: "no doc" });
     expect(first.stages.map(({ outcome }) => outcome)).toEqual(["succeeded"]);
     const again = await testWorkflow(flow, null, { recorded: { "doc-review": { path: "x" } } });
-    expect(again.stopped).toEqual({ reason: "no doc" });
+    expect(stopOf(again)).toEqual({ reason: "no doc" });
   });
 
   test("before any stage, it stops the attempt", async () => {
@@ -481,7 +492,7 @@ describe("workflow.stop", () => {
       workflowOf(async (workflow) => workflow.stop("not ready")),
       null,
     );
-    expect(run.stopped).toEqual({ reason: "not ready" });
+    expect(stopOf(run)).toEqual({ reason: "not ready" });
     expect(run.stages).toEqual([]);
   });
 
@@ -498,7 +509,7 @@ describe("workflow.stop", () => {
       null,
     );
     expect(() => inside.value).toThrow("stop was caught: no preview");
-    expect(inside.stopped).toBeUndefined();
+    expect(stopOf(inside)).toBeUndefined();
     expect(inside.stages).toEqual([
       expect.objectContaining({
         stage: "qa",
@@ -533,7 +544,7 @@ describe("workflow.stop", () => {
       }),
       null,
     );
-    expect(run.stopped).toEqual({ reason: "from beside" });
+    expect(stopOf(run)).toEqual({ reason: "from beside" });
   });
 
   test("the first stop is kept; once caught, the next stage fails the attempt as caught", async () => {
@@ -546,7 +557,7 @@ describe("workflow.stop", () => {
       }),
       null,
     );
-    expect(twice.stopped).toEqual({ reason: "first" });
+    expect(stopOf(twice)).toEqual({ reason: "first" });
 
     const afterCaught = await testWorkflow(
       workflowOf(async (workflow) => {
@@ -563,7 +574,7 @@ describe("workflow.stop", () => {
       null,
     );
     expect(() => afterCaught.value).toThrow("stop was caught: in a");
-    expect(afterCaught.stopped).toBeUndefined();
+    expect(stopOf(afterCaught)).toBeUndefined();
     expect(afterCaught.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
       ["a", "failed"],
     ]);
@@ -581,7 +592,7 @@ describe("workflow.stop", () => {
       null,
     );
     expect(() => run.value).toThrow("stop was caught: no doc");
-    expect(run.stopped).toBeUndefined();
+    expect(stopOf(run)).toBeUndefined();
     expect(run.stages).toEqual([]);
   });
 
@@ -597,7 +608,7 @@ describe("workflow.stop", () => {
       }),
       null,
     );
-    expect(run.stopped).toEqual({ reason: "opus found a blocker", stage: "review" });
+    expect(stopOf(run)).toEqual({ reason: "opus found a blocker", stage: "review" });
     expect(run.stages[0]).toMatchObject({ outcome: "stopped" });
   });
 });

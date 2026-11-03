@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, type Script, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, type Script, testWorkflow } from "agentswf/testing";
 import { VERDICT, WORK } from "./schema";
 import feature, { featureDelivery } from "./workflow";
 
@@ -208,7 +208,8 @@ describe("feature-delivery", () => {
         reviewer: answer(VERDICT, { kind: "changes-requested", feedback: ["more detail"] }),
       },
     });
-    expect(run.stopped).toEqual({
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
       stage: "doc-review",
       reason: "ticket doc: not approved; 1 changes open",
     });
@@ -232,12 +233,18 @@ describe("feature-delivery", () => {
     );
     expect(run.turnsOf("reviewer")[0]!.prompt).not.toContain("revision loop");
     expect(asked).toEqual({ kind: "refused", code: "no-route" });
-    expect(run.stopped).toMatchObject({ reason: "ticket doc: not approved; 1 changes open" });
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      reason: "ticket doc: not approved; 1 changes open",
+    });
   });
 
   test("a planner that goes quiet is nudged once, then the delivery stops", async () => {
-    const run = await testWorkflow(featureDelivery, args, { agents: { planner: reply.silent() } });
-    expect(run.stopped).toMatchObject({
+    const run = await testWorkflow(featureDelivery, args, {
+      agents: { planner: noAnswer.silent() },
+    });
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
       stage: "ticket-doc",
       reason: expect.stringMatching(/^planner: /),
     });
@@ -251,7 +258,11 @@ describe("feature-delivery", () => {
         reviewer: answer(VERDICT, { kind: "inconclusive", reason: "cannot open the doc" }),
       },
     });
-    expect(run.stopped).toEqual({ stage: "doc-review", reason: "reviewer: cannot open the doc" });
+    expect(run.ending).toMatchObject({
+      kind: "stopped",
+      stage: "doc-review",
+      reason: "reviewer: cannot open the doc",
+    });
   });
 
   test("the planner and the reviewer on one model are refused", async () => {
@@ -274,7 +285,8 @@ describe("feature-delivery", () => {
           reviewer: ready("doc ok"),
         },
       });
-      expect(run.stopped).toEqual({
+      expect(run.ending).toMatchObject({
+        kind: "stopped",
         stage: "doc-review",
         reason: "planner: updated a different ticket document",
       });
@@ -287,7 +299,8 @@ describe("feature-delivery", () => {
           implementer: answer(WORK, { docPath: "docs/other.md", summary: "built", decisions: [] }),
         },
       });
-      expect(run.stopped).toEqual({
+      expect(run.ending).toMatchObject({
+        kind: "stopped",
         stage: "implementation",
         reason: "implementer: updated a different ticket document",
       });
@@ -338,10 +351,14 @@ describe("feature-delivery", () => {
         agents: {
           ...happyPath,
           "additional-reviewer:*": ready("fine"),
-          "additional-reviewer:perf": reply.failed("harness crashed"),
+          "additional-reviewer:perf": noAnswer.failed("harness crashed"),
         },
       });
-      expect(run.stopped).toEqual({ stage: "additional-review", reason: "perf: harness crashed" });
+      expect(run.ending).toMatchObject({
+        kind: "stopped",
+        stage: "additional-review",
+        reason: "perf: harness crashed",
+      });
     });
 
     test("one that can't decide stops the others, and the delivery", async () => {
@@ -353,10 +370,11 @@ describe("feature-delivery", () => {
             kind: "inconclusive",
             reason: "no diff to read",
           }),
-          "additional-reviewer:perf": reply.hang(),
+          "additional-reviewer:perf": noAnswer.hang(),
         },
       });
-      expect(run.stopped).toEqual({
+      expect(run.ending).toMatchObject({
+        kind: "stopped",
         stage: "additional-review",
         reason: "security: no diff to read",
       });

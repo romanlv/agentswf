@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import fixIssue, { BUILT, PLAN, VERDICT } from "./durability";
 
 const args = { issue: "#212: dates before 1970 parse as null" };
@@ -11,10 +11,10 @@ test("a review that never comes stops the attempt in review, after plan and impl
     agents: {
       planner: answer(PLAN, plan),
       builder: answer(BUILT, built),
-      reviewer: reply.silent(),
+      reviewer: noAnswer.silent(),
     },
   });
-  expect(run.stopped).toMatchObject({ stage: "review" });
+  expect(run.ending).toMatchObject({ kind: "stopped", stage: "review" });
   expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
     ["plan", "succeeded"],
     ["implement", "succeeded"],

@@ -55,8 +55,12 @@ test("between pushes, the run parks until the timer is due", async () => {
     agents: { reviewer: reviewed },
     maxTimers: 0,
   });
-  expect(run.parked?.label).toBe("#42: waiting for a push, round 1");
-  expect(run.parked?.until).toBe(
-    run.timers.find((t) => t.name === "stale-0")?.due,
-  );
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    label: "#42: waiting for a push, round 1",
+  });
+  expect(run.ending).toMatchObject({
+    kind: "parked",
+    until: run.timers.find((t) => t.name === "stale-0")?.due,
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import reviewOnEvent, { Review } from "./review-on-event";
 
 const opened = {
@@ -25,7 +25,10 @@ describe("review on event", () => {
     expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
       ["review-aaa1111", "succeeded"],
     ]);
-    expect(run.parked?.label).toBe("waiting for a push");
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      label: "waiting for a push",
+    });
   });
 
   test("a push during a review is reviewed next, in the same session", async () => {
@@ -54,7 +57,7 @@ describe("review on event", () => {
     const run = await testWorkflow(reviewOnEvent, {
       id: "42",
       event: opened,
-      agents: { reviewer: reply.hang() },
+      agents: { reviewer: noAnswer.hang() },
       events: [
         {
           during: "reviewer#1",
@@ -71,7 +74,7 @@ describe("review on event", () => {
     const run = await testWorkflow(reviewOnEvent, {
       id: "42",
       event: opened,
-      agents: { reviewer: reply.failed(), "reviewer#2": approved },
+      agents: { reviewer: noAnswer.failed(), "reviewer#2": approved },
       events: [{ during: "reviewer#1", ...pushed }],
     });
     expect(run.logs.map((log) => log.message)).toEqual(["review failed"]);
@@ -89,6 +92,9 @@ describe("review on event", () => {
     });
     expect(run.logs.map((log) => log.message)).toEqual(["not a commit hash"]);
     expect(run.turns).toEqual([]);
-    expect(run.parked?.label).toBe("waiting for a push");
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      label: "waiting for a push",
+    });
   });
 });

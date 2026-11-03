@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { JsonValue, ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, type ParticipantScript, reply, testWorkflow } from "./index";
+import { answer, type ParticipantScript, testWorkflow } from "./index";
+import { waiting } from "./script";
 
 const PURPOSE = "report findings that hold up; ask when the logs can't settle it";
 
@@ -183,6 +184,10 @@ describe("a coordinator in a workflow's test", () => {
       participants: { coordinator: () => undefined },
     });
     expect(() => run.value).toThrow();
+    expect(run.ending).toMatchObject({
+      kind: "cancelled",
+      reason: "the test ended the attempt: everything left waited on a participant",
+    });
     expect(run.messagesOf("coordinator")[1]).toEqual({
       from: "investigator",
       awaitReply: true,
@@ -198,7 +203,7 @@ describe("a coordinator in a workflow's test", () => {
           answer(async (turn) => {
             if (turn.messages.length > 0) return turn.messages.map((each) => each.text).join(" / ");
             await turn.send("coordinator", "Started.");
-            return reply.waiting("waiting for the coordinator");
+            return waiting("waiting for the coordinator");
           }),
         ],
       },
@@ -219,9 +224,8 @@ describe("a coordinator in a workflow's test", () => {
       null,
       {
         messages: {
-          investigator: (message) => {
+          investigator: () => {
             woken.resolve();
-            return message.silent();
           },
         },
         participants: {
@@ -245,7 +249,6 @@ describe("a coordinator in a workflow's test", () => {
             awaitReply: true,
           });
           expect(answered).toEqual({ kind: "replied", text: "Keep two." });
-          return message.silent();
         },
       },
       participants: {
@@ -418,7 +421,7 @@ describe("a coordinator in a workflow's test", () => {
     await expect(
       testWorkflow(investigate({ run: false }), null, { participants: {} }),
     ).rejects.toThrow(
-      'a route reached coordinator "coordinator", which has no script under coordinators',
+      'a route reached participant "coordinator", which has no script under participants',
     );
   });
 });

@@ -58,7 +58,7 @@ export async function keepRecords(
             outcome: ending.kind,
             reason: ending.reason,
             ...at,
-            ...(end.needs ? { needs: [...end.needs] } : {}),
+            ...(ending.needs ? { needs: ending.needs } : {}),
           };
   const kept: Kept = report ? { report } : {};
   const output = outputFile(dir);

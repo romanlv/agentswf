@@ -1,7 +1,7 @@
 // Checked by `tsc --noEmit`, never run: each wrong answer is refused where it is written.
 import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import Type from "typebox";
-import { answer, reply, type Script, testWorkflow } from ".";
+import { answer, noAnswer, type Script, testWorkflow } from ".";
 
 const VERDICT = Type.Union([
   Type.Object({ kind: Type.Literal("ready"), summary: Type.String() }),
@@ -17,13 +17,15 @@ export const valid: Script[] = [
       ? { kind: "changes-requested", feedback: ["more"] }
       : { kind: "ready", summary: "ok" },
   ),
-  answer(VERDICT, async (turn) => (turn.nudge ? reply.failed() : { kind: "ready", summary: "" })),
+  answer(VERDICT, async (turn) =>
+    turn.nudge ? noAnswer.failed() : { kind: "ready", summary: "" },
+  ),
   answer(CARRIED, { count: 1 }),
   answer(CARRIED, () => ({ count: 2 })),
   answer("text"),
   answer((turn) => `turn ${turn.n}`),
-  reply.silent(),
-  [answer(VERDICT, { kind: "ready", summary: "ok" }), reply.hang(), answer("done")],
+  noAnswer.silent(),
+  [answer(VERDICT, { kind: "ready", summary: "ok" }), noAnswer.hang(), answer("done")],
 ];
 
 export const invalid: Script[] = [
@@ -37,8 +39,8 @@ export const invalid: Script[] = [
   answer(VERDICT, () => ({ kind: "approved", summary: "ok" })),
   // @ts-expect-error the carrier's type
   answer(CARRIED, { count: "one" }),
-  // @ts-expect-error a reply is a script entry of its own, not an answer's value
-  answer(VERDICT, reply.silent()),
+  // @ts-expect-error no answer is a script entry of its own, not an answer's value
+  answer(VERDICT, noAnswer.silent()),
   // @ts-expect-error text answers a turn with no schema
   answer(42),
 ];

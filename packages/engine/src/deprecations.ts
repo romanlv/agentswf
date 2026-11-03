@@ -28,6 +28,24 @@ export const DEPRECATIONS = {
     instead: "name the agent, { done: agent }, which has at most one started turn",
   },
   "turn-is": { old: "turn.is(e)", instead: "use agent.is(e)" },
+  "test-reply": {
+    old: "reply.… in a test's script",
+    instead: "use noAnswer.…, the same calls: a reply answers, these end a turn without an answer",
+  },
+  "message-silent": {
+    old: "message.silent() in a test's message script",
+    instead: "return nothing, which ends the turn without a reply",
+  },
+  "message-fail": {
+    old: "message.fail() in a test's message script",
+    instead: "return noAnswer.failed(reason), which fails the turn as a failed harness does",
+  },
+  "test-event-id": {
+    old: "an event's id in a test",
+    instead: "give it as eventId, as awf emit --event-id does",
+  },
+  "run-stopped": { old: "run.stopped", instead: 'read run.ending, whose kind is "stopped"' },
+  "run-parked": { old: "run.parked", instead: 'read run.ending, whose kind is "parked"' },
 } as const satisfies Record<string, { old: string; instead: string }>;
 
 export type Deprecated = keyof typeof DEPRECATIONS;

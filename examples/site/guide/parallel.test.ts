@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "agentswf/testing";
+import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import lensReview, { FINDINGS, strictReview } from "./parallel";
 
 const finding = (file: string, severity: "high" | "low") => ({
@@ -31,7 +31,7 @@ test("results come back in item order, whichever lens finishes first", async () 
 test("a lens that doesn't answer is recorded, and the others' findings are kept", async () => {
   const run = await testWorkflow(lensReview, null, {
     agents: {
-      "review:security": reply.failed(),
+      "review:security": noAnswer.failed(),
       "review:*": answer(FINDINGS, finding("sum.ts", "low")),
     },
   });
@@ -45,7 +45,7 @@ test("a lens that doesn't answer is recorded, and the others' findings are kept"
 test("a branch that throws cancels the turn still running, and parallel rejects", async () => {
   const run = await testWorkflow(strictReview, null, {
     agents: {
-      "review:security": reply.failed(),
+      "review:security": noAnswer.failed(),
       // Answers only once its turn is cancelled, which is too late to count.
       "review:correctness": answer(
         FINDINGS,

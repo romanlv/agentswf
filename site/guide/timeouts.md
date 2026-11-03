@@ -148,7 +148,7 @@ outside, Ctrl-C cancels the run, and a second Ctrl-C stops awf at once.
 - **No deadline means no limit.** Nudges end a turn whose agent stops without answering, but an
   agent that keeps working is never cut off. Set `timeoutMs` on turns you can't wait on, or run
   with `--timeout`.
-- **Deadlines are real time in a test.** `reply.timedOut()` ends a scripted turn `timed-out` at
+- **Deadlines are real time in a test.** `noAnswer.timedOut()` ends a scripted turn `timed-out` at
   once, and a silent script is nudged as in a run, with `turn.nudge` true:
   [Testing](/guide/testing).
 - **These nudges are for an agent in a turn.** Reminding a person who hasn't answered is a
