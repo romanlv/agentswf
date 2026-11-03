@@ -95,10 +95,18 @@ defineWorkflow({
   run: async () => null,
 });
 
-// @ts-expect-error A workflow with events gives its file.
+// A workflow with events and no starts needs no file: awf finds it by the path it is given.
 defineWorkflow({
   meta: { name: "no-file", description: "No file." },
   events: { "dd.changes": Changes },
+  run: async () => null,
+});
+
+// @ts-expect-error A workflow with starts gives its file, by which a sender finds it.
+defineWorkflow({
+  meta: { name: "starts-no-file", description: "Starts, and no file." },
+  events: { "dd.changes": Changes },
+  starts: ["dd.changes"],
   run: async () => null,
 });
 
@@ -123,15 +131,17 @@ defineWorkflow({
   },
 }) satisfies Workflow<{ occurrences: number }, number, { "dd.changes": typeof Changes }>;
 
-// A workflow without events has no wait, no turn started without awaiting it, and no
-// code-routed participant, wrapped in a generic helper too.
+// A workflow without events has the one context: it waits as any run does, in its process, and
+// declares no name for signal, wrapped in a generic helper too.
 function plainHelper<Args extends null>(prepare: (invocation: WorkflowInvocation) => Args) {
   return defineWorkflow({
     meta: { name: "plain-helper", description: "Generic over its args." },
     prepare,
     async run(wf) {
-      // @ts-expect-error Only a workflow with events waits.
-      await wf.receive();
+      const [first] = await wf.receive();
+      if (first?.name === "timer:due") void first.data.name;
+      // @ts-expect-error It declares no event.
+      wf.signal("dd.changes");
       return null;
     },
   });
@@ -140,17 +150,39 @@ function plainHelper<Args extends null>(prepare: (invocation: WorkflowInvocation
 const plain: Workflow<null, null> = defineWorkflow({
   meta: { name: "plain", description: "No events." },
   async run(wf) {
-    // @ts-expect-error Only a workflow with events waits.
-    await wf.receive();
-    // @ts-expect-error A participant routed to the code needs a mailbox.
-    const routed = await wf.participants.connect({ key: "thread", to: "code" });
-    void routed;
-    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
-    // @ts-expect-error Its end would have no wait to arrive at.
-    await agent.start({ prompt: "Look" });
+    // A timer raced against a duration, with nothing declared.
+    const first = await wf.race("approval", { remind: wf.timer("nudge", "2h"), expiry: "14d" });
+    if (first.remind) void first.remind.name;
+    await anyContext(wf);
+    const reminder = wf.timer("remind", "1d");
+    for await (const next of wf.select({ reminder, due: wf.at(() => null) })) {
+      if (next.reminder) break;
+    }
+    void wf.after("2h");
+    // @ts-expect-error No event is declared, so a plain run was started by none.
+    void wf.started?.name;
     return null;
   },
 });
+
+// A workflow with events needs no file, starts or id to race an agent against a deadline.
+export const reviewOrExpire = defineWorkflow({
+  meta: { name: "review-or-expire", description: "Events, and nothing else declared." },
+  events: { "dd.changes": Changes },
+  async run(wf) {
+    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+    await agent.start({ prompt: "Review." });
+    const first = await wf.race("review", { done: agent, expiry: "14d" });
+    if (first.done) void first.done.outcome;
+    await anyContext(wf);
+    return null;
+  },
+});
+
+// A helper typed with the bare context takes any workflow's, with events or without.
+async function anyContext(wf: WorkflowContext): Promise<void> {
+  await wf.sleep("helper", "1h");
+}
 
 async function noEvents(): Promise<void> {
   // @ts-expect-error A workflow without events takes none.
@@ -160,10 +192,12 @@ async function noEvents(): Promise<void> {
 void [typed, sender, plain, plainHelper, noEvents];
 
 defineWorkflow({
-  meta: { name: "plain", description: "No events: its runs never park." },
+  meta: { name: "signals", description: "A misspelled signal name." },
+  events: { "dd.changes": Changes },
   async run(wf) {
-    // @ts-expect-error keepAlive is for a workflow with events.
-    await wf.agents.open({ key: "a", runtime: "claude", keepAlive: {} });
+    void wf.signal("dd.changes");
+    // @ts-expect-error A name the workflow doesn't declare.
+    void wf.signal("dd.change");
     return null;
   },
 });
@@ -278,7 +312,6 @@ defineWorkflow({
   async run(wf) {
     await wf.sleep("follow-up", "14d");
     void wf.now().getTime();
-    // @ts-expect-error A race takes events, which a workflow without them has none of.
     await wf.race("x", { rested: "1h" });
     return null;
   },

@@ -69,7 +69,7 @@ export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
       args.runtimes,
       async (runtime): Promise<QuickCheck> => {
         const execution: ExecutionConfig = RUNTIMES[runtime];
-        const agent = await wf.agents.open({ key: `check:${runtime}`, runtime: execution });
+        const agent = await wf.agents.open({ key: `check-${runtime}`, runtime: execution });
         const answers: QuickAnswer[] = [];
         for (const { prompt, expected } of QUESTIONS) {
           const { outcome } = await agent.run({

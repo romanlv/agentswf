@@ -27,10 +27,12 @@ panes; --no-watch leaves it out, and awf still prints the command that shows the
 --here, run by an agent in a Herdr pane, starts the run in a new tab and has it take that agent's
 session over as one of its agents, from its next turn until the run ends. It prints a line for
 the agent to end its turn with, which is how the run finds the session.
-A run of a workflow with events is named by --id, or by the workflow's id(args). awf run starts it
-with its arguments and no event, detached in its project, as awf emit would, and the run waits at
-its first receive. A run already there is only woken. A run an event starts has no argv: its args
-are what prepare makes of none.
+A run of a workflow with events is named by --id, or by the workflow's id(args); one without
+starts may have an id made, as any run. awf run starts it with its arguments and no event,
+detached in its project, as awf emit would, and the run waits at its first receive. A run already
+there is only woken. A run an event starts has no argv: its args are what prepare makes of none.
+Its --continue takes --from-stage, as any run's does, and no --values. A --from-stage the attempt
+never reaches runs the attempt until it would park or return, and stops it there.
 Exits 0 when the run completed or parked, 1 when it failed or timed out, 2 on a usage error or
 when the run is refused, 3 when it stopped and can go on with --continue, and 128 plus the
 signal's number when it was interrupted.

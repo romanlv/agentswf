@@ -1,7 +1,7 @@
 import {
+  type AgentRef,
   choice,
   defineWorkflow,
-  type EventAgentRef,
   type JsonObject,
   type OutputSchema,
   score,
@@ -34,7 +34,7 @@ export const agents = defineWorkflow({
   async run(wf): Promise<JsonObject> {
     // #region open
     const reviewer = await wf.agents.open({
-      key: "review:security",
+      key: "review-security",
       runtime: { harness: "claude", model: "claude-sonnet-5-5" }, // placement defaults to "tui"
       instructions: "You review code for security problems. Report; don't fix.",
     });
@@ -154,7 +154,7 @@ export const composing = defineWorkflow({
     const reviews = await wf.parallel(
       LENSES,
       async (lens) => {
-        const agent = await wf.agents.open({ key: `review:${lens}`, runtime: "codex" });
+        const agent = await wf.agents.open({ key: `review-${lens}`, runtime: "codex" });
         const { outcome } = await agent.run<Findings>({
           prompt: `Review for ${lens}.`,
           schema: FINDINGS,
@@ -309,7 +309,7 @@ export const waits = defineWorkflow({
       key: "investigator",
       runtime: "claude",
       keepAlive: {
-        onTimeout: async (agent: EventAgentRef) => {
+        onTimeout: async (agent: AgentRef) => {
           // Written when the window passes, from the case as it is then, while the cache is warm.
           await agent.compact({ prompt: focusFor(kase.view()) });
         },

@@ -1,4 +1,9 @@
-import type { StageNeed, StageRecord } from "@agentswf/contract/records";
+import type {
+  AttemptRecord,
+  AttemptStage,
+  StageNeed,
+  StageRecord,
+} from "@agentswf/contract/records";
 import { type JsonSchema, type SchemaError, validate } from "@agentswf/contract/schema";
 import type { JsonValue } from "@agentswf/contract/workflow";
 
@@ -147,4 +152,35 @@ export function planStageByContent(
   return misfit === undefined
     ? { kind: "reuse", record, value: record.value }
     : { kind: "stop", reason: misfit };
+}
+
+/**
+ * A `--from-stage {stage}` that attempt `attempt` redid, in a run of a workflow with `events`. In
+ * that attempt and every later one, a stage first entered after `stage` whose record an earlier
+ * attempt than `attempt` wrote runs again, its record replaced: it was made against the stage
+ * before the redo. A record never entered after the stage keeps its reuse.
+ */
+export type StageRedo = { stage: string; attempt: number };
+
+/**
+ * The last `--from-stage` an earlier attempt of a run with `events` redid: the latest attempt with
+ * one that ran its stage. Its attempt record says so in `stages`, which a stop for a stage never
+ * reached, a refusal and a crash leave without it; a crash after the stage's new record was written
+ * leaves that record, the attempt's own. A redo whose stage failed and ran again on a wake is still
+ * the redo. Only attempt and stage records are read, which a continue may read.
+ */
+export function lastRedo(
+  attempts: readonly (Pick<AttemptRecord, "attempt" | "flags"> & {
+    stages?: readonly Pick<AttemptStage, "stage" | "source">[];
+  })[],
+  records: ReadonlyMap<string, StageRecord>,
+  before: number,
+): StageRedo | undefined {
+  for (const { attempt, flags, stages } of [...attempts].sort((a, b) => b.attempt - a.attempt)) {
+    const stage = flags.fromStage;
+    if (attempt >= before || stage === undefined) continue;
+    const ran = stages?.some((each) => each.stage === stage && each.source === "ran") ?? false;
+    if (ran || records.get(stage)?.attempt === attempt) return { stage, attempt };
+  }
+  return undefined;
 }

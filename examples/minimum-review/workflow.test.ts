@@ -26,11 +26,11 @@ describe("minimum-review", () => {
     const { promise: maintained, resolve: maintainabilityAnswered } = Promise.withResolvers<void>();
     const run = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": answer(reviewSchema("correctness"), async () => {
+        "reviewer-correctness": answer(reviewSchema("correctness"), async () => {
           await maintained;
           return { lens: "correctness", summary: "correctness review complete", findings: [nan] };
         }),
-        "reviewer:maintainability": answer(reviewSchema("maintainability"), () => {
+        "reviewer-maintainability": answer(reviewSchema("maintainability"), () => {
           maintainabilityAnswered();
           return {
             lens: "maintainability",
@@ -57,7 +57,7 @@ describe("minimum-review", () => {
       ],
       blockingFindingCount: 1,
     });
-    expect(run.turnsOf("reviewer:correctness")[0]!.prompt).toBe(
+    expect(run.turnsOf("reviewer-correctness")[0]!.prompt).toBe(
       'Review target "src/report.ts" using only the correctness lens.',
     );
     expect(run.agents.every((agent) => agent.instructions?.includes("Do not delegate"))).toBe(true);
@@ -66,8 +66,8 @@ describe("minimum-review", () => {
   test("a silent lens is nudged, then kept as incomplete, and counts no findings", async () => {
     const run = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": noAnswer.silent(),
-        "reviewer:maintainability": review("maintainability", [coupled]),
+        "reviewer-correctness": noAnswer.silent(),
+        "reviewer-maintainability": review("maintainability", [coupled]),
       },
     });
     expect(run.value.reviews[0]).toMatchObject({
@@ -77,14 +77,14 @@ describe("minimum-review", () => {
     });
     expect(run.value.reviews[1]).toMatchObject({ kind: "completed", lens: "maintainability" });
     expect(run.value.blockingFindingCount).toBe(0);
-    expect(run.turnsOf("reviewer:correctness").map((turn) => turn.nudge)).toEqual([false, true]);
+    expect(run.turnsOf("reviewer-correctness").map((turn) => turn.nudge)).toEqual([false, true]);
   });
 
   test("each incomplete lens keeps its own outcome and reason", async () => {
     const failed = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": noAnswer.failed("correctness went failed"),
-        "reviewer:maintainability": review("maintainability", [coupled]),
+        "reviewer-correctness": noAnswer.failed("correctness went failed"),
+        "reviewer-maintainability": review("maintainability", [coupled]),
       },
     });
     expect(failed.value.reviews[0]).toEqual({
@@ -95,8 +95,8 @@ describe("minimum-review", () => {
     });
     const run = await testWorkflow(minimumReview, args, {
       agents: {
-        "reviewer:correctness": noAnswer.timedOut("correctness went timed-out"),
-        "reviewer:maintainability": noAnswer.blocked("maintainability went blocked"),
+        "reviewer-correctness": noAnswer.timedOut("correctness went timed-out"),
+        "reviewer-maintainability": noAnswer.blocked("maintainability went blocked"),
       },
     });
     expect(run.value).toEqual({
@@ -133,20 +133,20 @@ describe("minimum-review", () => {
     test("runs its lenses on the operator's claude and codex, and returns the reviews", async () => {
       const run = await testWorkflow(reviewLoop, args, {
         agents: {
-          "reviewer:correctness": review("correctness", [nan]),
-          "reviewer:maintainability": review("maintainability", []),
+          "reviewer-correctness": review("correctness", [nan]),
+          "reviewer-maintainability": review("maintainability", []),
         },
       });
       expect(run.value.blockingFindingCount).toBe(1);
-      expect(run.agentOf("reviewer:correctness").execution.alias).toBe("claude");
-      expect(run.agentOf("reviewer:maintainability").execution.alias).toBe("codex");
+      expect(run.agentOf("reviewer-correctness").execution.alias).toBe("claude");
+      expect(run.agentOf("reviewer-maintainability").execution.alias).toBe("codex");
     });
 
     test("an incomplete lens fails the run, naming it", async () => {
       const run = await testWorkflow(reviewLoop, args, {
         agents: {
-          "reviewer:correctness": noAnswer.failed("harness crashed"),
-          "reviewer:maintainability": review("maintainability", []),
+          "reviewer-correctness": noAnswer.failed("harness crashed"),
+          "reviewer-maintainability": review("maintainability", []),
         },
       });
       expect(() => run.value).toThrow("review incomplete: correctness failed: harness crashed");

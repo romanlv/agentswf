@@ -137,6 +137,26 @@ export interface AgentOpenSpec {
    * out, the agent keeps what it has.
    */
   tools?: AgentTools;
+  /**
+   * In a run of a workflow with `events`, keeps the run live, rather than parked, for a window
+   * after each turn this agent runs: awaited, started, or a message's. A message in the window is a
+   * turn in the same pane, its end a new window. The run parks once no agent's window is open and
+   * no `onTimeout` is due. A turn that fails or times out closes the agent, and a closed agent holds
+   * no window. On a reopen it takes the new spec; left out, the agent keeps what it has. A run
+   * without events never parks, and refuses it.
+   */
+  keepAlive?: {
+    /** How long the run stays live after this agent's last turn ends; absent, an hour. */
+    timeoutMs?: number;
+    /**
+     * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
+     * take and nothing working, which awaits it in its own scope: to compact the agent while its
+     * cache is warm, say. No turn it begins opens a window, on any agent; a message it has a peer
+     * send is the peer's turn. It must settle: the wait takes no event until it does. A throw is
+     * logged; the run parks anyway.
+     */
+    onTimeout?: (agent: AgentRef) => Promise<void> | void;
+  };
 }
 
 /** An agent's tools by name, each name matching `TOOL_LIMITS.name`. */
@@ -474,7 +494,8 @@ export interface SettingsSpec {
   timeoutMs?: number;
 }
 
-export interface AgentRef extends PeerRef {
+/** An agent of the run. As a source, a wait takes the end of the turn `start()` began. */
+export interface AgentRef extends PeerRef, Source<Taken<AgentEnded>> {
   readonly key: AgentKey;
   /**
    * The agent's settings now: as it was opened, then as the last answered `set` left them. Its
@@ -511,6 +532,26 @@ export interface AgentRef extends PeerRef {
    * the same agent (ADR 0009), its tools matched as `open` matches them.
    */
   fork(spec: AgentForkSpec): Promise<AgentRef>;
+  /**
+   * The turn `start()` began, from then until a wait takes its end, restored on a continue for a
+   * turn whose end no wait took; `null` otherwise. While it is set, the agent refuses `start()`,
+   * `run()`, `compact()`, `set()`, `fork()` and messages from other agents.
+   */
+  readonly turn: StartedTurn | null;
+  /**
+   * Begins the turn `run()` would, and returns once it is recorded and launched. Its end arrives at
+   * the run's wait as `agent:ended` from this agent's key, with the outcome, checked against
+   * `schema` as `run()`'s is, and `meta`. At the run's root scope only, and in a run of a workflow
+   * with `events`: its end arrives as an event, so a run without them refuses it.
+   */
+  start(spec: AgentStartSpec): Promise<StartedTurn>;
+  /**
+   * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
+   * turn with and the outcome its `schema` gives.
+   */
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
+    event: EventLike,
+  ): event is AgentEndedEvent<Meta, T> & Matched;
 }
 
 export interface CallerSpec {
@@ -552,57 +593,11 @@ export interface AgentDirectory {
   forkCaller(spec: Omit<AgentForkSpec, "tools">): Promise<AgentRef | null>;
 }
 
-/**
- * An agent of a run of a workflow with `events`, which can also start a turn without awaiting it.
- * As a source, a wait takes the end of any of its turns.
- */
-export interface EventAgentRef extends AgentRef, Source<Taken<AgentEnded>> {
-  /**
-   * The turn `start()` began, from then until a wait takes its end, restored on a continue for a
-   * turn whose end no wait took; `null` otherwise. While it is set, the agent refuses `start()`,
-   * `run()`, `compact()`, `set()`, `fork()` and messages from other agents.
-   */
-  readonly turn: StartedTurn | null;
-  /**
-   * Begins the turn `run()` would, and returns once it is recorded and launched. Its end arrives at
-   * the run's wait as `agent:ended` from this agent's key, with the outcome, checked against
-   * `schema` as `run()`'s is, and `meta`. At the run's root scope only.
-   */
-  start(spec: AgentStartSpec): Promise<StartedTurn>;
-  /**
-   * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
-   * turn with and the outcome its `schema` gives.
-   */
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
-    event: EventLike,
-  ): event is AgentEndedEvent<Meta, T> & Matched;
-  fork(spec: AgentForkSpec): Promise<EventAgentRef>;
-}
+/** @deprecated Use `AgentRef`: every agent is one. */
+export type EventAgentRef = AgentRef;
 
-/** How an agent of a run of a workflow with `events` opens. */
-export interface EventAgentOpenSpec extends AgentOpenSpec {
-  /**
-   * Keeps the run live, rather than parked, for a window after each turn this agent runs: awaited,
-   * started, or a message's. A message in the window is a turn in the same pane, its end a new
-   * window. The run parks once no agent's window is open and no `onTimeout` is due. A turn that
-   * fails or times out closes the agent, and a closed agent holds no window. On a reopen it takes
-   * the new spec; left out, the agent keeps what it has.
-   */
-  keepAlive?: {
-    /** How long the run stays live after this agent's last turn ends; absent, an hour. */
-    timeoutMs?: number;
-    /**
-     * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
-     * take and nothing working, which awaits it in its own scope: to compact the agent while its
-     * cache is warm, say. No turn it begins opens a window, on any agent; a message it has a peer
-     * send is the peer's turn. It must settle: the wait takes no event until it does. A throw is
-     * logged; the run parks anyway.
-     */
-    onTimeout?: (agent: EventAgentRef) => Promise<void> | void;
-  };
-}
+/** @deprecated Use `AgentOpenSpec`, which holds `keepAlive`. */
+export type EventAgentOpenSpec = AgentOpenSpec;
 
-/** The agents of a run of a workflow with `events`. */
-export interface EventAgentDirectory extends AgentDirectory {
-  open(spec: EventAgentOpenSpec): Promise<EventAgentRef>;
-}
+/** @deprecated Use `AgentDirectory`: every workflow's agents are one. */
+export type EventAgentDirectory = AgentDirectory;

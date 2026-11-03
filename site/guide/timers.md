@@ -29,7 +29,8 @@ After the quiet day above, the release holds for two weeks, and then the flag go
 
 A sleep is a race of one timer, `hold@sleep`, and the run parks while it waits. A run woken early
 waits only for what is left, and one woken late goes straight on. Sleeps share their names with
-races, so a sleep in a loop is named per round. Without `events`, a sleep waits in its process.
+races, so a sleep in a loop is named per round. Without `events`, a workflow sleeps, races and
+selects as well, but its run never parks: it waits in its process.
 
 Both samples are one workflow, checked and tested:
 [`examples/site/guide/events-waits.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/guide/events-waits.ts).

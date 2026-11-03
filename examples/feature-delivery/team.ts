@@ -45,7 +45,7 @@ export async function openTeam(wf: WorkflowContext, args: FeatureArgs) {
       session(
         wf,
         await wf.agents.open({
-          key: `additional-reviewer:${name}`,
+          key: `additional-reviewer-${name}`,
           runtime,
           instructions:
             "Independently review the implementation. Do not defer judgment to prior reviewers.",

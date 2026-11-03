@@ -156,7 +156,7 @@ describe("feature-delivery", () => {
           "implementation-review": { summary: "code ok", work: built },
         },
         agents: {
-          "additional-reviewer:security": answer(VERDICT, {
+          "additional-reviewer-security": answer(VERDICT, {
             kind: "changes-requested",
             feedback: ["escape the key"],
           }),
@@ -166,7 +166,7 @@ describe("feature-delivery", () => {
       },
     );
     expect(run.value).toMatchObject({ summary: "escaped", review: { primary: "escape ok" } });
-    expect(run.turnsOf("additional-reviewer:security")[0]!.prompt).toContain("ABC-1");
+    expect(run.turnsOf("additional-reviewer-security")[0]!.prompt).toContain("ABC-1");
     expect(run.turnsOf("implementer")[0]!.prompt).toContain("your implementation of ABC-1");
     const [review] = run.turnsOf("reviewer");
     expect(run.turnsOf("reviewer")).toHaveLength(1);
@@ -320,11 +320,11 @@ describe("feature-delivery", () => {
       const run = await testWorkflow(featureDelivery, withExtras, {
         agents: {
           ...happyPath,
-          "additional-reviewer:security": answer(VERDICT, {
+          "additional-reviewer-security": answer(VERDICT, {
             kind: "changes-requested",
             feedback: ["escape the key"],
           }),
-          "additional-reviewer:perf": ready("fast enough"),
+          "additional-reviewer-perf": ready("fast enough"),
           // Built and recorded; then the feedback applied and recorded.
           implementer: answer(WORK, (turn) =>
             turn.n <= 2
@@ -350,8 +350,8 @@ describe("feature-delivery", () => {
       const run = await testWorkflow(featureDelivery, withExtras, {
         agents: {
           ...happyPath,
-          "additional-reviewer:*": ready("fine"),
-          "additional-reviewer:perf": noAnswer.failed("harness crashed"),
+          "additional-reviewer-*": ready("fine"),
+          "additional-reviewer-perf": noAnswer.failed("harness crashed"),
         },
       });
       expect(run.ending).toMatchObject({
@@ -366,11 +366,11 @@ describe("feature-delivery", () => {
       const run = await testWorkflow(featureDelivery, withExtras, {
         agents: {
           ...happyPath,
-          "additional-reviewer:security": answer(VERDICT, {
+          "additional-reviewer-security": answer(VERDICT, {
             kind: "inconclusive",
             reason: "no diff to read",
           }),
-          "additional-reviewer:perf": noAnswer.hang(),
+          "additional-reviewer-perf": noAnswer.hang(),
         },
       });
       expect(run.ending).toMatchObject({

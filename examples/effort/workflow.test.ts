@@ -15,7 +15,7 @@ describe("effort", () => {
       { runtimes: ["codex", "pi-headless"], word: "pelican" },
       {
         agents: {
-          "effort:*": [
+          "effort-*": [
             answer(ANSWER, { word: "pelican", shell: "" }),
             answer(ANSWER, { word: "ok", shell: "" }),
             answer(ANSWER, { word: "pelican", shell: "" }),
@@ -26,12 +26,12 @@ describe("effort", () => {
     const settings = (key: string) =>
       run.turnsOf(key).map(({ model, effort: level }) => `${model}@${level}`);
 
-    expect(settings("effort:codex")).toEqual([
+    expect(settings("effort-codex")).toEqual([
       "gpt-6-luna@low",
       "gpt-6-luna@high",
       "gpt-5.6-luna@high",
     ]);
-    expect(settings("effort:pi-headless")).toEqual([
+    expect(settings("effort-pi-headless")).toEqual([
       "openrouter/deepseek/deepseek-v4.1-flash-1017@low",
       "openrouter/deepseek/deepseek-v4.1-flash-1017@high",
       "openrouter/deepseek/deepseek-v4.1-flash@high",

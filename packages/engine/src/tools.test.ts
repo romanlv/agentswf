@@ -5,7 +5,6 @@ import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   type AgentRef,
   type AgentTools,
-  type EventAgentRef,
   type JsonObject,
   type JsonValue,
   type OutputSchema,
@@ -1517,8 +1516,8 @@ describe("with started turns", () => {
 
   test("a turn started from a handler isn't in it: its own handler may cancel the first agent's next turn", async () => {
     const ready = Promise.withResolvers<void>();
-    let a!: EventAgentRef;
-    let b!: EventAgentRef;
+    let a!: AgentRef;
+    let b!: AgentRef;
     let next!: StartedTurn;
     let turns = 0;
     const run = await testWorkflow(
@@ -1659,7 +1658,7 @@ describe("with started turns", () => {
   });
 
   test("start() from a handler of a turn in a stage is refused agent-in-tool, not as in a stage", async () => {
-    let agent!: EventAgentRef;
+    let agent!: AgentRef;
     const run = await testWorkflow(
       caseRun(async (workflow) => {
         await workflow.receive();
@@ -1698,7 +1697,7 @@ describe("with started turns", () => {
   });
 
   test("start(), cancel() and receive() from a handler of the agent's started turn are refused first", async () => {
-    let agent!: EventAgentRef;
+    let agent!: AgentRef;
     let started!: StartedTurn;
     const run = await testWorkflow(
       caseRun(async (workflow) => {

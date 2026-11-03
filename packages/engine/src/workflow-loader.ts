@@ -85,7 +85,10 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
     // As `tsc` would have checked them, for a file it never saw.
     const eventProblem = eventWorkflowProblem(given);
     if (eventProblem) throw new Error(eventProblem);
-    if (realPath(given.file as string) !== realPath(absolute))
+    if (given.file === undefined)
+      // Found by the path it was loaded from, which is all a sender with that path needs.
+      return { file: absolute, workflow: { ...given, file: absolute } as AnyWorkflow };
+    if (realPath(given.file) !== realPath(absolute))
       throw new Error(
         `file is ${JSON.stringify(given.file)}; a workflow with events gives file: import.meta.path, ${absolute}`,
       );

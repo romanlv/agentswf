@@ -82,7 +82,7 @@ export function createMinimumReview(
         LENSES,
         async (lens): Promise<ReviewOutcome> => {
           const reviewer = await wf.agents.open({
-            key: `reviewer:${lens}`,
+            key: `reviewer-${lens}`,
             instructions: instructionFor(lens),
             runtime: runtimes[lens],
           });

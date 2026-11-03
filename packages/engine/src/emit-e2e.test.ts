@@ -1,15 +1,23 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitCommand } from "./emit-command";
 import { appendMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
-import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
+import {
+  createRun,
+  openRun,
+  previousGone,
+  processStart,
+  readAttempts,
+  readStageRecords,
+} from "./runs";
 import { stopCrashed } from "./stop-crashed";
 import { createTempRunDirs, eventProject, until, writeAttempt } from "./testing";
 import { wake } from "./wake";
 
 const dirs = createTempRunDirs();
+const CLI = join(import.meta.dir, "operator-cli.ts");
 afterAll(() => dirs.cleanup());
 
 // A run that takes events until it has seen two, and returns them: no agent, so no harness. What
@@ -176,14 +184,17 @@ test("awf run starts a run of a workflow with events with args, and an event for
   expect(out.pop()).toContain("prepare: no such case");
 }, 60_000);
 
-test("awf run --continue of an event run takes no stage, values or arguments", async () => {
+test("awf run of an event run takes no values, arguments on a continue, or a stage on a new run", async () => {
   const { file, home } = setup();
+  const values = join(dirs.tempRunDir(), "values.json");
+  writeFileSync(values, "{}");
   for (const [extra, message] of [
-    [["--from-stage", "x"], "takes no --from-stage or --values"],
-    [["--", "arg"], "takes no arguments"],
+    [["--continue", "--from-stage", "x", "--values", values], "takes no --values"],
+    [["--continue", "--", "arg"], "takes no arguments"],
+    [["--from-stage", "x"], "takes --from-stage only with --continue"],
   ] as const) {
     const err: string[] = [];
-    const code = await runOperatorCli(["run", file, "--id", "k", "--continue", ...extra], {
+    const code = await runOperatorCli(["run", file, "--id", "k", ...extra], {
       home,
       stdout: () => undefined,
       stderr: (t) => err.push(t),
@@ -192,6 +203,117 @@ test("awf run --continue of an event run takes no stage, values or arguments", a
     expect(err.join("\n")).toContain(message);
   }
 });
+
+// Three stages around two waits, and no file, no starts and no id: awf finds it by its path and
+// names its run. Each stage's value is how many stages had run when it ran.
+const REDO = `import { appendFileSync, readFileSync } from "node:fs";
+import { defineWorkflow } from "agentswf/workflow";
+const RAN = new URL("./ran.txt", import.meta.url).pathname;
+const ran = (stage) => {
+  appendFileSync(RAN, stage + "\\n");
+  return readFileSync(RAN, "utf8").split("\\n").filter(Boolean).length;
+};
+const N = { type: "number" };
+export default defineWorkflow({
+  meta: { name: "e2e-redo", description: "Stages around two waits." },
+  events: { go: { type: "object", properties: {} } },
+  async run(wf) {
+    const plan = await wf.stage("plan", { result: N }, async () => ran("plan"));
+    await wf.race("first", { go: wf.signal("go") });
+    const build = await wf.stage("build", { result: N }, async () => ran("build"));
+    await wf.race("second", { go: wf.signal("go") });
+    const ship = await wf.stage("ship", { result: N }, async () => ran("ship"));
+    return { plan, build, ship };
+  },
+});
+`;
+
+test("--from-stage on a run with events redoes that stage and the ones after it, as a plain run's does", async () => {
+  const { root, file, home } = eventProject(dirs, "redo.ts", REDO);
+  const out: string[] = [];
+  const io = { home, environment: { ...process.env, HOME: home } };
+  const awf = (...words: string[]) =>
+    runOperatorCli(["run", file, ...words], {
+      ...io,
+      stdout: (t) => out.push(t),
+      stderr: (t) => out.push(`! ${t}`),
+    });
+  const runs = join(root, ".awf", "runs", "e2e-redo");
+  expect(await awf()).toBe(0);
+  // A run's folder, not one a claim is making.
+  const [id] = readdirSync(runs).filter((name) => !name.startsWith("."));
+  if (id === undefined) throw new Error("no run");
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-redo", id);
+  const outcomes = async () => (await readAttempts(run)).map((attempt) => attempt.outcome);
+  const go = () =>
+    emitCommand(
+      ["--target", file, "--id", id, "go", "{}"],
+      dirs.tempRunDir(),
+      {
+        stdout: (t) => out.push(t),
+        stderr: (t) => out.push(`! ${t}`),
+      },
+      io,
+    );
+  await until(async () => (await outcomes()).at(-1) === "parked");
+  expect(await go()).toBe(0);
+  await until(async () => (await outcomes()).length === 2 && (await outcomes())[1] === "parked");
+  const stage = async (name: string) => (await readStageRecords(run.dir)).get(name);
+  expect([(await stage("plan"))?.value, (await stage("build"))?.value]).toEqual([1, 2]);
+
+  // Each by hand in a process of its own, as at a terminal: an attempt waits for the one before it to exit.
+  const own = async (...words: string[]) => {
+    const child = Bun.spawn({
+      cmd: [process.execPath, CLI, "run", file, "--id", id, "--continue", ...words],
+      cwd: root,
+      env: { ...process.env, HOME: home },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, text] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    return { code, text };
+  };
+  // Parked at its second wait: redone from build, which runs again, and parks there again.
+  expect((await own("--from-stage", "build")).code).toBe(0);
+  expect(await outcomes()).toEqual(["parked", "parked", "parked"]);
+  expect((await readAttempts(run))[2]?.flags).toEqual({ fromStage: "build" });
+  // What marks it a redo for the attempts after it: it ran its stage.
+  expect((await readAttempts(run))[2]?.stages?.map(({ stage, source }) => [stage, source])).toEqual(
+    [
+      ["plan", "reused"],
+      ["build", "ran"],
+    ],
+  );
+  expect([await stage("plan"), await stage("build")]).toMatchObject([
+    { attempt: 1, value: 1 },
+    { attempt: 3, value: 3 },
+  ]);
+  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["build.2.json"]);
+  const summaries = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+    stages: { stage: string; source: string; attempt: number }[];
+  };
+  expect(summaries.stages.map(({ stage, source, attempt }) => [stage, source, attempt])).toEqual([
+    ["plan", "reused", 1],
+    ["build", "ran", 3],
+  ]);
+
+  // A stage it would park before reaching stops it, as one never reached by its end does.
+  const nope = await own("--from-stage", "nope");
+  expect(nope.code).toBe(3);
+  expect(nope.text).toContain("never reached nope");
+  expect((await outcomes()).at(-1)).toBe("stopped");
+  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["build.2.json"]);
+  expect((await own()).code).toBe(0);
+  expect((await outcomes()).at(-1)).toBe("parked");
+
+  // The next wake reuses what the redo wrote, by content, and runs what comes after.
+  expect(await go()).toBe(0);
+  await until(async () => (await outcomes()).at(-1) === "completed");
+  const output = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+    value: unknown;
+  };
+  expect(output.value).toEqual({ plan: 1, build: 3, ship: 4 });
+}, 90_000);
 
 test("a continue reads the project's .env again, and not what the sender exported", async () => {
   const { root, file, home } = eventProject(

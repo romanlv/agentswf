@@ -6,6 +6,7 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { RunEventBody } from "./run-event-log";
 import { readStageRecords } from "./runs";
 import { type OpenStage, StageLedger } from "./stage-ledger";
+import { lastRedo } from "./stage-plan";
 import { WorkflowStopped } from "./stopped";
 
 import { createTempRunDirs } from "./testing";
@@ -485,6 +486,338 @@ describe("stages by content, in a run with events", () => {
       { kind: "stage-ended", stage: "close-e1", outcome: "succeeded", source: "reused" },
     ]);
     expect(byContent(runDir, 3, await readStageRecords(runDir)).progress().upcoming).toEqual([]);
+  });
+
+  /**
+   * A run's attempts as a script: each one entered stages in order, `ok` or `fail`, or `crash`,
+   * where its process dies with the stage running and its attempt record keeps no stages, with the
+   * `--from-stage` it was given; each sees the redo `lastRedo` finds as a later attempt does.
+   */
+  const story = (runDir: string) => {
+    const attempts: {
+      attempt: number;
+      flags: { fromStage?: string };
+      stages?: { stage: string; source: "ran" | "reused" }[];
+    }[] = [];
+    return async (
+      steps: readonly (readonly [string, "ok" | "fail" | "crash"])[],
+      fromStage?: string,
+    ): Promise<{ ran: string[]; reused: string[] }> => {
+      const attempt = attempts.length + 1;
+      const records = await readStageRecords(runDir);
+      const redo = lastRedo(attempts, records, attempt);
+      const record: (typeof attempts)[number] = {
+        attempt,
+        flags: fromStage === undefined ? {} : { fromStage },
+      };
+      attempts.push(record);
+      const ledger = new StageLedger({
+        runDir,
+        attempt,
+        turns: () => [],
+        byContent: true,
+        records,
+        ...(fromStage === undefined ? {} : { fromStage }),
+        ...(redo === undefined ? {} : { redo }),
+      });
+      const ran: string[] = [];
+      const reused: string[] = [];
+      for (const [name, how] of steps) {
+        const entered = await enter(ledger, name);
+        if (entered.kind === "reuse") {
+          reused.push(name);
+          entered.release();
+          continue;
+        }
+        ran.push(name);
+        if (how === "crash") return { ran, reused };
+        if (how === "ok") await entered.stage.succeed(undefined);
+        else await entered.stage.fail("caught");
+      }
+      await ledger.close();
+      record.stages = ledger.summaries.map(({ stage, source }) => ({ stage, source }));
+      return { ran, reused };
+    };
+  };
+  const attemptsOf = async (runDir: string) =>
+    Object.fromEntries([...(await readStageRecords(runDir))].map(([name, r]) => [name, r.attempt]));
+
+  test("--from-stage reuses what comes before it, and reruns it and each stage after it as reached", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["plan", "ok"],
+      ["build", "ok"],
+      ["ship", "ok"],
+    ]);
+    const redo = await attempt(
+      [
+        ["plan", "ok"],
+        ["build", "ok"],
+        ["ship", "ok"],
+        ["build", "ok"],
+      ],
+      "build",
+    );
+    // Entered again by content after the redo: this attempt's record.
+    expect(redo).toEqual({ ran: ["build", "ship"], reused: ["plan", "build"] });
+    expect(await attemptsOf(runDir)).toEqual({ plan: 1, build: 2, ship: 2 });
+    expect((await readdir(join(runDir, "replaced"))).sort()).toEqual([
+      "build.1.json",
+      "ship.1.json",
+    ]);
+  });
+
+  test("a stage later in the program but earlier on the clock reruns: a caught failure before it", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    // S fails, caught, and X runs; a wake runs S again and reuses X, so X's record is the older.
+    await attempt([
+      ["s", "fail"],
+      ["x", "ok"],
+    ]);
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    expect(await attemptsOf(runDir)).toEqual({ s: 2, x: 1 });
+    const redo = await attempt(
+      [
+        ["s", "ok"],
+        ["x", "ok"],
+      ],
+      "s",
+    );
+    expect(redo.ran).toEqual(["s", "x"]);
+    expect(await attemptsOf(runDir)).toEqual({ s: 3, x: 3 });
+  });
+
+  test("a stage later in the program but earlier on the clock reruns: a new version adds S before it", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([["x", "ok"]]);
+    // Version 2 adds S before X: S runs, X is reused, its record the older.
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    const redo = await attempt(
+      [
+        ["s", "ok"],
+        ["x", "ok"],
+      ],
+      "s",
+    );
+    expect(redo.ran).toEqual(["s", "x"]);
+  });
+
+  test("records written in the same millisecond are told apart by attempt, not time", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["a", "ok"],
+      ["b", "ok"],
+    ]);
+    const records = await readStageRecords(runDir);
+    for (const record of records.values())
+      await writeFile(
+        join(runDir, "stages", `${record.stage}.json`),
+        JSON.stringify({
+          ...record,
+          started: "2026-11-01T00:00:00.000Z",
+          ended: "2026-11-01T00:00:00.000Z",
+        }),
+      );
+    const redo = await attempt(
+      [
+        ["a", "ok"],
+        ["b", "ok"],
+      ],
+      "a",
+    );
+    expect(redo.ran).toEqual(["a", "b"]);
+  });
+
+  test("a redo that parks after its stage carries to the next attempt, which reruns what follows", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    // Redone from S, parked at a wait before X.
+    expect(await attempt([["s", "ok"]], "s")).toEqual({ ran: ["s"], reused: [] });
+    // A wake, with no flag: X's record is older than the redo, so it reruns; S is reused.
+    expect(
+      await attempt([
+        ["s", "ok"],
+        ["x", "ok"],
+      ]),
+    ).toEqual({ ran: ["x"], reused: ["s"] });
+    // And after that, both are reused.
+    expect(
+      await attempt([
+        ["s", "ok"],
+        ["x", "ok"],
+      ]),
+    ).toEqual({ ran: [], reused: ["s", "x"] });
+  });
+
+  test("stages before the redo's stage, or never entered after it, keep their records", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    // A receive loop: a stage per event, whose batch is acknowledged and never handed back.
+    await attempt([
+      ["handle-e1", "ok"],
+      ["sync", "ok"],
+      ["handle-e2", "ok"],
+    ]);
+    const redo = await attempt(
+      [
+        ["handle-e1", "ok"],
+        ["sync", "ok"],
+      ],
+      "sync",
+    );
+    expect(redo).toEqual({ ran: ["sync"], reused: ["handle-e1"] });
+    expect(await attemptsOf(runDir)).toEqual({ "handle-e1": 1, sync: 2, "handle-e2": 1 });
+    expect(await readdir(join(runDir, "replaced"))).toEqual(["sync.1.json"]);
+  });
+
+  test("a later --from-stage supersedes an earlier one", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["s", "ok"],
+      ["t", "ok"],
+      ["x", "ok"],
+    ]);
+    await attempt([["s", "ok"]], "s");
+    // Redone from T: X, older than both redos, reruns after T; S, whose record is attempt 2's, stays.
+    expect(
+      await attempt(
+        [
+          ["s", "ok"],
+          ["t", "ok"],
+          ["x", "ok"],
+        ],
+        "t",
+      ),
+    ).toEqual({ ran: ["t", "x"], reused: ["s"] });
+    expect(
+      lastRedo(
+        [
+          { attempt: 2, flags: { fromStage: "s" } },
+          { attempt: 3, flags: { fromStage: "t" } },
+        ],
+        await readStageRecords(runDir),
+        4,
+      ),
+    ).toEqual({ stage: "t", attempt: 3 });
+  });
+
+  test("a redo whose stage failed and ran again on a wake is still the redo", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    await attempt([["s", "fail"]], "s");
+    expect(
+      await attempt([
+        ["s", "ok"],
+        ["x", "ok"],
+      ]),
+    ).toEqual({ ran: ["s", "x"], reused: [] });
+  });
+
+  test("a redo whose attempt dies while its stage runs leaves the old record, and no redo", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    await attempt([["s", "crash"]], "s");
+    expect(await attemptsOf(runDir)).toEqual({ s: 1, x: 1 });
+    // Nothing was redone: the wakes after it reuse both, and the operator issues it again.
+    for (let n = 0; n < 2; n++)
+      expect(
+        await attempt([
+          ["s", "ok"],
+          ["x", "ok"],
+        ]),
+      ).toEqual({ ran: [], reused: ["s", "x"] });
+    expect(
+      await attempt(
+        [
+          ["s", "ok"],
+          ["x", "ok"],
+        ],
+        "s",
+      ),
+    ).toEqual({ ran: ["s", "x"], reused: [] });
+  });
+
+  test("a redo whose attempt dies after its stage's record is written still holds", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    await attempt(
+      [
+        ["s", "ok"],
+        ["x", "crash"],
+      ],
+      "s",
+    );
+    expect(
+      await attempt([
+        ["s", "ok"],
+        ["x", "ok"],
+      ]),
+    ).toEqual({ ran: ["x"], reused: ["s"] });
+  });
+
+  test("a --from-stage that stopped never reached is no redo, though a wake later runs its stage", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([["x", "ok"]]);
+    // Stopped "never reached s": s isn't in the code yet.
+    await attempt([["x", "ok"]], "s");
+    // A new version adds s, which a wake runs for the first time, after the stopped attempt.
+    await attempt([
+      ["s", "ok"],
+      ["x", "ok"],
+    ]);
+    expect(
+      await attempt([
+        ["s", "ok"],
+        ["x", "ok"],
+      ]),
+    ).toEqual({ ran: [], reused: ["s", "x"] });
+  });
+
+  test("a stage entered before the redo's stage and again after it runs once in the attempt", async () => {
+    const runDir = runDirs.tempRunDir();
+    const attempt = story(runDir);
+    await attempt([
+      ["x", "ok"],
+      ["s", "ok"],
+    ]);
+    expect(
+      await attempt(
+        [
+          ["x", "ok"],
+          ["s", "ok"],
+          ["x", "ok"],
+        ],
+        "s",
+      ),
+    ).toEqual({ ran: ["s"], reused: ["x", "x"] });
   });
 
   test("without events, a name is still entered once per attempt", async () => {

@@ -60,16 +60,11 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`wf.sleep(name, "14d" or date)`](#sleep) | once the time recorded under `name` has come |
 | [`wf.now()`](#now) | the run's time; a test's virtual clock in a test |
 
-**A workflow with events**
+**Waiting**, in every workflow; one with events parks while it waits
 
 | Call | Returns |
 | --- | --- |
 | [`wf.receive({ label? })`](#receive) | the events not yet acknowledged |
-| [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `agent:ended` |
-| [`agent.turn`, `turn.cancel(reason?)`](#agent-turn) | the started turn, until a wait takes its end |
-| [`agent.is(e)`, `participant.is(e)`, `timer.is(e)`, `signal.is(e)`](#is) | narrows an event |
-| [`wf.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
-| [`wf.participants.connect({ key, labels?, to: "code" })`](#participant-to-code) | a participant whose replies come to the code; `.post(text)` |
 | [`wf.race(name, { branch: source or "2d", … }, { label? })`](#race) | `{ key, [key]: what won }`, recorded under `name` |
 | [`wf.select({ branch: source, … }, { label? })`](#select) | each event a branch takes, one at a time |
 | [`wf.timer(name, "2d" or date)`](#timer) | a timer, a source; `timer.cancel()` |
@@ -77,7 +72,17 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`wf.at(() => date or null)`](#at) | a select's branch, due at a time the state holds |
 | [`wf.after("3h")`](#after) | `now()` plus a duration, as a `Date` |
 | [`wf.started`](#started) | the event that started the run |
-| [`wf.emit(target, run, name, data, { eventId? })`](#emit) | `"accepted"`, `"duplicate"` or `"refused"` |
+| [`agent.is(e)`, `participant.is(e)`, `timer.is(e)`, `signal.is(e)`](#is) | narrows an event |
+
+**A workflow with events**
+
+| Call | Returns |
+| --- | --- |
+| [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `agent:ended` |
+| [`agent.turn`, `turn.cancel(reason?)`](#agent-turn) | the started turn, until a wait takes its end |
+| [`wf.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
+| [`wf.participants.connect({ key, labels?, to: "code" })`](#participant-to-code) | a participant whose replies come to the code; `.post(text)` |
+| [`wf.emit(target, run, name, data, { eventId? })`](#emit) | `"accepted"`, `"duplicate"` or `"refused"`; any workflow emits |
 
 **The run**
 
@@ -140,7 +145,7 @@ The guide: [Workflows](/guide/workflows).
 | `meta` | `{ name, description, version? }`. `name` names the folder its runs are kept in: letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit. `version`, optional, is semver; [`stage`](#stage) says what it guards. |
 | `run(wf, args)` | The workflow. `args` and the result are JSON. |
 | `prepare({ argv, cwd })` | Turns the command line (`argv` after `--`, and `cwd`) into `args`. Required when `run` takes arguments: a workflow whose `args` aren't `null` without `prepare` fails `tsc`. Left out, the workflow takes none: its args are `null`, and any argv is refused. A throw ends the run before any agent opens. A run an event starts has no argv, and gets what `prepare` makes of none. |
-| `id(args)` | Optional. The run's id, such as a ticket's key: letters (either case), digits, `.`, `_`, `@` and `-`, starting with a letter or digit, at most 128 characters; an id differing from another only in case is refused. `awf run --id` overrides it. With neither, awf makes one, except for a workflow with events, whose run is then refused. A run's ref is `{workflow}/{id}`. |
+| `id(args)` | Optional. The run's id, such as a ticket's key: letters (either case), digits, `.`, `_`, `@` and `-`, starting with a letter or digit, at most 128 characters; an id differing from another only in case is refused. `awf run --id` overrides it. With neither, awf makes one, except for a workflow with `starts`, whose run is then refused: its senders name its runs. A run's ref is `{workflow}/{id}`. |
 | `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `output.json`; `--json` always prints the record. |
 | `report(value, ending)` | Optional. Markdown saved as `report.md` beside the run. Called however the attempt ended, so a stopped run can still hand off what its stages found: `value` is `undefined` unless it completed. `undefined` writes no report. |
 | `file`, `events`, `starts` | A workflow whose runs take events: see [Events](#events). |
@@ -171,7 +176,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 
 | Field | |
 | --- | --- |
-| `key` | Required. The agent's name in this run. Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved. In a run without stages, the part before `:` groups its cost, so `review:security` and `review:style` add up under `review`. |
+| `key` | Required. The agent's name in this run, such as `review-security`. Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
 | `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
@@ -659,13 +664,13 @@ The fields `defineWorkflow` adds:
 
 | Field | |
 | --- | --- |
-| `file` | Required. `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the nearest directory above it holding `.awf/`. |
 | `events` | Required. Each event's name and the schema of its data. A name with a colon fails `tsc`: `agent:ended`, `participant:reply` and `timer:due` are awf's own. |
 | `starts` | The events that may start a run with an id that has none; any other is refused then. Absent, any event starts one; an empty list is refused when the workflow loads. |
+| `file` | `import.meta.path`, required with `starts`: where a sender holding the workflow, as `wf.emit` does, finds it, and so which project its runs live in, the nearest directory above it holding `.awf/`. Without it, `awf run` and `awf emit --target` find it by the path they are given, and `wf.emit` to it throws. |
 
 - **Ids.** The sender names the run: `awf emit --id`, or `wf.emit`'s second argument; `wf.runId`
-  is the id and the ref is `{workflow}/{id}`. Without `id(args)` or `--id`, `awf run` refuses the
-  run. Event ids and stage names are lowercase letters, digits, `.`, `_`, `@` and `-`, at most 128
+  is the id and the ref is `{workflow}/{id}`. Without `id(args)` or `--id`, `awf run` refuses a
+  run of a workflow with `starts`, and makes an id for one without, as for a plain run. Event ids and stage names are lowercase letters, digits, `.`, `_`, `@` and `-`, at most 128
   characters, so a stage named by an event id (`close-{id}`) is always valid. Ids starting `awf.`
   are awf's own.
 - **Starting by hand.** `awf run {file} --id {id} -- {args}` makes the run with those args and
@@ -682,9 +687,20 @@ The fields `defineWorkflow` adds:
 - **Stages by content.** A succeeded stage is reused wherever and however often its name is
   entered, in any attempt and any version of the code, while its value fits. A wait goes outside
   a stage: [`wf.race`](#race) is recorded under its own name.
+- **`--from-stage {stage}`** on a continue redoes that stage and every one after it, as in a plain
+  run, but a later record moves to `replaced/` as the code reaches its stage, not all at once. The
+  stages before it are reused by content. Its own record moves as its new one is written. After it, in this
+  attempt and every later one, a stage first entered after it whose record an attempt before the
+  redo wrote runs again, its record replaced; one never entered keeps its record. So an attempt
+  that parks partway leaves the next wake, which carries no flag, to redo the rest. The mailbox is
+  untouched: a race keeps its recorded answer, but an event a `receive` or `select` took and
+  acknowledged isn't taken again, so a stage that handled one isn't reached and keeps its record.
+  An attempt that would park, or return, before reaching the stage stops instead, `never reached`.
+  It takes no `--values`, and a new run takes no `--from-stage`.
 - **`return`** ends the run for good: later events for it are refused.
-- **Without `events`** a workflow has no `receive`, `race`, `select` or `timer`, and never parks;
-  `wf.sleep` waits in its process.
+- **Without `events`** a workflow waits as any does, with `receive`, `race`, `select`, `timer` and
+  `sleep`, but never parks: it waits in its process. It declares no name, so `wf.signal` takes
+  none, and `agent.start`, `keepAlive` and a participant routed to the code throw, saying why.
 
 ### wf.receive {#receive}
 
@@ -749,8 +765,8 @@ warm turn in the same pane, and its end opens a new window.
 - **The run parks** once no window is open and no handler is due. A turn that fails or times out
   closes the agent, and a closed agent holds no window. Every agent's pane stays with the run: none
   is released alone.
-- **Elsewhere** `keepAlive` fails `tsc`, and `open` refuses it. On a reopen it takes the new spec;
-  left out, the agent keeps what it has.
+- **In a workflow without events**, whose runs never park, `open` refuses it. On a reopen it takes
+  the new spec; left out, the agent keeps what it has.
 
 The run's terminal shows "live until {time}" on the row of each idle agent whose window is open;
 `awf runs` shows the run live and waiting.
@@ -840,7 +856,7 @@ The timer has `name`, `due` (an ISO time), `cancel()` and `is(e)`; its branch ha
 ### wf.signal {#signal}
 
 `wf.signal(name)` is one of the workflow's declared events, as a source; its branch hands back the
-event, typed by its schema.
+event, typed by its schema. A name `events` doesn't declare fails `tsc`, and throws.
 
 ### wf.at {#at}
 
@@ -878,7 +894,8 @@ checks the same at run time ([Sending events with `awf emit`](/guide/hosting-eve
 already; or `refused`, the run returned, or it has none and `starts` doesn't list the event. A name
 `target` doesn't declare, or data its schema refuses, throws. An id
 names one occurrence for good; without one, nothing deduplicates the event. A sender is refused
-when `prepare` refuses no argv. Any workflow can emit; the target is one with events.
+when `prepare` refuses no argv. Any workflow can emit; the target is one with events, and a
+target without `file` throws: `wf.emit` finds a workflow by it.
 
 A parked run's `until` in `awf runs` is the earliest timer, or time read from state, its wait
 takes, and `awf tick` continues it once that is due: [`awf tick` on a schedule](/guide/hosting-events#awf-tick-on-a-schedule).
@@ -934,10 +951,9 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 
 | Name | |
 | --- | --- |
-| `WorkflowContext` | `wf` in a workflow without events. |
-| `EventWorkflowContext<Events>` | `wf` in a workflow with events: adds `receive`, `race`, `select`, `timer`, `signal`, `at`, `after` and `started`. |
-| `AgentRef` | An agent: `key`, `execution`, `run`, `compact`, `set`, `fork`. |
-| `EventAgentRef` | An agent in a workflow with events: adds `start`, `turn` and `is`, and is a source. |
+| `WorkflowContext<Events>` | `wf`, typed by the workflow's `events`. Bare, `WorkflowContext` is any workflow's, for a helper that takes whichever it is passed. |
+| `AgentRef` | An agent: `key`, `execution`, `run`, `compact`, `set`, `fork`, `start`, `turn` and `is`; a source. |
+| `EventSchemas` | What `events` is: each name's schema. |
 | `TurnOutcome<T>` | An [outcome](#outcomes), `T` the answer's type. |
 | `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: annotate a TypeBox schema with it, `const X: OutputSchema<Type.Static<typeof x>> = x`, and `run`, `stage` and `events` take its type. |
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
@@ -961,6 +977,8 @@ naming what replaces it.
 | `wf.stage(name, () => wf.receive())` | [`wf.race(name, …)`](#race), which is recorded under its name, outside a stage. |
 | `isAnswered(outcome)` | `outcome.answered`, which narrows the same way. |
 | `defineExecutableWorkflow({ definition: { meta, run }, prepare })` | `defineWorkflow({ meta, run, prepare })`. |
+| An agent's or participant's key with a colon, `review:security` | `-` in its place, `review-security`: a colon is kept for awf's own event names. The warning names each such key, and the key to use. |
+| `EventWorkflowContext<Events>`, `EventAgentRef`, `EventAgentOpenSpec`, `EventAgentDirectory` | `WorkflowContext<Events>`, `AgentRef`, `AgentOpenSpec`, `AgentDirectory`: every workflow has one of each. Types log nothing. |
 
 A test's old forms, such as `reply.silent()` and `run.stopped`, are on
 [the testing API page](/reference/testing-api#deprecated).

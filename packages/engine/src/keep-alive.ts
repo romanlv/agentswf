@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { EventAgentOpenSpec } from "@agentswf/contract/workflow";
+import type { AgentOpenSpec } from "@agentswf/contract/workflow";
 
-export type KeepAlive = NonNullable<EventAgentOpenSpec["keepAlive"]>;
+export type KeepAlive = NonNullable<AgentOpenSpec["keepAlive"]>;
 
 /** Claude's prompt cache lives an hour for the main conversation on a subscription. */
 export const DEFAULT_WINDOW_MS = 60 * 60_000;

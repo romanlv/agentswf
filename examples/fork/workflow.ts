@@ -93,8 +93,10 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
       args.cases,
       async (item): Promise<ForkCheck> => {
         const name = caseName(item);
+        // A key has no colon, which is kept for awf's own event names.
+        const key = name.replaceAll(":", "-");
         const worker = await wf.agents.open({
-          key: `worker:${name}`,
+          key: `worker-${key}`,
           runtime: RUNTIMES[item.runtime].execution,
           ...(item.sandbox ? { sandbox: { srt: {} } } : {}),
         });
@@ -130,7 +132,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
         }
         // A fork its host refuses rejects, as an agent that will not open does, and fails the run.
         const fork = await worker.fork({
-          key: `fork:${name}`,
+          key: `fork-${key}`,
           ...(item.into ? { placement: item.into, metered: true } : {}),
         });
         const later = await note(

@@ -36,7 +36,7 @@ export default defineWorkflow({
       LENSES,
       async (lens): Promise<Review> => {
         const reviewer = await wf.agents.open({
-          key: `review:${lens}`,
+          key: `review-${lens}`,
           runtime: "codex",
         });
         const { outcome } = await reviewer.run<Findings>({
@@ -81,7 +81,7 @@ export const strictReview = defineWorkflow({
     // #region strict
     return wf.parallel(LENSES, async (lens) => {
       const reviewer = await wf.agents.open({
-        key: `review:${lens}`,
+        key: `review-${lens}`,
         runtime: "codex",
       });
       const { outcome } = await reviewer.run<Findings>({

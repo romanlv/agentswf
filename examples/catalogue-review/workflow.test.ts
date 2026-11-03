@@ -100,11 +100,11 @@ describe("catalogue review run", () => {
         judge: { harness: "codex", model: "judge" },
       },
       agents: {
-        "lens:database": answer(FINDINGS_SCHEMA, {
+        "lens-database": answer(FINDINGS_SCHEMA, {
           findings: [raw("observation", 1), raw("issue", 2)],
         }),
-        "lens:deploys": answer(FINDINGS_SCHEMA, { findings: [raw("observation", 5)] }),
-        "verifier:*": holds,
+        "lens-deploys": answer(FINDINGS_SCHEMA, { findings: [raw("observation", 5)] }),
+        "verifier-*": holds,
       },
     });
 
@@ -116,17 +116,17 @@ describe("catalogue review run", () => {
       ["database", 1, "not-checked"],
     ]);
     const alias = (key: string) => run.agentOf(key).execution.alias;
-    expect([alias("lens:database"), alias("lens:deploys")]).toEqual(["claude", "cheap"]);
-    expect([alias("verifier:0"), alias("verifier:1")]).toEqual(["judge", "judge"]);
+    expect([alias("lens-database"), alias("lens-deploys")]).toEqual(["claude", "cheap"]);
+    expect([alias("verifier-0"), alias("verifier-1")]).toEqual(["judge", "judge"]);
     expect(run.logs.map((log) => log.message)).toContain("database: 1 findings not verified");
   });
 
   test("lenses see their rules inline, and verifiers see the rules the finding cites", async () => {
     const run = await testWorkflow(executable, prepare(), {
       agents: {
-        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
-        "lens:deploys": answer(FINDINGS_SCHEMA, { findings: [] }),
-        "verifier:*": answer(VERDICT_SCHEMA, {
+        "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "lens-deploys": answer(FINDINGS_SCHEMA, { findings: [] }),
+        "verifier-*": answer(VERDICT_SCHEMA, {
           refuted: false,
           reason: "the enum add is unguarded",
           attribution: "valid",
@@ -142,10 +142,10 @@ describe("catalogue review run", () => {
         verification: { kind: "confirmed", reason: "the enum add is unguarded" },
       }),
     ]);
-    expect(run.turnsOf("lens:database")[0]!.prompt).toContain("Keep migrations idempotent");
-    expect(run.turnsOf("lens:database")[0]!.prompt).toContain("git diff origin/main...HEAD");
-    expect(run.turnsOf("verifier:0")[0]!.prompt).toContain("Try to refute");
-    expect(run.turnsOf("verifier:0")[0]!.prompt).toContain("Keep migrations idempotent");
+    expect(run.turnsOf("lens-database")[0]!.prompt).toContain("Keep migrations idempotent");
+    expect(run.turnsOf("lens-database")[0]!.prompt).toContain("git diff origin/main...HEAD");
+    expect(run.turnsOf("verifier-0")[0]!.prompt).toContain("Try to refute");
+    expect(run.turnsOf("verifier-0")[0]!.prompt).toContain("Keep migrations idempotent");
     expect(run.agents.every((agent) => agent.instructions?.includes("Do not modify files"))).toBe(
       true,
     );
@@ -154,8 +154,8 @@ describe("catalogue review run", () => {
   test("a rule the verifier finds misattributed makes the finding general", async () => {
     const run = await testWorkflow(executable, prepare("--lenses", "database"), {
       agents: {
-        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
-        "verifier:0": answer(VERDICT_SCHEMA, {
+        "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "verifier-0": answer(VERDICT_SCHEMA, {
           refuted: false,
           reason: "the rule is about data, not types",
           attribution: "invalid",
@@ -175,8 +175,8 @@ describe("catalogue review run", () => {
     const { rule: _, ...ruleless } = unguarded;
     const run = await testWorkflow(executable, prepare("--lenses", "database"), {
       agents: {
-        "lens:database": answer(FINDINGS_SCHEMA, { findings: [ruleless] }),
-        "verifier:0": answer(VERDICT_SCHEMA, {
+        "lens-database": answer(FINDINGS_SCHEMA, { findings: [ruleless] }),
+        "verifier-0": answer(VERDICT_SCHEMA, {
           refuted: true,
           reason: "guarded upstream",
           attribution: "not-applicable",
@@ -192,9 +192,9 @@ describe("catalogue review run", () => {
   test("a lens or a verifier that fails is a failure in the result, and the rest go on", async () => {
     const run = await testWorkflow(executable, prepare(), {
       agents: {
-        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
-        "lens:deploys": noAnswer.failed("harness crashed"),
-        "verifier:0": noAnswer.timedOut("verifier timed out"),
+        "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "lens-deploys": noAnswer.failed("harness crashed"),
+        "verifier-0": noAnswer.timedOut("verifier timed out"),
       },
     });
     expect(run.value.failures).toEqual([

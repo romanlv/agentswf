@@ -1,9 +1,11 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
+import { exists } from "./files";
 import { projectOf, projectRunRoot } from "./projects";
 import type { RunCommand } from "./run-command";
 import {
@@ -14,6 +16,7 @@ import {
   checkFree,
   claimAttempt,
   endTurnsLine,
+  generateId,
   idProblem,
   openRun,
   previousGone,
@@ -74,10 +77,14 @@ export async function loadAndPrepare(
       try {
         const id =
           command.id ??
-          derivedId(loaded.workflow, prepareArgs(loaded.workflow, command.workflowArgs, project));
+          derivedId(loaded.workflow, prepareArgs(loaded.workflow, command.workflowArgs, project)) ??
+          // Without starts no sender names its runs, so one may be generated, as a plain run's is.
+          (loaded.workflow.starts === undefined
+            ? await unusedId(command.runRoot, loaded.workflow.meta.name, now)
+            : undefined);
         if (id === undefined)
           return {
-            refused: `a run of ${loaded.file} is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
+            refused: `a run of ${loaded.file}, which starts on events, is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
           };
         return { opens: { loaded, id, argv: command.workflowArgs } };
       } catch (error) {
@@ -156,12 +163,27 @@ export function prepareArgs(
 }
 
 /**
+ * A generated id no run of `workflow` holds: `awf run` of one already there would wake it. Taken
+ * between this and the open, by a run started the same minute with the same four digits, it is.
+ */
+async function unusedId(runRoot: string, workflow: string, now: number): Promise<string> {
+  for (let tries = 1; ; tries += 1) {
+    const id = generateId(new Date(now));
+    if (!(await exists(join(runRoot, workflow, id)))) return id;
+    if (tries >= 5) throw new RunRefused("every id generated was taken; --id gives one");
+  }
+}
+
+/**
  * Why `awf run` doesn't take a workflow with `events` as asked: every attempt after the first is
- * started by a wake, which passes on none of the flags a run would have to keep.
+ * started by a wake, which passes on none of the flags a run would have to keep. A `--from-stage`
+ * is the one attempt's, and its records keep what it redid.
  */
 function eventRunRefusal(command: RunCommand): string | undefined {
-  if (command.fromStage !== undefined || command.values !== undefined)
-    return "a run of a workflow with events takes no --from-stage or --values";
+  if (command.values !== undefined)
+    return "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs";
+  if (command.fromStage !== undefined && command.continueId === undefined)
+    return "a run of a workflow with events takes --from-stage only with --continue";
   if (command.continueId !== undefined) {
     if (command.workflowArgs.length > 0)
       return "a continue takes no arguments: it goes on with those its run was started with";

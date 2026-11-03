@@ -84,6 +84,12 @@ export type ParticipantReplyEvent = WorkflowEvent<"participant:reply", Participa
   readonly from: PeerKey;
 };
 
+/**
+ * A workflow without events, `{}`: it declares no name, so `signal` takes none. Not `never`, under
+ * which every name would count as declared.
+ */
+export type NoEvents = Record<never, never>;
+
 /** One of a workflow's own events, narrowed by `name`. */
 export type OwnEvent<Events extends EventSchemas> = {
   [Name in keyof Events & string]: WorkflowEvent<Name, OutputOf<Events[Name]>>;
@@ -95,7 +101,7 @@ export type OwnEventOf<
   Name extends keyof Events & string,
 > = WorkflowEvent<Name, OutputOf<Events[Name]>>;
 
-/** Any event a run of a workflow with `events` takes at its wait. */
+/** Any event a run's wait takes: its own, an agent's end, a participant's reply, a timer's. */
 export type ReceivedEvent<Events extends EventSchemas> =
   | OwnEvent<Events>
   | AgentEndedEvent

@@ -137,7 +137,7 @@ function selectVerificationCandidates(
 async function runLens(wf: WorkflowContext, args: CatalogueArgs, lens: Lens): Promise<LensResult> {
   try {
     const reviewer = await wf.agents.open({
-      key: `lens:${lens.id}`,
+      key: `lens-${lens.id}`,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}. ${READ_ONLY}`,
       runtime: lens.runtime ?? args.runtime,
     });
@@ -176,7 +176,7 @@ async function verifyFindings(
     async (finding, index) => {
       try {
         const verifier = await wf.agents.open({
-          key: `verifier:${index}`,
+          key: `verifier-${index}`,
           instructions: `Try to refute this finding against the diff and surrounding code. ${READ_ONLY}`,
           runtime: args.verifierRuntime ?? args.runtime,
         });

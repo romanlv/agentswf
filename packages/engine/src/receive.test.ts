@@ -1,9 +1,15 @@
-import { expect, test } from "bun:test";
-import type { TurnRecord } from "@agentswf/contract/records";
-import { defineWorkflow, type EventWorkflowContext } from "@agentswf/contract/workflow";
-import { caseRun, startCase } from "./testing";
-import { keptSessionsOf } from "./workflow-runner";
-import { testWorkflow } from "./workflow-testing";
+import { afterAll, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { MAILBOX_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
+import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
+import { createSingleSessionHostFactory } from "@agentswf/harness";
+import { appendMailbox } from "./mailbox";
+import { OPERATOR_ALIASES } from "./operator-aliases";
+import { createRun, readStageRecords } from "./runs";
+import { answering, caseRun, createTempRunDirs, future, startCase } from "./testing";
+import { keptSessionsOf, runWorkflow } from "./workflow-runner";
+import { answer, testWorkflow } from "./workflow-testing";
 
 test("the first wait takes the event that started the run, under the id it made", async () => {
   const run = await testWorkflow(
@@ -100,19 +106,63 @@ test("a stage around a wait returns its batch, and one returning other events fa
   expect(() => filtered.value).toThrow("returned other events than its wait took");
 });
 
-test("receive on a workflow without events is an error", async () => {
+test("a workflow without events waits as any does: a timer's end at receive, a race and a select", async () => {
   const run = await testWorkflow(
     defineWorkflow({
       meta: { name: "plain", description: "No events." },
       run: async (workflow) => {
-        await (workflow as unknown as EventWorkflowContext<Record<string, never>>).receive();
-        return null;
+        workflow.timer("first", "1m");
+        const [due] = await workflow.receive();
+        const raced = await workflow.race("rest", { rested: "1h" });
+        const later = workflow.after("2h");
+        for await (const next of workflow.select({ due: workflow.at(() => later) }))
+          if (next.due) break;
+        return [due?.name ?? null, raced.key];
       },
-      prepare: () => null,
     }),
     null,
   );
-  expect(() => run.value).toThrow("receive needs a workflow with events");
+  expect(run.value).toEqual(["timer:due", "rested"]);
+});
+
+test("a workflow without events refuses a signal, a started turn and keepAlive, saying why", async () => {
+  const refused = async (work: (wf: WorkflowContext) => Promise<unknown>) => {
+    const run = await testWorkflow(
+      defineWorkflow({
+        meta: { name: "plain", description: "No events." },
+        run: async (workflow) => {
+          await work(workflow);
+          return null;
+        },
+      }),
+      null,
+      { agents: { a: answer("yes") } },
+    );
+    return () => run.value;
+  };
+  expect(
+    await refused(async (wf) => (wf as unknown as WorkflowContext<{ x: never }>).signal("x")),
+  ).toThrow("signal x: the workflow declares no events");
+  expect(
+    await refused(async (wf) => {
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      await agent.start({ prompt: "Look." });
+    }),
+  ).toThrow("start() is for a workflow with events");
+  expect(
+    await refused((wf) => wf.agents.open({ key: "a", runtime: "claude", keepAlive: {} })),
+  ).toThrow("keepAlive is for a workflow with events");
+  for (const wait of ["race", "select"] as const) {
+    expect(
+      await refused(async (wf) => {
+        const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+        if (wait === "race") return wf.race("review", { done: agent, expiry: "14d" });
+        for await (const _ of wf.select({ done: agent })) break;
+      }),
+    ).toThrow(
+      "'s done waits on an agent's end, which a run without events never hears; declare events in the workflow",
+    );
+  }
 });
 
 test("a run id outside the grammar is refused", async () => {
@@ -444,4 +494,62 @@ test("a race's name answers once an attempt; a refused race sets none of its tim
   expect(errors[0]).toContain("is not a source");
   expect(errors[1]).toContain("named per round");
   expect(run.timers.map((t) => t.name)).toEqual(["pause@sleep"]);
+});
+
+const runDirs = createTempRunDirs();
+afterAll(() => runDirs.cleanup());
+
+test("--from-stage reruns what a replay enters: a stage behind an acknowledged receive keeps its record", async () => {
+  const handled: string[] = [];
+  const workflow = caseRun(async (wf) => {
+    await wf.stage("setup", async () => undefined);
+    for (const event of await wf.receive())
+      await wf.stage(`handle-${event.id}`, async () => {
+        handled.push(event.id);
+      });
+    await wf.receive();
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  await appendMailbox(run.dir, {
+    version: MAILBOX_RECORD_VERSION,
+    at: new Date().toISOString(),
+    kind: "event",
+    id: "e1",
+    name: "dd.changes",
+    data: { case: "k" },
+    from: "operator",
+  });
+  const attempt = (n: number, fromStage?: string) =>
+    runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: "k",
+        attempt: n,
+        events: true,
+        park: async () => undefined,
+        ...(fromStage === undefined ? {} : { fromStage }),
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
+      deadline: future(),
+    });
+  const parked = (error: unknown) => expect(String(error)).toContain("parked");
+  await attempt(1).then(() => expect.unreachable(), parked);
+  expect(handled).toEqual(["e1"]);
+  expect([...(await readStageRecords(run.dir)).keys()].sort()).toEqual(["handle-e1", "setup"]);
+  // Redone from setup: e1 was acknowledged, so the replay never hands it back, and its stage,
+  // never entered, keeps its record and isn't run again.
+  await attempt(2, "setup").then(() => expect.unreachable(), parked);
+  expect(handled).toEqual(["e1"]);
+  const records = await readStageRecords(run.dir);
+  expect([records.get("setup")?.attempt, records.get("handle-e1")?.attempt]).toEqual([2, 1]);
+  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["setup.1.json"]);
 });

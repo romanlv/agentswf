@@ -31,6 +31,7 @@ import {
 } from "@agentswf/contract/schema";
 import {
   type AbsoluteDeadline,
+  type AgentEnded,
   type AgentEndedEvent,
   type AgentExecution,
   type AgentForkSpec,
@@ -41,6 +42,7 @@ import {
   type AgentRunTextSpec,
   type AgentStartSpec,
   type Branches,
+  type CodeParticipantDirectory,
   type CodeParticipantRef,
   type CompactionId,
   type CompactSpec,
@@ -48,8 +50,6 @@ import {
   DeadlineExceededError,
   type Duration,
   type EmitOutcome,
-  type EventAgentOpenSpec,
-  type EventAgentRef,
   type HarnessAllowance,
   isEventWorkflow,
   isJsonValue,
@@ -73,9 +73,11 @@ import {
   type RuntimeSelection,
   type SettingsSpec,
   type SkillSource,
+  type Source,
   type StageOptions,
   type StageSummary,
   type StartedTurn,
+  type Taken,
   type TimeRead,
   type Timer,
   type TurnId,
@@ -182,7 +184,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endTurnsLine, readStageRecords, readTurns } from "./runs";
+import { endTurnsLine, readAttempts, readStageRecords, readTurns } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -194,6 +196,7 @@ import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input"
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { asSource, branchOf, branchValue, matches, source, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
+import { lastRedo } from "./stage-plan";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
 import type { EventWorkflow } from "./workflow-loader";
@@ -463,14 +466,20 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // Before anything opens, so a refusal leaves nothing to close.
   const withEvents = isEventWorkflow(definition);
   const locked = options.run.locked ?? (<T>(work: () => Promise<T>) => work());
-  if (withEvents && (options.run.fromStage !== undefined || options.run.values))
-    throw new Error("a run of a workflow with events takes no --from-stage or --values");
+  if (withEvents && options.run.values)
+    throw new Error(
+      "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs",
+    );
   const { dir: runDir, id: runId, attempt } = options.run;
   const startedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
   // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
   // torn the last line an earlier attempt appended.
   const recorded = await readStageRecords(runDir);
+  // The last --from-stage an earlier attempt redid, whose stale records still rerun as reached.
+  const redo = withEvents
+    ? lastRedo(await readAttempts({ dir: runDir }), recorded, attempt)
+    : undefined;
   // The log is observation: one that cannot be written says so as it is, and fails nothing.
   await endTurnsLine(runDir).catch(() => undefined);
   const slots = createResultSlotRegistry({
@@ -546,6 +555,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     ...(withEvents ? { byContent: true } : {}),
+    ...(redo === undefined ? {} : { redo }),
     turns: () => turns,
     event: (body, at) => events.event(body, at),
   });
@@ -597,18 +607,26 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       : undefined;
   // Every run's timers live in a mailbox; a run of a workflow with events takes its events there too.
   // A plain run without `park` waits for its timers in its process.
+  const { park } = options.run;
   const waits = new RunMailbox({
     runDir,
     attempt,
     locked,
     now,
-    ...(options.run.park
+    ...(park
       ? {
           parking: {
             idle: (stage) => owner.idle(stage),
             timeout: (signal) => owner.timeout(signal),
             liveUntil: () => owner.liveUntil(),
-            park: options.run.park,
+            park: async (wait) => {
+              // No wake carries `--from-stage`: parked short of it, the redo would be lost unsaid.
+              const unreached = stages.fromStageUnreached;
+              if (unreached === undefined) return park(wait);
+              const stop = new FromStageUnreached(unreached, stages.recorded);
+              fatal.reject(stop);
+              throw stop;
+            },
             ...(options.run.live ? { live: options.run.live } : {}),
             ...(options.run.skip ? { skip: options.run.skip } : {}),
           },
@@ -656,6 +674,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     coordinators: options.coordinators ?? [],
     emit: options.emit ?? machineEmitter,
     workflow: definition.meta.name,
+    declared: new Set(withEvents ? Object.keys(definition.events) : []),
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -959,6 +978,8 @@ class WorkflowOwner {
       emit: Emitter;
       /** The workflow's name, which with the run's id is the ref its events are `from`. */
       workflow: string;
+      /** The names its `events` declares, which `signal` takes. */
+      declared: ReadonlySet<string>;
     },
   ) {
     this.#restored = new Map(options.restoredTurns ?? []);
@@ -1086,7 +1107,8 @@ class WorkflowOwner {
         },
       },
       participants: {
-        connect: async (spec) => this.connectParticipant(spec),
+        connect: (async (spec: ParticipantSpec) =>
+          this.connectParticipant(spec)) as CodeParticipantDirectory["connect"],
       },
       messages: { allow: async (access) => this.allowRoute(access) },
       emit: async (target, run, name, data, emitOptions) => {
@@ -1147,32 +1169,27 @@ class WorkflowOwner {
           undefined,
         );
       },
+      // Every run waits on its own mailbox; one without events never parks, so it waits here.
+      receive: (spec?: WaitOptions) => this.receive(options.waits, spec),
+      race: ((name: string, branches: RaceBranches, raceOptions?: WaitOptions) =>
+        this.race(options.waits, name, branches, raceOptions)) as WorkflowContext["race"],
+      select: ((branches: Branches, selectOptions?: WaitOptions) =>
+        this.select(options.waits, branches, selectOptions)) as WorkflowContext["select"],
+      timer: (name: string, when: When) => this.timer(options.waits, name, when),
+      at: (read: () => Date | null) => timeRead(read),
+      after: (duration: Duration) => {
+        this.#notReading("wf.after()");
+        if (typeof duration !== "string" || !/^\d+(?:\.\d+)?[dhm]$/.test(duration))
+          throw new Error(
+            `wf.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
+          );
+        return new Date(parseWhen(duration, options.now()).due);
+      },
+      signal: ((name: string) => signalSource(name, options.declared)) as WorkflowContext["signal"],
+      ...(options.mailbox?.started
+        ? { started: options.mailbox.started as WorkflowContext["started"] }
+        : {}),
     };
-    const { mailbox } = options;
-    Object.assign(
-      this.context,
-      mailbox
-        ? {
-            receive: (spec?: WaitOptions) => this.receive(mailbox, spec),
-            race: (name: string, branches: RaceBranches, raceOptions?: WaitOptions) =>
-              this.race(mailbox, name, branches, raceOptions),
-            select: (branches: Branches, selectOptions?: WaitOptions) =>
-              this.select(mailbox, branches, selectOptions),
-            timer: (name: string, when: When) => this.timer(mailbox, name, when),
-            at: (read: () => Date | null) => timeRead(read),
-            after: (duration: Duration) => {
-              this.#notReading("wf.after()");
-              if (typeof duration !== "string" || !/^\d+(?:\.\d+)?[dhm]$/.test(duration))
-                throw new Error(
-                  `wf.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
-                );
-              return new Date(parseWhen(duration, options.now()).due);
-            },
-            signal: (name: string) => signalSource(name),
-            ...(mailbox.started ? { started: mailbox.started } : {}),
-          }
-        : { receive: () => Promise.reject(new Error("receive needs a workflow with events")) },
-    );
   }
 
   /** Set while a select reads a time from state. */
@@ -1295,7 +1312,7 @@ class WorkflowOwner {
         own(source) ? [] : [[branch, sourceTake(`race ${name}`, branch, source)] as const],
       ),
     );
-    this.#turnSources(takes.values());
+    this.#checkSources(`race ${name}`, takes.entries());
     // Only once its label and branches are checked: a refused race leaves its name to a retry.
     this.#raced.add(name);
     const owned = new Map<string, string>();
@@ -1343,7 +1360,7 @@ class WorkflowOwner {
           reads.has(branch) ? { name: AT_DUE, from: branch } : sourceTake("select", branch, source),
         ] as const,
     );
-    this.#turnSources(pairs.map(([, take]) => take));
+    this.#checkSources("select", pairs);
     // Read at each pass of the wait: a time follows the state as it moves.
     const takes = (): WaitTake[] =>
       pairs.map(([branch, take]) => {
@@ -1371,8 +1388,21 @@ class WorkflowOwner {
   }
 
   /** A started turn among a wait's branches, which naming its agent replaces. */
-  #turnSources(takes: Iterable<WaitTake>): void {
-    if ([...takes].some((take) => take.turn !== undefined))
+  /**
+   * A wait's branches as a run can take them: a started turn among them is deprecated, and a run
+   * without events, which hears no agent's end or reply to the code, refuses a branch waiting on
+   * one, which would never come.
+   */
+  #checkSources(what: string, takes: Iterable<readonly [string, WaitTake]>): void {
+    const given = [...takes];
+    if (!this.options.mailbox) {
+      const unheard = given.find(([, take]) => HEARD_WITH_EVENTS.has(take.name));
+      if (unheard)
+        throw new Error(
+          `${what}'s ${unheard[0]} waits on ${unheard[1].name === "agent:ended" ? "an agent's end" : "a participant's reply to the code"}, which a run without events never hears; declare events in the workflow`,
+        );
+    }
+    if (given.some(([, take]) => take.turn !== undefined))
       this.options.deprecations.used("turn-source");
   }
 
@@ -1452,7 +1482,7 @@ class WorkflowOwner {
       if (!onTimeout) continue;
       try {
         await runUntilStopped(
-          async () => asTimeoutHandler(() => onTimeout(agent as unknown as EventAgentRef)),
+          async () => asTimeoutHandler(() => onTimeout(agent)),
           signal,
           undefined,
         );
@@ -1565,6 +1595,8 @@ class WorkflowOwner {
 
   /** A key an agent may not take: a reserved one, or an outside participant's. */
   #assertFreeKey(key: string, who: string): void {
+    if (typeof key === "string" && key.includes(":"))
+      this.options.deprecations.used("colon-key", key);
     if ((RESERVED_PARTICIPANT_KEYS as readonly string[]).includes(key.toLowerCase()))
       throw new Error(
         `${key} is reserved: an agent could read a message from it as authority; ${who} takes another key`,
@@ -1875,7 +1907,7 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
     const existing = this.#agents.get(spec.key);
     if (existing?.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
-    const given = (spec as EventAgentOpenSpec).keepAlive;
+    const given = spec.keepAlive;
     if (given !== undefined && !this.options.mailbox)
       throw new Error(
         `agent ${spec.key}: keepAlive is for a workflow with events, whose runs park; this one's never do`,
@@ -2743,6 +2775,11 @@ class WorkflowOwner {
   }
 }
 
+// What a wait takes of it is type-only, and `asSource` marks it at run time.
+// biome-ignore lint/correctness/noUnusedVariables: merged into the class below.
+interface LogicalAgent extends Source<Taken<AgentEnded>> {}
+
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the interface adds a type-only member.
 class LogicalAgent implements AgentRef {
   readonly [PARTICIPANT] = true as const;
   readonly #operationStops = new Set<(stop: OperationStop) => Promise<void>>();
@@ -2948,7 +2985,10 @@ class LogicalAgent implements AgentRef {
 
   async start(spec: AgentStartSpec): Promise<StartedTurn> {
     const { turns } = this.options;
-    if (!turns) return unavailable("AgentRef.start");
+    if (!turns)
+      throw new Error(
+        `agent ${this.key}: start() is for a workflow with events, at whose waits its end arrives; run() waits for the end here`,
+      );
     if (this.#closed) throw new Error("logical agent is closed");
     const inTool = refusedInTool(this.key, "start()");
     if (inTool) throw inTool;
@@ -4285,10 +4325,19 @@ function sourceTake(what: string, branch: string, source: unknown): WaitTake {
   );
 }
 
+/** The sources only a run of a workflow with events hears. */
+const HEARD_WITH_EVENTS: ReadonlySet<string> = new Set(["agent:ended", "participant:reply"]);
+
 /** One of the workflow's own events, by name, as a source. */
-function signalSource(name: string): unknown {
+function signalSource(name: string, declared: ReadonlySet<string>): unknown {
   if (typeof name !== "string" || name.includes(":"))
     throw new Error(`a signal is one of the workflow's own events, by name; not ${String(name)}`);
+  if (!declared.has(name))
+    throw new Error(
+      declared.size === 0
+        ? `signal ${name}: the workflow declares no events`
+        : `signal ${name}: the workflow declares no such event; its events are ${[...declared].join(", ")}`,
+    );
   return source({ name }, { name });
 }
 
@@ -4875,10 +4924,6 @@ function conflict(key: string, field: string): never {
 
 function stoppedError(key: string, reason: string): Error {
   return new Error(`agent ${key} was stopped (${reason}); its key is not opened again`);
-}
-
-function unavailable(name: string): Promise<never> {
-  return Promise.reject(new Error(`${name} is not implemented by the minimum workflow runner`));
 }
 
 /**

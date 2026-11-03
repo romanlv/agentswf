@@ -214,7 +214,7 @@ export function checkContinue(
  * The run's attempts, in order. One that doesn't parse, or is newer than this awf, refuses; one
  * gone since the folder was listed was a refused attempt removing its own claim.
  */
-export async function readAttempts(run: Run): Promise<AttemptRecord[]> {
+export async function readAttempts(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
   const dir = attemptsDir(run.dir);
   const numbered = await attemptNames(run);
   const records = await Promise.all(
@@ -501,7 +501,7 @@ export async function logSize(runDir: string): Promise<number> {
   return (await stat(turnsFile(runDir)).catch(() => undefined))?.size ?? 0;
 }
 
-async function attemptNames(run: Run): Promise<string[]> {
+async function attemptNames(run: Pick<Run, "dir">): Promise<string[]> {
   return (await entries(attemptsDir(run.dir))).filter((name) => /^[1-9]\d*\.json$/.test(name));
 }
 

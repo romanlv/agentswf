@@ -46,23 +46,33 @@ export const DEPRECATIONS = {
   },
   "run-stopped": { old: "run.stopped", instead: 'read run.ending, whose kind is "stopped"' },
   "run-parked": { old: "run.parked", instead: 'read run.ending, whose kind is "parked"' },
-} as const satisfies Record<string, { old: string; instead: string }>;
+  "colon-key": {
+    old: "a key with a colon",
+    instead: (key: string) =>
+      `${key === "" ? "use - in its place" : `name it ${key.replaceAll(":", "-")}`}: a colon is kept for awf's own event names`,
+  },
+} as const satisfies Record<
+  string,
+  { old: string; instead: string | ((subject: string) => string) }
+>;
 
 export type Deprecated = keyof typeof DEPRECATIONS;
 
 /** One attempt's deprecated uses: each name said once, as a warning in the run's log. */
 export class RunDeprecations {
-  readonly #said = new Set<Deprecated>();
+  /** Each name said, with its subject where it has one: each key with a colon is named. */
+  readonly #said = new Set<string>();
   /** The attempt has ended: an outcome kept past it reports to no log. */
   #settled = false;
 
   constructor(private readonly warn: (text: string) => void) {}
 
-  used(name: Deprecated): void {
-    if (this.#said.has(name)) return;
-    this.#said.add(name);
-    const { old, instead } = DEPRECATIONS[name];
-    this.warn(`awf: ${old} is deprecated; ${instead}`);
+  /** `subject`, where given, is what was used, and each subject is said once. */
+  used(name: Deprecated, subject?: string): void {
+    const said = subject === undefined ? name : `${name}\0${subject}`;
+    if (this.#said.has(said)) return;
+    this.#said.add(said);
+    this.warn(deprecationLine(name, subject));
   }
 
   settle(): void {
@@ -75,4 +85,11 @@ export class RunDeprecations {
     if (typeof name === "string" && Object.hasOwn(DEPRECATIONS, name))
       this.used(name as Deprecated);
   };
+}
+
+/** The line a deprecated use logs. */
+export function deprecationLine(name: Deprecated, subject = ""): string {
+  const { old, instead } = DEPRECATIONS[name];
+  const named = subject === "" ? "" : `, ${subject},`;
+  return `awf: ${old}${named} is deprecated; ${typeof instead === "function" ? instead(subject) : instead}`;
 }

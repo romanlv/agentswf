@@ -31,7 +31,7 @@ export default defineWorkflow({
         LENSES,
         async (lens) => {
           const reviewer = await wf.agents.open({
-            key: `review:${lens}`,
+            key: `review-${lens}`,
             runtime: "claude",
           });
           // #region turn

@@ -50,7 +50,7 @@ may be `async`. `answer("text")` answers a turn that asks for no schema.
 A script is one entry, which meets every turn of that agent, or a list, one entry per turn:
 `reviewer: [answer(VERDICT, revise), answer(VERDICT, approve)]` answers the first review with
 `revise` and the second with `approve`. A list is strict: a turn past its end, or an entry never
-reached, fails the test. A key can be a pattern, `"reviewer:*"`, for agents a workflow opens in a
+reached, fails the test. A key can be a pattern, `"reviewer-*"`, for agents a workflow opens in a
 loop; an exact key wins over a pattern.
 
 ## Scripting outcomes

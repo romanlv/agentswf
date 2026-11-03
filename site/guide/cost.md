@@ -55,8 +55,8 @@ Where the time and tokens went:
 - **A run with stages** keeps each stage's row in its stage list, with what that stage's agents
   used: `2 agents · 180k tokens · ~$0.40`.
 - **A run without stages** whose agents fall in more than one group prints a row per group under
-  the closing line. The group is the part of an agent's key before the first `:`, so `reviewer:1`
-  and `reviewer:2` count together.
+  the closing line. The group is the part of an agent's key before the first `:`, which a key
+  [no longer takes](/reference/workflow-api#deprecated): a key with `-` is a group of its own.
 - **[Decisions](/guide/decisions)** get a line of their own, since a decision is not an agent:
   `4 decisions · 3k tokens · <$0.01 at list prices`.
 - **A continued run** adds the whole run after its attempt's figures:

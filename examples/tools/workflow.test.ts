@@ -12,7 +12,7 @@ describe("tools", () => {
       { runtimes: ["codex"] },
       {
         agents: {
-          "triager:*": answer(Summary, async (turn) => {
+          "triager-*": answer(Summary, async (turn) => {
             const open = await turn.tool("list_open");
             expect(open).toEqual({
               kind: "result",
@@ -46,7 +46,7 @@ describe("tools", () => {
       { runtimes: ["codex"] },
       {
         agents: {
-          "triager:*": answer(Summary, async (turn) => {
+          "triager-*": answer(Summary, async (turn) => {
             seen.push(await turn.tool("close_item", { id: "a1", status: "maybe", why: "?" }));
             seen.push(await turn.tool("close_item", { id: "zz", status: "done", why: "gone" }));
             return { closed: 0, summary: "Nothing closed." };

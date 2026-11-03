@@ -8,7 +8,7 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
 import type { RunEventBody } from "./run-event-log";
 import { replaceRecord, replaceStale, stageNameProblem, writeStageRecord } from "./runs";
-import { planStage, planStageByContent } from "./stage-plan";
+import { planStage, planStageByContent, type StageRedo } from "./stage-plan";
 import { placeholderOf } from "./stage-schema";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 
@@ -89,6 +89,11 @@ export class StageLedger {
   /** The run's stage records as they stand, this attempt's included: what a stage by content reuses. */
   readonly #records: Map<string, StageRecord>;
 
+  /** The redo stale records are judged by: the options', then this attempt's own. */
+  #redo: StageRedo | undefined;
+  /** Whether this attempt has entered the redo's stage, after which a stale record reruns. */
+  #afterRedo = false;
+
   constructor(
     private readonly options: {
       runDir: string;
@@ -102,9 +107,11 @@ export class StageLedger {
       fromStage?: string;
       /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
       values?: ReadonlyMap<string, JsonValue>;
+      /** A run of a workflow with `events`: the last `--from-stage` an attempt redid. */
+      redo?: StageRedo;
       /**
        * A run of a workflow with `events`: a stage runs once ever, reused wherever it is entered,
-       * as `planStageByContent` says; no start point, and no `fromStage` or `values`.
+       * as `planStageByContent` says, and no `values`. Its start point is `fromStage` alone.
        */
       byContent?: boolean;
       /** Writes the run's event log. */
@@ -113,6 +120,7 @@ export class StageLedger {
     },
   ) {
     this.#records = new Map(options.records);
+    this.#redo = options.redo;
   }
 
   /** The stage open now, if one is. */
@@ -313,10 +321,23 @@ export class StageLedger {
 
   /**
    * Enters a stage by content: reused from its succeeded record, this attempt's included, run when
-   * it has none or a failed one, which its own record then replaces.
+   * it has none or a failed one, which its own record then replaces. After the redo's stage in this
+   * attempt, a record older than the redo is stale and runs again: see `StageRedo`.
    */
   async #enterByContent(name: string, entry: StageEntry, at: number): Promise<EnteredStage> {
-    const decision = planStageByContent(this.#records.get(name), entry.result);
+    if (!this.#started && name === this.options.fromStage) return this.#startByContent(name, at);
+    const record = this.#records.get(name);
+    const redo = this.#redo;
+    // Entered already in this attempt, it has its value here: one stage, one value.
+    const stale =
+      redo !== undefined &&
+      this.#afterRedo &&
+      record !== undefined &&
+      record.attempt < redo.attempt &&
+      !this.#stages.has(name);
+    if (name === redo?.stage) this.#afterRedo = true;
+    if (stale) return { kind: "run", stage: this.#opened(name, at) };
+    const decision = planStageByContent(record, entry.result);
     if (decision.kind === "stop") {
       this.#stopped = new WorkflowStopped(decision.reason, name, true);
       this.#stoppedAt(name, at);
@@ -345,6 +366,20 @@ export class StageLedger {
       return held;
     }
     return { kind: "run", stage: this.#opened(name, at) };
+  }
+
+  /**
+   * `--from-stage` reached by content: it runs, and this attempt is the redo. Its old record moves to
+   * `replaced/` only as its new one is written, as a failed record's does, so an attempt that dies
+   * while it runs leaves the old one, and the redo, which nothing then shows, is issued again. The
+   * stages after it rerun as they are entered, not all at once: one never entered keeps its record.
+   */
+  #startByContent(name: string, at: number): EnteredStage {
+    const stage = this.#opened(name, at);
+    this.#started = true;
+    this.#redo = { stage: name, attempt: this.options.attempt };
+    this.#afterRedo = true;
+    return { kind: "run", stage };
   }
 
   /** A stage the plan stopped as it was entered: shown stopped, though it ran nothing. */

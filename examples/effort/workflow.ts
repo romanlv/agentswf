@@ -98,7 +98,7 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
       async (runtime): Promise<EffortCheck> => {
         const { execution, switched: then } = RUNTIMES[runtime];
         const agent = await wf.agents.open({
-          key: `effort:${runtime}`,
+          key: `effort-${runtime}`,
           runtime: execution,
         });
         const steps: EffortStep[] = [];

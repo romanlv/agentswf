@@ -77,7 +77,7 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
       async (runtime): Promise<CompactionCheck> => {
         const { execution, ...rest } = RUNTIMES[runtime];
         const agent = await wf.agents.open({
-          key: `compact:${runtime}`,
+          key: `compact-${runtime}`,
           runtime: execution,
         });
         const ask = async (prompt: string) => {

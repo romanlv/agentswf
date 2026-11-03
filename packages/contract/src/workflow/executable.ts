@@ -1,8 +1,8 @@
 import type { JsonSchema } from "../schema";
 import { DEPRECATED_DEFINITION } from "./deprecated";
-import type { EventSchemas, NoColonNames } from "./events";
+import type { EventSchemas, NoColonNames, NoEvents } from "./events";
 import type { JsonValue } from "./json";
-import type { EventWorkflowContext, StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
+import type { StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
 
 export const WORKFLOW_KIND = "awf.workflow/v1" as const;
 
@@ -79,7 +79,8 @@ type WorkflowParts<Args extends JsonValue, Result extends JsonValue> = {
   /**
    * The run's id, derived from its args, such as a ticket's: unique within the workflow, letters,
    * digits, `.`, `_`, `@` and `-`, starting with a letter or digit. `awf run --id` overrides it;
-   * without either, one is generated, or for a workflow with `events` the run is refused.
+   * without either, one is generated, or for a workflow with `starts`, whose senders name its runs,
+   * the run is refused.
    */
   id?(args: Args): string;
   /**
@@ -100,24 +101,39 @@ type WithoutEvents<Args extends JsonValue, Result extends JsonValue> = {
   readonly events?: undefined;
   readonly starts?: undefined;
   readonly file?: undefined;
-  run(context: WorkflowContext, args: Args): Promise<Result>;
+  run(context: WorkflowContext<NoEvents>, args: Args): Promise<Result>;
 };
 
-/** A run of a workflow with `events` is named by its sender, takes events at `receive` and parks. */
-type WithEvents<Args extends JsonValue, Result extends JsonValue, Events extends EventSchemas> = {
-  /**
-   * `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the
-   * nearest directory above it holding `.awf/`, whoever sends.
-   */
-  readonly file: string;
-  readonly events: Events;
-  /**
-   * The events that start a run with an id that has none; any other is refused then. Absent, any
-   * event starts one.
-   */
-  readonly starts?: readonly (keyof Events & string)[];
-  run(context: EventWorkflowContext<Events>, args: Args): Promise<Result>;
+/** A run of a workflow with `events` takes them at its waits, and parks between them. */
+type WithEvents<
+  Args extends JsonValue,
+  Result extends JsonValue,
+  Events extends EventSchemas,
+> = EventsRun<Args, Result, Events> & { readonly events: Events } & StartsAndFile<Events>;
+
+type EventsRun<Args extends JsonValue, Result extends JsonValue, Events extends EventSchemas> = {
+  run(context: WorkflowContext<Events>, args: Args): Promise<Result>;
 };
+
+/** `file` goes with `starts`: a sender holding the workflow, as `wf.emit` does, finds it by it. */
+type StartsAndFile<Events extends EventSchemas> =
+  | {
+      /**
+       * The events that start a run with an id that has none; any other is refused then. Absent,
+       * any event starts one.
+       */
+      readonly starts: readonly (keyof Events & string)[];
+      /**
+       * `import.meta.path`: where a sender holding the workflow finds it, as `wf.emit` does, and
+       * which project its runs live in, the nearest directory above it holding `.awf/`.
+       */
+      readonly file: string;
+    }
+  | {
+      readonly starts?: undefined;
+      /** `import.meta.path`, which `wf.emit` to this workflow needs; `awf` commands find it by path. */
+      readonly file?: string;
+    };
 
 /** A workflow, as its file exports it: with `events` when its runs take them. */
 export type Workflow<
@@ -138,18 +154,21 @@ type PrepareSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
 
 /**
  * Defines a workflow. One whose args are `null` may leave out `prepare`: then it takes no arguments,
- * and any argv is refused. With `events`, an event name with a colon fails `tsc`; its events are
- * concrete here, as a helper generic over them can't make the context follow them.
+ * and any argv is refused. With `events`, an event name with a colon fails `tsc`, and `starts` needs
+ * `file`; its events are concrete here, as a helper generic over them can't make the context follow
+ * them.
  */
 export function defineWorkflow<
   Args extends JsonValue = null,
   Result extends JsonValue = JsonValue,
   Events extends EventSchemas = never,
 >(
-  spec: PrepareSpec<Args, Result> & { readonly events: NoColonNames<Events> } & Omit<
-      WithEvents<Args, Result, Events>,
-      "events"
-    >,
+  spec: PrepareSpec<Args, Result> & { readonly events: NoColonNames<Events> } & EventsRun<
+      Args,
+      Result,
+      Events
+    > &
+    StartsAndFile<Events>,
 ): Workflow<Args, Result, Events>;
 export function defineWorkflow<Args extends JsonValue = null, Result extends JsonValue = JsonValue>(
   spec: PrepareSpec<Args, Result> & WithoutEvents<Args, Result>,
@@ -169,7 +188,7 @@ export function defineExecutableWorkflow<
   spec: Omit<WorkflowParts<Args, Result>, "meta" | "prepare"> & {
     readonly definition: {
       readonly meta: WorkflowMeta;
-      run(context: WorkflowContext, args: Args): Promise<Result>;
+      run(context: WorkflowContext<NoEvents>, args: Args): Promise<Result>;
     };
   } & ([Args] extends [null]
       ? { prepare?: WorkflowParts<Args, Result>["prepare"] }
@@ -218,6 +237,8 @@ export function eventWorkflowProblem(workflow: unknown): string | undefined {
       starts.some((each) => typeof each !== "string" || !(each in events)))
   )
     return "starts lists the events, by their names, that start a run; absent, every event does";
-  if (typeof given.file !== "string") return "a workflow with events gives file: import.meta.path";
+  if (given.file !== undefined && typeof given.file !== "string") return "file is import.meta.path";
+  if (starts !== undefined && given.file === undefined)
+    return "a workflow with starts gives file: import.meta.path, by which a sender finds it";
   return undefined;
 }

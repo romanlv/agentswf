@@ -2,8 +2,14 @@
 // doesn't. Each deprecated name compiles until story 039's last task removes it.
 
 import {
+  type AgentDirectory,
+  type AgentOpenSpec,
+  type AgentRef,
   defineExecutableWorkflow,
   defineWorkflow,
+  type EventAgentDirectory,
+  type EventAgentOpenSpec,
+  type EventAgentRef,
   type EventWorkflowContext,
   isAnswered,
   type OutputSchema,
@@ -29,7 +35,7 @@ export type ReceiveOptions = import("./workflow").ReceiveOptions;
 declare const plain: WorkflowContext;
 declare const Changed: OutputSchema<{ head: string }>;
 type Events = { changed: typeof Changed };
-declare const wf: EventWorkflowContext<Events>;
+declare const wf: WorkflowContext<Events>;
 
 export async function removed(): Promise<void> {
   // @ts-expect-error A stage and wf.sleep do what steps would have.
@@ -60,6 +66,12 @@ export async function deprecated(): Promise<void> {
   const won = await wf.race("review", { done: turn, quiet: "1d" });
   if (won.done && turn.is({ name: "agent:ended", from: "r", data: won.done })) void turn.id;
   for await (const next of wf.select({ done: turn })) void next.done;
+  // One context and one agent: the event-only names are the same types.
+  const context: EventWorkflowContext<Events> = wf;
+  const agent: EventAgentRef = reviewer;
+  const spec: EventAgentOpenSpec = { key: "k", runtime: "claude", keepAlive: {} };
+  const agents: EventAgentDirectory = context.agents;
+  void [agent satisfies AgentRef, spec satisfies AgentOpenSpec, agents satisfies AgentDirectory];
 }
 
 export const old = defineExecutableWorkflow({

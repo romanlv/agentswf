@@ -35,12 +35,14 @@ and its test.
 
 ## Declaring events
 
-A workflow takes events when its definition has three more fields:
+A workflow takes events when its definition declares them:
 
 - **`events`**: each event's name and the schema of its data. Names have no colon; `agent:ended`,
   `participant:reply` and `timer:due` are awf's own.
 - **`starts`**: the events that may start a run. Without it, any of them may.
-- **`file: import.meta.path`**: where the workflow lives, so a sender can find it and its runs.
+- **`file: import.meta.path`**, required with `starts`: where the workflow lives, so a sender
+  holding it, as [`wf.emit`](/reference/workflow-api#emit) does, can find it and its runs. `awf`
+  commands find it by the path you give them.
 
 A TypeBox schema doesn't carry its type, so give it one, and each event's data is typed wherever the
 workflow takes it:

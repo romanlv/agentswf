@@ -90,7 +90,7 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
           return item;
         };
         const agent = await wf.agents.open({
-          key: `triager:${runtime}`,
+          key: `triager-${runtime}`,
           runtime: RUNTIMES[runtime],
           tools: {
             list_open: tool({

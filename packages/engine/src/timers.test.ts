@@ -126,6 +126,42 @@ test("a workflow without events waits for its timer in its process, as awf run r
   expect(run.ms).toBeGreaterThanOrEqual(140);
 });
 
+test("a workflow without events races and selects in its process too: it never parks", async () => {
+  const run = await startPlain(
+    defineWorkflow({
+      meta: { name: "race", description: "Races two timers, then selects on a third." },
+      async run(workflow) {
+        const at = (ms: number) => new Date(workflow.now().getTime() + ms);
+        const first = await workflow.race("first", {
+          soon: workflow.timer("soon", at(100)),
+          late: workflow.timer("late", at(60_000)),
+        });
+        const due = at(50);
+        for await (const next of workflow.select({ due: workflow.at(() => due) }))
+          if (next.due) break;
+        return first.key;
+      },
+    }),
+  );
+  expect(run.value).toBe("soon");
+  expect(run.ms).toBeGreaterThanOrEqual(90);
+});
+
+test("a workflow without events receives its due timer in its process", async () => {
+  const run = await startPlain(
+    defineWorkflow({
+      meta: { name: "receive", description: "Receives a timer's end." },
+      async run(workflow) {
+        workflow.timer("soon", new Date(workflow.now().getTime() + 100));
+        const [due] = await workflow.receive();
+        return `${due?.name} from ${due?.from}`;
+      },
+    }),
+  );
+  expect(run.value).toBe("timer:due from soon");
+  expect(run.ms).toBeGreaterThanOrEqual(90);
+});
+
 async function startPlain(workflow: RunnableWorkflow<null, string>) {
   const started = Date.now();
   const result = await runNew(workflow, null, {

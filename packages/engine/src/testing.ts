@@ -6,7 +6,6 @@ import type { AttemptRecord } from "@agentswf/contract/records";
 import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   defineWorkflow,
-  type EventWorkflowContext,
   type JsonValue,
   type OutputSchema,
   type WorkflowContext,
@@ -85,7 +84,7 @@ const caseEvents = { "dd.changes": Changes };
 
 /** A workflow with one event, `dd.changes`, keyed by its case, whose body is `run`. */
 export const caseRun = (
-  run: (workflow: EventWorkflowContext<typeof caseEvents>) => Promise<JsonValue>,
+  run: (workflow: WorkflowContext<typeof caseEvents>) => Promise<JsonValue>,
 ) =>
   defineWorkflow({
     meta: { name: "dd-case", description: "A case." },

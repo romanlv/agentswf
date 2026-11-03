@@ -235,7 +235,21 @@ describe("outcomes", () => {
       { run: "k", name: "dd.changes", data: { case: "k" } },
       { from: "operator", home: p.home, environment: {} },
     ).catch((caught: unknown) => caught);
-    expect(String(error)).toContain("gives file: import.meta.path");
+    expect(String(error)).toContain("a workflow with starts gives file: import.meta.path");
+  });
+
+  test("one without starts may leave out its file, but a sender holding it can't find it", async () => {
+    const p = project();
+    const { file: _file, starts: _starts, ...definition } = p.target;
+    const error = await emitEvent(
+      definition as EventWorkflow,
+      { run: "k", name: "dd.changes", data: { case: "k" } },
+      { from: "operator", home: p.home, environment: {} },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmitError);
+    expect(String(error)).toContain(
+      "gives no file, by which a sender holding it finds it: file: import.meta.path",
+    );
   });
 });
 

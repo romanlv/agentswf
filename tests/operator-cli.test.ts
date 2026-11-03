@@ -230,15 +230,26 @@ describe("awf run", () => {
     expect(errors.shift()).toMatch(
       /^awf: review-loop\/(\S+) started · watch: awf logs review-loop\/\1 --run-root \S+$/,
     );
-    expect([errors[0], ...errors.slice(1, 3).sort(), ...errors.slice(3)]).toEqual([
+    // Lines and cost rows of the two parallel turns, in either order.
+    const either = (from: number, to: number) => errors.slice(from, to).sort();
+    expect([
+      errors[0],
+      ...either(1, 3),
+      ...errors.slice(3, 6),
+      ...either(6, 8),
+      ...errors.slice(8),
+    ]).toEqual([
       "[0:00] ▶ Minimum review (2)",
-      "[0:00] ✓ reviewer:correctness · 0s",
-      "[0:00] ✓ reviewer:maintainability · 0s",
+      "[0:00] ✓ reviewer-correctness · 0s",
+      "[0:00] ✓ reviewer-maintainability · 0s",
       "[0:00] ✓ Minimum review done 2/2 in 0s",
       "",
       expect.stringMatching(
         /^✓ completed · review-loop \d{8}-\d{4}-[0-9a-f]{4} · 2 agents · \d+s · 21k tokens · ~\$0\.03 at list prices · subscription$/,
       ),
+      // No stages, and each key a group of its own: it has no colon.
+      expect.stringMatching(/^ {2}reviewer-correctness {6}1 agent · \d+s · ~\$0\.01$/),
+      expect.stringMatching(/^ {2}reviewer-maintainability {2}1 agent · \d+s · ~\$0\.02$/),
       expect.stringMatching(/^ {2}records {2}.+\/review-loop\/\d{8}-\d{4}-[0-9a-f]{4}$/),
     ]);
     expect(cleaned).toBe(1);
@@ -335,7 +346,13 @@ describe("awf run", () => {
     expect(accounting[0]).toMatch(
       /^✓ completed · quick-check \S+ · 2 agents · \d+s · .* · subscription/,
     );
-    expect(accounting[1]).toStartWith("  records  ");
+    expect(
+      accounting
+        .slice(1, 3)
+        .map((line) => line.trim().split(" ")[0])
+        .sort(),
+    ).toEqual(["check-codex", "check-pi"]);
+    expect(accounting[3]).toStartWith("  records  ");
   });
 
   test("says once where its TUI agents are, as the first opens", async () => {

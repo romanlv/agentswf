@@ -197,7 +197,7 @@ Betas from the design's §8 in brackets.
 
 - [x] 1. Unbuilt and unused names out, old forms deprecated, waits name the agent, `agentswf/workflow` an explicit list (A)
 - [x] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
-- [ ] 3. One context type, and `--from-stage` for every run (B)
+- [x] 3. One context type, and `--from-stage` for every run (B)
 - [ ] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
 - [ ] 5. One duration and `timeout` in the API (B)
 - [ ] 6. One `testWorkflow` signature (B)
@@ -298,14 +298,14 @@ redoes from a stage like any other.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -321,8 +321,10 @@ Work:
 
 Done when:
 
-- A workflow with no `events` races an agent against `"14d"` and typechecks. A misspelled signal
-  name is a type error.
+- A workflow with `events` but no `file`, `starts` or id races an agent against `"14d"`, and one
+  with no `events` races a timer; both typecheck. A misspelled signal name is a type error. (An
+  agent's end reaches only a run with events, so a run without them refuses an agent as a wait's
+  branch.)
 - An engine test continues a run with events `--from-stage {stage}`. It reruns that stage and the
   ones after it, keeps the earlier ones, and its record reads as a plain run's does.
 - A run test shows `open({ key: "reviewer:security" })` logs the deprecation once, and no example
@@ -536,6 +538,9 @@ Work:
 - Remove every deprecated name, each at least one beta after the beta that deprecated it.
 - Remove `awf send --event-id`, and the bare-number `--wait`.
 - A key with a colon is refused when the agent or participant opens, with the reason.
+- Cost grouping: a run without stages groups agents by the key's part before a colon (`grouping:
+  "prefix"`, a record value). With colons refused, decide whether it groups at `-`, which regroups
+  existing hyphenated keys, or becomes one row per agent under a new value.
 
 Done when:
 
@@ -607,6 +612,36 @@ found the records unchanged and asked for a test pinning `needs` in `output.json
 throw after a suspended turn reported as the throw (fixed). Compactions are still matched to the
 engine's records by position: the harness's `compact` carries no operation id.
 
+### Task 3
+
+Architecture and scope review:
+- `WorkflowContext<Events>` is invariant, so a helper typed `(wf: WorkflowContext)` broke for a
+  workflow with events, with no deprecation possible. The bare type now defaults to `any`, while
+  `defineWorkflow` hands a plain workflow `WorkflowContext<NoEvents>`. Accepted cost: a bare
+  annotation takes any `signal` name, which the run-time check refuses.
+- A plain workflow's race on an agent typechecked but couldn't be won: an agent's end reaches only
+  a run with events. Such a run now refuses an agent or participant branch at once. The Done-when
+  was corrected to match.
+- The docs claimed a redo replays the same events; only a race's answer is recorded. Corrected.
+- Cost grouping by the part before a colon becomes one row per agent once keys use `-`: a
+  decision added to task 10.
+- The colon deprecation's reason named events that arrive only in task 7; reworded.
+
+Correctness and proof review, and two targeted re-reviews of `--from-stage` on a run with events:
+- Moving every record not yet entered moved per-event stages before the start stage too, losing
+  their run-once reuse. Ordering by `started` then let a later stage that predated the start
+  stage's record escape the redo (a caught failure, a new version), and ties misordered. Reading the
+  event log was rejected: `--continue` never reads it (ADR 0011). As built, the redo is carried by
+  attempt numbers the records already hold. A stage entered after the start stage, in the redo
+  attempt or a later one, reruns if its record predates the redo.
+- The last re-review found three bugs, each fixed with a test:
+  - A crash while the start stage ran lost the redo. The old record now moves only as the new one
+    is written.
+  - A "never reached" attempt counted as a redo. A redo is now marked by the attempt's own
+    `stages`.
+  - A stage entered both before and after the start stage ran twice in one attempt.
+- The colon-key deprecation now names each key once per attempt.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -662,6 +697,129 @@ engine's records by position: the harness's `compact` carries no operation id.
   `present`, `report` and `run.ending` see what a stop for `--values` needs; `StageNeed` moved to
   the contract's `workflow/executable.ts`, re-exported from records, and `AttemptEnd.needs` went,
   its readers taking the ending's.
+
+### Task 3
+
+Plan, settled before coding:
+
+- **One context.** `WorkflowContext<Events extends EventSchemas = Record<never, never>>` carries
+  what `EventWorkflowContext` added: `receive`, `race`, `select`, `timer`, `at`, `after`, `signal`,
+  `started`, and the deprecated stage-around-`receive` overload. `Record<never, never>` is `{}`
+  spelled so Biome accepts it: `keyof` it is `never`, so a workflow without events can `signal`
+  nothing, and a misspelled name fails `tsc` in one with events. `AgentRef` takes `turn`, `start`
+  and `is` and is a source; `AgentOpenSpec` takes `keepAlive`; the directories are one
+  `AgentDirectory` and the one `participants` directory, `CodeParticipantDirectory`, until task 7
+  replaces `to: "code"`. `EventWorkflowContext<E>`, `EventAgentRef`, `EventAgentOpenSpec` and
+  `EventAgentDirectory` stay as `@deprecated` aliases; a type can't log.
+- **The engine already builds one context and one agent class**; only the typing differed. The time
+  calls move from "with a mailbox" to every run, over the `waits` mailbox every run has (story 037).
+  A plain run has no `park`, so a wait waits in its process, as `sleep` does today: parking a plain
+  run stays out of scope. What a plain run still can't do throws with why: `start()` (its end
+  arrives as an event, which needs events declared; task 7 narrows that to `{key}:ended`),
+  `keepAlive`, `to: "code"`. `signal` checks its name against `events` at run time too, for a
+  workflow `tsc` never saw.
+- **`file` and the id.** The engine needs `file` only where a sender holds the workflow object and
+  not a path: `wf.emit(target, …)` finds the target's project and launches its run by it. `awf run`
+  and `awf emit --target` loaded the file from a path, and wakes run the file recorded with the run.
+  So `file` is required by type only with `starts`, and checked at run time only where it is used:
+  `wf.emit` to a target without one throws, naming `import.meta.path`; the loader still checks a
+  `file` given is the file loaded. A workflow with events and no `starts` gets a generated id from
+  `awf run` as a plain run does; with `starts` the id stays required, since senders name it.
+  `starts` absent still means every event starts a run (no behaviour change; `awf emit --target`
+  does it by path).
+- **`--from-stage` for a run with events (structural).** The ledger keeps reuse by content, with a
+  start point: until the attempt enters `--from-stage`'s stage, stages are reused by content as on
+  any wake (one with no record or a failed one runs, as it would on a wake); entering it, it runs,
+  and every record not entered so far in this attempt moves to `replaced/`, through the plain run's
+  `replaceStale`, so later stages run again. After that, by content again, now over the records
+  this attempt kept and wrote. Nothing new is recorded: the attempt's `flags.fromStage`, the stage
+  records, `replaced/` and the summaries read as a plain run's do. Waits are not stage results: a
+  race keeps its recorded answer, and the mailbox is untouched, so the redone stages run on the same
+  events. The attempt is an ordinary hand continue; the wakes after it carry no flag and reuse by
+  content what it wrote. If it would park, or return, before reaching the stage, it stops "never
+  reached" instead, as a plain run does at its end: parking would silently drop the redo, since no
+  wake carries the flag. `--values`, and `--from-stage` on a new run, stay refused for a run with
+  events: before the start point a stage with no record simply runs.
+- **Keys with a colon.** `#assertFreeKey`, which every agent open, fork, caller and participant
+  passes, logs `colon-key` once per attempt, naming the key with `-` for each colon. A deprecation
+  may take the subject it names. The examples move to `-`.
+
+Rejected:
+
+- Switching a `--from-stage` attempt to ordered reuse (`planStage`): it refuses a stage entered
+  twice, which runs with events do by design, and needs `--values` for a per-event stage it hasn't
+  seen.
+- Recording the start point in `run.json` so later wakes keep redoing until it is reached: a new
+  record field, for the case of a stage the replay never reaches (one per event, behind an
+  acknowledged `receive`), where stopping says so plainly.
+- Parking before the start point with a warning: the redo the operator asked for would be lost
+  without a stop to show it.
+- Generic `WorkflowContext<Events = never>`: every string would extend `keyof never`.
+- Splitting the `-` keys for cost grouping: a run without stages groups agents by the key's part
+  before a colon (`accounting/summary.ts`); with `-`, each key is its own group. Splitting at `-`
+  would regroup every existing hyphenated key, so the grouping is left as it is and noted.
+
+Caveats: agents in a redo reopen on their kept sessions, as on any wake, so an agent that ran the
+stage before remembers it; a deprecated stage around `receive` after the start point waits for new
+events. Testing a workflow with events from a stage is task 6's options.
+
+As built, after review:
+
+- **Typing.** `WorkflowContext<E>` is invariant in `E`: `receive` returns `E`'s events and
+  `signal` takes its names. Bare, `WorkflowContext` defaults `Events` to `any`, so a helper typed
+  `(wf: WorkflowContext)` takes any workflow's context, with events or without, as it took an
+  `EventWorkflowContext` before; `signal` in such a helper is checked when it runs. A workflow's
+  own `run` is typed exactly: `defineWorkflow`'s overload without events passes
+  `WorkflowContext<NoEvents>` (`Record<never, never>`), so `wf.signal("x")` there fails `tsc`, and
+  one with events rejects a misspelled name. `NoEvents` stays out of `agentswf/workflow`. Accepted
+  trade-off: an explicitly annotated `run(wf: WorkflowContext)`, or a helper typed with it, accepts
+  any `signal` name; the run-time check catches it.
+- **Checks moved from compile time to run time** for a workflow without events, accepted under one
+  `AgentRef` and one context: `agent.start()`, `keepAlive` and `to: "code"` throw, saying why; a
+  `race` or `select` with an agent's end (or a participant routed to the code) among its branches
+  is refused at once, since a run without events hears neither; `signal` of an undeclared name
+  throws. A plain workflow races and selects on timers and durations, and `receive` takes a due
+  timer, all in its process (`timers.test.ts`, through `runNew` without `park`).
+- **`file`.** The loader gives a workflow with events and no `file` the path it loaded it from, so
+  `awf run`, `awf emit --target` and the run's record have it; `wf.emit` to a target without one
+  throws an `EmitError` naming `file: import.meta.path`. `eventWorkflowProblem` requires `file`
+  only with `starts`.
+- **`--from-stage` by content: later records move as they are reached.** On entering S, attempt N
+  runs it, and S's old record moves to `replaced/` only as its new one is written, as a failed
+  record's does: an attempt that dies while S runs leaves the old record and no redo, which the
+  operator issues again. Every attempt then finds the last redo, `lastRedo` in `stage-plan.ts`: the
+  latest earlier attempt N with `flags.fromStage` S that ran S, which its attempt record's `stages`
+  says (`source: "ran"`), or, for one that died after S's record was written, S's record being N's
+  own. A stop for a stage never reached, a refused attempt and one that died while S ran have
+  neither, so none is a redo; no reason text is matched. A redo whose S failed and ran again on a
+  wake is still the redo. In N and every later attempt, a stage first entered after S, in that
+  attempt's own program order, whose record has `attempt < N`, reruns, its record replaced as
+  `#opened` replaces a failed one; a stage already entered in the attempt, before S or after,
+  keeps the value it had there. A record never entered after S keeps its reuse: a stage per event
+  behind an acknowledged `receive` is not redone, and S's earlier stages stay. A later redo
+  supersedes an earlier one. Only stage records (`attempt` is the attempt that ran the stage, and a
+  reuse never rewrites it) and attempt records, which a continue reads already, decide it.
+  Rejected: ordering by `started` (it orders by when a record was written, not where the stage sits
+  in the program: a caught failure rerun on a wake, or a version adding S before X, makes a later X
+  look earlier; same-millisecond records tie; clocks skew between hosts), and reading the event log
+  (it is observation only, which `--continue` never reads, and its writes may fail unsaid). Proof:
+  `stage-ledger.test.ts` (a caught failure, a new version, a same-millisecond tie, a redo that
+  parks after S and is finished by the next wake, per-event stages kept, a later redo superseding,
+  a death while S runs and after its record, a never-reached stop, a stage entered before and after
+  S), `receive.test.ts` (a stage behind an acknowledged batch keeps its record), `emit-e2e.test.ts`
+  (the redo's attempt record, and the park hook stopping "never reached").
+- Accepted residual: a later wake that never enters S (a conditional branch, or S behind an
+  acknowledged `receive`) reuses the records after S's position, and only the latest redo is kept.
+- **Deprecations.** `RunDeprecations.used(name, subject?)` says each subject once per attempt, so
+  each key with a colon is named; a deprecation's `instead` may be a function of the subject, and
+  reads whole without one. The reason given is that a colon is kept for awf's own event names.
+- **Cost grouping.** A run without stages groups agents' cost by the key's part before a colon,
+  recorded as `grouping: "prefix"`. With `-` keys that grouping is per agent
+  (`tests/operator-cli.test.ts` now expects a row per agent). Task 10, which refuses the colon,
+  must decide what `"prefix"` groups by, or drop it.
+- The `--from-stage` e2e test (`emit-e2e.test.ts`) runs each hand continue in a process of its
+  own: an attempt waits for the one before it to exit, so two in the test's process would wait on
+  each other.
 
 ## Human review
 

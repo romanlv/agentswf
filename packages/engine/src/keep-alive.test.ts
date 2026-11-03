@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
-import { defineWorkflow, type EventAgentOpenSpec } from "@agentswf/contract/workflow";
+import { type AgentOpenSpec, defineWorkflow } from "@agentswf/contract/workflow";
 import { caseRun, startCase } from "./testing";
 import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
-type KeepAlive = NonNullable<EventAgentOpenSpec["keepAlive"]>;
+type KeepAlive = NonNullable<AgentOpenSpec["keepAlive"]>;
 
 /** Starts a turn for each `dd.changes` it takes, its agent kept alive as given. */
 const watcher = (keepAlive: KeepAlive, taken: string[] = []) =>

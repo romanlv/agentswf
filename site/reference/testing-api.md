@@ -92,7 +92,7 @@ or `values`, and adds `id`, `args`, `event`, `events`, `maxTurns` and `mailbox`.
 
 ## Scripts
 
-`agents` maps an agent's key, or a pattern such as `"verifier:*"`, to its script. An exact key
+`agents` maps an agent's key, or a pattern such as `"verifier-*"`, to its script. An exact key
 wins over a pattern; two patterns matching one key fail the test.
 
 A script is one entry, which meets every turn of that agent, or a list, one entry per turn. A list

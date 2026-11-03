@@ -43,12 +43,13 @@ export async function emitEvent(
   const workflow = target.meta.name;
   const { name, data } = event;
   checkEvent(target, event);
+  const file = fileOf(target);
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
   const at = new Date(context.now?.() ?? Date.now()).toISOString();
   const runId = event.run;
   const problem = idProblem(runId);
   if (problem) throw new EmitError(`the run's id: ${problem}`);
-  const project = await projectOf(target.file, context.home).catch((error: unknown) => {
+  const project = await projectOf(file, context.home).catch((error: unknown) => {
     throw new EmitError(messageOf(error));
   });
   const starts = target.starts?.includes(name) ?? true;
@@ -59,7 +60,7 @@ export async function emitEvent(
       runId,
       event: { id, name, data, from: context.from, at },
       deduplicate: event.id !== undefined,
-      file: target.file,
+      file,
       ...(starts ? { start: { project, target } } : {}),
     },
     context,
@@ -178,13 +179,14 @@ export async function openEventRun(
   const workflow = target.meta.name;
   const problem = idProblem(id);
   if (problem) throw new EmitError(problem);
-  const project = await projectOf(target.file, context.home).catch((error: unknown) => {
+  const file = fileOf(target);
+  const project = await projectOf(file, context.home).catch((error: unknown) => {
     throw new EmitError(messageOf(error));
   });
   const runRoot = projectRunRoot(project);
   const ref = `${workflow}/${id}`;
   return withRunLock(runLockFile(runRoot, workflow, id), async () => {
-    const woken = { ...context, file: target.file };
+    const woken = { ...context, file };
     if (await exists(join(runRoot, workflow, id, "run.json"))) {
       const run = await openRun(runRoot, workflow, id);
       if ((await readAttempts(run)).at(-1)?.outcome === "completed")
@@ -200,9 +202,22 @@ export async function openEventRun(
     } catch (error) {
       throw new EmitError(`prepare: ${messageOf(error)}`);
     }
-    const run = await createEventRun(runRoot, workflow, id, project, target.file, context, argv);
+    const run = await createEventRun(runRoot, workflow, id, project, file, context, argv);
     return { run: ref, created: true, ...(await wake(run, woken)) };
   });
+}
+
+/**
+ * The target's file, which says which project its runs live in and which a start or wake runs:
+ * `file`, or the path awf loaded it from. Only a sender holding the workflow itself, as `wf.emit`
+ * does, can be without one.
+ */
+function fileOf(target: EventWorkflow): string {
+  if (target.file === undefined)
+    throw new EmitError(
+      `${target.meta.name} gives no file, by which a sender holding it finds it: file: import.meta.path`,
+    );
+  return target.file;
 }
 
 /** The event's name, shape and id, as the target declares them; an `EmitError` when they don't fit. */
@@ -213,7 +228,7 @@ export function checkEvent(
   const workflow = target.meta.name;
   const problem = eventWorkflowProblem(target);
   if (problem) throw new EmitError(`${workflow}: ${problem}`);
-  if (!isAbsolute(target.file))
+  if (target.file !== undefined && !isAbsolute(target.file))
     throw new EmitError(`${workflow}: its file, ${target.file}, is import.meta.path, absolute`);
   if (event.name.includes(":"))
     throw new EmitError(`${event.name}: a name with a colon is awf's own, and not sent`);

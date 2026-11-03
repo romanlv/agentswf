@@ -180,7 +180,7 @@ function dispatch(
 }
 
 function lensOf(context: { activation: { key: string } }): ReviewLens {
-  const lens = context.activation.key.replace(/^reviewer:/, "");
+  const lens = context.activation.key.replace(/^reviewer-/, "");
   if (lens !== "correctness" && lens !== "maintainability")
     throw new Error("not a lens's reviewer");
   return lens;

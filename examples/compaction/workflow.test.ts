@@ -18,15 +18,15 @@ describe("compaction", () => {
       { ...args, runtimes: ["claude", "pi"] },
       {
         agents: {
-          "compact:claude": [answer(NOTED, { noted: true }), recalled],
-          "compact:pi": [
+          "compact-claude": [answer(NOTED, { noted: true }), recalled],
+          "compact-pi": [
             answer(NOTED, { noted: true }),
             answer(NOTED, { noted: true }),
             answer(NOTED, { noted: true }),
             recalled,
           ],
         },
-        compactions: { "compact:claude": answer("codename HERON-1234; the shed is teal") },
+        compactions: { "compact-claude": answer("codename HERON-1234; the shed is teal") },
       },
     );
     expect(run.value).toMatchObject({ codename: "HERON-1234", colour: "teal" });
@@ -44,11 +44,11 @@ describe("compaction", () => {
         recalled: { codename: "HERON-1234", colour: "teal" },
       },
     ]);
-    const [focus] = run.compactionsOf("compact:claude");
+    const [focus] = run.compactionsOf("compact-claude");
     expect(focus?.focus).toContain("HERON-1234");
     // pi is given history older than its last 20k tokens, the others are not.
-    expect(run.turnsOf("compact:pi")[2]?.prompt).toContain("inventory line 2000:");
-    expect(run.turnsOf("compact:claude")).toHaveLength(2);
+    expect(run.turnsOf("compact-pi")[2]?.prompt).toContain("inventory line 2000:");
+    expect(run.turnsOf("compact-claude")).toHaveLength(2);
   });
 
   test("a headless cursor's compaction fails, is reported, and the agent is still asked", async () => {
@@ -57,8 +57,8 @@ describe("compaction", () => {
       { ...args, runtimes: ["cursor", "cursor-headless"] },
       {
         agents: {
-          "compact:cursor": [answer(NOTED, { noted: true }), recalled],
-          "compact:cursor-headless": [answer(NOTED, { noted: true }), recalled],
+          "compact-cursor": [answer(NOTED, { noted: true }), recalled],
+          "compact-cursor-headless": [answer(NOTED, { noted: true }), recalled],
         },
       },
     );

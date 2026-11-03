@@ -300,6 +300,13 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   logged once per attempt; `TestTurn` and `TestTurnOutcome` are exported, a turn records the
   engine's outcome (`unanswered`, not `silent`), `Ending` carries `needs`, and `awaitReply` and
   `reply.waiting` are gone.
+  Task 3 built: one `WorkflowContext<Events>` and one `AgentRef` for every workflow, the event-only
+  names deprecated aliases; a workflow without events races, selects and sets timers, waiting in
+  its process, never parking; `signal` takes only declared names; `file` is required only with
+  `starts`, and `awf run` makes an id for a workflow with events and no `starts`. `--from-stage` on
+  a continue of a run with events redoes that stage and the ones after it, each later record
+  moved to `replaced/` as the code reaches it, by this attempt or a later one; one that would park before reaching it stops. An agent's
+  or participant's key with a colon is deprecated, and the examples use `-`.
 
 ## Known gaps
 

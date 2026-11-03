@@ -7,7 +7,7 @@ import {
   type JsonValue,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
-import { DEPRECATIONS, type Deprecated } from "./deprecations";
+import { DEPRECATIONS, type Deprecated, deprecationLine } from "./deprecations";
 import { appendMailbox } from "./mailbox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun } from "./runs";
@@ -22,9 +22,10 @@ afterAll(() => runDirs.cleanup());
 function said(run: TestRun<JsonValue>): Partial<Record<Deprecated, number>> {
   const counts: Partial<Record<Deprecated, number>> = {};
   for (const name of Object.keys(DEPRECATIONS) as Deprecated[]) {
-    const { old, instead } = DEPRECATIONS[name];
-    const line = `awf: ${old} is deprecated; ${instead}`;
-    const n = run.logs.filter((log) => log.message === line).length;
+    const { old } = DEPRECATIONS[name];
+    const n = run.logs.filter(
+      (log) => log.message === deprecationLine(name) || log.message.startsWith(`awf: ${old}, `),
+    ).length;
     if (n > 0) counts[name] = n;
   }
   return counts;
@@ -327,6 +328,57 @@ test("testing's new forms log nothing", async () => {
   expect(run.ending).toMatchObject({ kind: "stopped", reason: "failed" });
   expect(eventIds(run)).toEqual(["start-1", "next-1"]);
   expect(said(run)).toEqual({});
+});
+
+test("each key with a colon logs once an attempt, naming it with - for each colon", async () => {
+  const run = await plainRun(
+    "colon-keys",
+    async (wf) => {
+      const security = await wf.agents.open({ key: "reviewer:security", runtime: "claude" });
+      await wf.agents.open({ key: "reviewer:security", runtime: "claude" });
+      await wf.agents.open({ key: "reviewer:style", runtime: "claude" });
+      await wf.participants.connect({ key: "lead:x" });
+      const { outcome } = await security.run({ prompt: "One." });
+      return outcome.kind;
+    },
+    { agents: { "reviewer:security": answer("yes") } },
+  );
+  expect(run.value).toBe("answered");
+  const lines = run.logs
+    .map((log) => log.message)
+    .filter((line) => line.includes("a key with a colon"));
+  expect(lines).toEqual([
+    "awf: a key with a colon, reviewer:security, is deprecated; name it reviewer-security: a colon is kept for awf's own event names",
+    "awf: a key with a colon, reviewer:style, is deprecated; name it reviewer-style: a colon is kept for awf's own event names",
+    "awf: a key with a colon, lead:x, is deprecated; name it lead-x: a colon is kept for awf's own event names",
+  ]);
+});
+
+test("a forked, caller's or participant's key with a colon logs too", async () => {
+  const forked = await plainRun("colon-fork", async (wf) => {
+    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+    await agent.run({ prompt: "One." });
+    await agent.fork({ key: "a:copy" });
+    return null;
+  });
+  expect(said(forked)).toEqual({ "colon-key": 1 });
+  const caller = await plainRun(
+    "colon-caller",
+    async (wf) => (await wf.agents.caller({ key: "me:here" }))?.key ?? null,
+    { caller: { harness: "claude", model: "claude-opus-5-5", here: true } },
+  );
+  expect(said(caller)).toEqual({ "colon-key": 1 });
+  const connected = await plainRun("colon-participant", async (wf) => {
+    await wf.participants.connect({ key: "lead:x" });
+    return null;
+  });
+  expect(said(connected)).toEqual({ "colon-key": 1 });
+});
+
+test("a deprecation that names no subject reads whole", () => {
+  expect(deprecationLine("colon-key")).toBe(
+    "awf: a key with a colon is deprecated; use - in its place: a colon is kept for awf's own event names",
+  );
 });
 
 function eventIds(run: TestRun<JsonValue>): string[] {

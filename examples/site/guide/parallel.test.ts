@@ -10,12 +10,12 @@ test("results come back in item order, whichever lens finishes first", async () 
   const testsAnswered = Promise.withResolvers<void>();
   const run = await testWorkflow(lensReview, null, {
     agents: {
-      "review:security": answer(FINDINGS, async () => {
+      "review-security": answer(FINDINGS, async () => {
         await testsAnswered.promise;
         return finding("auth.ts", "low");
       }),
-      "review:correctness": answer(FINDINGS, finding("sum.ts", "high")),
-      "review:tests": answer(FINDINGS, () => {
+      "review-correctness": answer(FINDINGS, finding("sum.ts", "high")),
+      "review-tests": answer(FINDINGS, () => {
         testsAnswered.resolve();
         return finding("sum.test.ts", "low");
       }),
@@ -31,8 +31,8 @@ test("results come back in item order, whichever lens finishes first", async () 
 test("a lens that doesn't answer is recorded, and the others' findings are kept", async () => {
   const run = await testWorkflow(lensReview, null, {
     agents: {
-      "review:security": noAnswer.failed(),
-      "review:*": answer(FINDINGS, finding("sum.ts", "low")),
+      "review-security": noAnswer.failed(),
+      "review-*": answer(FINDINGS, finding("sum.ts", "low")),
     },
   });
   expect(run.value.findings.map(({ lens }) => lens)).toEqual([
@@ -45,9 +45,9 @@ test("a lens that doesn't answer is recorded, and the others' findings are kept"
 test("a branch that throws cancels the turn still running, and parallel rejects", async () => {
   const run = await testWorkflow(strictReview, null, {
     agents: {
-      "review:security": noAnswer.failed(),
+      "review-security": noAnswer.failed(),
       // Answers only once its turn is cancelled, which is too late to count.
-      "review:correctness": answer(
+      "review-correctness": answer(
         FINDINGS,
         (turn) =>
           new Promise((resolve) =>
@@ -56,9 +56,9 @@ test("a branch that throws cancels the turn still running, and parallel rejects"
             ),
           ),
       ),
-      "review:tests": answer(FINDINGS, finding("sum.test.ts", "low")),
+      "review-tests": answer(FINDINGS, finding("sum.test.ts", "low")),
     },
   });
   expect(() => run.value).toThrow("security: failed");
-  expect(run.turnsOf("review:correctness")[0]?.outcome).toBe("cancelled");
+  expect(run.turnsOf("review-correctness")[0]?.outcome).toBe("cancelled");
 });
