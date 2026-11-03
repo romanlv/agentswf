@@ -34,7 +34,8 @@ const asking = (change: string, summary: string) =>
 
 describe("feature-delivery", () => {
   test("the reviewer asks the planner for a change by message, then the code ships", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: {
         ...happyPath,
         planner: [
@@ -76,7 +77,8 @@ describe("feature-delivery", () => {
   });
 
   test("the reviewer owns the loop: told how to ask, on a route for this review only", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: { ...happyPath, reviewer: [ready("doc ok"), asking("handle a miss", "code ok")] },
       messages: { implementer: (message) => message.reply("A miss falls through.") },
     });
@@ -102,7 +104,7 @@ describe("feature-delivery", () => {
   });
 
   test("a full run records each stage with its summary", async () => {
-    const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
+    const run = await testWorkflow(featureDelivery, { args, agents: happyPath });
     expect(run.stages.map(({ stage, outcome, summary }) => [stage, outcome, summary])).toEqual([
       ["ticket-doc", "succeeded", doc],
       ["doc-review", "succeeded", "ok"],
@@ -113,17 +115,20 @@ describe("feature-delivery", () => {
   });
 
   test("a finished run closes with what was built, its doc, and the extra reviews", async () => {
-    const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
+    const run = await testWorkflow(featureDelivery, { args, agents: happyPath });
     expect(feature.present?.(run.value, undefined as never)).toBe(
       `built\n${doc}\nno additional reviewers`,
     );
   });
 
   test("a continue after the implementation stopped reuses the plan and redoes the rest", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
-      recorded: {
-        "ticket-doc": planned,
-        "doc-review": { summary: "doc ok", work: planned },
+    const run = await testWorkflow(featureDelivery, {
+      args,
+      earlier: {
+        stages: {
+          "ticket-doc": planned,
+          "doc-review": { summary: "doc ok", work: planned },
+        },
       },
       agents: {
         reviewer: ready("code ok"),
@@ -145,26 +150,25 @@ describe("feature-delivery", () => {
 
   test("a continue that runs only the additional reviews briefs the fresh agents it asks", async () => {
     const built = { docPath: doc, summary: "built an LRU cache", decisions: ["LRU"] };
-    const run = await testWorkflow(
-      featureDelivery,
-      { ...args, additionalReviewers: [{ name: "security", runtime: "claude" }] },
-      {
-        recorded: {
+    const run = await testWorkflow(featureDelivery, {
+      args: { ...args, additionalReviewers: [{ name: "security", runtime: "claude" }] },
+      earlier: {
+        stages: {
           "ticket-doc": planned,
           "doc-review": { summary: "doc ok", work: planned },
           implementation: built,
           "implementation-review": { summary: "code ok", work: built },
         },
-        agents: {
-          "additional-reviewer-security": answer(VERDICT, {
-            kind: "changes-requested",
-            feedback: ["escape the key"],
-          }),
-          implementer: answer(WORK, { ...built, summary: "escaped" }),
-          reviewer: ready("escape ok"),
-        },
       },
-    );
+      agents: {
+        "additional-reviewer-security": answer(VERDICT, {
+          kind: "changes-requested",
+          feedback: ["escape the key"],
+        }),
+        implementer: answer(WORK, { ...built, summary: "escaped" }),
+        reviewer: ready("escape ok"),
+      },
+    });
     expect(run.value).toMatchObject({ summary: "escaped", review: { primary: "escape ok" } });
     expect(run.turnsOf("additional-reviewer-security")[0]!.prompt).toContain("ABC-1");
     expect(run.turnsOf("implementer")[0]!.prompt).toContain("your implementation of ABC-1");
@@ -182,13 +186,14 @@ describe("feature-delivery", () => {
   });
 
   test("the planner opens with its skill", async () => {
-    const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
+    const run = await testWorkflow(featureDelivery, { args, agents: happyPath });
     expect(run.agentOf("planner")).toMatchObject({ skills: ["ticket-doc"] });
   });
 
   test("the author answers the reviewer, and cannot reopen the review once it is approved", async () => {
     let reopened: unknown;
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: {
         ...happyPath,
         planner: answer(WORK, async (turn) => {
@@ -202,7 +207,8 @@ describe("feature-delivery", () => {
   });
 
   test("a review that still wants changes stops the run", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: {
         ...happyPath,
         reviewer: answer(VERDICT, { kind: "changes-requested", feedback: ["more detail"] }),
@@ -218,19 +224,16 @@ describe("feature-delivery", () => {
 
   test("with no revisions allowed, the reviewer is not told to ask and has no route", async () => {
     let asked: unknown;
-    const run = await testWorkflow(
-      featureDelivery,
-      { ...args, maxRevisions: 0 },
-      {
-        agents: {
-          ...happyPath,
-          reviewer: answer(VERDICT, async (turn) => {
-            asked = await turn.send("planner", "more detail");
-            return { kind: "changes-requested", feedback: ["more detail"] };
-          }),
-        },
+    const run = await testWorkflow(featureDelivery, {
+      args: { ...args, maxRevisions: 0 },
+      agents: {
+        ...happyPath,
+        reviewer: answer(VERDICT, async (turn) => {
+          asked = await turn.send("planner", "more detail");
+          return { kind: "changes-requested", feedback: ["more detail"] };
+        }),
       },
-    );
+    });
     expect(run.turnsOf("reviewer")[0]!.prompt).not.toContain("revision loop");
     expect(asked).toEqual({ kind: "refused", code: "no-route" });
     expect(run.ending).toMatchObject({
@@ -240,7 +243,8 @@ describe("feature-delivery", () => {
   });
 
   test("a planner that goes quiet is nudged once, then the delivery stops", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: { planner: noAnswer.silent() },
     });
     expect(run.ending).toMatchObject({
@@ -252,7 +256,8 @@ describe("feature-delivery", () => {
   });
 
   test("an inconclusive review stops with the reviewer's reason", async () => {
-    const run = await testWorkflow(featureDelivery, args, {
+    const run = await testWorkflow(featureDelivery, {
+      args,
       agents: {
         ...happyPath,
         reviewer: answer(VERDICT, { kind: "inconclusive", reason: "cannot open the doc" }),
@@ -267,8 +272,7 @@ describe("feature-delivery", () => {
 
   test("the planner and the reviewer on one model are refused", async () => {
     const run = await testWorkflow(featureDelivery, {
-      ...args,
-      runtimes: { ...args.runtimes, planner: "codex" },
+      args: { ...args, runtimes: { ...args.runtimes, planner: "codex" } },
     });
     expect(() => run.value).toThrow("planner and primary reviewer must use different models");
     expect(run.turns).toEqual([]);
@@ -276,7 +280,8 @@ describe("feature-delivery", () => {
 
   describe("the ticket document stays the same file", () => {
     test("a doc reported moved after review stops the doc review", async () => {
-      const run = await testWorkflow(featureDelivery, args, {
+      const run = await testWorkflow(featureDelivery, {
+        args,
         agents: {
           planner: [
             answer(WORK, planned),
@@ -293,7 +298,8 @@ describe("feature-delivery", () => {
     });
 
     test("an implementation that writes another stops the implementation", async () => {
-      const run = await testWorkflow(featureDelivery, args, {
+      const run = await testWorkflow(featureDelivery, {
+        args,
         agents: {
           ...happyPath,
           implementer: answer(WORK, { docPath: "docs/other.md", summary: "built", decisions: [] }),
@@ -317,7 +323,8 @@ describe("feature-delivery", () => {
     };
 
     test("their feedback is applied, then the primary reviewer checks it", async () => {
-      const run = await testWorkflow(featureDelivery, withExtras, {
+      const run = await testWorkflow(featureDelivery, {
+        args: withExtras,
         agents: {
           ...happyPath,
           "additional-reviewer-security": answer(VERDICT, {
@@ -347,7 +354,8 @@ describe("feature-delivery", () => {
     });
 
     test("one that ends without a verdict stops the delivery", async () => {
-      const run = await testWorkflow(featureDelivery, withExtras, {
+      const run = await testWorkflow(featureDelivery, {
+        args: withExtras,
         agents: {
           ...happyPath,
           "additional-reviewer-*": ready("fine"),
@@ -363,7 +371,8 @@ describe("feature-delivery", () => {
 
     test("one that can't decide stops the others, and the delivery", async () => {
       // perf hangs until it is cancelled: were it not, the test would fail as stalled.
-      const run = await testWorkflow(featureDelivery, withExtras, {
+      const run = await testWorkflow(featureDelivery, {
+        args: withExtras,
         agents: {
           ...happyPath,
           "additional-reviewer-security": answer(VERDICT, {

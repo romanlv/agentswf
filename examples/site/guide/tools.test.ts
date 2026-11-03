@@ -3,7 +3,7 @@ import { answer, testWorkflow } from "agentswf/testing";
 import deadCode from "./tools";
 
 test("each finding the agent records reaches the workflow, and it can read them back", async () => {
-  const run = await testWorkflow(deadCode, null, {
+  const run = await testWorkflow(deadCode, {
     agents: {
       reviewer: answer(async (turn) => {
         expect(
@@ -29,7 +29,7 @@ test("each finding the agent records reaches the workflow, and it can read them 
 
 test("input that doesn't fit is refused before the handler runs; a throw fails only the call", async () => {
   const seen: unknown[] = [];
-  const run = await testWorkflow(deadCode, null, {
+  const run = await testWorkflow(deadCode, {
     agents: {
       reviewer: answer(async (turn) => {
         seen.push(

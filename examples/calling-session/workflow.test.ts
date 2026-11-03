@@ -15,20 +15,17 @@ const RECALLED = Type.Object(
 
 describe("calling-session", () => {
   test("the calling session picks, a helper doubles, the session recalls and checks it", async () => {
-    const run = await testWorkflow(
-      callingSession,
-      { helper: true },
-      {
-        caller: { harness: "pi" },
-        agents: {
-          author: [
-            answer(PICKED, { number: 4827 }),
-            answer(RECALLED, { number: 4827, agrees: true }),
-          ],
-          helper: answer(DOUBLED, { answer: 9654 }),
-        },
+    const run = await testWorkflow(callingSession, {
+      args: { helper: true },
+      caller: { harness: "pi" },
+      agents: {
+        author: [
+          answer(PICKED, { number: 4827 }),
+          answer(RECALLED, { number: 4827, agrees: true }),
+        ],
+        helper: answer(DOUBLED, { answer: 9654 }),
       },
-    );
+    });
     expect(run.value).toEqual({
       harness: "pi",
       picked: 4827,
@@ -40,16 +37,16 @@ describe("calling-session", () => {
   });
 
   test("without a calling session it says how to start one", async () => {
-    const run = await testWorkflow(callingSession, { helper: false });
+    const run = await testWorkflow(callingSession, { args: { helper: false } });
     expect(() => run.value).toThrow("start this workflow with awf run --here");
   });
 
   test("an interrupted step ends the run, and says so", async () => {
-    const run = await testWorkflow(
-      callingSession,
-      { helper: false },
-      { caller: { harness: "codex" }, agents: { author: noAnswer.interrupted() } },
-    );
+    const run = await testWorkflow(callingSession, {
+      args: { helper: false },
+      caller: { harness: "codex" },
+      agents: { author: noAnswer.interrupted() },
+    });
     expect(() => run.value).toThrow("no number: cancelled");
   });
 });

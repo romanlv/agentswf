@@ -14,7 +14,8 @@ test("prepare turns the words after -- into args, and refuses none", () => {
 });
 
 test("one agent checks each file in turn; present and report render the result", async () => {
-  const run = await testWorkflow(checkDocs, args, {
+  const run = await testWorkflow(checkDocs, {
+    args,
     agents: {
       checker: answer(CHECK, (turn) => ({
         problems: turn.prompt.includes("README.md")
@@ -40,7 +41,8 @@ test("one agent checks each file in turn; present and report render the result",
 });
 
 test("a file with no answer stops the run with the reason, and the report hands it off", async () => {
-  const run = await testWorkflow(checkDocs, args, {
+  const run = await testWorkflow(checkDocs, {
+    args,
     agents: { checker: noAnswer.failed("codex exited") },
   });
   expect(run.ending).toMatchObject({

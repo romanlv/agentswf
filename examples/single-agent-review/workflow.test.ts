@@ -40,7 +40,8 @@ describe("single-agent-review", () => {
   });
 
   test("one agent, no skill but the one named, one turn; its findings are the result", async () => {
-    const run = await testWorkflow(review, prepare(), {
+    const run = await testWorkflow(review, {
+      args: prepare(),
       agents: { reviewer: answer(FINDINGS_SCHEMA, { findings: [finding] }) },
     });
     expect(run.value).toEqual({ range: "origin/main...HEAD", skill: null, findings: [finding] });
@@ -55,7 +56,8 @@ describe("single-agent-review", () => {
   });
 
   test("the runtime named is the one the reviewer runs on", async () => {
-    const run = await testWorkflow(review, prepare("--runtime", "codex/gpt-6-luna"), {
+    const run = await testWorkflow(review, {
+      args: prepare("--runtime", "codex/gpt-6-luna"),
       agents: { reviewer: answer(FINDINGS_SCHEMA, { findings: [] }) },
     });
     expect(run.agentOf("reviewer").execution).toMatchObject({
@@ -66,7 +68,8 @@ describe("single-agent-review", () => {
   });
 
   test("the request is named in the prompt when given", async () => {
-    const run = await testWorkflow(review, prepare("--request", "pr.md"), {
+    const run = await testWorkflow(review, {
+      args: prepare("--request", "pr.md"),
       agents: { reviewer: answer(FINDINGS_SCHEMA, { findings: [] }) },
     });
     expect(run.turns[0]!.prompt).toContain("title and description are in /work/pr.md");
@@ -76,7 +79,8 @@ describe("single-agent-review", () => {
   });
 
   test("a review that never comes fails the run with why", async () => {
-    const run = await testWorkflow(review, prepare(), {
+    const run = await testWorkflow(review, {
+      args: prepare(),
       agents: { reviewer: noAnswer.blocked("waiting on a permission prompt") },
     });
     expect(() => run.value).toThrow("no review: blocked: waiting on a permission prompt");

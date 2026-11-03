@@ -55,12 +55,13 @@ const withEvents = defineWorkflow({
   run: async (wf) => (await wf.receive()).length,
 });
 export const tested = () => testWorkflow(withEvents, { id: "k" });
-// @ts-expect-error a workflow with events is tested from { id, event? }, never its args
+// @ts-expect-error a workflow with events takes its args among its options
 export const byArgs = () => testWorkflow(withEvents, null);
 const plain = defineWorkflow({
   meta: { name: "p", description: "p" },
   prepare: ({ argv }) => ({ n: argv.length }),
   run: async (_wf, args) => args.n,
 });
-// @ts-expect-error a workflow without events is tested from its args, not { id }
+// @ts-expect-error a workflow that takes args is given them
 export const byOptions = () => testWorkflow(plain, { id: "k" });
+export const argued = () => testWorkflow(plain, { id: "k", args: { n: 1 } });

@@ -362,18 +362,20 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
     {
       ...startCase,
       // Attempt 1 began a turn and died: its end, written failed, is taken by the first wait.
-      mailbox: [
-        {
-          version: MAILBOX_RECORD_VERSION,
-          at: "2026-10-28T10:00:00.000Z",
-          kind: "turn",
-          attempt: 1,
-          agent: "investigator",
-          turn: "t1",
-          meta: null,
-          execution: { harness: "claude", model: "sonnet", placement: "tui" },
-        },
-      ],
+      earlier: {
+        mailbox: [
+          {
+            version: MAILBOX_RECORD_VERSION,
+            at: "2026-10-28T10:00:00.000Z",
+            kind: "turn",
+            attempt: 1,
+            agent: "investigator",
+            turn: "t1",
+            meta: null,
+            execution: { harness: "claude", model: "sonnet", placement: "tui" },
+          },
+        ],
+      },
       agents: { investigator: answer("looked") },
     },
   );
@@ -382,7 +384,7 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
 });
 
 test("keepAlive outside a workflow with events, or with a timeoutMs that isn't positive, is refused at open", async () => {
-  const run = async (workflow: typeof plain) => (await testWorkflow(workflow, null, {})).value;
+  const run = async (workflow: typeof plain) => (await testWorkflow(workflow)).value;
   const plain = defineWorkflow({
     meta: { name: "plain", description: "No events." },
     async run(workflow) {

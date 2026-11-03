@@ -19,7 +19,7 @@ const claude = (sessionPercent: number): HarnessAllowance => ({
 });
 
 test("claude writes while its plan has room; a window of other models' doesn't count", async () => {
-  const run = await testWorkflow(summarize, null, {
+  const run = await testWorkflow(summarize, {
     agents: { writer: answer("adds a --verbose flag") },
     allowance: [claude(40)],
   });
@@ -32,7 +32,7 @@ test("claude writes while its plan has room; a window of other models' doesn't c
 
 test("a plan past 80%, or one that can't be read, sends the job to a small codex model", async () => {
   for (const allowance of [[claude(85)], []]) {
-    const run = await testWorkflow(summarize, null, {
+    const run = await testWorkflow(summarize, {
       agents: { writer: answer("adds a --verbose flag") },
       allowance,
     });
@@ -46,7 +46,7 @@ test("a plan past 80%, or one that can't be read, sends the job to a small codex
 });
 
 test("each finished turn is logged with its model and how long it took", async () => {
-  const run = await testWorkflow(summarize, null, {
+  const run = await testWorkflow(summarize, {
     agents: { writer: answer("adds a --verbose flag") },
   });
   expect(run.logs).toEqual([

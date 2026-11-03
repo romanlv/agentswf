@@ -7,7 +7,8 @@ const plan = { doc: "docs/ABC-1.md" };
 const built = { branch: "abc-1", summary: "built" };
 
 test("a builder that never answers stops the attempt in build, with plan recorded", async () => {
-  const run = await testWorkflow(shipTicket, args, {
+  const run = await testWorkflow(shipTicket, {
+    args,
     agents: { planner: answer(PLAN, plan), builder: noAnswer.silent() },
   });
   expect(run.ending).toMatchObject({ kind: "stopped", stage: "build" });
@@ -18,8 +19,9 @@ test("a builder that never answers stops the attempt in build, with plan recorde
 });
 
 test("a continue reuses plan without opening the planner, and runs build", async () => {
-  const run = await testWorkflow(shipTicket, args, {
-    recorded: { plan },
+  const run = await testWorkflow(shipTicket, {
+    args,
+    earlier: { stages: { plan } },
     agents: { builder: answer(BUILT, built) },
   });
   expect(run.value).toEqual(built);
@@ -32,7 +34,8 @@ test("a continue reuses plan without opening the planner, and runs build", async
 });
 
 test("--from-stage build with no plan recorded stops, naming the value it needs", async () => {
-  const run = await testWorkflow(shipTicket, args, {
+  const run = await testWorkflow(shipTicket, {
+    args,
     fromStage: "build",
     agents: {},
   });
@@ -45,7 +48,8 @@ test("--from-stage build with no plan recorded stops, naming the value it needs"
 });
 
 test("--from-stage build with --values starts at build, the plan provided", async () => {
-  const run = await testWorkflow(shipTicket, args, {
+  const run = await testWorkflow(shipTicket, {
+    args,
     fromStage: "build",
     values: { plan },
     agents: { builder: answer(BUILT, built) },

@@ -6,7 +6,8 @@ import releaseNotes, { CHECK, NOTES } from "./release-notes";
 const args = { range: "v1.2.0...HEAD" };
 
 test("notes with no breaking change take one agent and one turn", async () => {
-  const run = await testWorkflow(releaseNotes, args, {
+  const run = await testWorkflow(releaseNotes, {
+    args,
     agents: {
       writer: answer(NOTES, { notes: "Faster startup.", breaking: false }),
     },
@@ -23,7 +24,8 @@ test("notes with no breaking change take one agent and one turn", async () => {
 
 // #region checker
 test("a claimed breaking change goes to a checker on codex, which can overrule it", async () => {
-  const run = await testWorkflow(releaseNotes, args, {
+  const run = await testWorkflow(releaseNotes, {
+    args,
     agents: {
       writer: answer(NOTES, { notes: "Removed --legacy.", breaking: true }),
       checker: answer(CHECK, (turn) => ({
@@ -43,7 +45,8 @@ test("a claimed breaking change goes to a checker on codex, which can overrule i
 
 // #region outcomes
 test("a writer that never answers is nudged once, then the run stops with why", async () => {
-  const run = await testWorkflow(releaseNotes, args, {
+  const run = await testWorkflow(releaseNotes, {
+    args,
     agents: { writer: noAnswer.silent() },
   });
   expect(run.turnsOf("writer").map((turn) => turn.nudge)).toEqual([
@@ -58,7 +61,8 @@ test("a writer that never answers is nudged once, then the run stops with why", 
 });
 
 test("a checker whose harness fails leaves the writer's word, marked unchecked", async () => {
-  const run = await testWorkflow(releaseNotes, args, {
+  const run = await testWorkflow(releaseNotes, {
+    args,
     agents: {
       writer: answer(NOTES, { notes: "Removed --legacy.", breaking: true }),
       checker: noAnswer.failed("harness crashed"),

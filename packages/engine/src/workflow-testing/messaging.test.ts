@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type JsonValue, type OutputSchema, tool } from "@agentswf/contract/workflow";
 import { DEPRECATIONS } from "../deprecations";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, noAnswer, testWorkflow } from "./index";
+import { answer, noAnswer } from "./index";
 import { runTest, type TestOptions } from "./run-test";
 import { waiting } from "./script";
 
@@ -68,7 +68,7 @@ const reviewer = (ask = true) => [
 const testAnywhere = <Result extends JsonValue>(
   workflow: RunnableWorkflow<null, Result>,
   options: TestOptions,
-) => runTest(workflow, null, options, { awaitReply: "anywhere" });
+) => runTest(workflow, options, { awaitReply: "anywhere" });
 
 /** b is working when a asks it, so the question joins b's own turn. */
 const asksBack: RunnableWorkflow<null, JsonValue> = {
@@ -140,7 +140,7 @@ describe("scripted messaging", () => {
     };
     const findings: string[] = [];
     const done = new Set<string>();
-    const run = await testWorkflow(lenses, null, {
+    const run = await runTest(lenses, {
       agents: {
         fixer: answer(FIX_REPORT, (turn) => {
           for (const m of turn.messages)
@@ -195,7 +195,7 @@ describe("scripted messaging", () => {
   });
 
   test("a refusal is a value: an asker that cannot await here is told so", async () => {
-    const run = await testWorkflow(reviewLoop, null, {
+    const run = await runTest(reviewLoop, {
       agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
     });
     expect(run.value).toEqual({
@@ -329,7 +329,7 @@ describe("scripted messaging", () => {
         return written.outcome.kind === "answered" ? written.outcome.value : written.outcome.kind;
       },
     };
-    const run = await testWorkflow(notes, null, {
+    const run = await runTest(notes, {
       agents: {
         writer: answer(async (turn) => {
           if (turn.messages.length > 0) return turn.messages.map((m) => m.text).join(" ");

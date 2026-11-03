@@ -94,7 +94,8 @@ describe("catalogue review run", () => {
       verifierRuntime: "judge",
       maxVerifyPerLens: 1,
     });
-    const run = await testWorkflow(judged, judged.prepare({ argv: [], cwd: "/repo" }), {
+    const run = await testWorkflow(judged, {
+      args: judged.prepare({ argv: [], cwd: "/repo" }),
       runtimes: {
         cheap: { harness: "codex", model: "cheap" },
         judge: { harness: "codex", model: "judge" },
@@ -122,7 +123,8 @@ describe("catalogue review run", () => {
   });
 
   test("lenses see their rules inline, and verifiers see the rules the finding cites", async () => {
-    const run = await testWorkflow(executable, prepare(), {
+    const run = await testWorkflow(executable, {
+      args: prepare(),
       agents: {
         "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
         "lens-deploys": answer(FINDINGS_SCHEMA, { findings: [] }),
@@ -152,7 +154,8 @@ describe("catalogue review run", () => {
   });
 
   test("a rule the verifier finds misattributed makes the finding general", async () => {
-    const run = await testWorkflow(executable, prepare("--lenses", "database"), {
+    const run = await testWorkflow(executable, {
+      args: prepare("--lenses", "database"),
       agents: {
         "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
         "verifier-0": answer(VERDICT_SCHEMA, {
@@ -173,7 +176,8 @@ describe("catalogue review run", () => {
 
   test("a catalogue finding that names no rule is general", async () => {
     const { rule: _, ...ruleless } = unguarded;
-    const run = await testWorkflow(executable, prepare("--lenses", "database"), {
+    const run = await testWorkflow(executable, {
+      args: prepare("--lenses", "database"),
       agents: {
         "lens-database": answer(FINDINGS_SCHEMA, { findings: [ruleless] }),
         "verifier-0": answer(VERDICT_SCHEMA, {
@@ -190,7 +194,8 @@ describe("catalogue review run", () => {
   });
 
   test("a lens or a verifier that fails is a failure in the result, and the rest go on", async () => {
-    const run = await testWorkflow(executable, prepare(), {
+    const run = await testWorkflow(executable, {
+      args: prepare(),
       agents: {
         "lens-database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
         "lens-deploys": noAnswer.failed("harness crashed"),
@@ -207,7 +212,9 @@ describe("catalogue review run", () => {
   });
 
   test("two lenses with one id are refused", async () => {
-    const run = await testWorkflow(executable, { ...prepare(), lenses: [LENSES[0]!, LENSES[0]!] });
+    const run = await testWorkflow(executable, {
+      args: { ...prepare(), lenses: [LENSES[0]!, LENSES[0]!] },
+    });
     expect(() => run.value).toThrow("lens ids must be unique");
   });
 });

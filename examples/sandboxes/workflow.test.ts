@@ -11,7 +11,7 @@ const ran = answer(REPORT, (turn) => ({
 
 describe("sandboxes", () => {
   test("the team shares one container; the auditor has a sandbox of its own", async () => {
-    const run = await testWorkflow(sandboxes, null, { agents: { "*": ran } });
+    const run = await testWorkflow(sandboxes, { agents: { "*": ran } });
     expect(run.value.reports.map(({ agent, where }) => [agent, where])).toEqual([
       ["ada", "docker, shared, headed"],
       ["grace", "docker, shared, headed"],
@@ -35,7 +35,7 @@ describe("sandboxes", () => {
   test("the auditor runs only once the whole team has reported", async () => {
     // Each of the team takes a moment to report; the auditor checks they all have.
     const reported = new Set<string>();
-    const run = await testWorkflow(sandboxes, null, {
+    const run = await testWorkflow(sandboxes, {
       agents: {
         "*": answer(REPORT, async (turn) => {
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -53,7 +53,7 @@ describe("sandboxes", () => {
   });
 
   test("an agent that ends without a report is reported as its failure, and the rest go on", async () => {
-    const run = await testWorkflow(sandboxes, null, {
+    const run = await testWorkflow(sandboxes, {
       agents: { "*": ran, grace: noAnswer.blocked("waiting on a permission prompt") },
     });
     expect(run.value.reports[1]).toEqual({

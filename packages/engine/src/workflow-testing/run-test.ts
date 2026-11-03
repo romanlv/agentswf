@@ -23,6 +23,7 @@ import {
   type ParticipantReply,
   positiveDurationMilliseconds,
   type RuntimeAliases,
+  WORKFLOW_KIND,
   type Workflow,
 } from "@agentswf/contract/workflow";
 import { type Harness, sandboxTokens } from "@agentswf/harness";
@@ -43,7 +44,7 @@ import {
   writeStageRecord,
 } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
-import type { EventWorkflow } from "../workflow-loader";
+import { assertJsonValue, type EventWorkflow } from "../workflow-loader";
 import type { RunnableWorkflow } from "../workflow-runner";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { ParticipantScripts } from "./coordinators";
@@ -64,7 +65,69 @@ import {
   Scripts,
 } from "./script";
 
-export type TestOptions = {
+/**
+ * What a test gives `testWorkflow`, for a workflow taking `Args`, and with `Events` when it declares
+ * them. A key not listed here is refused when the test runs. Bare, `TestOptions` is what any test
+ * may share, with no args or events: spread into a test's own, it gives them.
+ */
+export type TestOptions<
+  Args extends JsonValue = never,
+  Events extends EventSchemas = never,
+> = CommonTestOptions & ArgsOption<Args, Events> & EventOptions<Events>;
+
+/**
+ * `args` is required where the workflow has no events and `null` is not among its args. Absent, the
+ * run gets what `prepare` makes of no argv, as `awf run` given none, or a run an event starts, has.
+ */
+type ArgsOption<Args extends JsonValue, Events extends EventSchemas> = [Args] extends [never]
+  ? { args?: undefined }
+  : [Events] extends [never]
+    ? null extends Args
+      ? {
+          /** The args `run` is given, as they are: `prepare` isn't called for them. */
+          args?: Args;
+        }
+      : {
+          /** The args `run` is given, as they are: `prepare` isn't called for them. */
+          args: Args;
+        }
+    : {
+        /**
+         * Its args, as `awf run --id {id} -- {args}` would prepare them; absent, what `prepare` makes
+         * of no argv, as a run an event starts has.
+         */
+        args?: Args;
+      };
+
+/** What only a test of a workflow with events gives: what its run starts with, and is sent. */
+type EventOptions<Events extends EventSchemas> = [Events] extends [never]
+  ? unknown
+  : {
+      /** The event the run starts with, as `awf emit` would send it; absent, it starts with none. */
+      event?: {
+        [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> } & EventIds;
+      }[keyof Events & string];
+      /** Sent at points in the run, each once its point is reached. */
+      events?: readonly ScriptedEvent<Events>[];
+    };
+
+/** What an earlier attempt left: given, the test's attempt is that run's continue, attempt 2. */
+export type EarlierAttempt = {
+  /**
+   * The stages it recorded, by name: each value, or `undefined` for a stage that returns nothing,
+   * reused without calling their work, as `awf run --continue` would.
+   */
+  stages?: Readonly<Record<string, JsonValue | undefined>>;
+  /**
+   * What it left in the run's mailbox, in order: its events, timers, and what its waits and turns
+   * wrote. A starting `event` is appended after them, as the event that woke it.
+   */
+  mailbox?: readonly MailboxRecord[];
+};
+
+type CommonTestOptions = {
+  /** The run's id, as `awf run --id` or a sender names it; `"test"`. */
+  id?: string;
   /** Laid out before the run, by path under its directory, which the test removes. */
   files?: Readonly<Record<string, FileTree>>;
   /** Each agent's script, by its key or a pattern such as `"review:*"`. */
@@ -120,19 +183,156 @@ export type TestOptions = {
    */
   caller?: { harness: Harness; model?: string; here?: boolean };
   /**
-   * Stages an earlier attempt recorded, by name: each value, or `undefined` for a stage that
-   * returns nothing. Given, the run is that run's continue, reusing them without calling their
-   * work, as `awf run --continue` would.
+   * More turns started than this fails the test, so a loop that never ends doesn't hang it; 20.
+   * Nudges and wakes for a message don't count.
    */
+  maxTurns?: number;
+  /** What an earlier attempt left; given, the test's attempt is its continue. */
+  earlier?: EarlierAttempt;
+  /** @deprecated Give `earlier: { stages }`. */
   recorded?: Readonly<Record<string, JsonValue | undefined>>;
+  /** @deprecated Give `earlier: { mailbox }`. */
+  mailbox?: readonly MailboxRecord[];
   /**
-   * The stage the attempt starts at, as `--from-stage`: a continue of `recorded`, or a new run
-   * started there.
+   * The stage the attempt starts at, as `--from-stage`: a continue of `earlier`, or a new run
+   * started there. A workflow with events takes it only with `earlier`, as `awf run` takes it only
+   * with `--continue`.
    */
   fromStage?: string;
-  /** Values of stages before `fromStage` with no record to reuse, as `awf run --values` gives them. */
+  /**
+   * Values of stages before `fromStage` with no record to reuse, as `awf run --values` gives them;
+   * a workflow with events takes none.
+   */
   values?: Readonly<Record<string, JsonValue>>;
 };
+
+/** Every option a test may give, whatever its workflow's args and events: what the run reads. */
+type AnyTestOptions = CommonTestOptions & {
+  args?: JsonValue;
+  event?: { name: string; data: JsonValue } & EventIds;
+  events?: readonly ScriptedEvent<EventSchemas>[];
+};
+
+const OPTION_KEYS: readonly (keyof AnyTestOptions)[] = [
+  "args",
+  "id",
+  "files",
+  "agents",
+  "compactions",
+  "messages",
+  "participants",
+  "decisions",
+  "allowance",
+  "runtimes",
+  "caller",
+  "timeout",
+  "stall",
+  "maxTimers",
+  "maxTurns",
+  "cwd",
+  "earlier",
+  "fromStage",
+  "values",
+  "event",
+  "events",
+];
+/** Taken, logged, until story 039's last task removes them; never suggested. */
+const DEPRECATED_KEYS: readonly (keyof AnyTestOptions)[] = [
+  "timeoutMs",
+  "stallMs",
+  "recorded",
+  "mailbox",
+];
+const EARLIER_KEYS: readonly (keyof EarlierAttempt)[] = ["stages", "mailbox"];
+
+/**
+ * A test's options as `testWorkflow` was called: `(workflow, options?)`, or the deprecated
+ * `(workflow, args, options)`. Three arguments are always the deprecated form. With two, the second
+ * is the options when it is an object, and args otherwise (`null`, a string, a number, a boolean or
+ * an array), so a workflow's object args are never taken for args there: they are read as options,
+ * and refused by their first key.
+ */
+export function testCall(
+  workflow: unknown,
+  given: readonly unknown[],
+): { options: AnyTestOptions; used: Deprecated[] } {
+  const deprecatedForm =
+    given.length >= 2 || (given.length === 1 && given[0] !== undefined && !isObject(given[0]));
+  if (!deprecatedForm) {
+    const options = plainOptions(given[0] ?? {});
+    // Object args given second are named by their key, whatever the workflow is.
+    const problem = optionsProblem(
+      options,
+      isEventWorkflow(workflow),
+      (workflow as { meta?: { name?: string } } | null)?.meta?.name ?? "the workflow",
+    );
+    if (problem) throw new Error(problem);
+    if (!isWorkflow(workflow))
+      throw new Error(
+        "testWorkflow(workflow, options?) tests a workflow defineWorkflow made: define it with defineWorkflow",
+      );
+    return { options, used: [] };
+  }
+  const [args, optionsGiven = {}] = given;
+  const options = plainOptions(optionsGiven);
+  if ("args" in options)
+    throw new Error("args are given once: testWorkflow(workflow, { args, … }) is the one form");
+  return { options: { ...options, args: args as JsonValue }, used: ["test-args"] };
+}
+
+function isObject(value: unknown): value is AnyTestOptions {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** `value` as a test's options: an object literal, never a `Date`, an array or a class's instance. */
+function plainOptions(value: unknown): AnyTestOptions {
+  const prototype = isObject(value) ? Object.getPrototypeOf(value) : undefined;
+  if (prototype === Object.prototype || prototype === null) return value as AnyTestOptions;
+  const kind =
+    value === null
+      ? "null"
+      : Array.isArray(value)
+        ? "an array"
+        : typeof value === "object"
+          ? `a ${(prototype as { constructor?: { name?: string } }).constructor?.name || "object"}`
+          : `a ${typeof value}`;
+  throw new Error(
+    `testWorkflow's options are an object literal, not ${kind}: testWorkflow(workflow, { args, … })`,
+  );
+}
+
+function isWorkflow(workflow: unknown): workflow is Workflow {
+  return (
+    typeof workflow === "object" &&
+    workflow !== null &&
+    (workflow as { kind?: unknown }).kind === WORKFLOW_KIND
+  );
+}
+
+/** Why a test's options aren't ones `testWorkflow` takes; undefined when they are. */
+function optionsProblem(
+  options: AnyTestOptions,
+  withEvents: boolean,
+  name: string,
+): string | undefined {
+  for (const key of Object.keys(options) as (keyof AnyTestOptions)[]) {
+    if (!OPTION_KEYS.includes(key) && !DEPRECATED_KEYS.includes(key))
+      return `testWorkflow has no option ${JSON.stringify(key)}: its options are ${OPTION_KEYS.join(", ")}${
+        "args" in options ? "" : "; a workflow's args are given as { args }"
+      }`;
+    if (!withEvents && (key === "event" || key === "events"))
+      return `${key} is an option for a workflow with events, and ${name} declares none`;
+  }
+  const { earlier } = options;
+  if (earlier === undefined) return undefined;
+  if (!isObject(earlier)) return "earlier is an object: { stages?, mailbox? }";
+  const unknown = Object.keys(earlier).find(
+    (key) => !EARLIER_KEYS.includes(key as keyof EarlierAttempt),
+  );
+  return unknown === undefined
+    ? undefined
+    : `earlier has no ${JSON.stringify(unknown)}: it gives ${EARLIER_KEYS.join(" and ")}`;
+}
 
 /** What a test of the engine, not of a workflow, may give `runTest`. */
 export type EngineTestOptions = {
@@ -141,6 +341,8 @@ export type EngineTestOptions = {
    * agent's harness and placement, as a run would; `anywhere`, on any harness, the fake's included.
    */
   awaitReply?: "listed" | "anywhere";
+  /** Deprecated forms the call itself used, logged with the run's own. */
+  used?: readonly Deprecated[];
 };
 
 /**
@@ -148,7 +350,7 @@ export type EngineTestOptions = {
  * milliseconds, which is reported; both at once are refused.
  */
 function milliseconds(
-  options: TestOptions,
+  options: AnyTestOptions,
   field: "timeout" | "stall",
   old: "timeoutMs" | "stallMs",
   deprecated: () => void,
@@ -198,35 +400,11 @@ type EventIds = {
   id?: string;
 };
 
-/**
- * A test of a workflow with `events`: what a run is started with, then sends while it goes on.
- * `recorded`, `fromStage` and `values` have no meaning for it.
- */
-export type EventTestOptions<Events extends EventSchemas, Args = JsonValue> = Omit<
-  TestOptions,
-  "recorded" | "fromStage" | "values"
-> & {
-  /** The run's id, as `awf run --id` or a sender names it. */
-  id: string;
-  /**
-   * Its args, as `awf run --id {id} -- {args}` would prepare them; absent, what `prepare` makes of no
-   * argv, as a run an event starts has.
-   */
-  args?: Args;
-  /** The event the run starts with, as `awf emit` would send it; absent, it starts with none. */
-  event?: {
-    [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> } & EventIds;
-  }[keyof Events & string];
-  /** Sent at points in the run, each once its point is reached. */
-  events?: readonly ScriptedEvent<Events>[];
-  /** More turns started than this fails the test, so a loop that never parks doesn't hang it; 20. */
-  maxTurns?: number;
-  /**
-   * What an earlier attempt left in the run's mailbox, in order: given, the test's attempt is its
-   * continue, attempt 2, and `event` is appended after them, as the event that woke it.
-   */
-  mailbox?: readonly MailboxRecord[];
-};
+/** @deprecated Use `TestOptions<Args, Events>`, the one options type. */
+export type EventTestOptions<
+  Events extends EventSchemas,
+  Args extends JsonValue = JsonValue,
+> = TestOptions<Args, Events>;
 
 /** An event the run sent, to the run whose ref is `ref`, which a test doesn't start. */
 export type EmittedEvent = { ref: string; name: string; data: JsonValue; eventId?: string };
@@ -292,29 +470,34 @@ export type TestRun<Result> = {
 };
 
 /**
- * `testWorkflow`, and what only the engine's own tests give it. A workflow with events takes its
- * test's options in place of `args`.
+ * `testWorkflow`, and what only the engine's own tests give it: a workflow may be its `meta` and
+ * `run` alone, which the engine's tests build and a workflow's never does.
  */
-export async function runTest<Args extends JsonValue, Result extends JsonValue>(
-  workflow: RunnableWorkflow<Args, Result> | Workflow<Args, Result, EventSchemas>,
-  args: NoInfer<Args>,
-  options: TestOptions = {},
+export async function runTest<Result extends JsonValue>(
+  // biome-ignore lint/suspicious/noExplicitAny: args are checked by the call that typed them.
+  workflow: RunnableWorkflow<any, Result> | Workflow<any, Result, EventSchemas>,
+  options: AnyTestOptions = {},
   engine: EngineTestOptions = {},
 ): Promise<TestRun<Result>> {
   const withEvents = isEventWorkflow(workflow) ? (workflow as EventWorkflow) : undefined;
-  // A workflow with events takes its test's options where another takes its args.
-  const eventOptions = withEvents ? (args as unknown as EventTestOptions<EventSchemas>) : undefined;
-  if (eventOptions) {
-    if (typeof eventOptions !== "object" || eventOptions === null)
-      throw new Error("a workflow with events is tested from { id, event? }");
-    options = eventOptions;
-  }
+  const problem = optionsProblem(options, withEvents !== undefined, workflow.meta.name);
+  if (problem) throw new Error(problem);
   const logs: TestRun<Result>["logs"] = [];
   // A test's own forms, apart from the run's: said in its logs as the run says a warning.
   const deprecations = new RunDeprecations((message) => logs.push({ message }));
   const deprecated = (name: Deprecated) => deprecations.used(name);
-  const started = withEvents && eventOptions && startOf(withEvents, eventOptions, deprecated);
-  const definition = workflow as RunnableWorkflow<Args, Result>;
+  for (const name of engine.used ?? []) deprecated(name);
+  const earlier = earlierOf(options, deprecated);
+  if (withEvents && options.values !== undefined)
+    throw new Error(
+      "a run of a workflow with events takes no values: before fromStage, a stage with no record runs",
+    );
+  if (withEvents && options.fromStage !== undefined && earlier.continues === false)
+    throw new Error(
+      "a run of a workflow with events takes fromStage only with earlier, as awf run takes --from-stage only with --continue",
+    );
+  const started = startOf(withEvents, options, deprecated);
+  const definition = workflow as RunnableWorkflow<JsonValue, Result>;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
     noun: "compaction",
@@ -382,7 +565,11 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
     return true;
   };
   const scripted =
-    withEvents && eventOptions && new ScriptedEvents(withEvents, eventOptions, now, deprecated);
+    withEvents && new ScriptedEvents(withEvents, options, earlier.mailbox ?? [], now, deprecated);
+  const maxTurns = options.maxTurns ?? 20;
+  if (!Number.isInteger(maxTurns) || maxTurns < 1)
+    throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
+  let turnsStarted = 0;
   /** The end of the window the run last waited live to. */
   let liveUntil: number | undefined;
   let nudge: (() => void) | undefined;
@@ -390,21 +577,19 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
     onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
     onDeprecated: (name: Deprecated, subject?: string) => deprecations.used(name, subject),
-    ...(scripted
-      ? {
-          onTurnStarted: async (turn: TestTurn) => {
-            const problem = scripted.started();
-            if (problem) return stopWith(problem);
-            const due = scripted.due(turn);
-            if (due.length === 0) return;
-            for (const record of due) await appendMailbox(run.dir, record);
-            nudge?.();
-          },
-        }
-      : {}),
+    onTurnStarted: async (turn: TestTurn) => {
+      turnsStarted += 1;
+      if (turnsStarted > maxTurns)
+        return stopWith(
+          `the run started more than ${maxTurns} turns (maxTurns): a loop that never ends, or a run that needs a larger maxTurns?`,
+        );
+      const due = scripted ? scripted.due(turn) : [];
+      if (due.length === 0) return;
+      for (const record of due) await appendMailbox(run.dir, record);
+      nudge?.();
+    },
   };
-  const seeded = eventOptions?.mailbox;
-  const attempt = options.recorded || seeded ? 2 : 1;
+  const attempt = earlier.continues ? 2 : 1;
   const coordinators = new ParticipantScripts(options.participants, attempt, events);
   const stopWith = (message: string) => {
     problems.push(message);
@@ -420,10 +605,13 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   if (options.files && options.cwd !== undefined)
     throw new Error("files are laid out in the test's own directory: give files or cwd, not both");
   const cwd = options.cwd ?? directory();
-  if (withEvents && eventOptions)
-    args = (
-      "args" in eventOptions ? eventOptions.args : withEvents.prepare({ argv: [], cwd })
-    ) as NoInfer<Args>;
+  let args: JsonValue;
+  try {
+    args = argsOf(workflow, options, cwd);
+  } catch (error) {
+    for (const path of temporary) rmSync(path, { recursive: true, force: true });
+    throw error;
+  }
   const host = createScriptedHost(
     scripts,
     compactionScripts,
@@ -440,7 +628,7 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   let finished: Finished;
   /** What the workflow returned, before the run settled: a test that waits out a question keeps it. */
   let returned: { value: Result } | undefined;
-  const watched: RunnableWorkflow<Args, Result> = {
+  const watched: RunnableWorkflow<JsonValue, Result> = {
     ...definition,
     run: async (context, given) => {
       const value = await definition.run(context, given);
@@ -457,7 +645,7 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   const deadline =
     timeoutMs === undefined ? undefined : { unixMilliseconds: Date.now() + timeoutMs };
   const run = await createRun(runRoot, {
-    id: started ? started.id : "test",
+    id: started.id,
     workflow: definition.meta.name,
     argv: [],
     cwd,
@@ -466,9 +654,9 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
     throw error;
   });
-  if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
-  for (const record of seeded ?? []) await appendMailbox(run.dir, record);
-  if (started?.record) await appendMailbox(run.dir, started.record);
+  if (earlier.stages) await recordEarlierAttempt(run.dir, earlier.stages);
+  for (const record of earlier.mailbox ?? []) await appendMailbox(run.dir, record);
+  if (started.record) await appendMailbox(run.dir, started.record);
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(run.dir);
     // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
@@ -499,14 +687,14 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
         ...(options.values === undefined
           ? {}
           : { values: new Map(Object.entries(options.values)) }),
-        ...(started
+        ...(scripted
           ? {
               events: true as const,
               park: async () => undefined,
               skip,
               live: async (until: number) => {
                 liveUntil = until;
-                const due = scripted ? scripted.ended(host.inFlight()) : [];
+                const due = scripted.ended(host.inFlight());
                 for (const record of due) await appendMailbox(run.dir, record);
                 if (due.length > 0) nudge?.();
               },
@@ -764,10 +952,7 @@ async function recordEarlierAttempt(
   }
 }
 
-/**
- * The events a test sends while its run goes on, each once its turn begins, and the count of
- * turns started, past `maxTurns` of which the test fails: a loop that never parks.
- */
+/** An event a test sends while its run goes on, once its turn begins. */
 type PendingEvent = {
   at: string;
   after: boolean;
@@ -777,21 +962,19 @@ type PendingEvent = {
   turn?: TestTurn;
 };
 
+/** The events a test sends while its run goes on, each once its turn begins. */
 class ScriptedEvents {
   readonly #pending: PendingEvent[];
-  readonly #max: number;
-  #turns = 0;
 
   constructor(
     workflow: EventWorkflow,
-    options: EventTestOptions<EventSchemas>,
+    options: AnyTestOptions,
+    /** What the earlier attempt left in the mailbox, whose event ids are taken. */
+    earlier: readonly MailboxRecord[],
     /** The run's clock, which stamps what is sent. */
     private readonly now: () => number,
     deprecated: (name: Deprecated) => void,
   ) {
-    this.#max = options.maxTurns ?? 20;
-    if (!Number.isInteger(this.#max) || this.#max < 1)
-      throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
     const ids = new Set<string>();
     const idOf = (given: string | undefined, made: string) => {
       const id = given ?? made;
@@ -803,7 +986,7 @@ class ScriptedEvents {
       ids.add(id);
       return id;
     };
-    for (const record of options.mailbox ?? []) if (record.kind === "event") ids.add(record.id);
+    for (const record of earlier) if (record.kind === "event") ids.add(record.id);
     if (options.event) idOf(eventIdOf(options.event, deprecated), `${AWF_ID_PREFIX}start`);
     this.#pending = (options.events ?? []).map((event, index) => {
       if ((event.during === undefined) === (event.after === undefined))
@@ -835,14 +1018,6 @@ class ScriptedEvents {
         },
       };
     });
-  }
-
-  /** A turn began: why the test fails, when it is one too many. */
-  started(): string | undefined {
-    this.#turns += 1;
-    return this.#turns > this.#max
-      ? `the run started more than ${this.#max} turns (maxTurns): a loop that never parks?`
-      : undefined;
   }
 
   /** The events due during `turn`, taken off the list, stamped now; those after it wait for it. */
@@ -904,18 +1079,15 @@ async function layOut(
  * none, as `awf run --id` starts one.
  */
 function startOf(
-  workflow: EventWorkflow,
-  options: EventTestOptions<EventSchemas>,
+  workflow: EventWorkflow | undefined,
+  options: AnyTestOptions,
   deprecated: (name: Deprecated) => void,
 ): { id: string; record?: MailboxRecord } {
-  const { event, id } = options;
-  if (typeof id !== "string")
-    throw new Error(
-      `a run of ${workflow.meta.name} is named by its id: { id }, and an event if it starts with one`,
-    );
+  const { event, id = "test" } = options;
+  if (typeof id !== "string") throw new Error(`a run's id is a string, not ${JSON.stringify(id)}`);
   const problem = idProblem(id);
   if (problem) throw new Error(problem);
-  if (event === undefined) return { id };
+  if (workflow === undefined || event === undefined) return { id };
   checkEvent(workflow, { name: event.name, data: event.data });
   const { starts } = workflow;
   if (starts && !starts.includes(event.name))
@@ -933,6 +1105,58 @@ function startOf(
     starts: true as const,
   };
   return { id, record };
+}
+
+/**
+ * What the earlier attempt left, from `earlier` or its deprecated forms, `recorded` and `mailbox`;
+ * `continues` when it left anything, so the test's attempt is attempt 2.
+ */
+function earlierOf(
+  options: AnyTestOptions,
+  deprecated: (name: Deprecated) => void,
+): EarlierAttempt & { continues: boolean } {
+  const { earlier = {}, recorded, mailbox } = options;
+  if (recorded !== undefined) {
+    if (earlier.stages !== undefined)
+      throw new Error("give earlier.stages alone: recorded is its deprecated form");
+    deprecated("test-recorded");
+  }
+  if (mailbox !== undefined) {
+    if (earlier.mailbox !== undefined)
+      throw new Error("give earlier.mailbox alone: mailbox is its deprecated form");
+    deprecated("test-mailbox");
+  }
+  const stages = earlier.stages ?? recorded;
+  const left = earlier.mailbox ?? mailbox;
+  return {
+    ...(stages === undefined ? {} : { stages }),
+    ...(left === undefined ? {} : { mailbox: left }),
+    continues: options.earlier !== undefined || stages !== undefined || left !== undefined,
+  };
+}
+
+/**
+ * The args the run is given: the test's, or what `prepare` makes of no argv, as `awf run` given
+ * none, or a run an event starts, has. A workflow of the engine's own tests, without `prepare`,
+ * gets `null`.
+ */
+function argsOf(
+  workflow: { readonly meta: { name: string }; prepare?: Workflow["prepare"] },
+  options: AnyTestOptions,
+  cwd: string,
+): JsonValue {
+  if (options.args !== undefined) return options.args;
+  if (workflow.prepare === undefined) return null;
+  try {
+    const args: unknown = workflow.prepare({ argv: [], cwd });
+    assertJsonValue(args, `${workflow.meta.name} arguments`);
+    return args;
+  } catch (error) {
+    throw new Error(
+      `${workflow.meta.name} was given no args, and its prepare of none failed: ${messageOf(error)}; give args`,
+      { cause: error },
+    );
+  }
 }
 
 /** An event's id, given as `eventId` or, deprecated, `id`. */

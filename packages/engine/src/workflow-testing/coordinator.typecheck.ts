@@ -1,11 +1,14 @@
 // Checked by `tsc --noEmit`, never run: story 032's workflow and its test, as an author writes them.
-import type { ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
-import type { RunnableWorkflow } from "../workflow-runner";
+import {
+  defineWorkflow,
+  type ParticipantRef,
+  type WorkflowContext,
+} from "@agentswf/contract/workflow";
 import { answer, type ParticipantScript, testWorkflow } from ".";
 
 declare const runtime: string;
 
-const investigate: RunnableWorkflow<null, string> = {
+const investigate = defineWorkflow<null, string>({
   meta: { name: "investigate", description: "watches checkout-api" },
   async run(wf: WorkflowContext) {
     const investigator = await wf.agents.open({ key: "investigator", runtime });
@@ -24,10 +27,10 @@ const investigate: RunnableWorkflow<null, string> = {
     const left = wf.deadline ? wf.deadline.unixMilliseconds - Date.now() : undefined;
     return outcome.answered ? `${outcome.value} (${left ?? "no"} ms left)` : outcome.kind;
   },
-};
+});
 
 export async function story(): Promise<string> {
-  const run = await testWorkflow(investigate, null, {
+  const run = await testWorkflow(investigate, {
     agents: { investigator: [answer("…")] },
     participants: {
       coordinator: (event) =>

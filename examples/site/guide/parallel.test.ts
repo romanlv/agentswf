@@ -8,7 +8,7 @@ const finding = (file: string, severity: "high" | "low") => ({
 
 test("results come back in item order, whichever lens finishes first", async () => {
   const testsAnswered = Promise.withResolvers<void>();
-  const run = await testWorkflow(lensReview, null, {
+  const run = await testWorkflow(lensReview, {
     agents: {
       "review-security": answer(FINDINGS, async () => {
         await testsAnswered.promise;
@@ -29,7 +29,7 @@ test("results come back in item order, whichever lens finishes first", async () 
 });
 
 test("a lens that doesn't answer is recorded, and the others' findings are kept", async () => {
-  const run = await testWorkflow(lensReview, null, {
+  const run = await testWorkflow(lensReview, {
     agents: {
       "review-security": noAnswer.failed(),
       "review-*": answer(FINDINGS, finding("sum.ts", "low")),
@@ -43,7 +43,7 @@ test("a lens that doesn't answer is recorded, and the others' findings are kept"
 });
 
 test("a branch that throws cancels the turn still running, and parallel rejects", async () => {
-  const run = await testWorkflow(strictReview, null, {
+  const run = await testWorkflow(strictReview, {
     agents: {
       "review-security": noAnswer.failed(),
       // Answers only once its turn is cancelled, which is too late to count.

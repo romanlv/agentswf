@@ -3,7 +3,7 @@ import { answer, testWorkflow } from "agentswf/testing";
 import { BRANCH, caseRun, DOC, flow, investigate, QA } from "./testing-api";
 
 test("a coordinator's script answers the investigator's question", async () => {
-  const run = await testWorkflow(investigate, null, {
+  const run = await testWorkflow(investigate, {
     agents: {
       investigator: answer(async (turn) => {
         const asked = await turn.send("coordinator", "One incident or two?", { awaitReply: true });
@@ -44,8 +44,8 @@ test("a reply during the first turn gets a second, then the run parks", async ()
 });
 
 test("a continue reuses the recorded stages and doesn't repeat implement's compaction", async () => {
-  const run = await testWorkflow(flow, null, {
-    recorded: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
+  const run = await testWorkflow(flow, {
+    earlier: { stages: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } } },
     agents: { worker: answer(QA, { preview: "ok" }) },
   });
   expect(run.compactions).toEqual([]); // a compaction inside implement isn't repeated
@@ -53,7 +53,7 @@ test("a continue reuses the recorded stages and doesn't repeat implement's compa
 });
 
 test("a first attempt compacts inside implement", async () => {
-  const run = await testWorkflow(flow, null, {
+  const run = await testWorkflow(flow, {
     agents: {
       worker: [
         answer(DOC, { path: "docs/a.md" }),

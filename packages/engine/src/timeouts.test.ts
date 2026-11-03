@@ -218,7 +218,6 @@ test("an agent's old bounds work, each logged once an attempt", async () => {
       await agent.set({ effort: "high", deadline: deadline() });
       return first.outcome.kind;
     }),
-    null,
     { agents: { a: answer("yes") } },
   );
   expect(run.value).toBe("answered");
@@ -255,7 +254,6 @@ test("the new bounds log nothing", async () => {
       });
       return [first!.outcome.kind, answers.ok.yes];
     }),
-    null,
     {
       agents: { a: answer("yes"), b: answer("yes") },
       decisions: { ok: { ok: true } },
@@ -289,7 +287,6 @@ test("a parallel's, a decision's and a tool's old bounds work, each logged once"
       });
       return [kind!, answers.ok.yes];
     }),
-    null,
     { agents: { a: answer("yes") }, decisions: { ok: { ok: true } } },
   );
   expect(run.value).toEqual(["answered", 1]);
@@ -321,7 +318,6 @@ test("old and new forms of one bound at once are refused, and log nothing", asyn
         ),
       ];
     }),
-    null,
   );
   expect(run.value).toEqual([
     expect.stringContaining("give timeout alone"),
@@ -342,7 +338,6 @@ test("wf.deadline is a Date, whose deprecated unixMilliseconds reads the same ti
       end.setTime(0);
       return [end instanceof Date, ms === wf.deadline!.getTime(), wf.deadline!.getTime() > 0];
     }),
-    null,
     { timeout: "1h" },
   );
   expect(run.value).toEqual([true, true, true]);
@@ -361,7 +356,6 @@ test("wf.deadline bounds a call as a timeout, and as the deprecated deadline it 
         kinds.push((await agent.run({ prompt: "Go.", ...bound })).outcome.kind);
       return kinds;
     }),
-    null,
     { agents: { a: answer("yes") }, timeout: "1h" },
   );
   expect(run.value).toEqual(["answered", "answered"]);
@@ -405,7 +399,6 @@ test("a route's timeoutMs is its timeout, logged once; both at once are refused"
       await coordinator.release("done");
       return both;
     }),
-    null,
     { participants: { coordinator: () => undefined } },
   );
   expect(run.value).toContain("a route's timeout is given alone");
@@ -422,7 +415,6 @@ test("a test's timeoutMs, stallMs and a send's timeoutMs work as their new forms
       await coordinator.release("done");
       return [wf.deadline !== undefined, outcome.kind];
     }),
-    null,
     {
       agents: {
         a: answer(async (turn) => {
@@ -448,10 +440,10 @@ test("a test's timeoutMs, stallMs and a send's timeoutMs work as their new forms
 
 test("a test's timeout and stall refuse their old forms beside them", async () => {
   const workflow = plain(async () => null);
-  await expect(testWorkflow(workflow, null, { timeout: "1m", timeoutMs: 1 })).rejects.toThrow(
+  await expect(testWorkflow(workflow, { timeout: "1m", timeoutMs: 1 })).rejects.toThrow(
     "give timeout alone: timeoutMs is its deprecated form",
   );
-  await expect(testWorkflow(workflow, null, { stall: "1s", stallMs: 1 })).rejects.toThrow(
+  await expect(testWorkflow(workflow, { stall: "1s", stallMs: 1 })).rejects.toThrow(
     "give stall alone: stallMs is its deprecated form",
   );
 });
@@ -474,7 +466,6 @@ test("a tool's timeout bounds each call as its timeoutMs did", async () => {
       const { outcome } = await agent.run({ prompt: "Call both." });
       return outcome.answered ? outcome.value : outcome.kind;
     }),
-    null,
     {
       agents: {
         a: answer(async (turn) => {
@@ -522,7 +513,6 @@ test("a tool's timeout: false leaves only the turn's deadline", async () => {
         tight.outcome.kind,
       ];
     }),
-    null,
     { agents: { a: calling, b: answer(async (turn) => (await turn.tool("unbounded")).kind) } },
   );
   expect(run.value).toEqual([
@@ -553,7 +543,6 @@ test("a timeout Date already past fails open and decide with DeadlineExceededErr
         ),
       ];
     }),
-    null,
     { decisions: { ok: { ok: true } } },
   );
   expect(run.value).toEqual(["DeadlineExceededError", "DeadlineExceededError"]);

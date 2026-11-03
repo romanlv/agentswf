@@ -6,7 +6,7 @@ import scopeIssue, { changelog, PLAN, planAndReview, SCOPE } from "./agents";
 
 describe("scope-issue", () => {
   test("the checked answer is the result; the instructions go with the agent", async () => {
-    const run = await testWorkflow(scopeIssue, null, {
+    const run = await testWorkflow(scopeIssue, {
       agents: {
         scoper: answer(SCOPE, { files: ["src/cache.ts"], risk: "low" }),
       },
@@ -19,7 +19,7 @@ describe("scope-issue", () => {
   });
 
   test("any other ending stops the run with its kind and reason", async () => {
-    const run = await testWorkflow(scopeIssue, null, {
+    const run = await testWorkflow(scopeIssue, {
       agents: { scoper: noAnswer.blocked("a permission prompt is showing") },
     });
     expect(run.ending).toMatchObject({
@@ -49,7 +49,7 @@ const TWO_TURNS = defineWorkflow({
 describe("endings", () => {
   test("unanswered and blocked leave the agent open for another turn", async () => {
     for (const ending of [noAnswer.silent(), noAnswer.blocked()]) {
-      const run = await testWorkflow(TWO_TURNS, null, {
+      const run = await testWorkflow(TWO_TURNS, {
         agents: { a: [ending, answer("ok")] },
       });
       expect(run.value[1]).toBe("answered");
@@ -58,7 +58,7 @@ describe("endings", () => {
 
   test("failed and timed-out close the agent: its next turn rejects", async () => {
     for (const ending of [noAnswer.failed(), noAnswer.timedOut()]) {
-      const run = await testWorkflow(TWO_TURNS, null, {
+      const run = await testWorkflow(TWO_TURNS, {
         agents: { a: [ending] },
       });
       expect(run.value[1]).toBe("rejected: logical agent is closed");
@@ -76,7 +76,7 @@ describe("endings", () => {
           : null;
       },
     });
-    const run = await testWorkflow(LOGIN, null, {
+    const run = await testWorkflow(LOGIN, {
       agents: { a: noAnswer.needsLogin() },
     });
     expect(run.value).toMatchObject({
@@ -97,7 +97,7 @@ describe("endings", () => {
         return outcome.answered ? outcome.value : null;
       },
     });
-    const run = await testWorkflow(PATTERNED, null, {
+    const run = await testWorkflow(PATTERNED, {
       agents: { a: answer("unused") },
     });
     expect(() => run.value).toThrow(
@@ -113,7 +113,7 @@ describe("plan-and-review", () => {
   };
 
   test("turns, a compaction, forks from the plan, then a cheaper last turn", async () => {
-    const run = await testWorkflow(planAndReview, null, {
+    const run = await testWorkflow(planAndReview, {
       agents: {
         planner: [
           answer(PLAN, plan),
@@ -149,7 +149,7 @@ describe("plan-and-review", () => {
 
 describe("changelog", () => {
   test("the writer has exactly the skill it was given", async () => {
-    const run = await testWorkflow(changelog, null, {
+    const run = await testWorkflow(changelog, {
       agents: { writer: answer("Fixed: …") },
     });
     expect(run.value).toBe("Fixed: …");

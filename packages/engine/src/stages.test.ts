@@ -10,7 +10,8 @@ import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readStageRecords, readTurns } from "./runs";
 import { createTempRunDirs, DOC, future, runAttempt, runNew, workflowOf } from "./testing";
 import { WorkflowRunError } from "./workflow-runner";
-import { answer, noAnswer, testWorkflow } from "./workflow-testing";
+import { answer, noAnswer } from "./workflow-testing";
+import { runTest } from "./workflow-testing/run-test";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -29,7 +30,7 @@ async function ask(workflow: WorkflowContext, prompt: string, label?: string) {
 
 describe("workflow.stage", () => {
   test("a stage runs its work, returns its value, and records it with its sessions", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(
         async (workflow) => {
           const doc = await workflow.stage(
@@ -42,7 +43,6 @@ describe("workflow.stage", () => {
         },
         { version: "1.2.0" },
       ),
-      null,
       { agents: { worker: answer(DOC, { path: "docs/PROJ-1515.md" }) } },
     );
     expect(run.value).toEqual({ path: "docs/PROJ-1515.md" });
@@ -68,7 +68,7 @@ describe("workflow.stage", () => {
   });
 
   test("an agent's turns carry the stage each ran in, and none between stages", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await ask(workflow, "Before.");
         await workflow.stage("implement", { result: DOC }, () => ask(workflow, "Implement."));
@@ -78,7 +78,6 @@ describe("workflow.stage", () => {
         });
         return null;
       }),
-      null,
       { agents: { worker: answer(DOC, { path: "x" }) } },
     );
     expect(run.turnsOf("worker").map((turn) => turn.stage)).toEqual([
@@ -113,25 +112,23 @@ describe("workflow.stage", () => {
       'stage "Doc Review" is not a stage\'s name: lowercase letters, digits, `.`, `_`, `@` and `-`',
     ],
   ])("%s fails the attempt", async (_name, body, reason) => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await body(workflow);
         return null;
       }),
-      null,
     );
     expect(() => run.value).toThrow(reason);
   });
 
   test("two stages at once fail the attempt, and the first is recorded once", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await workflow.parallel(["a", "b"], (name) =>
           workflow.stage(name, () => new Promise((resolve) => setTimeout(resolve, 20))),
         );
         return null;
       }),
-      null,
     );
     expect(() => run.value).toThrow("stage b was entered while stage a is open");
     expect(run.stages.map(({ stage }) => stage)).toEqual(["a"]);
@@ -139,7 +136,7 @@ describe("workflow.stage", () => {
 
   test("a stage that throws cancels the turns still open in it, then records them failed", async () => {
     let cancelled: AbortSignal | undefined;
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         try {
           await workflow.stage("qa", async () => {
@@ -154,7 +151,6 @@ describe("workflow.stage", () => {
         }
         return null;
       }),
-      null,
       {
         agents: {
           worker: answer(DOC, (turn) => {
@@ -179,37 +175,34 @@ describe("workflow.stage", () => {
   });
 
   test("a value its schema rejects fails the stage now, as does a value where none is expected", async () => {
-    const wrong = await testWorkflow(
+    const wrong = await runTest(
       workflowOf(async (workflow) =>
         workflow.stage("doc-review", { result: DOC }, async () => ({ path: 7 }) as never),
       ),
-      null,
     );
     expect(() => wrong.value).toThrow("stage doc-review's value does not fit its result");
     expect(wrong.stages[0]).toMatchObject({ outcome: "failed" });
     expect(wrong.stages[0]).not.toHaveProperty("value");
 
-    const unexpected = await testWorkflow(
+    const unexpected = await runTest(
       workflowOf(async (workflow) => {
         await workflow.stage("notify", (async () => "sent") as unknown as () => Promise<void>);
         return null;
       }),
-      null,
     );
     expect(() => unexpected.value).toThrow("stage notify has no result schema");
 
-    const missing = await testWorkflow(
+    const missing = await runTest(
       workflowOf(async (workflow) =>
         workflow.stage("doc-review", { result: DOC }, (async () => undefined) as never),
       ),
-      null,
     );
     expect(() => missing.value).toThrow("stage doc-review returned nothing");
   });
 
   test("a value is handed back as a continue would read it: through JSON", async () => {
     const SPARSE = Type.Object({ path: Type.String(), note: Type.Optional(Type.String()) });
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) =>
         workflow.stage("doc-review", { result: SPARSE }, async () => {
           // As TypeScript lets an optional field be written.
@@ -217,18 +210,16 @@ describe("workflow.stage", () => {
           return doc as JsonValue;
         }),
       ),
-      null,
     );
     expect(run.value).toStrictEqual({ path: "a" });
   });
 
   test("a stage the run's deadline ends is recorded failed", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await workflow.stage("qa", { result: DOC }, () => ask(workflow, "Check."));
         return null;
       }),
-      null,
       { agents: { worker: noAnswer.hang() }, timeoutMs: 300, stallMs: 5_000 },
     );
     expect(() => run.value).toThrow();
@@ -243,7 +234,7 @@ describe("workflow.stage", () => {
   });
 
   test("a summary that throws leaves the line out, not the stage", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) =>
         workflow.stage(
           "doc-review",
@@ -256,7 +247,6 @@ describe("workflow.stage", () => {
           async () => ({ path: "a" }),
         ),
       ),
-      null,
     );
     expect(run.value).toEqual({ path: "a" });
     expect(run.stages[0]).not.toHaveProperty("summary");
@@ -302,9 +292,8 @@ describe("workflow.stage", () => {
   });
 
   test("a workflow without stages writes no stage record, and its turns no stage", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => ask(workflow, "Do it.")),
-      null,
       { agents: { worker: answer(DOC, { path: "x" }) } },
     );
     expect(run.stages).toEqual([]);

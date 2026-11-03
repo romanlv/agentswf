@@ -7,7 +7,8 @@ import { readStageRecords } from "./runs";
 import { createTempRunDirs, DOC, runAttempt, workflowOf } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowRunError } from "./workflow-runner";
-import { answer, type TestRun, testWorkflow } from "./workflow-testing";
+import { answer, type TestRun } from "./workflow-testing";
+import { runTest } from "./workflow-testing/run-test";
 
 /** How the attempt stopped, read from `run.ending`: its reason, stage and needs, or nothing. */
 function stopOf(run: TestRun<JsonValue>) {
@@ -52,7 +53,7 @@ const startable = workflowOf(async (workflow) => {
 
 describe("testWorkflow over recorded stages", () => {
   test("recorded stages are reused without calling their work, and the rest run", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         const worker = await workflow.agents.open({ key: "worker", runtime: "codex" });
         const doc = await workflow.stage(
@@ -76,9 +77,10 @@ describe("testWorkflow over recorded stages", () => {
         });
         return { doc: doc.path, branch: impl.branch, qa: qa.path };
       }),
-      null,
       {
-        recorded: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
+        earlier: {
+          stages: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
+        },
         agents: { worker: answer(DOC, { path: "preview ok" }) },
       },
     );
@@ -93,7 +95,7 @@ describe("testWorkflow over recorded stages", () => {
   });
 
   test("a variable assigned inside a stage is lost when the stage is reused", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         let branch = "unset";
         await workflow.stage("implement", async () => {
@@ -101,14 +103,13 @@ describe("testWorkflow over recorded stages", () => {
         });
         return branch;
       }),
-      null,
-      { recorded: { implement: undefined } },
+      { earlier: { stages: { implement: undefined } } },
     );
     expect(run.value).toBe("unset");
   });
 
   test("--from-stage redoes that stage and every one after it", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         const doc = await workflow.stage(
           "doc-review",
@@ -121,9 +122,10 @@ describe("testWorkflow over recorded stages", () => {
         await workflow.stage("qa", async () => {});
         return again.branch;
       }),
-      null,
       {
-        recorded: { "doc-review": { path: "a" }, implement: { branch: "old" }, qa: undefined },
+        earlier: {
+          stages: { "doc-review": { path: "a" }, implement: { branch: "old" }, qa: undefined },
+        },
         fromStage: "implement",
       },
     );
@@ -136,13 +138,12 @@ describe("testWorkflow over recorded stages", () => {
   });
 
   test("a --from-stage never reached stops the attempt", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await workflow.stage("qa", never<void>("qa"));
         return null;
       }),
-      null,
-      { recorded: { qa: undefined }, fromStage: "qaa" },
+      { earlier: { stages: { qa: undefined } }, fromStage: "qaa" },
     );
     expect(() => run.value).toThrow("never reached qaa");
   });
@@ -155,9 +156,9 @@ describe("testWorkflow over recorded stages", () => {
       return null;
     });
     const recorded = { "doc-review": undefined, impl: "done", qa: undefined };
-    const plain = await testWorkflow(renamed, null, { recorded });
+    const plain = await runTest(renamed, { earlier: { stages: recorded } });
     expect(plain.value).toBeNull();
-    const from = await testWorkflow(renamed, null, { recorded, fromStage: "qa" });
+    const from = await runTest(renamed, { earlier: { stages: recorded }, fromStage: "qa" });
     expect(() => from.value).toThrow(
       "nothing recorded for implement (recorded and not reached: impl)",
     );
@@ -179,22 +180,21 @@ describe("testWorkflow over recorded stages", () => {
   ])(
     "a recorded stage with %s stops the attempt there",
     async (_name, recorded, reason, result) => {
-      const run = await testWorkflow(
+      const run = await runTest(
         workflowOf(async (workflow) => {
           if (result)
             await workflow.stage("doc-review", { result }, never<{ path: string }>("doc-review"));
           else await workflow.stage("doc-review", never<void>("doc-review"));
           return null;
         }),
-        null,
-        { recorded },
+        { earlier: { stages: recorded } },
       );
       expect(stopOf(run)).toEqual({ stage: "doc-review", reason });
     },
   );
 
   test("a stop the workflow catches still ends the attempt, moving nothing", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         try {
           await workflow.stage(
@@ -209,8 +209,7 @@ describe("testWorkflow over recorded stages", () => {
         await workflow.stage("qa", never<void>("qa")).catch(() => undefined);
         return null;
       }),
-      null,
-      { recorded: { "doc-review": { file: "a" } } },
+      { earlier: { stages: { "doc-review": { file: "a" } } } },
     );
     expect(() => run.value).toThrow(
       "stop was caught: doc-review's record no longer fits its result schema",
@@ -218,15 +217,14 @@ describe("testWorkflow over recorded stages", () => {
     // The stage the plan stopped at was neither run nor reused, and qa never became a start point.
     expect(run.stages).toEqual([]);
 
-    const returned = await testWorkflow(
+    const returned = await runTest(
       workflowOf(async (workflow) => {
         await workflow
           .stage("doc-review", { result: DOC }, never<{ path: string }>("doc-review"))
           .catch(() => undefined);
         return null;
       }),
-      null,
-      { recorded: { "doc-review": { file: "a" } } },
+      { earlier: { stages: { "doc-review": { file: "a" } } } },
     );
     expect(() => returned.value).toThrow(
       "stop was caught: doc-review's record no longer fits its result schema",
@@ -235,7 +233,7 @@ describe("testWorkflow over recorded stages", () => {
   });
 
   test("two stages at once are refused on a continue too, when the first is reused", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await Promise.all([
           workflow.stage("a", never<void>("a")),
@@ -243,8 +241,7 @@ describe("testWorkflow over recorded stages", () => {
         ]);
         return null;
       }),
-      null,
-      { recorded: { a: undefined } },
+      { earlier: { stages: { a: undefined } } },
     );
     expect(() => run.value).toThrow("stage b was entered while stage a is open");
   });
@@ -252,7 +249,7 @@ describe("testWorkflow over recorded stages", () => {
 
 describe("a new run started at a stage", () => {
   test("stops naming every stage the start point needs a value for, with its schema", async () => {
-    const run = await testWorkflow(startable, null, { fromStage: "qa" });
+    const run = await runTest(startable, { fromStage: "qa" });
     expect(stopOf(run)).toEqual({
       reason: "nothing recorded for doc-review",
       stage: "doc-review",
@@ -266,7 +263,7 @@ describe("a new run started at a stage", () => {
   });
 
   test("looking on starts no turn: the attempt stops there with what it found", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         const worker = await workflow.agents.open({ key: "worker", runtime: "codex" });
         const doc = await workflow.stage(
@@ -279,7 +276,6 @@ describe("a new run started at a stage", () => {
         await workflow.stage("qa", async () => {});
         return null;
       }),
-      null,
       { fromStage: "qa" },
     );
     expect(stopOf(run)?.needs?.map(({ stage }) => stage)).toEqual(["doc-review"]);
@@ -287,7 +283,7 @@ describe("a new run started at a stage", () => {
   });
 
   test("a stage that returns nothing is passed, and the next stops for its value", async () => {
-    const run = await testWorkflow(startable, null, {
+    const run = await runTest(startable, {
       fromStage: "qa",
       values: { "doc-review": { path: "docs/a.md" } },
     });
@@ -299,7 +295,7 @@ describe("a new run started at a stage", () => {
   });
 
   test("with every value given, they are provided without calling their work, and the rest run", async () => {
-    const run = await testWorkflow(startable, null, {
+    const run = await runTest(startable, {
       fromStage: "qa",
       values: { "doc-review": { path: "docs/a.md" }, review: { branch: "feat/a" } },
     });
@@ -313,7 +309,7 @@ describe("a new run started at a stage", () => {
   });
 
   test("a value that doesn't fit its stage's result stops, with why", async () => {
-    const run = await testWorkflow(startable, null, {
+    const run = await runTest(startable, {
       fromStage: "qa",
       values: { "doc-review": { file: "docs/a.md" } },
     });
@@ -460,7 +456,7 @@ describe("workflow.stop", () => {
       });
       return doc.path;
     });
-    const first = await testWorkflow(flow, null);
+    const first = await runTest(flow);
     expect(() => first.value).toThrow("no preview environment");
     expect(stopOf(first)).toEqual({ reason: "no preview environment", stage: "qa" });
     expect(first.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
@@ -469,7 +465,7 @@ describe("workflow.stop", () => {
     ]);
     expect(first.stages[1]).toMatchObject({ reason: "no preview environment" });
 
-    const second = await testWorkflow(flow, null, { recorded: { "doc-review": undefined } });
+    const second = await runTest(flow, { earlier: { stages: { "doc-review": undefined } } });
     expect(second.value).toBe("ok");
     expect(calls).toBe(2);
   });
@@ -480,24 +476,23 @@ describe("workflow.stop", () => {
       if (doc.path === "x") workflow.stop("no doc");
       return null;
     });
-    const first = await testWorkflow(flow, null);
+    const first = await runTest(flow);
     expect(stopOf(first)).toEqual({ reason: "no doc" });
     expect(first.stages.map(({ outcome }) => outcome)).toEqual(["succeeded"]);
-    const again = await testWorkflow(flow, null, { recorded: { "doc-review": { path: "x" } } });
+    const again = await runTest(flow, {
+      earlier: { stages: { "doc-review": { path: "x" } } },
+    });
     expect(stopOf(again)).toEqual({ reason: "no doc" });
   });
 
   test("before any stage, it stops the attempt", async () => {
-    const run = await testWorkflow(
-      workflowOf(async (workflow) => workflow.stop("not ready")),
-      null,
-    );
+    const run = await runTest(workflowOf(async (workflow) => workflow.stop("not ready")));
     expect(stopOf(run)).toEqual({ reason: "not ready" });
     expect(run.stages).toEqual([]);
   });
 
   test("caught inside a stage, it fails that stage; caught between stages, the attempt", async () => {
-    const inside = await testWorkflow(
+    const inside = await runTest(
       workflowOf(async (workflow) => {
         await workflow.stage("qa", async () => {
           try {
@@ -506,7 +501,6 @@ describe("workflow.stop", () => {
         });
         return null;
       }),
-      null,
     );
     expect(() => inside.value).toThrow("stop was caught: no preview");
     expect(stopOf(inside)).toBeUndefined();
@@ -518,20 +512,19 @@ describe("workflow.stop", () => {
       }),
     ]);
 
-    const between = await testWorkflow(
+    const between = await runTest(
       workflowOf(async (workflow) => {
         try {
           workflow.stop("no doc");
         } catch {}
         return null;
       }),
-      null,
     );
     expect(() => between.value).toThrow("stop was caught: no doc");
   });
 
   test("called beside a stage, not in it, it stops between stages", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await Promise.all([
           workflow.stage("a", () => new Promise<void>((resolve) => setTimeout(resolve, 20))),
@@ -542,24 +535,22 @@ describe("workflow.stop", () => {
         ]);
         return null;
       }),
-      null,
     );
     expect(stopOf(run)).toEqual({ reason: "from beside" });
   });
 
   test("the first stop is kept; once caught, the next stage fails the attempt as caught", async () => {
-    const twice = await testWorkflow(
+    const twice = await runTest(
       workflowOf(async (workflow) => {
         try {
           workflow.stop("first");
         } catch {}
         return workflow.stop("second");
       }),
-      null,
     );
     expect(stopOf(twice)).toEqual({ reason: "first" });
 
-    const afterCaught = await testWorkflow(
+    const afterCaught = await runTest(
       workflowOf(async (workflow) => {
         await workflow
           .stage("a", async () => {
@@ -571,7 +562,6 @@ describe("workflow.stop", () => {
         await workflow.stage("b", async () => {});
         return null;
       }),
-      null,
     );
     expect(() => afterCaught.value).toThrow("stop was caught: in a");
     expect(stopOf(afterCaught)).toBeUndefined();
@@ -581,7 +571,7 @@ describe("workflow.stop", () => {
   });
 
   test("caught between stages, a later stage fails the attempt as caught, not stopped", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         try {
           workflow.stop("no doc");
@@ -589,7 +579,6 @@ describe("workflow.stop", () => {
         await workflow.stage("qa", async () => {});
         return null;
       }),
-      null,
     );
     expect(() => run.value).toThrow("stop was caught: no doc");
     expect(stopOf(run)).toBeUndefined();
@@ -597,7 +586,7 @@ describe("workflow.stop", () => {
   });
 
   test("inside a parallel in a stage, it stops that stage", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf(async (workflow) => {
         await workflow.stage("review", async () => {
           await workflow.parallel(["codex", "opus"], async (who) => {
@@ -606,7 +595,6 @@ describe("workflow.stop", () => {
         });
         return null;
       }),
-      null,
     );
     expect(stopOf(run)).toEqual({ reason: "opus found a blocker", stage: "review" });
     expect(run.stages[0]).toMatchObject({ outcome: "stopped" });

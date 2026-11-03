@@ -7,7 +7,7 @@ const RECALLED = Type.Object({ working_on: Type.String() }, { additionalProperti
 
 describe("fork-caller", () => {
   test("forks the session waiting on the run, on its model, and asks it what it knows", async () => {
-    const run = await testWorkflow(forkCaller, null, {
+    const run = await testWorkflow(forkCaller, {
       caller: { harness: "claude", model: "claude-opus-5-5", here: false },
       agents: { fork: answer(RECALLED, { working_on: "story 027" }) },
     });
@@ -16,7 +16,7 @@ describe("fork-caller", () => {
   });
 
   test("refuses where the run was not started from an agent's shell", async () => {
-    const run = await testWorkflow(forkCaller, null);
+    const run = await testWorkflow(forkCaller);
     expect(() => run.value).toThrow("no session to fork");
   });
 });

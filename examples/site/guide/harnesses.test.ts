@@ -9,7 +9,7 @@ import planAndList, {
 } from "./harnesses";
 
 test("each agent runs on the harness, model, effort and placement it was opened with", async () => {
-  const run = await testWorkflow(planAndList, null, {
+  const run = await testWorkflow(planAndList, {
     agents: {
       planner: answer(PLAN, { steps: ["add the flag in src/cli.ts"] }),
       lister: answer("src/cli.ts"),
@@ -34,21 +34,21 @@ test("each agent runs on the harness, model, effort and placement it was opened 
 });
 
 test("a headless claude without metered: true is refused as it opens", async () => {
-  const run = await testWorkflow(unmetered, null, { agents: {} });
+  const run = await testWorkflow(unmetered, { agents: {} });
   expect(() => run.value).toThrow(
     "headless claude is billed per token even on a subscription login; set metered: true to run it",
   );
 });
 
 test("an effort the harness doesn't list is refused as the agent opens", async () => {
-  const run = await testWorkflow(unlisted, null, { agents: {} });
+  const run = await testWorkflow(unlisted, { agents: {} });
   expect(() => run.value).toThrow(
     'claude has no effort "ultra"; its levels are low, medium, high, xhigh, max',
   );
 });
 
 test("the lead's forks review side by side, and each answers", async () => {
-  const run = await testWorkflow(reviewers, null, {
+  const run = await testWorkflow(reviewers, {
     agents: {
       lead: answer("planned"),
       security: answer("no injection"),
@@ -59,7 +59,7 @@ test("the lead's forks review side by side, and each answers", async () => {
 });
 
 test("each runtime shape resolves to a harness, model, effort and placement", async () => {
-  const run = await testWorkflow(eachRuntime, null, { agents: {} });
+  const run = await testWorkflow(eachRuntime, { agents: {} });
   expect(run.value).toEqual({
     alias: { harness: "claude", model: "sonnet", alias: "claude" },
     thorough: {

@@ -81,6 +81,12 @@ export const DEPRECATIONS = {
     instead: "wf.deadline is a Date: read wf.deadline.getTime()",
   },
   "stall-ms": { old: "a test's stallMs", instead: 'give stall, a Duration such as "2s"' },
+  "test-args": {
+    old: "testWorkflow(workflow, args, options)",
+    instead: "give args among the options: testWorkflow(workflow, { args, … })",
+  },
+  "test-recorded": { old: "a test's recorded", instead: "give it as earlier: { stages }" },
+  "test-mailbox": { old: "a test's mailbox", instead: "give it as earlier: { mailbox }" },
 } as const satisfies Record<
   string,
   { old: string; instead: string | ((subject: string) => string) }

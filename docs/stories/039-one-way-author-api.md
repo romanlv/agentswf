@@ -200,7 +200,7 @@ Betas from the design's §8 in brackets.
 - [x] 3. One context type, and `--from-stage` for every run (B)
 - [x] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
 - [x] 5. One duration and `timeout` in the API (B)
-- [ ] 6. One `testWorkflow` signature (B)
+- [x] 6. One `testWorkflow` signature (B)
 - [ ] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
 - [ ] 8. Durations and one word per state on the CLI and the wire (D)
 - [ ] 9. Pane workspace and keeping panes move to the operator (E)
@@ -394,11 +394,11 @@ Outcome: `testWorkflow(workflow, options?)` for every workflow.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -675,6 +675,24 @@ Correctness and proof review: no defect for typed callers. For untyped ones:
 The "cut to the stage's" proof was really the run's: a stage has no deadline of its own, so the
 test cuts a timeout to a `parallel`'s inside a stage, and a past `Date` is shown to fail `open` and
 `decide`.
+
+### Task 6
+
+Architecture and scope review: nothing blocking.
+- Telling the forms apart by argument count, then by the kind of the second argument, was upheld.
+  Matching by keys would misread args silently; the one break, object args given second with no
+  options, fails `tsc` and at run time, and is documented.
+- `agentswf/testing` had re-listed the engine's curated list; it is `export *` of that one list
+  again, as `agentswf/workflow` is of contract's.
+- `maxTurns` reaching plain workflows is listed with the changes made without a deprecation.
+
+Correctness and proof review:
+- Args `prepare` made of no argv skipped `awf run`'s JSON check, so a test passed a `Date` or a
+  `Promise` that a run refuses. Now checked.
+- `earlier: {}` wasn't a continue; any given `earlier` is now.
+- Options must be a plain object; the key check runs before the `kind` check, naming the key.
+
+Engine tests that still call the deprecated forms move with task 10.
 
 ## Readiness
 
@@ -964,6 +982,86 @@ As built, after review:
 - Unverified: a fork's `timeout` cutting a slow native fork short (the code passes the bound to the
   same `deadlineWithin(FORK_TIMEOUT_MS, …)`; no test makes a fork slow); `keepAlive.window` is
   proved through `checkedKeepAlive` and the window `timeoutMs` already had, not a live check.
+
+### Task 6
+
+- **How the two forms are told apart.** By the count of arguments, then by the second's kind,
+  never by its keys. Three arguments are always the deprecated `(workflow, args, options)`. With
+  two, the second is the options when it is an object (not `null`, not an array), and args
+  otherwise: `null`, a string, a number, a boolean or an array, the deprecated
+  `(workflow, args)`. So a workflow's object args are never guessed at: given second they are the
+  options, and refused by their first key. The types say the same: the one form's overloads take an
+  object; the deprecated three-argument overload takes any args; the deprecated two-argument one
+  takes only `Args extends null | string | number | boolean | JsonValue[]`, so object args there
+  fail `tsc` instead of compiling into a run-time refusal. Rejected: telling options from args by
+  their keys, which a workflow's args can share (`feature-delivery`'s args have `runtimes`, a test
+  option, and its test spread them with it).
+- **Changed without a deprecation:** `testWorkflow(workflow, args)` with object args and no
+  options. It was the one call the two forms can't both mean; it now fails `tsc` and is refused
+  at run time naming the key, and the testing reference says so beside its deprecated table.
+- **`args`** is required by type where the workflow has no events and `null` is not among its
+  args; with events it stays optional, as a run an event starts has no argv. Absent, the run gets
+  what `prepare` makes of no argv, for every workflow, as `awf run` given none; a `prepare` that
+  throws then fails the test, saying to give `args`. `id` is `"test"` unless given, for every
+  workflow, checked as `awf run --id` checks it.
+- **One options type.** `TestOptions<Args, Events>`: bare (`Args = never`) it is what any test may
+  share, with no `args`, so a helper's `const shared: TestOptions` is passed or spread into any
+  test, which adds its own `args`. `event` and `events` are typed only with events and refused at
+  run time without. `EventTestOptions<Events, Args>` is a deprecated alias; a type can't log.
+  `EarlierAttempt` is the new published name for `earlier`'s shape.
+- **Unknown keys** are refused before anything runs, naming the key and the options there are;
+  the deprecated keys are taken, never suggested. `earlier`'s own keys are checked too.
+- **`earlier: { stages, mailbox }`** for every workflow, both making the attempt the continue,
+  attempt 2. `recorded` and `mailbox` are deprecated (`test-recorded`, `test-mailbox`), logged
+  once, and refused beside their `earlier` form. A workflow with events now takes `fromStage`
+  with `earlier`, as `awf run` takes `--from-stage` with `--continue`, and redoes the stage (task
+  3 left this to these options); without `earlier`, and `values`, are refused with `awf run`'s
+  reasons.
+- **`maxTurns`** counts every run's started turns (not nudges or wakes) in the test's own
+  `onTurnStarted`, out of `ScriptedEvents`; 20 by default, so a plain loop past 20 turns now fails
+  where it ran to `awf test`'s timeout.
+- **Bare `{ meta, run }`.** The one form takes only what `defineWorkflow` made, checked at run
+  time by `kind` too, so no published signature names the engine's `RunnableWorkflow`. The
+  deprecated forms still take `meta` and `run` alone, typed inline from the contract's `Workflow`,
+  as they did; that goes with them in task 10. `minimum-review`'s `createMinimumReview` now returns
+  a workflow `defineWorkflow` made, with a `prepare` of its own; `catalogue-review`'s tests already
+  went through `defineCatalogueReview`, so its body stays a `Pick`, spread into `defineWorkflow`.
+- **The engine's own tests** build bare `{ meta, run }` workflows throughout, so they call the
+  internal `runTest(workflow, options, engine?)`, which keeps taking them; `testWorkflow` is
+  `testCall` (the form, the `kind` check, the deprecation) then `runTest`. Tests of the call itself
+  are `workflow-testing/test-options.test.ts` and `deprecations.test.ts`.
+- **Where testing's list lives.** One list, the engine's `workflow-testing/index.ts`, which
+  `awf test`'s preload serves and the engine can reach; `agentswf/testing` is `export *` of it, as
+  `agentswf/workflow` is of the contract's `author.ts`. A second, hand-kept list in `agentswf`
+  was rejected: two lists drift, and types can't be compared by name.
+- **The options are an object literal** (its prototype `Object.prototype` or `null`); a `Date`,
+  an array or a class's instance is refused, named. Their keys are checked before whether the
+  workflow is what `defineWorkflow` made, so object args given second are named by their key
+  whatever the workflow, and the message adds that args are given as `{ args }`.
+- **Args `prepare` makes** for a test that gives none are checked as `awf run` checks them
+  (`assertJsonValue`, `{name} arguments must contain only JSON values`): a `Date` or a `Promise`
+  is refused, and that or a throw fails the test saying to give `args`.
+- **A given `earlier` is always the continue**, attempt 2, even `{}` or with only `undefined`
+  fields, as the docs say.
+- **What the run-time rule lets through:** object args whose keys are all option names (`{ id }`)
+  are read as options; `tsc` catches the missing `args` unless `null` is among the workflow's
+  args. And `testWorkflow(wf, undefined, options)`, the deprecated form with `undefined` args,
+  now gives the run what `prepare` makes of no argv, where it gave `undefined`.
+- Proof: `test-options.test.ts` (args as an option and from `prepare`, `id`, a misspelled option
+  and `earlier`'s, object args given second, `event` without events, bare `{ meta, run }`,
+  `maxTurns` at and past its bound on a plain run, `earlier: { stages, mailbox }` reused on a run
+  with events, `fromStage` redoing a stage of one, both forms refused, `earlier: {}` with
+  `fromStage` on a run with events and `earlier.stages` on a plain one as attempt 2, `values`
+  refused with events, `fromStage` and `values` alone on a plain run, `prepare`'s `Date`,
+  `Promise` and throw refused saying to give `args`, a `Date` or class instance as options, object
+  args given second to bare `{ meta, run }` named by key); `deprecations.test.ts` (the
+  three- and two-argument forms and bare `{ meta, run }` work and log `test-args` once, `args`
+  given twice refused, `recorded` and `mailbox` work and log once each);
+  `packages/agentswf/src/testing.typecheck.ts` (missing `args` is a type error, as are object args
+  second, a misspelled option, `event` without events, bare `{ meta, run }` in the one form; args
+  of `null | { x }` optional, array args required, and given second in the deprecated form; the
+  deprecated forms compile). Every example test, the `awf init` template's and the site's samples
+  use the one form, rewritten by a codemod and checked by `tsc`.
 
 ## Human review
 

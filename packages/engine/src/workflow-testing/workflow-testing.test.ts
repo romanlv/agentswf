@@ -15,6 +15,7 @@ import {
 import Type from "typebox";
 import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, noAnswer, testWorkflow } from ".";
+import { runTest } from "./run-test";
 
 const PLAN = Type.Object({ steps: Type.Array(Type.String()) }, { additionalProperties: false });
 const STATUS = Type.Object(
@@ -77,20 +78,17 @@ const ok = { ready: true, notes: ["fine"] };
 
 describe("testWorkflow", () => {
   test("a list answers turn by turn, each entry with its own schema, text included", async () => {
-    const run = await testWorkflow(
-      builder,
-      { task: "a cache" },
-      {
-        agents: {
-          builder: [
-            answer(PLAN, { steps: ["add", "invalidate"] }),
-            answer(STATUS, { step: 0, state: "done" }),
-            answer(STATUS, (turn) => ({ step: turn.n - 2, state: "done" })),
-            answer("Added a cache."),
-          ],
-        },
+    const run = await runTest(builder, {
+      args: { task: "a cache" },
+      agents: {
+        builder: [
+          answer(PLAN, { steps: ["add", "invalidate"] }),
+          answer(STATUS, { step: 0, state: "done" }),
+          answer(STATUS, (turn) => ({ step: turn.n - 2, state: "done" })),
+          answer("Added a cache."),
+        ],
       },
-    );
+    });
     expect(run.value).toEqual({ done: 2, summary: "Added a cache." });
     expect(run.turnsOf("builder").map((turn) => [turn.n, turn.outcome])).toEqual([
       [1, "answered"],
@@ -119,7 +117,7 @@ describe("testWorkflow", () => {
       }
       return answers;
     });
-    const run = await testWorkflow(twice, null, {
+    const run = await runTest(twice, {
       agents: { solo: answer(VERDICT, ok), unused: answer("never asked") },
     });
     expect(run.value).toEqual([ok, ok]);
@@ -136,14 +134,14 @@ describe("testWorkflow", () => {
       ["timedOut", noAnswer.timedOut(), "timed-out"],
     ] as const) {
       test(name, async () => {
-        const run = await testWorkflow(solo({ schema: true }), null, { agents: { solo: given } });
+        const run = await runTest(solo({ schema: true }), { agents: { solo: given } });
         expect(run.value).toMatchObject({ kind });
         expect(run.turns.map((turn) => turn.outcome)).toEqual([kind]);
       });
     }
 
     test("silent: the engine nudges once, and the reply ends the nudge too", async () => {
-      const run = await testWorkflow(solo({ schema: true }), null, {
+      const run = await runTest(solo({ schema: true }), {
         agents: { solo: noAnswer.silent() },
       });
       expect(run.value).toMatchObject({ kind: "unanswered" });
@@ -154,7 +152,7 @@ describe("testWorkflow", () => {
     });
 
     test("a function sees the nudge and can answer it", async () => {
-      const run = await testWorkflow(solo({ schema: true }), null, {
+      const run = await runTest(solo({ schema: true }), {
         agents: { solo: answer(VERDICT, (turn) => (turn.nudge ? ok : noAnswer.silent())) },
       });
       expect(run.value).toEqual({ kind: "answered", value: ok });
@@ -165,14 +163,13 @@ describe("testWorkflow", () => {
     });
 
     test("needsLogin: the turn fails with login set, unnudged, and the workflow can stop on it", async () => {
-      const run = await testWorkflow(
+      const run = await runTest(
         workflowOf<null, JsonValue>(async (workflow) => {
           const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
           const { outcome } = await agent.run({ prompt: "Review.", schema: VERDICT });
           if (outcome.kind === "failed" && outcome.login) workflow.stop(outcome.reason);
           return outcome.kind;
         }),
-        null,
         { agents: { solo: noAnswer.needsLogin() } },
       );
       expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([[false, "failed"]]);
@@ -181,13 +178,12 @@ describe("testWorkflow", () => {
         reason: expect.stringMatching(/^codex needs a login: run `codex login`/),
       });
 
-      const seen = await testWorkflow(
+      const seen = await runTest(
         workflowOf<null, JsonValue>(async (workflow) => {
           const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
           const { outcome } = await agent.run({ prompt: "Review." });
           return outcome.kind === "failed" ? (outcome.login ?? null) : null;
         }),
-        null,
         { agents: { solo: noAnswer.needsLogin("openai") } },
       );
       expect(seen.value).toEqual({
@@ -201,23 +197,20 @@ describe("testWorkflow", () => {
       const cancelled: string[] = [];
       // A barrier: the fast lens fails only once the slow one is under way.
       const { promise: slowStarted, resolve: started } = Promise.withResolvers<void>();
-      const run = await testWorkflow(
-        lenses,
-        { lenses: ["fast", "slow"] },
-        {
-          agents: {
-            "review:fast": answer(VERDICT, async () => {
-              await slowStarted;
-              return noAnswer.failed();
-            }),
-            "review:slow": answer(VERDICT, (turn) => {
-              turn.signal.addEventListener("abort", () => cancelled.push(turn.agent));
-              started();
-              return noAnswer.hang();
-            }),
-          },
+      const run = await runTest(lenses, {
+        args: { lenses: ["fast", "slow"] },
+        agents: {
+          "review:fast": answer(VERDICT, async () => {
+            await slowStarted;
+            return noAnswer.failed();
+          }),
+          "review:slow": answer(VERDICT, (turn) => {
+            turn.signal.addEventListener("abort", () => cancelled.push(turn.agent));
+            started();
+            return noAnswer.hang();
+          }),
         },
-      );
+      });
       expect(() => run.value).toThrow("fast: failed");
       expect(cancelled).toEqual(["review:slow"]);
     });
@@ -225,22 +218,19 @@ describe("testWorkflow", () => {
 
   test("a script still deciding when its turn is cancelled is let go, as cancelled", async () => {
     const { promise: slowStarted, resolve: started } = Promise.withResolvers<void>();
-    const run = await testWorkflow(
-      lenses,
-      { lenses: ["fast", "slow"] },
-      {
-        agents: {
-          "review:fast": answer(VERDICT, async () => {
-            await slowStarted;
-            return noAnswer.failed();
-          }),
-          "review:slow": answer(VERDICT, () => {
-            started();
-            return new Promise(() => undefined);
-          }),
-        },
+    const run = await runTest(lenses, {
+      args: { lenses: ["fast", "slow"] },
+      agents: {
+        "review:fast": answer(VERDICT, async () => {
+          await slowStarted;
+          return noAnswer.failed();
+        }),
+        "review:slow": answer(VERDICT, () => {
+          started();
+          return new Promise(() => undefined);
+        }),
       },
-    );
+    });
     expect(() => run.value).toThrow("fast: failed");
     expect(run.turnsOf("review:slow").map((turn) => turn.outcome)).toEqual(["cancelled"]);
   });
@@ -252,11 +242,11 @@ describe("testWorkflow", () => {
       );
       return agents.map((agent) => agent.execution.model);
     });
-    const run = await testWorkflow(two, null, {
+    const run = await runTest(two, {
       runtimes: { cheap: { harness: "codex", model: "mini" } },
     });
     expect(run.value).toEqual(["sonnet", "mini"]);
-    const replaced = await testWorkflow(two, null, {
+    const replaced = await runTest(two, {
       runtimes: {
         claude: { harness: "claude", model: "opus" },
         cheap: { harness: "codex", model: "mini" },
@@ -269,14 +259,14 @@ describe("testWorkflow", () => {
     const remaining = workflowOf<null, number>(
       async (workflow) => (workflow.deadline?.unixMilliseconds ?? Number.NaN) - Date.now(),
     );
-    const run = await testWorkflow(remaining, null, { timeoutMs: 60_000 });
+    const run = await runTest(remaining, { timeoutMs: 60_000 });
     expect(run.value).toBeGreaterThan(55_000);
     expect(run.value).toBeLessThanOrEqual(60_000);
   });
 
   test("a function that returns nothing fails the test", async () => {
     await expect(
-      testWorkflow(solo(), null, {
+      runTest(solo(), {
         agents: { solo: answer((() => undefined) as unknown as () => string) },
       }),
     ).rejects.toThrow(/agent "solo" turn 1: its script returned nothing/);
@@ -299,7 +289,7 @@ describe("testWorkflow", () => {
         });
         return workflow.cwd;
       });
-      const run = await testWorkflow(opened, null, { cwd });
+      const run = await runTest(opened, { cwd });
       expect(run.value).toBe(cwd);
       expect(run.logs).toContainEqual({ message: "opening", fields: { skill: "notes" } });
       expect(run.agents).toEqual([
@@ -330,7 +320,7 @@ describe("testWorkflow", () => {
     });
 
     test("completed, with its value and stages", async () => {
-      const run = await testWorkflow(shipping, null, { agents: { solo: answer(VERDICT, ok) } });
+      const run = await runTest(shipping, { agents: { solo: answer(VERDICT, ok) } });
       expect(run.ending).toEqual({
         kind: "completed",
         value: "shipped",
@@ -339,7 +329,7 @@ describe("testWorkflow", () => {
     });
 
     test("stopped, in its stage, with why and the command that goes on", async () => {
-      const run = await testWorkflow(shipping, null, { agents: { solo: noAnswer.blocked() } });
+      const run = await runTest(shipping, { agents: { solo: noAnswer.blocked() } });
       expect(run.ending).toEqual({
         kind: "stopped",
         stage: "plan",
@@ -350,7 +340,7 @@ describe("testWorkflow", () => {
     });
 
     test("failed, with what the workflow threw", async () => {
-      const run = await testWorkflow(shipping, null, {
+      const run = await runTest(shipping, {
         agents: { solo: answer(VERDICT, { ready: false, notes: ["no tests"] }) },
       });
       expect(run.ending).toMatchObject({ kind: "failed", reason: "not ready" });
@@ -359,7 +349,7 @@ describe("testWorkflow", () => {
     });
 
     test("timed out at the test's timeoutMs", async () => {
-      const run = await testWorkflow(shipping, null, {
+      const run = await runTest(shipping, {
         agents: { solo: noAnswer.hang() },
         timeoutMs: 50,
       });
@@ -380,7 +370,7 @@ describe("testWorkflow", () => {
       });
 
     test("a hang past its turn's deadline is timed-out", async () => {
-      const run = await testWorkflow(hanging(50), null, { agents: { solo: noAnswer.hang() } });
+      const run = await runTest(hanging(50), { agents: { solo: noAnswer.hang() } });
       expect(run.value).toBe("timed-out");
       expect(run.turns.map((turn) => turn.outcome)).toEqual(["timed-out"]);
     });
@@ -394,7 +384,7 @@ describe("testWorkflow", () => {
           return outcome.value;
         }),
       );
-      const run = await testWorkflow(siblings, null, {
+      const run = await runTest(siblings, {
         agents: { slow: noAnswer.hang(), broken: noAnswer.failed() },
       });
       expect(() => run.value).toThrow("broken: failed");
@@ -403,16 +393,15 @@ describe("testWorkflow", () => {
     });
 
     test("needsLogin is failed, and interrupted cancelled", async () => {
-      const login = await testWorkflow(hanging(), null, {
+      const login = await runTest(hanging(), {
         agents: { solo: noAnswer.needsLogin() },
       });
       expect(login.turns.map((turn) => turn.outcome)).toEqual(["failed"]);
-      const interrupted = await testWorkflow(
+      const interrupted = await runTest(
         workflowOf<null, string>(async (workflow) => {
           const me = await workflow.agents.caller({ key: "me" });
           return me ? (await me.run({ prompt: "Fix it." })).outcome.kind : "no caller";
         }),
-        null,
         {
           agents: { me: noAnswer.interrupted() },
           caller: { harness: "claude", model: "claude-opus-5-5" },
@@ -423,7 +412,7 @@ describe("testWorkflow", () => {
     });
 
     test("a silent turn its nudge answers is unanswered, then answered", async () => {
-      const run = await testWorkflow(hanging(), null, {
+      const run = await runTest(hanging(), {
         agents: { solo: answer((turn) => (turn.nudge ? "done" : noAnswer.silent())) },
       });
       expect(run.value).toBe("answered");
@@ -436,29 +425,23 @@ describe("testWorkflow", () => {
 
   describe("scripts are found by key", () => {
     test("an exact key wins over a pattern", async () => {
-      const run = await testWorkflow(
-        lenses,
-        { lenses: ["a", "b"] },
-        {
-          agents: {
-            "review:*": answer(VERDICT, ok),
-            "review:b": answer(VERDICT, { ready: false, notes: ["b"] }),
-          },
+      const run = await runTest(lenses, {
+        args: { lenses: ["a", "b"] },
+        agents: {
+          "review:*": answer(VERDICT, ok),
+          "review:b": answer(VERDICT, { ready: false, notes: ["b"] }),
         },
-      );
+      });
       expect(run.value).toEqual([ok, { ready: false, notes: ["b"] }]);
     });
 
     test("a pattern's list is walked per agent", async () => {
-      const run = await testWorkflow(
-        lenses,
-        { lenses: ["a", "b"] },
-        {
-          agents: {
-            "review:*": [answer(VERDICT, (turn) => ({ ready: true, notes: [turn.agent] }))],
-          },
+      const run = await runTest(lenses, {
+        args: { lenses: ["a", "b"] },
+        agents: {
+          "review:*": [answer(VERDICT, (turn) => ({ ready: true, notes: [turn.agent] }))],
         },
-      );
+      });
       expect(run.value).toEqual([
         { ready: true, notes: ["review:a"] },
         { ready: true, notes: ["review:b"] },
@@ -467,20 +450,15 @@ describe("testWorkflow", () => {
 
     test("two patterns matching one key fail the test", async () => {
       await expect(
-        testWorkflow(
-          lenses,
-          { lenses: ["a"] },
-          {
-            agents: { "review:*": answer(VERDICT, ok), "*:a": answer(VERDICT, ok) },
-          },
-        ),
+        runTest(lenses, {
+          args: { lenses: ["a"] },
+          agents: { "review:*": answer(VERDICT, ok), "*:a": answer(VERDICT, ok) },
+        }),
       ).rejects.toThrow(/agent "review:a" turn 1: it matches "review:\*" and "\*:a"/);
     });
 
     test("an agent with no script fails the test, naming what is scripted", async () => {
-      await expect(
-        testWorkflow(solo(), null, { agents: { reviewer: answer("hi") } }),
-      ).rejects.toThrow(
+      await expect(runTest(solo(), { agents: { reviewer: answer("hi") } })).rejects.toThrow(
         /agent "solo" turn 1: no script for it; scripted: "reviewer". It was asked: Say hello\./,
       );
     });
@@ -488,14 +466,14 @@ describe("testWorkflow", () => {
 
   describe("a list is strict", () => {
     test("an empty list is refused", async () => {
-      await expect(testWorkflow(solo(), null, { agents: { solo: [] } })).rejects.toThrow(
+      await expect(runTest(solo(), { agents: { solo: [] } })).rejects.toThrow(
         /agents\["solo"\] is an empty list/,
       );
     });
 
     test("a pattern's list no agent matched fails the test", async () => {
       await expect(
-        testWorkflow(solo(), null, { agents: { solo: answer("hi"), "ghost:*": [answer("boo")] } }),
+        runTest(solo(), { agents: { solo: answer("hi"), "ghost:*": [answer("boo")] } }),
       ).rejects.toThrow(/no agent matching "ghost:\*" was asked; its script has 1 turn/);
     });
 
@@ -506,7 +484,7 @@ describe("testWorkflow", () => {
         throw new Error("the workflow gave up");
       });
       await expect(
-        testWorkflow(quits, null, { agents: { solo: [answer("hi"), answer("again")] } }),
+        runTest(quits, { agents: { solo: [answer("hi"), answer("again")] } }),
       ).rejects.toThrow(
         /was asked 1 turn; its script has 2\nthe workflow threw: the workflow gave up/,
       );
@@ -514,25 +492,22 @@ describe("testWorkflow", () => {
 
     test("a turn past its end fails the test", async () => {
       await expect(
-        testWorkflow(
-          builder,
-          { task: "x" },
-          {
-            agents: { builder: [answer(PLAN, { steps: ["one"] })] },
-          },
-        ),
+        runTest(builder, {
+          args: { task: "x" },
+          agents: { builder: [answer(PLAN, { steps: ["one"] })] },
+        }),
       ).rejects.toThrow(/agent "builder" turn 2: its script has 1 turn\. It was asked: Do step 0/);
     });
 
     test("an entry never reached fails the test", async () => {
       await expect(
-        testWorkflow(solo(), null, { agents: { solo: [answer("hi"), answer("again")] } }),
+        runTest(solo(), { agents: { solo: [answer("hi"), answer("again")] } }),
       ).rejects.toThrow(/agent "solo" was asked 1 turn; its script has 2/);
     });
 
     test("a list for an agent never opened fails the test", async () => {
       await expect(
-        testWorkflow(solo(), null, { agents: { solo: answer("hi"), ghost: [answer("boo")] } }),
+        runTest(solo(), { agents: { solo: answer("hi"), ghost: [answer("boo")] } }),
       ).rejects.toThrow(/agent "ghost" was never asked; its script has 1 turn/);
     });
   });
@@ -540,7 +515,7 @@ describe("testWorkflow", () => {
   describe("an answer is checked against what the turn asks", () => {
     test("a schema other than the turn's fails the test, naming both", async () => {
       await expect(
-        testWorkflow(solo({ schema: true }), null, {
+        runTest(solo({ schema: true }), {
           agents: { solo: answer(PLAN, { steps: [] }) },
         }),
       ).rejects.toThrow(
@@ -550,7 +525,7 @@ describe("testWorkflow", () => {
 
     test("text for a turn that asks for a schema fails the test", async () => {
       await expect(
-        testWorkflow(solo({ schema: true }), null, { agents: { solo: answer("ready") } }),
+        runTest(solo({ schema: true }), { agents: { solo: answer("ready") } }),
       ).rejects.toThrow(/its script answers text/);
     });
 
@@ -559,7 +534,7 @@ describe("testWorkflow", () => {
         { notes: Type.Array(Type.String(), { minItems: 1 }), ready: Type.Boolean() },
         { additionalProperties: false },
       );
-      const run = await testWorkflow(solo({ schema: true }), null, {
+      const run = await runTest(solo({ schema: true }), {
         agents: { solo: answer(swapped, ok) },
       });
       expect(run.value).toEqual({ kind: "answered", value: ok });
@@ -575,7 +550,7 @@ describe("testWorkflow", () => {
         },
         type: "object",
       } as const;
-      const run = await testWorkflow(solo({ schema: true }), null, {
+      const run = await runTest(solo({ schema: true }), {
         agents: { solo: answer(reordered, ok) },
       });
       expect(run.value).toEqual({ kind: "answered", value: ok });
@@ -584,7 +559,7 @@ describe("testWorkflow", () => {
     test("an answer the schema refuses fails the test with the schema's error", async () => {
       const empty = { ready: true, notes: [] as string[] };
       await expect(
-        testWorkflow(solo({ schema: true }), null, { agents: { solo: answer(VERDICT, empty) } }),
+        runTest(solo({ schema: true }), { agents: { solo: answer(VERDICT, empty) } }),
       ).rejects.toThrow(
         /agent "solo" turn 1: the schema refused its script's answer: [\s\S]*notes/,
       );
@@ -598,7 +573,7 @@ describe("testWorkflow", () => {
       if (outcome.kind !== "answered") throw new Error(outcome.kind);
       return readFileSync(join(workflow.cwd, "notes.md"), "utf8");
     });
-    const run = await testWorkflow(reader, null, {
+    const run = await runTest(reader, {
       agents: {
         writer: answer(PLAN, (turn) => {
           writeFileSync(join(turn.cwd, "notes.md"), "written by the fake");
@@ -628,7 +603,7 @@ describe("testWorkflow", () => {
       await own.run({ prompt: "Hi." });
       return "done";
     });
-    const run = await testWorkflow(boxed, null, { agents: { "*": answer("hello") } });
+    const run = await runTest(boxed, { agents: { "*": answer("hello") } });
     expect(run.value).toBe("done");
     const team = run.agentOf("inside").sandbox!;
     expect(team).toEqual({
@@ -658,7 +633,7 @@ describe("testWorkflow", () => {
   describe("the hosts refuse what the real ones refuse", () => {
     test("headless claude without metered", async () => {
       const runtime = { harness: "claude", model: "m", placement: "headless" } as const;
-      const run = await testWorkflow(solo({ runtime }), null, { agents: { solo: answer("hi") } });
+      const run = await runTest(solo({ runtime }), { agents: { solo: answer("hi") } });
       expect(() => run.value).toThrow("set metered: true");
     });
   });
@@ -666,7 +641,7 @@ describe("testWorkflow", () => {
   describe("a stuck test fails, it doesn't hang", () => {
     test("a script that never settles", async () => {
       await expect(
-        testWorkflow(solo(), null, {
+        runTest(solo(), {
           stallMs: 100,
           agents: { solo: answer(() => new Promise<string>(() => undefined)) },
         }),
@@ -677,17 +652,16 @@ describe("testWorkflow", () => {
 
     test("a hang nothing cancels", async () => {
       await expect(
-        testWorkflow(solo(), null, { stallMs: 100, agents: { solo: noAnswer.hang() } }),
+        runTest(solo(), { stallMs: 100, agents: { solo: noAnswer.hang() } }),
       ).rejects.toThrow(/the run stalled.*in flight: "solo" turn 1$/);
     });
   });
 
   test("reading the value of a run whose workflow threw throws, with the throw as the cause", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf<null, null>(async () => {
         throw new Error("the workflow gave up");
       }),
-      null,
     );
     expect(() => run.value).toThrow("the workflow threw: the workflow gave up");
     expect(() => run.value).toThrow(
@@ -697,7 +671,7 @@ describe("testWorkflow", () => {
 
   test("a workflow as defineWorkflow makes it runs as its meta and run alone do", async () => {
     const workflow = defineWorkflow({ ...solo(), prepare: () => null });
-    const run = await testWorkflow(workflow, null, { agents: { solo: answer("hi") } });
+    const run = await testWorkflow(workflow, { agents: { solo: answer("hi") } });
     expect(run.value).toEqual({ kind: "answered", value: "hi" });
   });
 
@@ -711,12 +685,12 @@ describe("testWorkflow", () => {
         source: "claude /usage",
         windows: [{ id: "session", label: "Current session", usedPercent: 85 }],
       };
-      const run = await testWorkflow(read, "claude", { allowance: [claude] });
+      const run = await runTest(read, { args: "claude", allowance: [claude] });
       expect(run.value).toEqual(claude);
     });
 
     test("a harness the test gives none reads none", async () => {
-      const run = await testWorkflow(read, "codex");
+      const run = await runTest(read, { args: "codex" });
       expect(run.value).toEqual({
         harness: "codex",
         read: "none",
@@ -725,7 +699,7 @@ describe("testWorkflow", () => {
     });
 
     test("a harness awf doesn't know throws", async () => {
-      const run = await testWorkflow(read, "emacs");
+      const run = await runTest(read, { args: "emacs" });
       expect(() => run.value).toThrow("allowance: no harness emacs");
     });
   });
@@ -750,58 +724,46 @@ describe("testWorkflow", () => {
     });
 
     test("are answered in the author's terms, by key or pattern", async () => {
-      const run = await testWorkflow(
-        triage,
-        { ticket: "Pay twice" },
-        {
-          decisions: { "triage:*": { team: "payments", bug: true, urgency: 1 } },
-        },
-      );
+      const run = await runTest(triage, {
+        args: { ticket: "Pay twice" },
+        decisions: { "triage:*": { team: "payments", bug: true, urgency: 1 } },
+      });
       expect(run.value).toEqual({ team: "payments", bug: 1, urgency: 1 });
       expect(run.decisions).toMatchObject([{ key: "triage:1", state: { ticket: "Pay twice" } }]);
     });
 
     test("a function of the request, with probabilities", async () => {
-      const run = await testWorkflow(
-        triage,
-        { ticket: "Pay twice" },
-        {
-          decisions: {
-            "triage:1": (request) => ({
-              team: { payments: 0.3, frontend: 0.7 },
-              bug: JSON.stringify(request.state).includes("twice") ? 0.8 : 0.1,
-              urgency: [0.9, 0.1],
-            }),
-          },
+      const run = await runTest(triage, {
+        args: { ticket: "Pay twice" },
+        decisions: {
+          "triage:1": (request) => ({
+            team: { payments: 0.3, frontend: 0.7 },
+            bug: JSON.stringify(request.state).includes("twice") ? 0.8 : 0.1,
+            urgency: [0.9, 0.1],
+          }),
         },
-      );
+      });
       expect(run.value).toEqual({ team: "frontend", bug: 0.8, urgency: 0 });
     });
 
     test("an Error makes decide reject, as a provider failure does", async () => {
-      const run = await testWorkflow(
-        triage,
-        { ticket: "t" },
-        {
-          decisions: { "triage:1": new Error("provider down") },
-        },
-      );
+      const run = await runTest(triage, {
+        args: { ticket: "t" },
+        decisions: { "triage:1": new Error("provider down") },
+      });
       expect(() => run.value).toThrow("provider down");
     });
 
     test("a script that throws fails the test", async () => {
       await expect(
-        testWorkflow(
-          triage,
-          { ticket: "t" },
-          {
-            decisions: {
-              "triage:1": () => {
-                throw new Error("oops");
-              },
+        runTest(triage, {
+          args: { ticket: "t" },
+          decisions: {
+            "triage:1": () => {
+              throw new Error("oops");
             },
           },
-        ),
+        }),
       ).rejects.toThrow(/decision "triage:1": its script threw: oops/);
     });
 
@@ -812,58 +774,46 @@ describe("testWorkflow", () => {
         { payments: 0.9, frontend: 0.9 },
       ]) {
         await expect(
-          testWorkflow(
-            triage,
-            { ticket: "t" },
-            {
-              decisions: { "triage:1": { team, bug: 0.5, urgency: 0 } },
-            },
-          ),
+          runTest(triage, {
+            args: { ticket: "t" },
+            decisions: { "triage:1": { team, bug: 0.5, urgency: 0 } },
+          }),
         ).rejects.toThrow(/decision "triage:1": its script's answer is refused: question team: /);
       }
       await expect(
-        testWorkflow(
-          triage,
-          { ticket: "t" },
-          {
-            decisions: { "triage:1": { team: "payments", bug: 3, urgency: 0 } },
-          },
-        ),
+        runTest(triage, {
+          args: { ticket: "t" },
+          decisions: { "triage:1": { team: "payments", bug: 3, urgency: 0 } },
+        }),
       ).rejects.toThrow(/question bug: no probability of yes/);
     });
 
     test("a distribution rounded as Jev's are, summing to 0.99, is one", async () => {
-      const run = await testWorkflow(
-        triage,
-        { ticket: "t" },
-        {
-          decisions: {
-            "triage:1": {
-              team: { payments: 0.5, frontend: 0.49 },
-              bug: 1,
-              urgency: 0,
-            },
+      const run = await runTest(triage, {
+        args: { ticket: "t" },
+        decisions: {
+          "triage:1": {
+            team: { payments: 0.5, frontend: 0.49 },
+            bug: 1,
+            urgency: 0,
           },
         },
-      );
+      });
       expect(run.value).toMatchObject({ team: "payments" });
     });
 
     test("an unscripted decision fails the test", async () => {
-      await expect(testWorkflow(triage, { ticket: "t" })).rejects.toThrow(
+      await expect(runTest(triage, { args: { ticket: "t" } })).rejects.toThrow(
         /decision "triage:1": no decision is scripted/,
       );
     });
 
     test("an answer of the wrong kind fails the test", async () => {
       await expect(
-        testWorkflow(
-          triage,
-          { ticket: "t" },
-          {
-            decisions: { "triage:1": { team: "legal", bug: true, urgency: 1 } },
-          },
-        ),
+        runTest(triage, {
+          args: { ticket: "t" },
+          decisions: { "triage:1": { team: "legal", bug: true, urgency: 1 } },
+        }),
       ).rejects.toThrow(/"team" is a choice question; its script answers "legal"/);
     });
   });
@@ -892,15 +842,12 @@ const compacting = workflowOf<{ compactions: number }, JsonValue>(async (workflo
 
 describe("testWorkflow compactions", () => {
   test("an unscripted compaction answers an empty summary, apart from the agent's turns", async () => {
-    const run = await testWorkflow(
-      compacting,
-      { compactions: 1 },
-      {
-        agents: {
-          builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
-        },
+    const run = await runTest(compacting, {
+      args: { compactions: 1 },
+      agents: {
+        builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
       },
-    );
+    });
     expect(run.value).toEqual({
       compactions: [{ kind: "answered", value: "" }],
       built: "answered",
@@ -918,22 +865,19 @@ describe("testWorkflow compactions", () => {
   });
 
   test("a scripted compaction answers its summary, or ends as its reply says", async () => {
-    const run = await testWorkflow(
-      compacting,
-      { compactions: 3 },
-      {
-        agents: {
-          builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
-        },
-        compactions: {
-          builder: [
-            answer("kept the plan"),
-            noAnswer.failed("nothing to compact"),
-            noAnswer.silent(),
-          ],
-        },
+    const run = await runTest(compacting, {
+      args: { compactions: 3 },
+      agents: {
+        builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
       },
-    );
+      compactions: {
+        builder: [
+          answer("kept the plan"),
+          noAnswer.failed("nothing to compact"),
+          noAnswer.silent(),
+        ],
+      },
+    });
     expect(run.value).toEqual({
       compactions: [
         { kind: "answered", value: "kept the plan" },
@@ -957,7 +901,7 @@ describe("testWorkflow compactions", () => {
       const built = await agent.run({ prompt: "Build it.", schema: STATUS });
       return { compacted: compacted.kind, built: built.outcome.kind };
     });
-    const run = await testWorkflow(hanging, null, {
+    const run = await runTest(hanging, {
       agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
       compactions: { builder: noAnswer.hang() },
     });
@@ -977,7 +921,7 @@ describe("testWorkflow compactions", () => {
       );
       return { same: (await first) === (await again), other: await other };
     });
-    const run = await testWorkflow(reused, null);
+    const run = await runTest(reused);
     expect(run.value).toEqual({
       same: true,
       other: "compaction id c was reused with a different specification",
@@ -999,7 +943,7 @@ describe("testWorkflow compactions", () => {
         );
       return { kinds, both };
     });
-    const run = await testWorkflow(defaults, null, {
+    const run = await runTest(defaults, {
       agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
       compactions: { builder: [answer("one"), answer("two")] },
     });
@@ -1013,16 +957,13 @@ describe("testWorkflow compactions", () => {
 
   test("a compaction script left unfinished fails the test, named as a compaction", async () => {
     await expect(
-      testWorkflow(
-        compacting,
-        { compactions: 1 },
-        {
-          agents: {
-            builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
-          },
-          compactions: { builder: [answer("one"), answer("two")] },
+      runTest(compacting, {
+        args: { compactions: 1 },
+        agents: {
+          builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
         },
-      ),
+        compactions: { builder: [answer("one"), answer("two")] },
+      }),
     ).rejects.toThrow(/agent "builder" was asked 1 compaction; its compaction script has 2/);
   });
   test("a compaction a real host would refuse is refused here too, whatever the script", async () => {
@@ -1037,7 +978,7 @@ describe("testWorkflow compactions", () => {
       const none = await cursor.compact({ prompt: "Keep it." });
       return [early, none].map((o) => (o.kind === "failed" ? o.reason : o.kind));
     });
-    const run = await testWorkflow(refusals, null, {
+    const run = await runTest(refusals, {
       agents: { cursor: answer(STATUS, { step: 0, state: "done" }) },
     });
     expect(run.value).toEqual([
@@ -1065,7 +1006,7 @@ describe("testWorkflow with effort and set", () => {
   });
 
   test("each turn runs at the settings in force, and reopening with the original spec returns the agent", async () => {
-    const run = await testWorkflow(switching, null, {
+    const run = await runTest(switching, {
       agents: { reviewer: answer("ok") },
     });
     expect(run.value).toEqual({
@@ -1108,7 +1049,7 @@ describe("testWorkflow with effort and set", () => {
         await refusal(cursor.set({ effort: "high" })),
       ];
     });
-    const run = await testWorkflow(workflow, null);
+    const run = await runTest(workflow);
     expect(run.value).toEqual([
       'Error: claude has no effort "ultracode"; its levels are low, medium, high, xhigh, max',
       expect.stringContaining("cursor tui agents cannot switch model or effort: not measured"),
@@ -1137,13 +1078,13 @@ const steps = (prompts: string[], options: { timeoutMs?: number } = {}) =>
 
 describe("testWorkflow with a calling session", () => {
   test("without one, agents.caller is null", async () => {
-    const run = await testWorkflow(steps(["Plan."]), null);
+    const run = await runTest(steps(["Plan."]));
     expect(run.value).toBe("no caller");
     expect(run.agents).toEqual([]);
   });
 
   test("its turns run under the workflow's key, with the operator's harness and no model", async () => {
-    const run = await testWorkflow(steps(["Plan.", "Fix."]), null, {
+    const run = await runTest(steps(["Plan.", "Fix."]), {
       caller: { harness: "pi" },
       agents: { author: [answer("planned"), answer("fixed")] },
     });
@@ -1153,7 +1094,7 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("an interrupted turn is cancelled, not nudged, and the session takes the next", async () => {
-    const run = await testWorkflow(steps(["Plan.", "Fix."]), null, {
+    const run = await runTest(steps(["Plan.", "Fix."]), {
       caller: { harness: "claude" },
       agents: { author: [noAnswer.interrupted(), answer("fixed")] },
     });
@@ -1163,7 +1104,7 @@ describe("testWorkflow with a calling session", () => {
 
   test("a turn that times out leaves the session usable", async () => {
     let first = true;
-    const run = await testWorkflow(steps(["Plan.", "Fix."], { timeoutMs: 200 }), null, {
+    const run = await runTest(steps(["Plan.", "Fix."], { timeoutMs: 200 }), {
       caller: { harness: "codex" },
       agents: {
         author: answer(() => {
@@ -1177,13 +1118,13 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("an unanswered turn is nudged where the harness shows an interrupt, and not where it can't", async () => {
-    const shows = await testWorkflow(steps(["Plan."]), null, {
+    const shows = await runTest(steps(["Plan."]), {
       caller: { harness: "claude" },
       agents: { author: answer((turn) => (turn.nudge ? "planned" : noAnswer.silent())) },
     });
     expect(shows.value).toEqual(["planned"]);
     expect(shows.turnsOf("author").map((turn) => turn.nudge)).toEqual([false, true]);
-    const hides = await testWorkflow(steps(["Plan."]), null, {
+    const hides = await runTest(steps(["Plan."]), {
       caller: { harness: "cursor" },
       agents: { author: noAnswer.silent() },
     });
@@ -1200,7 +1141,7 @@ describe("testWorkflow with a calling session", () => {
         (error: unknown) => String(error),
       );
     });
-    const run = await testWorkflow(workflow, null, { caller: { harness: "claude" } });
+    const run = await runTest(workflow, { caller: { harness: "claude" } });
     expect(run.value).toBe(
       "Error: agent author is the calling session, whose model and effort are the operator's",
     );
@@ -1220,7 +1161,7 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("forkCaller forks a session waiting on the run: an agent the run opened, on its files' model", async () => {
-    const run = await testWorkflow(fixing, null, {
+    const run = await runTest(fixing, {
       caller: { harness: "claude", model: "claude-opus-5-5", here: false },
       agents: { fixer: answer("fixed") },
     });
@@ -1236,20 +1177,19 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("a session waiting on the run is no agent of it: caller is null, forkCaller is not", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf<null, JsonValue>(async (workflow) => ({
         caller: (await workflow.agents.caller({ key: "main" }))?.key ?? null,
         fork: (await workflow.agents.forkCaller({ key: "fixer" }))?.key ?? null,
       })),
-      null,
       { caller: { harness: "pi", model: "openai-codex/gpt-5.6-terra", here: false } },
     );
     expect(run.value).toEqual({ caller: null, fork: "fixer" });
   });
 
   test("forkCaller is null with no session, and where its files name no model, saying why", async () => {
-    expect((await testWorkflow(fixing, null)).value).toBe("no session");
-    const run = await testWorkflow(fixing, null, { caller: { harness: "codex", here: false } });
+    expect((await runTest(fixing)).value).toBe("no session");
+    const run = await runTest(fixing, { caller: { harness: "codex", here: false } });
     expect(run.value).toBe("no session");
     expect(run.agents).toEqual([]);
     expect(run.logs.map((log) => log.message)).toContainEqual(
@@ -1258,7 +1198,7 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("forkCaller again under its key is the same fork; under another spec it conflicts", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf<null, JsonValue>(async (workflow) => {
         const first = await workflow.agents.forkCaller({ key: "fixer" });
         const again = await workflow.agents.forkCaller({ key: "fixer" });
@@ -1268,7 +1208,6 @@ describe("testWorkflow with a calling session", () => {
         );
         return { same: first === again, other };
       }),
-      null,
       { caller: { harness: "claude", model: "claude-opus-5-5", here: false } },
     );
     expect(run.value).toEqual({
@@ -1278,7 +1217,7 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("handed over, forkCaller and caller().fork() take one copy, after the run's turns to it", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf<null, JsonValue>(async (workflow) => {
         const author = await workflow.agents.caller({ key: "author" });
         await author!.run({ prompt: "Plan." });
@@ -1290,7 +1229,6 @@ describe("testWorkflow with a calling session", () => {
         );
         return { same: first === again, other };
       }),
-      null,
       {
         caller: { harness: "claude", model: "claude-opus-5-5" },
         agents: { author: answer("planned") },
@@ -1304,7 +1242,7 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("one key: the same returns the same ref, another rejects, and so do open and compact", async () => {
-    const run = await testWorkflow(
+    const run = await runTest(
       workflowOf<null, JsonValue>(async (workflow) => {
         const caller = await workflow.agents.caller({ key: "author" });
         const again = await workflow.agents.caller({ key: "author" });
@@ -1327,7 +1265,6 @@ describe("testWorkflow with a calling session", () => {
           compacted: compacted.kind === "failed" ? compacted.reason : compacted.kind,
         };
       }),
-      null,
       { caller: { harness: "claude" }, agents: { author: answer("planned") } },
     );
     expect(run.value).toEqual({
@@ -1339,9 +1276,9 @@ describe("testWorkflow with a calling session", () => {
   });
 
   test("an agent the run opened cannot be scripted as interrupted", async () => {
-    await expect(
-      testWorkflow(solo(), null, { agents: { solo: noAnswer.interrupted() } }),
-    ).rejects.toThrow('agent "solo" turn 1: only the calling session can be interrupted');
+    await expect(runTest(solo(), { agents: { solo: noAnswer.interrupted() } })).rejects.toThrow(
+      'agent "solo" turn 1: only the calling session can be interrupted',
+    );
   });
 });
 
@@ -1362,16 +1299,13 @@ const forking = workflowOf<{ placement?: "tui" }, JsonValue>(async (workflow, ar
 
 describe("testWorkflow forks", () => {
   test("a fork is scripted by its own key and recorded with the agent it copied", async () => {
-    const run = await testWorkflow(
-      forking,
-      {},
-      {
-        agents: {
-          worker: [answer(PLAN, { steps: ["a"] })],
-          tests: [answer(STATUS, { step: 0, state: "done" })],
-        },
+    const run = await runTest(forking, {
+      args: {},
+      agents: {
+        worker: [answer(PLAN, { steps: ["a"] })],
+        tests: [answer(STATUS, { step: 0, state: "done" })],
       },
-    );
+    });
     expect(run.value).toBe("answered");
     expect(run.agentOf("tests")).toMatchObject({
       instructions: "You write the tests.",
@@ -1392,7 +1326,7 @@ describe("testWorkflow forks", () => {
       const tests = await worker.fork({ key: "tests" });
       return (await tests.run({ prompt: "Test the plan.", schema: STATUS })).outcome.kind;
     });
-    const run = await testWorkflow(sandboxed, null, {
+    const run = await runTest(sandboxed, {
       agents: {
         worker: [answer(PLAN, { steps: ["a"] })],
         tests: [answer(STATUS, { step: 0, state: "done" })],
@@ -1404,16 +1338,13 @@ describe("testWorkflow forks", () => {
   });
 
   test("a headless agent forks into a TUI, which continues its copy", async () => {
-    const run = await testWorkflow(
-      forking,
-      { placement: "tui" },
-      {
-        agents: {
-          worker: [answer(PLAN, { steps: ["a"] })],
-          tests: [answer(STATUS, { step: 0, state: "done" })],
-        },
+    const run = await runTest(forking, {
+      args: { placement: "tui" },
+      agents: {
+        worker: [answer(PLAN, { steps: ["a"] })],
+        tests: [answer(STATUS, { step: 0, state: "done" })],
       },
-    );
+    });
     expect(run.value).toBe("answered");
     expect(run.agentOf("tests").execution).toEqual({
       harness: run.agentOf("worker").execution.harness,
@@ -1445,7 +1376,7 @@ describe("testWorkflow layouts", () => {
       await lead.fork({ key: "plain" });
       return null;
     });
-    const run = await testWorkflow(review, null, {
+    const run = await runTest(review, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.agentOf("lead")).toMatchObject({
@@ -1477,7 +1408,7 @@ describe("testWorkflow layouts", () => {
         await open({ keepPane: "never" }),
       ];
     });
-    const run = await testWorkflow(reopening, null, { agents: {} });
+    const run = await runTest(reopening, { agents: {} });
     expect(run.value).toEqual([
       "ok",
       "ok",
@@ -1503,7 +1434,7 @@ describe("testWorkflow layouts", () => {
         await open({ key: "b", runtime: "claude", layout: { beside: "b", side: "right" } }),
       ];
     });
-    const run = await testWorkflow(refused, null, { agents: {} });
+    const run = await runTest(refused, { agents: {} });
     expect(run.value).toEqual([
       "agent a: layout and keepPane place a pane, and a headless agent has none",
       "agent b: a pane cannot be placed beside itself",
@@ -1529,7 +1460,7 @@ describe("testWorkflow layouts", () => {
       });
       return null;
     });
-    const run = await testWorkflow(besides, null, { agents: {} });
+    const run = await runTest(besides, { agents: {} });
     expect(run.agentOf("a").layoutFallback).toBe("quiet is headless");
     expect(run.agentOf("b").layoutFallback).toBe("later is not open");
   });
@@ -1552,7 +1483,7 @@ describe("testWorkflow layouts", () => {
       ]);
       return null;
     });
-    const run = await testWorkflow(siblings, null, { agents: {} });
+    const run = await runTest(siblings, { agents: {} });
     expect(run.agents.map((agent) => agent.key).indexOf("b")).toBeGreaterThan(
       run.agents.map((agent) => agent.key).indexOf("a"),
     );
@@ -1570,7 +1501,7 @@ describe("testWorkflow layouts", () => {
       ]);
       return null;
     });
-    const run = await testWorkflow(crossed, null, {
+    const run = await runTest(crossed, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.agentOf("x").layoutFallback).toBe("y is not open");
@@ -1593,7 +1524,7 @@ describe("testWorkflow layouts", () => {
       });
       return "ok";
     });
-    const run = await testWorkflow(reopening, null, { agents: {} });
+    const run = await runTest(reopening, { agents: {} });
     expect(run.value).toBe("ok");
     expect(run.agentOf("b").layout).toEqual({ beside: "a", side: "right" });
   });
@@ -1623,7 +1554,7 @@ describe("testWorkflow layouts", () => {
         ),
       ];
     });
-    const run = await testWorkflow(refused, null, {
+    const run = await runTest(refused, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.value).toEqual([
@@ -1648,7 +1579,7 @@ describe("testWorkflow layouts", () => {
         await again({ key: "x", layout: { beside: "lead", side: "right" }, keepPane: "always" }),
       ];
     });
-    const run = await testWorkflow(twice, null, {
+    const run = await runTest(twice, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.value).toEqual([
@@ -1674,7 +1605,7 @@ describe("testWorkflow layouts", () => {
       });
       return null;
     });
-    const run = await testWorkflow(besides, null, { agents: {}, caller: { harness: "claude" } });
+    const run = await runTest(besides, { agents: {}, caller: { harness: "claude" } });
     expect(run.agentOf("a").layoutFallback).toBe(
       "author is the calling session, whose pane is the operator's",
     );
@@ -1701,7 +1632,7 @@ describe("testWorkflow layouts", () => {
       for (const agent of agents) await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
       return null;
     });
-    const run = await testWorkflow(keeping, null, {
+    const run = await runTest(keeping, {
       agents: {
         "kept-failed": [noAnswer.failed()],
         "closed-answered": [answer(PLAN, { steps: [] })],
@@ -1728,7 +1659,7 @@ describe("testWorkflow layouts", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       return null;
     });
-    const run = await testWorkflow(leaving, null, {
+    const run = await runTest(leaving, {
       agents: { left: [answer(PLAN, { steps: [] }), noAnswer.hang()] },
     });
     expect(run.agentOf("left").keptPane).toBe(true);
@@ -1739,9 +1670,9 @@ test("files are laid out for any workflow's test, in its own directory, and neve
   const reads = workflowOf<null, string>(async (workflow) =>
     readFileSync(join(workflow.cwd, "notes", "todo.md"), "utf8"),
   );
-  const run = await testWorkflow(reads, null, { files: { notes: { "todo.md": "ship it\n" } } });
+  const run = await runTest(reads, { files: { notes: { "todo.md": "ship it\n" } } });
   expect(run.value).toBe("ship it\n");
-  await expect(
-    testWorkflow(reads, null, { files: { "a.md": "x" }, cwd: tmpdir() }),
-  ).rejects.toThrow("give files or cwd, not both");
+  await expect(runTest(reads, { files: { "a.md": "x" }, cwd: tmpdir() })).rejects.toThrow(
+    "give files or cwd, not both",
+  );
 });

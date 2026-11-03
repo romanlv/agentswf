@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, noAnswer, testWorkflow } from "./index";
+import { answer, noAnswer } from "./index";
+import { runTest } from "./run-test";
 import { waiting } from "./script";
 
 const workflow: RunnableWorkflow<null, string> = {
@@ -16,7 +17,7 @@ const workflow: RunnableWorkflow<null, string> = {
 };
 test("scripted waiting is acknowledged through the real control plane and preserves one operation", async () => {
   let calls = 0;
-  const run = await testWorkflow(workflow, null, {
+  const run = await runTest(workflow, {
     agents: {
       worker: [answer(() => (++calls < 4 ? waiting("job", 1) : "done")), answer("next")],
     },
@@ -32,7 +33,7 @@ test("scripted waiting is acknowledged through the real control plane and preser
 });
 
 test("an async check-in answer is not raced by a tiny real-time response window", async () => {
-  const run = await testWorkflow(workflow, null, {
+  const run = await runTest(workflow, {
     agents: {
       worker: [
         answer(async (turn) => {
@@ -63,7 +64,7 @@ for (const runtime of ["codex", "pi", "claude-headless"]) {
       },
     };
     await expect(
-      testWorkflow(unsupported, null, {
+      runTest(unsupported, {
         runtimes: {
           pi: { harness: "pi", model: "test" },
         },

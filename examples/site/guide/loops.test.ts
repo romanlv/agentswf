@@ -10,7 +10,8 @@ const approved = answer(VERDICT, { approved: true, changes: [] });
 
 describe("the loops page's review loop", () => {
   test("makes the reviewer's changes, in the same sessions, until it approves", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: {
         implementer: done,
         reviewer: [rejected("Accept week 53"), approved],
@@ -25,7 +26,8 @@ describe("the loops page's review loop", () => {
   });
 
   test("stops at the bound and returns what is still open", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: { implementer: done, reviewer: rejected("Still no week 53") },
     });
     expect(run.value).toEqual({
@@ -37,7 +39,8 @@ describe("the loops page's review loop", () => {
   });
 
   test("a failed implementer is replaced once, and the new one gets the open changes", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: {
         implementer: [done, noAnswer.failed("harness crashed")],
         "implementer#2": done,
@@ -51,7 +54,8 @@ describe("the loops page's review loop", () => {
   });
 
   test("a second failure stops the run with its reason", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: {
         implementer: noAnswer.timedOut("no progress"),
         "implementer#2": noAnswer.failed("harness crashed"),
@@ -66,7 +70,8 @@ describe("the loops page's review loop", () => {
   });
 
   test("a missing login stops at once, with no replacement", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: { implementer: noAnswer.needsLogin(), reviewer: approved },
     });
     expect(run.ending).toMatchObject({
@@ -77,7 +82,8 @@ describe("the loops page's review loop", () => {
   });
 
   test("a reviewer that never answers stops the run", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: { implementer: done, reviewer: noAnswer.silent() },
     });
     expect(run.ending).toMatchObject({

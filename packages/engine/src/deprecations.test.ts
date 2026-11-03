@@ -11,9 +11,16 @@ import { DEPRECATIONS, type Deprecated, deprecationLine } from "./deprecations";
 import { appendMailbox } from "./mailbox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun } from "./runs";
-import { answering, caseRun, createTempRunDirs, future, startCase } from "./testing";
+import { answering, caseRun, createTempRunDirs, DOC, future, startCase } from "./testing";
 import { runWorkflow } from "./workflow-runner";
-import { answer, noAnswer, reply, type TestRun, testWorkflow } from "./workflow-testing";
+import {
+  answer,
+  noAnswer,
+  reply,
+  type TestOptions,
+  type TestRun,
+  testWorkflow,
+} from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -46,7 +53,6 @@ test("a plain run logs each deprecated name it uses once, naming its replacement
         return [isAnswered(first.outcome), isAnswered(first.outcome)];
       },
     }),
-    null,
     { agents: { a: answer("yes") } },
   );
   expect(run.value).toEqual([true, true]);
@@ -64,7 +70,6 @@ test("defineExecutableWorkflow's workflow runs, and its run says so once", async
         run: async () => "ran",
       },
     }),
-    null,
   );
   expect(run.value).toBe("ran");
   expect(said(run)).toEqual({ defineExecutableWorkflow: 1 });
@@ -162,9 +167,9 @@ test("a race whose label throws is refused, and leaves its name to a retry", asy
 const plainRun = (
   name: string,
   run: Parameters<typeof defineWorkflow<null, JsonValue>>[0]["run"],
-  options: Parameters<typeof testWorkflow>[2] = {},
+  options: TestOptions<null> = {},
 ) =>
-  testWorkflow(defineWorkflow<null, JsonValue>({ meta: { name, description: name }, run }), null, {
+  testWorkflow(defineWorkflow<null, JsonValue>({ meta: { name, description: name }, run }), {
     agents: { a: answer("yes") },
     ...options,
   });
@@ -411,6 +416,63 @@ test("an event's id, the start's or a scripted one's, is its id in the mailbox, 
   );
   expect(eventIds(run)).toEqual(["start-1", "next-1"]);
   expect(said(run)).toEqual({ "test-event-id": 1 });
+});
+
+test("testWorkflow(workflow, args, options) works as its options' args did, logged once", async () => {
+  const greet = defineWorkflow<{ name: string }, string>({
+    meta: { name: "greet", description: "Greets one name." },
+    prepare: () => ({ name: "nobody" }),
+    run: async (wf, { name }) => {
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      const { outcome } = await agent.run({ prompt: `Greet ${name}.` });
+      return outcome.answered ? `${outcome.value} ${name}` : outcome.kind;
+    },
+  });
+  const run = await testWorkflow(greet, { name: "ada" }, { agents: { a: answer("hi") } });
+  expect(run.value).toBe("hi ada");
+  expect(said(run)).toEqual({ "test-args": 1 });
+  // An object given third is the options even when it looks like args, and args are given once.
+  await expect(
+    testWorkflow(greet, { name: "ada" }, { args: { name: "bo" } } as never),
+  ).rejects.toThrow("args are given once");
+});
+
+test("args given second, with no options, and meta and run alone still work, logged once", async () => {
+  const bare = { meta: { name: "bare", description: "bare" }, run: async () => "ran" as const };
+  const run = await testWorkflow(bare, null);
+  expect(run.value).toBe("ran");
+  expect(said(run)).toEqual({ "test-args": 1 });
+  const listed = defineWorkflow<string[], number>({
+    meta: { name: "listed", description: "Counts." },
+    prepare: ({ argv }) => [...argv],
+    run: async (_wf, names) => names.length,
+  });
+  expect((await testWorkflow(listed, ["a", "b"])).value).toBe(2);
+});
+
+test("a test's recorded and mailbox work as earlier's stages and mailbox, each logged once", async () => {
+  const run = await testWorkflow(
+    caseRun(async (wf) => {
+      const plan = await wf.stage("plan", { result: DOC }, async () => ({ path: "new.md" }));
+      return { plan, taken: (await wf.receive()).map((e) => e.id) };
+    }),
+    {
+      recorded: { plan: { path: "old.md" } },
+      mailbox: [
+        {
+          version: MAILBOX_RECORD_VERSION,
+          at: new Date().toISOString(),
+          kind: "event",
+          id: "e-1",
+          name: "dd.changes",
+          data: { case: "k" },
+          from: "operator",
+        },
+      ],
+    },
+  );
+  expect(run.value).toEqual({ plan: { path: "old.md" }, taken: ["e-1"] });
+  expect(said(run)).toEqual({ "test-recorded": 1, "test-mailbox": 1 });
 });
 
 test("testing's new forms log nothing", async () => {

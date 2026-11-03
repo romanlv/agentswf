@@ -139,7 +139,7 @@ rest of the run, whatever `meta.version` the code has, so the table
 
 - [Runs](/guide/runs): ids, attempts, `--continue`, `--from-stage` and `--values`.
 - [Stages](/reference/workflow-api#stages) in the workflow API.
-- [Continuing over recorded stages](/reference/testing-api#continuing-over-recorded-stages):
+- [Continuing an earlier attempt](/reference/testing-api#continuing-an-earlier-attempt):
   testing a workflow's second attempt, which catches code that only works on the first.
 - The full model, with the record formats:
   [`design/runs-and-stages.md`](https://github.com/romanlv/agentswf/blob/main/docs/design/runs-and-stages.md)

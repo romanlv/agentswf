@@ -14,20 +14,20 @@ has the types, with every field documented.
 
 ## At a glance
 
-- **Run a test:** [`testWorkflow(workflow, args, options?)`](#testworkflow), or
-  [`testWorkflow(eventWorkflow, options)`](#a-workflow-with-events) for a workflow with events;
+- **Run a test:** [`testWorkflow(workflow, options?)`](#testworkflow), for every workflow;
   [`awf test`](#awf-test) runs the files.
 - **Script a turn:** [`answer(SCHEMA, value | (turn) => …)`](#answer), [`answer("text")`](#answer),
   [`noAnswer.silent()`, `blocked()`, `failed()`, `timedOut()`, `hang()`, `interrupted()`,
   `needsLogin()`](#noanswer); a script is [one entry or a list](#scripts), and a function gets
   [the turn](#the-turn).
-- **Options:** [`agents`](#scripts), [`compactions`](#compactions), [`messages`](#messages),
-  [`participants`](#participants), [`decisions`](#decisions),
-  [`allowance`](#allowance), [`runtimes`](#runtimes), [`caller`](#caller),
-  [`timeout`](#time), [`stall`](#time), [`maxTimers`](#time), [`files`](#files),
-  [`cwd`](#files), [`recorded`, `fromStage`, `values`](#continuing-over-recorded-stages); with
-  events, [`id`, `args`, `event`, `events`, `maxTurns`, `mailbox`](#a-workflow-with-events).
-  [Options](#options) has them in one table, with defaults.
+- **Options:** [`args`, `id`](#testworkflow), [`agents`](#scripts),
+  [`compactions`](#compactions), [`messages`](#messages), [`participants`](#participants),
+  [`decisions`](#decisions), [`allowance`](#allowance), [`runtimes`](#runtimes),
+  [`caller`](#caller), [`timeout`](#time), [`stall`](#time), [`maxTimers`](#time),
+  [`maxTurns`](#time), [`files`](#files), [`cwd`](#files),
+  [`earlier`, `fromStage`, `values`](#continuing-an-earlier-attempt); with events,
+  [`event`, `events`](#a-workflow-with-events). [Options](#options) has them in one table, with
+  defaults.
 - **Read the result:** [`run.value`, `run.ending`, `run.turnsOf(key)`, `run.agentOf(key)`,
   `run.messagesOf(key)` and the rest](#what-the-run-did).
 - **Know what fails:** [what fails the test, not the workflow](#what-fails-the-test-not-the-workflow).
@@ -42,7 +42,8 @@ import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import summarize, { SUMMARY } from "./summarize";
 
 test("returns the reader's summary", async () => {
-  const run = await testWorkflow(summarize, { file: "README.md" }, {
+  const run = await testWorkflow(summarize, {
+    args: { file: "README.md" },
     agents: { reader: answer(SUMMARY, { summary: "Two sentences." }) },
   });
   expect(run.value).toEqual({ summary: "Two sentences." });
@@ -50,7 +51,8 @@ test("returns the reader's summary", async () => {
 });
 
 test("a reader that never answers is nudged once, then the summary says why", async () => {
-  const run = await testWorkflow(summarize, { file: "README.md" }, {
+  const run = await testWorkflow(summarize, {
+    args: { file: "README.md" },
     agents: { reader: noAnswer.silent() },
   });
   expect(run.value.summary).toStartWith("no answer:");
@@ -60,10 +62,16 @@ test("a reader that never answers is nudged once, then the summary says why", as
 
 `summarize` is the workflow on [the workflow API page](/reference/workflow-api#a-workflow-file).
 
-- **`testWorkflow(workflow, args, options?)`** resolves to [the run](#what-the-run-did) once the
-  workflow returns, throws, stops or parks.
-- **`args`** go to `run` as given: `prepare` isn't called. Test `prepare` by calling it, as
-  [Testing](/guide/testing#arguments) shows.
+- **`testWorkflow(workflow, options?)`** resolves to [the run](#what-the-run-did) once the
+  workflow returns, throws, stops or parks. `workflow` is what `defineWorkflow` made.
+- **`args`** go to `run` as given: `prepare` isn't called for them. Test `prepare` by calling it,
+  as [Testing](/guide/testing#arguments) shows. A workflow that takes args must be given them,
+  which `tsc` checks; one whose args may be `null`, or one with events, may leave them out, and
+  its run gets what `prepare` makes of no argv, as `awf run` with none would.
+- **`id`** is the run's id, `"test"` unless given.
+- **An option it doesn't take is refused**, named, so a misspelling fails the test rather than
+  being ignored. A workflow's args are always the `args` option: an object given second is read
+  as the options.
 - It rejects, failing the test, on [the test's own mistakes](#what-fails-the-test-not-the-workflow).
   What the workflow does, throwing included, is in the run.
 
@@ -71,6 +79,8 @@ test("a reader that never answers is nudged once, then the summary says why", as
 
 | Option | Default | What it gives |
 | --- | --- | --- |
+| [`args`](#testworkflow) | what `prepare` makes of no argv; required where the workflow takes args | the args `run` is given |
+| [`id`](#testworkflow) | `"test"` | the run's id |
 | [`agents`](#scripts) | none | each agent's script, by key or pattern |
 | [`compactions`](#compactions) | each compaction answers `""` | each agent's compactions |
 | [`messages`](#messages) | none | each agent's script for a message that wakes it |
@@ -82,13 +92,14 @@ test("a reader that never answers is nudged once, then the summary says why", as
 | [`timeout`](#time) | none | the run's deadline, a duration |
 | [`stall`](#time) | `"2s"` | real time with nothing starting or ending before the test fails |
 | [`maxTimers`](#time) | 20 | timers the virtual clock skips to before the run parks |
+| [`maxTurns`](#time) | 20 | turns started before the test fails |
 | [`files`](#files) | none | files laid out under the run's directory first |
 | [`cwd`](#files) | a temporary directory, removed after | where the agents work |
-| [`recorded`](#continuing-over-recorded-stages) | none | stages an earlier attempt recorded |
-| [`fromStage`, `values`](#continuing-over-recorded-stages) | none | where the attempt starts, and the values before it |
+| [`earlier`](#continuing-an-earlier-attempt) | none | the `stages` and `mailbox` an earlier attempt left |
+| [`fromStage`, `values`](#continuing-an-earlier-attempt) | none | where the attempt starts, and the values before it |
 
-A [workflow with events](#a-workflow-with-events) takes these too, but not `recorded`, `fromStage`
-or `values`, and adds `id`, `args`, `event`, `events`, `maxTurns` and `mailbox`.
+A [workflow with events](#a-workflow-with-events) takes these too, but not `values`, and adds
+`event` and `events`.
 
 ## Scripts
 
@@ -101,7 +112,8 @@ shared happy path and override, with lists, the agents its case is about:
 
 ```ts
 // examples/feature-delivery/workflow.test.ts
-const run = await testWorkflow(featureDelivery, args, {
+const run = await testWorkflow(featureDelivery, {
+  args,
   agents: {
     ...happyPath,
     planner: [
@@ -202,7 +214,7 @@ it. It answers as they would, or leaves a question open by returning:
 
 ```ts
 // examples/site/reference/testing-api.test.ts
-const run = await testWorkflow(investigate, null, {
+const run = await testWorkflow(investigate, {
   agents: {
     investigator: answer(async (turn) => {
       const asked = await turn.send("coordinator", "One incident or two?", { awaitReply: true });
@@ -288,6 +300,8 @@ Without it, both answer `null`.
 
 ## Time
 
+- **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes for a
+  message: a run that starts more fails the test, so a loop that never ends doesn't hang it.
 - **`timeout`**, a [duration](/reference/workflow-api#waiting-on-time) such as `"5s"`, is the
   run's deadline, none unless given, as `awf run` has none without `--timeout`. Deadlines are
   real time: a turn's `timeout` runs on the clock, and
@@ -349,7 +363,7 @@ answer wait for the other's: run one after the other, the test stalls and fails.
 
 ## A workflow with events
 
-A workflow with `events` is tested from its options alone, its args among them:
+A workflow with `events` takes the same options, and two of its own, `event` and `events`:
 
 ```ts
 // examples/site/reference/testing-api.test.ts
@@ -378,7 +392,7 @@ expect(run.emits).toEqual([]);
 `caseRun` and the other workflows these samples test are in
 [`examples/site/reference/testing-api.ts`](https://github.com/romanlv/agentswf/blob/main/examples/site/reference/testing-api.ts).
 
-- **`id`** names the run, as `awf run --id` or a sender does.
+- **`id`** names the run, as `awf run --id` or a sender does; `"test"` unless given.
 - **`event`** starts it, as `awf emit` would, its data checked against its schema and its name
   against `starts`; without one, it starts with no event.
 - **`args`** are the run's, as `awf run --id {id} -- {args}` would prepare them; without them,
@@ -397,9 +411,8 @@ expect(run.emits).toEqual([]);
 - A `keepAlive` with no `window` lasts 100 ms in a test rather than the hour, so a
   kept-alive workflow's test doesn't stall in it. A compaction `onTimeout` asks for is in
   `run.compactionsOf(key)`.
-- **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes: a
-  run that starts more fails the test, so a loop that never parks doesn't hang it.
-- **`mailbox`** lays out what an earlier attempt left, and the test is its continue.
+- **`earlier: { mailbox }`** lays out what an earlier attempt left in the mailbox, and the test is
+  its continue: [Continuing an earlier attempt](#continuing-an-earlier-attempt).
 - The test returns when the run parks or returns; `run.value` throws for a parked run.
 - **`run.ending`** is `parked`, with the `label` and `until` of the wait it parked at;
   **`run.mailbox`** is its mailbox as it left it.
@@ -408,17 +421,24 @@ expect(run.emits).toEqual([]);
 
 [Events](/reference/workflow-api#events) on the workflow API page covers the calls these test.
 
-## Continuing over recorded stages
+## Continuing an earlier attempt
 
-`recorded` runs the workflow as a continue over stages an earlier attempt recorded, keyed by
-name: each value, or `undefined` for a stage that returns nothing. `fromStage` and `values` start
-at a stage, as `--from-stage` and `--values` do; `values` without `fromStage` is refused. This is
-how a test catches code that only works on a first attempt:
+`earlier` runs the workflow as a continue, attempt 2, over what an earlier attempt left:
+
+- **`stages`**, the stages it recorded, keyed by name: each value, or `undefined` for a stage
+  that returns nothing. A continue reuses them without calling their work.
+- **`mailbox`**, what it left in the run's mailbox, in order: its events, timers, and what its
+  waits and turns wrote. A starting `event` is appended after them, as the event that woke it.
+
+`fromStage` and `values` start at a stage, as `--from-stage` and `--values` do; `values` without
+`fromStage` is refused. A workflow with events takes `fromStage` only with `earlier`, as `awf run`
+takes it only with `--continue`, and no `values`. This is how a test catches code that only works
+on a first attempt:
 
 ```ts
 // examples/site/reference/testing-api.test.ts
-const run = await testWorkflow(flow, null, {
-  recorded: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
+const run = await testWorkflow(flow, {
+  earlier: { stages: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } } },
   agents: { worker: answer(QA, { preview: "ok" }) },
 });
 expect(run.compactions).toEqual([]); // a compaction inside implement isn't repeated
@@ -432,7 +452,9 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 - a script that throws;
 - `noAnswer.interrupted()` on an agent other than the calling session;
 - a stall: nothing starting or ending for `stall`, so a stuck test fails rather than hangs;
-- with events, more than `maxTurns` turns, or a scripted event never sent.
+- more than `maxTurns` turns started;
+- an option `testWorkflow` doesn't take, or no `args` for a workflow whose `prepare` refuses none;
+- with events, a scripted event never sent.
 
 ## `awf test` {#awf-test}
 
@@ -449,11 +471,15 @@ on [the `awf` reference](/reference/awf#test).
 
 These still compile and work until 0.1.0. Each test that uses one logs it once, in `run.logs`,
 as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read. An
-old option given with its replacement, `timeoutMs` with `timeout` or `stallMs` with `stall`, is
-refused.
+old option given with its replacement, `timeoutMs` with `timeout`, `stallMs` with `stall`,
+`recorded` with `earlier.stages` or `mailbox` with `earlier.mailbox`, is refused.
 
 | Old form | Instead |
 | --- | --- |
+| `testWorkflow(workflow, args, options)`, and `testWorkflow(workflow, args)` with args that aren't an object | `testWorkflow(workflow, { args, … })`. Three arguments are always the old form; with two, an object second is the options. The old form still takes a workflow's `meta` and `run` alone; the one form takes what `defineWorkflow` made. |
+| `recorded` | `earlier: { stages }`. |
+| `mailbox` | `earlier: { mailbox }`. |
+| The `EventTestOptions<Events, Args>` type | `TestOptions<Args, Events>`, the one options type. |
 | `reply.silent()`, `reply.failed()` and the rest | `noAnswer.silent()`, `noAnswer.failed()`: the same calls. A reply answers. |
 | `message.silent()` in a message script | Return nothing. |
 | `message.fail(reason)` in a message script | Return `noAnswer.failed(reason)`. |
@@ -469,3 +495,9 @@ the script's word. A turn its script left silent is `unanswered`, where it was `
 `needsLogin()` is `failed`, `interrupted()` is `cancelled`, `hang()` is `timed-out` or
 `cancelled`, and a silent compaction is `failed`. A test that
 compares an outcome with the old word fails, and `tsc --noEmit` flags the comparison.
+
+`testWorkflow(workflow, args)` with object args and no options changed without a deprecation
+too: an object given second is the options, so those args are refused, named by their first key,
+and `tsc --noEmit` flags the call. Give them as `{ args }`. And `maxTurns`, 20 by default, now
+counts the turns of a workflow without events too: a test whose run starts more, such as a
+`wf.parallel` over 25 agents, fails until it gives a larger `maxTurns`.

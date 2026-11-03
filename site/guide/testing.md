@@ -27,7 +27,8 @@ Its test sits beside it:
 awf test
 ```
 
-- **`testWorkflow(workflow, args, options)`** runs the workflow and returns what it did.
+- **`testWorkflow(workflow, options)`** runs the workflow and returns what it did. Its
+  `args` are an option, which a workflow that takes them must be given.
 - **`agents`** maps each agent's key to its script. **`answer(NOTES, value)`** answers a turn
   that asks for `NOTES` with `value`, checked against the schema as a real answer is. The script
   names the same schema the workflow asks with; a different one fails the test with
@@ -89,8 +90,8 @@ Under `wf.parallel`, read agents by key, not by index. The full list is [What th
 
 ## Arguments
 
-`testWorkflow` passes `args` to `run` as given; it doesn't call `prepare`. Test `prepare` by
-calling it with the argv it would get:
+`testWorkflow` passes its `args` option to `run` as given; it doesn't call `prepare` for them.
+Test `prepare` by calling it with the argv it would get:
 
 <<< @/../examples/site/guide/testing/release-notes.test.ts#prepare
 
@@ -117,21 +118,24 @@ as they do on `awf run`; `runtimes` in the options adds or replaces others.
   turn's schema refuses, or a script that throws is the test's mistake, and the test fails saying
   so.
 - **A stuck run fails rather than hangs.** Nothing starting or ending for 2 s fails the test;
-  `stall` in `testWorkflow`'s options, a duration such as `"5s"`, changes it. A loop whose turns keep answering never
-  stalls, so it runs until `awf test`'s per-test timeout, 5 s unless `--timeout` says otherwise.
+  `stall` in `testWorkflow`'s options, a duration such as `"5s"`, changes it. A loop whose turns
+  keep answering never stalls, so more than 20 turns started fails the test; `maxTurns` changes
+  that.
+- **A misspelled option fails the test.** An option `testWorkflow` doesn't take is refused,
+  named, rather than ignored.
 - **Deadlines are real time.** A turn's `timeout` runs on the clock, so keep them short in a
   test, or end the turn at once with `noAnswer.timedOut()`.
 - **Sandboxes are fakes.** They confine nothing; a test checks what each agent was given, not what
   a real sandbox enforces.
 - **Messages, decisions, events and stages have scripts too.** An agent messaging another, a
-  decision model's answers, a workflow parked on an event, a continue over recorded stages: each
-  has its own option, on the reference page.
+  decision model's answers, a workflow parked on an event, a continue over what an earlier
+  attempt left: each has its own option, on the reference page.
 
 ## Next
 
 - [The testing API](/reference/testing-api): every script, option and field of `run`, with
   [messages](/reference/testing-api#messages), [decisions](/reference/testing-api#decisions),
   [events](/reference/testing-api#a-workflow-with-events) and
-  [recorded stages](/reference/testing-api#continuing-over-recorded-stages).
+  [an earlier attempt](/reference/testing-api#continuing-an-earlier-attempt).
 - [What fails the test](/reference/testing-api#what-fails-the-test-not-the-workflow), in full.
 - [Outcomes](/reference/workflow-api#outcomes): what each way a turn can end means for a real run.

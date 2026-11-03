@@ -10,25 +10,22 @@ const tickets = [
 
 describe("triage", () => {
   test("takes the confident answers and flags the rest; a confident no is as good as a yes", async () => {
-    const run = await testWorkflow(
-      triage,
-      { tickets },
-      {
-        decisions: {
-          "triage:1": {
-            team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
-            bug: 0.97,
-            urgency: [0.1, 0.3, 0.6],
-          },
-          "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
-          "triage:3": {
-            team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
-            bug: 0.6,
-            urgency: [0.05, 0.9, 0.05],
-          },
+    const run = await testWorkflow(triage, {
+      args: { tickets },
+      decisions: {
+        "triage:1": {
+          team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
+          bug: 0.97,
+          urgency: [0.1, 0.3, 0.6],
+        },
+        "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
+        "triage:3": {
+          team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
+          bug: 0.6,
+          urgency: [0.05, 0.9, 0.05],
         },
       },
-    );
+    });
     expect(run.value).toEqual({
       triaged: [
         { ticket: tickets[0]!, team: "payments", bug: true, urgency: "now", unsure: ["urgency"] },
@@ -56,19 +53,16 @@ describe("triage", () => {
   });
 
   test("an answer just under 0.9 is unsure, and 0.9 itself is sure", async () => {
-    const run = await testWorkflow(
-      triage,
-      { tickets: ["t"] },
-      {
-        decisions: {
-          "triage:1": {
-            team: { payments: 0.89, accounts: 0.11, frontend: 0 },
-            bug: 0.9,
-            urgency: [0, 0.1, 0.9],
-          },
+    const run = await testWorkflow(triage, {
+      args: { tickets: ["t"] },
+      decisions: {
+        "triage:1": {
+          team: { payments: 0.89, accounts: 0.11, frontend: 0 },
+          bug: 0.9,
+          urgency: [0, 0.1, 0.9],
         },
       },
-    );
+    });
     expect(run.value.triaged[0]).toMatchObject({ team: "payments", unsure: ["team"] });
   });
 
@@ -79,13 +73,10 @@ describe("triage", () => {
   });
 
   test("a decision that fails fails the triage", async () => {
-    const run = await testWorkflow(
-      triage,
-      { tickets: ["t"] },
-      {
-        decisions: { "triage:*": new Error("OpenRouter is down") },
-      },
-    );
+    const run = await testWorkflow(triage, {
+      args: { tickets: ["t"] },
+      decisions: { "triage:*": new Error("OpenRouter is down") },
+    });
     expect(() => run.value).toThrow("OpenRouter is down");
   });
 });

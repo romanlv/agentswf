@@ -7,27 +7,24 @@ import toolsWorkflow, { Summary, tools } from "./workflow";
 
 describe("tools", () => {
   test("the agent closes items through its tools, and the workflow sees them closed", async () => {
-    const run = await testWorkflow(
-      tools,
-      { runtimes: ["codex"] },
-      {
-        agents: {
-          "triager-*": answer(Summary, async (turn) => {
-            const open = await turn.tool("list_open");
-            expect(open).toEqual({
-              kind: "result",
-              output: expect.stringContaining("a1  The login page shows the old logo"),
-            });
-            await turn.tool("close_item", { id: "a1", status: "done", why: "Fixed yesterday." });
-            expect(await turn.tool("label_item", { id: "b2", labels: ["ops", "cron"] })).toEqual({
-              kind: "result",
-              output: "Labelled b2.",
-            });
-            return { closed: 1, summary: "Closed the logo item." };
-          }),
-        },
+    const run = await testWorkflow(tools, {
+      args: { runtimes: ["codex"] },
+      agents: {
+        "triager-*": answer(Summary, async (turn) => {
+          const open = await turn.tool("list_open");
+          expect(open).toEqual({
+            kind: "result",
+            output: expect.stringContaining("a1  The login page shows the old logo"),
+          });
+          await turn.tool("close_item", { id: "a1", status: "done", why: "Fixed yesterday." });
+          expect(await turn.tool("label_item", { id: "b2", labels: ["ops", "cron"] })).toEqual({
+            kind: "result",
+            output: "Labelled b2.",
+          });
+          return { closed: 1, summary: "Closed the logo item." };
+        }),
       },
-    );
+    });
     expect(run.value.triages[0]!.items).toEqual([
       {
         id: "a1",
@@ -41,19 +38,16 @@ describe("tools", () => {
 
   test("input that doesn't fit is refused and leaves the item open; a handler's throw is a failure", async () => {
     const seen: unknown[] = [];
-    const run = await testWorkflow(
-      tools,
-      { runtimes: ["codex"] },
-      {
-        agents: {
-          "triager-*": answer(Summary, async (turn) => {
-            seen.push(await turn.tool("close_item", { id: "a1", status: "maybe", why: "?" }));
-            seen.push(await turn.tool("close_item", { id: "zz", status: "done", why: "gone" }));
-            return { closed: 0, summary: "Nothing closed." };
-          }),
-        },
+    const run = await testWorkflow(tools, {
+      args: { runtimes: ["codex"] },
+      agents: {
+        "triager-*": answer(Summary, async (turn) => {
+          seen.push(await turn.tool("close_item", { id: "a1", status: "maybe", why: "?" }));
+          seen.push(await turn.tool("close_item", { id: "zz", status: "done", why: "gone" }));
+          return { closed: 0, summary: "Nothing closed." };
+        }),
       },
-    );
+    });
     expect(seen).toEqual([
       { kind: "refused", code: "invalid-input", error: expect.stringContaining("value.status") },
       {
@@ -97,7 +91,7 @@ describe("tools", () => {
         return closed;
       },
     });
-    const run = await testWorkflow(handoff, null, {
+    const run = await testWorkflow(handoff, {
       agents: {
         lead: answer(async (turn) => {
           await turn.send("closer", "Close a1.");

@@ -13,22 +13,19 @@ const args = { codename: "V-1234", release: "G-5678" };
 
 describe("fork", () => {
   test("the fork knows what its worker knew when it forked, and the worker what it learned after", async () => {
-    const run = await testWorkflow(
-      fork,
-      { ...args, cases: [{ runtime: "claude-headless", compact: true }] },
-      {
-        agents: {
-          "worker-claude-headless-compact": [
-            noted,
-            noted,
-            answer(RECALLED, { codename: "V-1234", release: "G-5678" }),
-          ],
-          "fork-claude-headless-compact": [
-            answer(RECALLED, { codename: "V-1234", release: "unknown" }),
-          ],
-        },
+    const run = await testWorkflow(fork, {
+      args: { ...args, cases: [{ runtime: "claude-headless", compact: true }] },
+      agents: {
+        "worker-claude-headless-compact": [
+          noted,
+          noted,
+          answer(RECALLED, { codename: "V-1234", release: "G-5678" }),
+        ],
+        "fork-claude-headless-compact": [
+          answer(RECALLED, { codename: "V-1234", release: "unknown" }),
+        ],
       },
-    );
+    });
     expect(run.value.checks).toEqual([
       {
         name: "claude-headless:compact",
@@ -44,22 +41,19 @@ describe("fork", () => {
   });
 
   test("a pane worker forks headless, and a headless one into a pane", async () => {
-    const run = await testWorkflow(
-      fork,
-      {
+    const run = await testWorkflow(fork, {
+      args: {
         ...args,
         cases: [
           { runtime: "claude", compact: false, into: "headless" },
           { runtime: "codex-headless", compact: false, into: "tui" },
         ],
       },
-      {
-        agents: {
-          "worker-*": [noted, noted, answer(RECALLED, { codename: "V-1234", release: "G-5678" })],
-          "fork-*": [answer(RECALLED, { codename: "V-1234", release: "unknown" })],
-        },
+      agents: {
+        "worker-*": [noted, noted, answer(RECALLED, { codename: "V-1234", release: "G-5678" })],
+        "fork-*": [answer(RECALLED, { codename: "V-1234", release: "unknown" })],
       },
-    );
+    });
     expect(run.value.checks.map((check) => check.problem)).toEqual([undefined, undefined]);
     expect(run.agentOf("fork-claude>headless").execution).toMatchObject({
       placement: "headless",

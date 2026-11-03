@@ -4,7 +4,7 @@ import investigate, { FINDINGS } from "./people";
 
 test("the investigator reports, asks, and its next turn has the coordinator's answer", async () => {
   // #region script
-  const run = await testWorkflow(investigate, null, {
+  const run = await testWorkflow(investigate, {
     agents: {
       investigator: answer(FINDINGS, async (turn) => {
         await turn.send("coordinator", "Pool exhaustion after deploy 8f3c.");

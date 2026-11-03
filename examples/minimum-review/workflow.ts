@@ -67,14 +67,15 @@ export type ReviewWorkflowConfig = WorkflowMeta & {
 export function createMinimumReview(
   runtimes: ReviewRuntimes,
   operationTimeout: Duration = "5m",
-): Pick<Workflow<MinimumReviewArgs, MinimumReviewResult>, "meta" | "run"> {
+): Workflow<MinimumReviewArgs, MinimumReviewResult> {
   // A config may come from data, past what `tsc` checks.
   const timeout = duration(operationTimeout);
-  return {
+  return defineWorkflow<MinimumReviewArgs, MinimumReviewResult>({
     meta: {
       name: "minimum-review",
       description: "Review one target concurrently through correctness and maintainability lenses.",
     },
+    prepare: (invocation) => ({ target: parseReviewTarget("minimum-review", invocation) }),
 
     async run(wf, args) {
       const reviews = await wf.parallel(
@@ -109,7 +110,7 @@ export function createMinimumReview(
         ),
       };
     },
-  };
+  });
 }
 
 export function defineReviewWorkflow(

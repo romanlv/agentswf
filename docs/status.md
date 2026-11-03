@@ -319,6 +319,12 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   `keepAlive.timeoutMs`, `stallMs` and `wf.deadline.unixMilliseconds` are deprecated, each logged
   once per attempt; each but `nudge.deadline` is refused beside its replacement. Records keep
   milliseconds.
+  Task 6 built: `testWorkflow(workflow, options?)` for every workflow, `args` an option required
+  by type where the workflow takes them, `id` `"test"` unless given, `maxTurns` for every run, an
+  unknown option refused by name, and `earlier: { stages, mailbox }` (with `fromStage` for a
+  workflow with events too); `testWorkflow(workflow, args, options)`, `recorded` and `mailbox` are
+  deprecated, each logged once; `agentswf/testing` re-exports one curated list, the engine's
+  workflow-testing index, and every example test uses the one signature.
 
 ## Known gaps
 

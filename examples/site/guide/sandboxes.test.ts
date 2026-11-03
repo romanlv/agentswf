@@ -3,7 +3,7 @@ import { answer, testWorkflow } from "agentswf/testing";
 import fixTests, { DONE, VERDICT } from "./sandboxes";
 
 test("the coder and the tester share one sandbox; the reviewer has a private reader", async () => {
-  const run = await testWorkflow(fixTests, null, {
+  const run = await testWorkflow(fixTests, {
     agents: {
       coder: answer(DONE, { summary: "fixed the date parser" }),
       tester: answer(DONE, { summary: "all pass" }),

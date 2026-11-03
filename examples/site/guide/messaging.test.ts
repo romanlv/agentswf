@@ -6,7 +6,7 @@ const change = { summary: "Retries in the queue.", files: ["src/queue.ts"] };
 
 test("a question starts the architect's first turn, and its reply continues the implementer", async () => {
   // #region script
-  const run = await testWorkflow(askTheArchitect, null, {
+  const run = await testWorkflow(askTheArchitect, {
     agents: {
       implementer: answer(CHANGE, async (turn) => {
         const answered = await turn.send("architect", "Client or queue?", {
@@ -34,7 +34,7 @@ test("a question starts the architect's first turn, and its reply continues the 
 });
 
 test("an architect nobody asks never runs", async () => {
-  const run = await testWorkflow(askTheArchitect, null, {
+  const run = await testWorkflow(askTheArchitect, {
     agents: { implementer: answer(CHANGE, change) },
   });
   expect(run.value).toEqual({ ...change, questions: 0 });
@@ -42,7 +42,7 @@ test("an architect nobody asks never runs", async () => {
 });
 
 test("the route is one way: the architect answers, but can't start a conversation", async () => {
-  const run = await testWorkflow(askTheArchitect, null, {
+  const run = await testWorkflow(askTheArchitect, {
     agents: {
       implementer: answer(CHANGE, async (turn) => {
         const answered = await turn.send("architect", "Client or queue?", {

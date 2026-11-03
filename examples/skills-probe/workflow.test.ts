@@ -33,7 +33,7 @@ const found = answer(REPORT, (turn) => {
 
 describe("skills-probe", () => {
   test("each agent is given its own probe, on the host or in the one box", async () => {
-    const run = await testWorkflow(probe, plan, { agents: { "*": found } });
+    const run = await testWorkflow(probe, { args: plan, agents: { "*": found } });
     for (const name of names) {
       const agent = run.agentOf(name);
       expect(agent.skills).toEqual([`probe-${AGENTS[name].probe}`]);
@@ -65,11 +65,10 @@ describe("skills-probe", () => {
   });
 
   test("an agent that doesn't answer is reported with why, and the others still are", async () => {
-    const run = await testWorkflow(
-      probe,
-      { ...plan, agents: ["host-pi", "box-pi"] },
-      { agents: { "host-pi": found, "box-pi": noAnswer.failed("pi crashed") } },
-    );
+    const run = await testWorkflow(probe, {
+      args: { ...plan, agents: ["host-pi", "box-pi"] },
+      agents: { "host-pi": found, "box-pi": noAnswer.failed("pi crashed") },
+    });
     expect(probe.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
       ["host-pi: stamp -, seal seal-host-pi; probe-b", "box-pi: failed: pi crashed"].join("\n"),
     );

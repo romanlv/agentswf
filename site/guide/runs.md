@@ -170,6 +170,6 @@ fails to install, leaves no folder, so the same command starts it again.
 - [Durability](/guide/durability): what survives a crash or a code change between attempts.
 - [Stages](/reference/workflow-api#stages) in the workflow API, and `awf run` in
   [the awf reference](/reference/awf).
-- [Continuing over recorded stages](/reference/testing-api#continuing-over-recorded-stages): test
+- [Continuing an earlier attempt](/reference/testing-api#continuing-an-earlier-attempt): test
   a continue for free, as this page's sample is.
 - [Plan, implement, review](/patterns/plan-implement): a full workflow in stages.

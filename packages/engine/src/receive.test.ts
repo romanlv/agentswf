@@ -33,12 +33,14 @@ test("a run started by its id, with no event, parks at its first wait", async ()
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "nothing yet" });
   expect(run.stages.map((record) => record.stage)).toEqual(["setup"]);
+  const unnamed = await testWorkflow(caseRun(async (workflow) => workflow.runId));
+  expect(unnamed.value).toBe("test");
   await expect(
     testWorkflow(
       caseRun(async () => null),
-      {} as { id: string },
+      { id: "-kombo" },
     ),
-  ).rejects.toThrow("a run of dd-case is named by its id: { id }");
+  ).rejects.toThrow("-kombo");
 });
 
 test("a run of a workflow with events gets its args, or what prepare makes of none", async () => {
@@ -120,7 +122,6 @@ test("a workflow without events waits as any does: a timer's end at receive, a r
         return [due?.name ?? null, raced.key];
       },
     }),
-    null,
   );
   expect(run.value).toEqual(["timer:due", "rested"]);
 });
@@ -135,7 +136,6 @@ test("a workflow without events refuses a signal, a started turn and keepAlive, 
           return null;
         },
       }),
-      null,
       { agents: { a: answer("yes") } },
     );
     return () => run.value;
@@ -248,7 +248,6 @@ test("workflow.emit sends to its target by the target's file, and a test records
         workflow.emit(target, "k", "dd.changes", { case: "k" }, { eventId: "c1" }),
       prepare: () => null,
     }),
-    null,
   );
   expect(run.value).toBe("accepted");
   expect(run.emits).toEqual([
@@ -357,7 +356,6 @@ test("a participant routed to the code needs a workflow with events", async () =
       },
       prepare: () => null,
     }),
-    null,
   );
   expect(() => run.value).toThrow("needs a workflow with events");
 });

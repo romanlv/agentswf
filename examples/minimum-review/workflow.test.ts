@@ -25,7 +25,8 @@ describe("minimum-review", () => {
     // A barrier: correctness answers only after maintainability has, so both are in flight
     // together and the answers arrive out of lens order.
     const { promise: maintained, resolve: maintainabilityAnswered } = Promise.withResolvers<void>();
-    const run = await testWorkflow(minimumReview, args, {
+    const run = await testWorkflow(minimumReview, {
+      args,
       agents: {
         "reviewer-correctness": answer(reviewSchema("correctness"), async () => {
           await maintained;
@@ -65,7 +66,8 @@ describe("minimum-review", () => {
   });
 
   test("a silent lens is nudged, then kept as incomplete, and counts no findings", async () => {
-    const run = await testWorkflow(minimumReview, args, {
+    const run = await testWorkflow(minimumReview, {
+      args,
       agents: {
         "reviewer-correctness": noAnswer.silent(),
         "reviewer-maintainability": review("maintainability", [coupled]),
@@ -82,7 +84,8 @@ describe("minimum-review", () => {
   });
 
   test("each incomplete lens keeps its own outcome and reason", async () => {
-    const failed = await testWorkflow(minimumReview, args, {
+    const failed = await testWorkflow(minimumReview, {
+      args,
       agents: {
         "reviewer-correctness": noAnswer.failed("correctness went failed"),
         "reviewer-maintainability": review("maintainability", [coupled]),
@@ -94,7 +97,8 @@ describe("minimum-review", () => {
       outcome: "failed",
       reason: "correctness went failed",
     });
-    const run = await testWorkflow(minimumReview, args, {
+    const run = await testWorkflow(minimumReview, {
+      args,
       agents: {
         "reviewer-correctness": noAnswer.timedOut("correctness went timed-out"),
         "reviewer-maintainability": noAnswer.blocked("maintainability went blocked"),
@@ -132,7 +136,8 @@ describe("minimum-review", () => {
 
   describe("review-loop, the executable", () => {
     test("runs its lenses on the operator's claude and codex, and returns the reviews", async () => {
-      const run = await testWorkflow(reviewLoop, args, {
+      const run = await testWorkflow(reviewLoop, {
+        args,
         agents: {
           "reviewer-correctness": review("correctness", [nan]),
           "reviewer-maintainability": review("maintainability", []),
@@ -144,7 +149,8 @@ describe("minimum-review", () => {
     });
 
     test("an incomplete lens fails the run, naming it", async () => {
-      const run = await testWorkflow(reviewLoop, args, {
+      const run = await testWorkflow(reviewLoop, {
+        args,
         agents: {
           "reviewer-correctness": noAnswer.failed("harness crashed"),
           "reviewer-maintainability": review("maintainability", []),

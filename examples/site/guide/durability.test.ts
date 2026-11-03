@@ -7,7 +7,8 @@ const plan = { branch: "fix/212", steps: ["accept negative epochs"] };
 const built = { commit: "4be1c07" };
 
 test("a review that never comes stops the attempt in review, after plan and implement are recorded", async () => {
-  const run = await testWorkflow(fixIssue, args, {
+  const run = await testWorkflow(fixIssue, {
+    args,
     agents: {
       planner: answer(PLAN, plan),
       builder: answer(BUILT, built),
@@ -24,8 +25,9 @@ test("a review that never comes stops the attempt in review, after plan and impl
 
 // #region continue
 test("a continue reuses plan and implement, and only the review runs again", async () => {
-  const run = await testWorkflow(fixIssue, args, {
-    recorded: { plan, implement: built }, // what attempt 1 recorded
+  const run = await testWorkflow(fixIssue, {
+    args,
+    earlier: { stages: { plan, implement: built } }, // what attempt 1 recorded
     agents: { reviewer: answer(VERDICT, { approved: true, findings: [] }) },
   });
   expect(run.value).toEqual({ approved: true, findings: [] });

@@ -2799,14 +2799,16 @@ import { answer, testWorkflow } from "agentswf/testing";
 import summarize, { SUMMARY } from "./summarize";
 
 test("returns the writer's summary", async () => {
-  const run = await testWorkflow(summarize, { file: "a.md" }, {
+  const run = await testWorkflow(summarize, {
+    args: { file: "a.md" },
     agents: { writer: answer(SUMMARY, { summary: "short" }) },
   });
   expect(run.value).toBe("short");
 });
 
 test("a summary that is not the writer's fails", async () => {
-  const run = await testWorkflow(summarize, { file: "a.md" }, {
+  const run = await testWorkflow(summarize, {
+    args: { file: "a.md" },
     agents: { writer: answer(SUMMARY, { summary: "long" }) },
   });
   expect(run.value).toBe("short");

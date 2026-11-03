@@ -284,7 +284,7 @@ test("after a crash, the code's first wait takes the turn's failed end, with its
         cleared: agent.turn === null,
       };
     }),
-    { ...woken, mailbox: crashed, agents: { investigator: answer("unused") } },
+    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("unused") } },
   );
   // The batch the crash held comes back first, alone; the failed end with the next.
   expect(run.value).toMatchObject({ restored: "t1", names: ["dd.changes"] });
@@ -305,7 +305,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
         ),
       };
     }),
-    { ...woken, mailbox: crashed, agents: { investigator: answer("found") } },
+    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("found") } },
   );
   // The event that woke it came first; the failed end was written as the attempt began.
   expect(run.value).toEqual({ names: ["dd.changes", "agent:ended"], turn: null, ran: "answered" });
@@ -319,7 +319,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
         (error: unknown) => String(error).includes("whose end no wait has taken"),
       );
     }),
-    { ...woken, mailbox: crashed, agents: { investigator: answer("found") } },
+    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("found") } },
   );
   expect(held.value).toBe(true);
 });

@@ -22,7 +22,8 @@ import { readTurns } from "./runs";
 import { caseRun, createTempRunDirs, exchange, future, runNew, startCase } from "./testing";
 import { ToolCalls, toolsLesson } from "./tools";
 import type { RunnableWorkflow } from "./workflow-runner";
-import { answer, testWorkflow } from "./workflow-testing";
+import { answer } from "./workflow-testing";
+import { runTest } from "./workflow-testing/run-test";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -1466,7 +1467,7 @@ describe("with started turns", () => {
 
   test("a cancelled turn's end is written, and cancel() resolves, once its call has settled", async () => {
     const seen = { entered: Promise.withResolvers<void>() } as Parameters<typeof lingering>[0];
-    const run = await testWorkflow(
+    const run = await runTest(
       caseRun(async (workflow) => {
         await workflow.receive();
         const agent = await workflow.agents.open({
@@ -1495,7 +1496,7 @@ describe("with started turns", () => {
   test("a run with a call settling doesn't park until the turn's end is taken", async () => {
     const seen = { entered: Promise.withResolvers<void>() } as Parameters<typeof lingering>[0];
     const taken: boolean[] = [];
-    const run = await testWorkflow(
+    const run = await runTest(
       caseRun(async (workflow) => {
         await workflow.receive();
         const agent = await workflow.agents.open({
@@ -1522,7 +1523,7 @@ describe("with started turns", () => {
     let b!: AgentRef;
     let next!: StartedTurn;
     let turns = 0;
-    const run = await testWorkflow(
+    const run = await runTest(
       caseRun(async (workflow) => {
         await workflow.receive();
         a = await workflow.agents.open({
@@ -1627,7 +1628,7 @@ describe("with started turns", () => {
         return heard.promise;
       },
     };
-    const run = await testWorkflow(workflow, null, {
+    const run = await runTest(workflow, {
       agents: {
         // a's run is b's handler's; c's message arrives during it, so it is held until it ends.
         a: answer(async () => {
@@ -1661,7 +1662,7 @@ describe("with started turns", () => {
 
   test("start() from a handler of a turn in a stage is refused agent-in-tool, not as in a stage", async () => {
     let agent!: AgentRef;
-    const run = await testWorkflow(
+    const run = await runTest(
       caseRun(async (workflow) => {
         await workflow.receive();
         agent = await workflow.agents.open({
@@ -1701,7 +1702,7 @@ describe("with started turns", () => {
   test("start(), cancel() and receive() from a handler of the agent's started turn are refused first", async () => {
     let agent!: AgentRef;
     let started!: StartedTurn;
-    const run = await testWorkflow(
+    const run = await runTest(
       caseRun(async (workflow) => {
         await workflow.receive();
         agent = await workflow.agents.open({

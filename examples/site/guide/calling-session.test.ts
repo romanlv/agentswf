@@ -5,7 +5,7 @@ import describeChange from "./calling-session-fork";
 
 describe("test-my-change", () => {
   test("the calling session says what changed and fixes what the tester found failing", async () => {
-    const run = await testWorkflow(testMyChange, null, {
+    const run = await testWorkflow(testMyChange, {
       caller: { harness: "claude" },
       agents: {
         author: [
@@ -27,7 +27,7 @@ describe("test-my-change", () => {
   });
 
   test("started without --here, there is no calling session, and it says how to start", async () => {
-    const run = await testWorkflow(testMyChange, null);
+    const run = await testWorkflow(testMyChange);
     expect(run.ending).toMatchObject({
       kind: "stopped",
       reason: expect.stringContaining("awf run --here"),
@@ -37,7 +37,7 @@ describe("test-my-change", () => {
 
 describe("describe-change", () => {
   test("a fork of the session waiting on the run writes the description", async () => {
-    const run = await testWorkflow(describeChange, null, {
+    const run = await testWorkflow(describeChange, {
       caller: { harness: "claude", model: "claude-opus-5-5", here: false },
       agents: { writer: answer("Expire cache entries after their ttl.") },
     });
@@ -49,7 +49,7 @@ describe("describe-change", () => {
   });
 
   test("with no session to fork, forkCaller answers null", async () => {
-    const run = await testWorkflow(describeChange, null);
+    const run = await testWorkflow(describeChange);
     expect(run.ending).toMatchObject({
       kind: "stopped",
       reason: expect.stringContaining("no session to fork"),

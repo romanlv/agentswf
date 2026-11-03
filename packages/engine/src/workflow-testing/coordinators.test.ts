@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { JsonValue, ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
 import type { RunnableWorkflow } from "../workflow-runner";
-import { answer, type ParticipantScript, testWorkflow } from "./index";
+import { answer, type ParticipantScript } from "./index";
+import { runTest } from "./run-test";
 import { waiting } from "./script";
 
 const PURPOSE = "report findings that hold up; ask when the logs can't settle it";
@@ -51,7 +52,7 @@ const asks = answer(async (turn) => {
 describe("a coordinator in a workflow's test", () => {
   test("a report, and a question answered in the same session", async () => {
     const seen: string[] = [];
-    const run = await testWorkflow(investigate(), null, {
+    const run = await runTest(investigate(), {
       agents: { investigator: [asks] },
       participants: {
         coordinator: async (event) => {
@@ -89,7 +90,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("a question closes at its route's timeoutMs", async () => {
-    const run = await testWorkflow(investigate({ timeoutMs: 50 }), null, {
+    const run = await runTest(investigate({ timeoutMs: 50 }), {
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
     });
@@ -103,7 +104,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("an agent's shorter --timeout closes its question first", async () => {
-    const run = await testWorkflow(investigate({ timeoutMs: 60 * 60_000 }), null, {
+    const run = await runTest(investigate({ timeoutMs: 60 * 60_000 }), {
       agents: {
         investigator: [
           answer(async (turn) => {
@@ -138,7 +139,7 @@ describe("a coordinator in a workflow's test", () => {
         return order;
       },
     };
-    const run = await testWorkflow(staged, null, {
+    const run = await runTest(staged, {
       agents: { investigator: [asks] },
       participants: {
         coordinator: async (event) => {
@@ -155,7 +156,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("releasing the coordinator ends its open question", async () => {
     const asked = Promise.withResolvers<void>();
-    const run = await testWorkflow(
+    const run = await runTest(
       investigate({
         beside: async (_, coordinator) => {
           await asked.promise;
@@ -163,7 +164,6 @@ describe("a coordinator in a workflow's test", () => {
           expect(await coordinator.release()).toBe(false);
         },
       }),
-      null,
       {
         agents: { investigator: [asks] },
         participants: {
@@ -178,7 +178,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("a script that never answers ends the attempt instead of hanging", async () => {
-    const run = await testWorkflow(investigate(), null, {
+    const run = await runTest(investigate(), {
       stallMs: 200,
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
@@ -197,7 +197,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("the coordinator sends first, to an idle agent and to one between turns", async () => {
-    const run = await testWorkflow(investigate(), null, {
+    const run = await runTest(investigate(), {
       agents: {
         investigator: [
           answer(async (turn) => {
@@ -219,21 +219,17 @@ describe("a coordinator in a workflow's test", () => {
     expect(run.value).toBe("Also check the 09:12 deploy.");
 
     const woken = Promise.withResolvers<void>();
-    const idle = await testWorkflow(
-      investigate({ run: false, beside: () => woken.promise }),
-      null,
-      {
-        messages: {
-          investigator: () => {
-            woken.resolve();
-          },
-        },
-        participants: {
-          coordinator: (event) =>
-            event.kind === "route" ? event.send("Look at the pool.") : undefined,
+    const idle = await runTest(investigate({ run: false, beside: () => woken.promise }), {
+      messages: {
+        investigator: () => {
+          woken.resolve();
         },
       },
-    );
+      participants: {
+        coordinator: (event) =>
+          event.kind === "route" ? event.send("Look at the pool.") : undefined,
+      },
+    });
     expect(idle.value).toBe("returned");
     expect(idle.turnsOf("investigator").map((turn) => turn.cause)).toEqual([
       { message: { from: "coordinator" } },
@@ -242,7 +238,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("a question open when the workflow returns keeps the run open until it is answered", async () => {
     const asked = Promise.withResolvers<void>();
-    const run = await testWorkflow(investigate({ run: false, beside: () => asked.promise }), null, {
+    const run = await runTest(investigate({ run: false, beside: () => asked.promise }), {
       messages: {
         investigator: async (message) => {
           const answered = await message.send("coordinator", "Merge or keep two?", {
@@ -283,7 +279,7 @@ describe("a coordinator in a workflow's test", () => {
         };
       },
     };
-    const run = await testWorkflow(waited, null, {
+    const run = await runTest(waited, {
       agents: { investigator: [asks] },
       participants: {
         coordinator: async (event) => {
@@ -329,12 +325,12 @@ describe("a coordinator in a workflow's test", () => {
       },
     };
     // 200 ms of work, the wait not counted: 50 ms after the answer fits, 400 ms does not.
-    const fits = await testWorkflow(slow, null, {
+    const fits = await runTest(slow, {
       agents: { investigator: [script(50)] },
       participants: coordinators,
     });
     expect(fits.value).toBe("answered");
-    const overruns = await testWorkflow(slow, null, {
+    const overruns = await runTest(slow, {
       agents: { investigator: [script(400)] },
       participants: coordinators,
     });
@@ -342,7 +338,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("the run's own deadline during the wait ends the question attempt-ended", async () => {
-    const run = await testWorkflow(investigate(), null, {
+    const run = await runTest(investigate(), {
       timeoutMs: 300,
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
@@ -374,7 +370,7 @@ describe("a coordinator in a workflow's test", () => {
         return kind ?? null;
       },
     };
-    const run = await testWorkflow(bounded, null, {
+    const run = await runTest(bounded, {
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
     });
@@ -406,7 +402,7 @@ describe("a coordinator in a workflow's test", () => {
         return errors;
       },
     };
-    const run = await testWorkflow(refusals, null, { participants: { coordinator: () => {} } });
+    const run = await runTest(refusals, { participants: { coordinator: () => {} } });
     expect(run.value).toEqual([
       "operator is reserved: an agent could read a message from it as authority; a participant takes another key",
       "System is reserved: an agent could read a message from it as authority; a participant takes another key",
@@ -418,9 +414,7 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("a route to a coordinator with no script fails the test", async () => {
-    await expect(
-      testWorkflow(investigate({ run: false }), null, { participants: {} }),
-    ).rejects.toThrow(
+    await expect(runTest(investigate({ run: false }), { participants: {} })).rejects.toThrow(
       'a route reached participant "coordinator", which has no script under participants',
     );
   });

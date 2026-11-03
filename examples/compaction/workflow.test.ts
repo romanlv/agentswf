@@ -13,22 +13,19 @@ const recalled = answer(RECALLED, { codename: "HERON-1234", colour: "teal" });
 
 describe("compaction", () => {
   test("each agent notes, compacts with the codename as its focus, then recalls", async () => {
-    const run = await testWorkflow(
-      compaction,
-      { ...args, runtimes: ["claude", "pi"] },
-      {
-        agents: {
-          "compact-claude": [answer(NOTED, { noted: true }), recalled],
-          "compact-pi": [
-            answer(NOTED, { noted: true }),
-            answer(NOTED, { noted: true }),
-            answer(NOTED, { noted: true }),
-            recalled,
-          ],
-        },
-        compactions: { "compact-claude": answer("codename HERON-1234; the shed is teal") },
+    const run = await testWorkflow(compaction, {
+      args: { ...args, runtimes: ["claude", "pi"] },
+      agents: {
+        "compact-claude": [answer(NOTED, { noted: true }), recalled],
+        "compact-pi": [
+          answer(NOTED, { noted: true }),
+          answer(NOTED, { noted: true }),
+          answer(NOTED, { noted: true }),
+          recalled,
+        ],
       },
-    );
+      compactions: { "compact-claude": answer("codename HERON-1234; the shed is teal") },
+    });
     expect(run.value).toMatchObject({ codename: "HERON-1234", colour: "teal" });
     expect(run.value.checks).toEqual([
       {
@@ -52,16 +49,13 @@ describe("compaction", () => {
   });
 
   test("a headless cursor's compaction fails, is reported, and the agent is still asked", async () => {
-    const run = await testWorkflow(
-      compaction,
-      { ...args, runtimes: ["cursor", "cursor-headless"] },
-      {
-        agents: {
-          "compact-cursor": [answer(NOTED, { noted: true }), recalled],
-          "compact-cursor-headless": [answer(NOTED, { noted: true }), recalled],
-        },
+    const run = await testWorkflow(compaction, {
+      args: { ...args, runtimes: ["cursor", "cursor-headless"] },
+      agents: {
+        "compact-cursor": [answer(NOTED, { noted: true }), recalled],
+        "compact-cursor-headless": [answer(NOTED, { noted: true }), recalled],
       },
-    );
+    });
     expect(run.value.checks).toEqual([
       {
         runtime: "cursor",

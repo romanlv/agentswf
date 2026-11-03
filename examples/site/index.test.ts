@@ -8,7 +8,8 @@ const done = answer(DONE, { summary: "Added --dry-run" });
 describe("the landing page's review loop", () => {
   test("revises until the reviewer approves, handing the implementer the changes asked for", async () => {
     let reviews = 0;
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: {
         implementer: done,
         reviewer: answer(VERDICT, () =>
@@ -37,7 +38,8 @@ describe("the landing page's review loop", () => {
   });
 
   test("gives up after three rounds without approval", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: {
         implementer: done,
         reviewer: answer(VERDICT, { approved: false, changes: ["Not yet"] }),
@@ -47,7 +49,8 @@ describe("the landing page's review loop", () => {
   });
 
   test("an implementer that fails stops the run, naming it", async () => {
-    const run = await testWorkflow(reviewLoop, args, {
+    const run = await testWorkflow(reviewLoop, {
+      args,
       agents: { implementer: noAnswer.failed("harness crashed") },
     });
     expect(run.ending).toMatchObject({

@@ -10,19 +10,16 @@ const ANSWER = Type.Object(
 
 describe("effort", () => {
   test("each agent runs its first turn at its effort, then at the one set, then on the model set", async () => {
-    const run = await testWorkflow(
-      effort,
-      { runtimes: ["codex", "pi-headless"], word: "pelican" },
-      {
-        agents: {
-          "effort-*": [
-            answer(ANSWER, { word: "pelican", shell: "" }),
-            answer(ANSWER, { word: "ok", shell: "" }),
-            answer(ANSWER, { word: "pelican", shell: "" }),
-          ],
-        },
+    const run = await testWorkflow(effort, {
+      args: { runtimes: ["codex", "pi-headless"], word: "pelican" },
+      agents: {
+        "effort-*": [
+          answer(ANSWER, { word: "pelican", shell: "" }),
+          answer(ANSWER, { word: "ok", shell: "" }),
+          answer(ANSWER, { word: "pelican", shell: "" }),
+        ],
       },
-    );
+    });
     const settings = (key: string) =>
       run.turnsOf(key).map(({ model, effort: level }) => `${model}@${level}`);
 
