@@ -40,7 +40,8 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
       if (!row || row.isSidechain === true || ended) return reading();
       const attachment = record(row.attachment);
       const message = record(row.message);
-      if (accepted && row.type === "user" && said(message?.content).startsWith(INTERRUPTED)) {
+      // A prompt only queued is not yet the turn an interrupt stops.
+      if (inserted && row.type === "user" && said(message?.content).startsWith(INTERRUPTED)) {
         ended = "interrupted";
         return reading();
       }

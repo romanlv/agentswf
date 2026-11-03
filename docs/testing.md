@@ -109,7 +109,7 @@ What they cover between them:
 - `fan-out` — many TUI agents at once (story concurrent-agents): twelve codex and six claude
   panes prompted together, twice each, the second turn needing the first's context. Every answer
   must be right and the run end with nothing left unresolved, each turn read from its harness's
-  own session file. `bun tests/fan-out.eval.ts codex=4` runs fewer. 18 agents, ~2 min, ~$0.30 at
+  own session file. `bun tests/fan-out.eval.ts codex=4` runs fewer. 18 agents, ~1 min, ~$0.63 at
   list prices.
 - `effort` — effort and `set` (story 020) on claude, codex and pi, in their TUI and headless: each
   agent opens at `low`, is set to `high`, then to another model, a turn between each. Its record

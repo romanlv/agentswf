@@ -208,3 +208,13 @@ test("past its answer, a row too long to hold is skipped, and the turn's end sti
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("an interrupt of the turn a queued prompt waits behind does not end it", () => {
+  const reducer = createClaudeReceiptReducer(MARKER);
+  reducer.push({ type: "queue-operation", operation: "enqueue", content: `${MARKER} go` });
+  const stopped = {
+    type: "user",
+    message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
+  };
+  expect(reducer.push(stopped).ended).toBeUndefined();
+});

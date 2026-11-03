@@ -1553,7 +1553,9 @@ describe("createHerdrRunHostFactory", () => {
     await first.release("answered", deadline(), { answered: true });
     // Half of this one's time goes to waiting for the first, then it is stopped.
     const second = await session.start(
-      { id: "two", prompt: "again", deadline: { unixMilliseconds: Date.now() + 400 } },
+      // Its record is given a moment to show the first's end before Escape, and to show the
+      // interrupt after.
+      { id: "two", prompt: "again", deadline: { unixMilliseconds: Date.now() + 4_000 } },
       binding("op-2"),
     );
     await expect(second.settled).resolves.toMatchObject({ state: "completed" });
@@ -2852,6 +2854,43 @@ describe("createHerdrRunHostFactory", () => {
         state: "failed",
         detail: expect.stringContaining("record never showed the prompt"),
       });
+      await host.close();
+    });
+
+    test("a prompt Herdr failed to report sent is judged by its record, which shows it ran", async () => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          recordTurn(promptOf(input)!, `session-${input.argv[5]}`);
+          return { stdout: "", stderr: "herdr: timed out", exitCode: 1, timedOut: true };
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      await host.close();
+    });
+
+    test("a dialog wait Herdr fails once is asked again, and the dialog still ends the turn", async () => {
+      const base = hostStub();
+      let waits = 0;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent wait") {
+          return ++waits === 1
+            ? { stdout: "", stderr: "herdr: socket closed", exitCode: 1, timedOut: false }
+            : commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await expect(turn.settled).resolves.toMatchObject({ state: "blocked" });
+      expect(waits).toBe(2);
       await host.close();
     });
 
