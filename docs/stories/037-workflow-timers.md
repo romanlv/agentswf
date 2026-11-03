@@ -389,7 +389,7 @@ const woke = await workflow.race("cool-down", { reply: thread, rested: workflow.
 - **A workflow without `events` can use timers and `sleep`**. Its run gets a mailbox and
   parks at a wait as an event run does, so `feature-delivery` can sleep fourteen days without
   declaring events. Where such a run lives and how `awf tick` finds it is the implementation's
-  to settle with api-consolidation items 1 and 13.
+  to settle with [[039-one-way-author-api|story 039]]'s candidates 1 and 13.
 - **Durations are `"{n}d"`, `"{n}h"` and `"{n}m"`**, typed as a template literal so a
   typo fails `tsc`, and a `Date` for an absolute time; the same strings on the CLI.
 - **Virtual time is built in this story**, so a workflow with a two-day reminder is
@@ -718,7 +718,8 @@ Where building it met something the model above didn't settle (2026-10-29):
   One knob in place of a firing count and a virtual end time.
 - **A workflow without `events` sleeps in its process**: `awf run` gives a plain run no parking, so
   its wait sleeps to the timer, and a `--continue` after a crash keeps the recorded due time.
-  Parking one waits on api-consolidation item 1, where such a run would live.
+  Parking one needs a decision on where such a run lives, which [[039-one-way-author-api|story 039]]
+  leaves out of its scope.
 - **A wait's record names what it takes** (`takes`), and the parked ending's `until` is the
   earliest timer it takes, so `awf runs` and `awf tick` read the same thing they did; `awf tick`'s
   cause `until` becomes `timer`.
@@ -832,7 +833,7 @@ Execution:
 Work:
 
 - a plain run's mailbox for its timers; whether it parks, or waits in its process until
-  api-consolidation item 1 settles where such a run lives, is this task's plan.
+  [[039-one-way-author-api|story 039]]'s candidate 1 settles where such a run lives, is this task's plan.
 
 Done when:
 

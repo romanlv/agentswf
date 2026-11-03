@@ -78,8 +78,8 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
   can be told apart.
 - [[crash-leftovers-reaper]] — a later awf ends the agents, sandboxes and control-plane
   directories a dead one left. A record format: designed first.
-- [[api-consolidation]] — one way to do each thing in the author API, proposed before more people
-  build on the beta. Design only.
+- [[039-one-way-author-api|039]] — one way to do each thing in the author API, now a numbered
+  story, before more people build on the beta.
 
 ### P1
 

@@ -247,8 +247,8 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
-  tasks 1–8 and 10–12 built, awaiting human review; left are task 13, every wake source declared
-  in `events` (Q19), and then task 9, the Datadog case run live. A workflow is one flat
+  tasks 1–8 and 10–12 built, awaiting human review; left is task 9, the Datadog case run live; task 13, every wake
+  source declared in `events` (Q19), moved to story 039. A workflow is one flat
   `defineWorkflow`, `events` optional; one with events takes args, and a run an event starts gets
   what `prepare` makes of none. `awf tick` wakes its own project's runs, `--all`
   every project's. A workflow declares its events; `awf emit --id
@@ -287,8 +287,9 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   its screen, so a misread `blocked` can be told apart.
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
-- [`api-consolidation`](stories/todo/api-consolidation.md): one way to do each thing in the author
-  API, proposed before more people build on the beta.
+- [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
+  way to do each thing in the author API, before more people build on the beta. Draft, its open
+  questions waiting for review; design in [`design/api-consolidation.md`](design/api-consolidation.md).
 
 ## Known gaps
 

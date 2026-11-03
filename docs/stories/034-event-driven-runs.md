@@ -536,7 +536,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 10. One run id: the sender names the run, no `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
 - [x] 11. One kind of workflow: one flat `defineWorkflow`, `events` optional; `defineExecutableWorkflow`, `defineEventWorkflow` and the nested `definition` gone
 - [x] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
-- [ ] 13. Every wake source declared: `{key}:reply` and `{key}:ended` in `events`, checked when sent (Q19)
+- [ ] 13. Every wake source declared: moved to [[039-one-way-author-api|story 039]] task 7
 
 ## Open questions
 
@@ -935,6 +935,11 @@ Done when:
   `awf-tick` runs in the watcher's folder, say the same.
 
 ### 13. Every wake source declared
+
+Moved to [[039-one-way-author-api|story 039]] task 7 (2026-11-02), which builds it with the rest of
+the author API's consolidation: without the `*:reply` and `*:ended` wildcards, and with
+`participant:reply`, `agent:ended` and `to: "code"` deprecated for a beta rather than removed. What
+follows is the plan as it stood.
 
 Outcome: Q19 as decided. A workflow's `events` lists every event that can wake its run, its own and
 awf's `{key}:reply` and `{key}:ended`, and each is checked against the definition when it is sent.
