@@ -2923,6 +2923,85 @@ describe("createHerdrRunHostFactory", () => {
       await host.close();
     });
 
+    test("a dialog answered after it blocked one operation does not block the next", async () => {
+      const base = hostStub();
+      let end: ((interrupted?: boolean) => void) | undefined;
+      let dialogShown = true;
+      const run: RunProcess = async (input) => {
+        const command = verb(input);
+        if (command === "agent prompt") {
+          base.calls.push(input);
+          const text = promptOf(input)!;
+          if (end) recordTurn(text, `session-${input.argv[5]}`);
+          else end = recordTurn(text, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if ((command === "agent wait" || command === "agent get") && dialogShown) {
+          return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
+        }
+        if (command === "agent wait" && input.argv.includes("--until")) {
+          // Herdr waits on until the turn is over, its wait then stopped.
+          await new Promise<void>((resolve) => {
+            if (input.signal?.aborted) resolve();
+            else input.signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          return { stdout: "", stderr: "", exitCode: 130, timedOut: false, cancelled: true };
+        }
+        return base.run(input);
+      };
+      const host = await createHerdrRunHostFactory(FAST, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "reviewer",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "claude", model: "m" },
+      });
+      const first = await session.start(
+        { id: "one", prompt: "review", deadline: deadline() },
+        binding("op-1"),
+      );
+      await expect(first.settled).resolves.toMatchObject({ state: "blocked" });
+      // The operator answers it, and the turn goes on to its end.
+      dialogShown = false;
+      setTimeout(() => end!(), 300);
+      const second = await session.start(
+        { id: "two", prompt: "again", deadline: deadline() },
+        binding("op-2"),
+      );
+      await expect(second.settled).resolves.toMatchObject({ state: "completed" });
+      await host.close();
+    });
+
+    test("a cancel Herdr answers with agent_not_found once keeps a live pane", async () => {
+      const base = hostStub();
+      let gets = 0;
+      let end: ((interrupted?: boolean) => void) | undefined;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent get" && ++gets === 1) return errorResult("agent_not_found");
+        if (verb(input) === "agent send-keys") {
+          base.calls.push(input);
+          end?.(true);
+          return commandResult({});
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await Bun.sleep(200);
+      await turn.release("stop", deadline());
+      expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
+      expect(base.calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(1);
+      await host.close();
+    });
+
     test("a dialog wait Herdr fails once is asked again, and the dialog still ends the turn", async () => {
       const base = hostStub();
       let waits = 0;

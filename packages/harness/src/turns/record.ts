@@ -1,7 +1,6 @@
 import { constants, type FSWatcher, watch as watchDirectory } from "node:fs";
 import { open, opendir } from "node:fs/promises";
 import { join } from "node:path";
-import { abortableDelay } from "../adapters/herdr-protocol";
 import { parseRow, record } from "../json";
 
 const MAX_FILES = 256;
@@ -156,18 +155,43 @@ export async function prepareTurnRecord(
       await file.close();
     }
   }
+  /** Cuts the watch's current pause short, so it reads at once. */
+  let wake: (() => void) | undefined;
   return {
+    /** Reads the files now, rather than at the next poll. */
+    readNow() {
+      wake?.();
+    },
     /**
      * Reads until the model has answered, or with `observer.ended` until the turn has ended; or
-     * until `signal` or `deadline`.
+     * until `signal` or `deadline`. Between reads it pauses `every` milliseconds, which a change
+     * to a watched directory, or `readNow`, cuts short; or a pause of its own, as a test's.
      */
     async watch(
       signal: AbortSignal,
       observer: TurnObserver,
-      pause: (signal: AbortSignal) => Promise<boolean> = (signal) =>
-        abortableDelay(POLL_MS, signal),
+      pause: ((signal: AbortSignal) => Promise<boolean>) | { every: () => number } = {
+        every: () => POLL_MS,
+      },
       deadline: () => number = () => Number.POSITIVE_INFINITY,
     ) {
+      const paused =
+        typeof pause === "function"
+          ? pause
+          : (stop: AbortSignal) =>
+              new Promise<boolean>((resume) => {
+                const settle = (again: boolean) => {
+                  clearTimeout(timer);
+                  stop.removeEventListener("abort", abort);
+                  wake = undefined;
+                  resume(again);
+                };
+                const timer = setTimeout(() => settle(true), pause.every());
+                const abort = () => settle(false);
+                if (stop.aborted) return settle(false);
+                stop.addEventListener("abort", abort, { once: true });
+                wake = () => settle(true);
+              });
       let reportedAcceptance = false;
       let reportedReceipt = false;
       let workBytes = 0;
@@ -178,17 +202,20 @@ export async function prepareTurnRecord(
       const protectedFile = (name: string) =>
         name === known || progress.get(name)?.protected === true;
       const dirty = new Set(cursors.keys());
-      const enqueue = (name: string) => {
-        if (!name.endsWith(".jsonl") || !relevant(name) || dirty.has(name)) return;
+      /** Marks `name` to be read; whether it will be, as one already marked will. */
+      const enqueue = (name: string): boolean => {
+        if (!name.endsWith(".jsonl") || !relevant(name)) return false;
+        if (dirty.has(name)) return true;
         // Once a file holds the turn, the others are never read again.
-        if (reportedAcceptance && !protectedFile(name)) return;
+        if (reportedAcceptance && !protectedFile(name)) return false;
         if (dirty.size >= MAX_FILES) {
           rescanRequested = true;
           const discard = [...dirty].find((candidate) => !protectedFile(candidate));
-          if (discard === undefined) return;
+          if (discard === undefined) return false;
           dirty.delete(discard);
         }
         dirty.add(name);
+        return true;
       };
       const track = (name: string, cursor: Cursor) => {
         if (!cursors.has(name) && cursors.size >= MAX_FILES) {
@@ -253,8 +280,10 @@ export async function prepareTurnRecord(
                 join(directory, subdirectory),
                 { persistent: false },
                 (_event, name) => {
-                  if (name) enqueue(join(subdirectory, String(name)));
-                  else rescanRequested = true;
+                  // Woken only by a file it would read: other sessions write here all the time.
+                  if (!name) rescanRequested = true;
+                  else if (!enqueue(join(subdirectory, String(name)))) return;
+                  wake?.();
                 },
               );
               watcher.on("error", (error) => {
@@ -384,7 +413,7 @@ export async function prepareTurnRecord(
           for (const name of again) enqueue(name);
           if (workBytes < MAX_BYTES && (scan || dirty.size > 0)) continue;
           workBytes = 0;
-          if (!(await pause(signal))) return;
+          if (!(await paused(signal))) return;
           // A pause that resolves at once would leave this loop to microtasks alone, and the
           // deadline's and the signal's timers would never fire.
           await Bun.sleep(0);

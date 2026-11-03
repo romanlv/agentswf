@@ -484,24 +484,39 @@ async function untilDrawn(
   by: number,
   signal?: AbortSignal,
 ): Promise<{ error: string; timedOut: boolean; cancelled: boolean } | undefined> {
-  const drawn = findHarness(kind)?.paneReady;
+  const spec = findHarness(kind);
+  const drawn = spec?.paneReady;
   if (!drawn) return undefined;
-  const waitMs = Math.max(1, Math.min(by - Date.now(), AGENT_START_WAIT_MS));
-  const shown = await herdr(
-    ["pane", "wait-output", paneId, "--match", drawn, "--timeout", String(waitMs)],
-    waitMs + HERDR_REPORT_GRACE_MS,
-    signal,
-  );
-  if (shown.ok) return undefined;
-  if (shown.cancelled) return { error: "operation cancelled", timedOut: false, cancelled: true };
-  const screen = await herdr(["pane", "read", paneId, "--source", "recent-unwrapped"]);
-  const tail = screen.ok ? readable(screen.stdout).trim().slice(-300) : shown.error;
-  return {
-    error: `${kind} never showed it was ready: ${tail}`,
-    timedOut: shown.timedOut,
-    cancelled: false,
+  const limit = Math.min(by, Date.now() + AGENT_START_WAIT_MS);
+  const read = async () => {
+    const screen = await herdr(["pane", "read", paneId, "--source", "recent-unwrapped"]);
+    return screen.ok ? readable(screen.stdout) : "";
   };
+  for (;;) {
+    // In steps, so a login it shows instead ends the wait, for its start to say so.
+    const waitMs = Math.max(1, Math.min(limit - Date.now(), DRAWN_STEP_MS));
+    const shown = await herdr(
+      ["pane", "wait-output", paneId, "--match", drawn, "--timeout", String(waitMs)],
+      waitMs + HERDR_REPORT_GRACE_MS,
+      signal,
+    );
+    if (shown.ok) return undefined;
+    if (shown.cancelled || signal?.aborted) {
+      return { error: "operation cancelled", timedOut: false, cancelled: true };
+    }
+    const screen = await read();
+    if (spec.login?.screen(screen) || Date.now() >= limit || !shown.timedOut) {
+      return {
+        error: `${kind} never showed it was ready: ${screen.trim().slice(-300) || shown.error}`,
+        timedOut: shown.timedOut && !spec.login?.screen(screen),
+        cancelled: false,
+      };
+    }
+  }
 }
+
+/** How long each wait for a pane to draw runs before its screen is looked at for a login. */
+const DRAWN_STEP_MS = 5_000;
 
 /** How long each step of a typed start may take: detection took about a second (H6). */
 const TYPED_START_WAIT_MS = 60_000;
@@ -953,7 +968,13 @@ export function createHerdrRunHostFactory(
 
           /** Interrupts its harness if it is working, as an answered turn left too long is. */
           const interrupt = async (agentName: string): Promise<boolean> => {
-            const got = await herdr(["agent", "get", agentName]);
+            // Herdr can lose a live agent a moment under load: gone only if it keeps losing it.
+            let got = await herdr(["agent", "get", agentName]);
+            for (let check = 1; !got.ok && check < MISSING_CHECKS; check++) {
+              if (!hasHerdrErrorCode(got.error, "agent_not_found")) break;
+              await Bun.sleep(RECORD_CATCH_UP_MS);
+              got = await herdr(["agent", "get", agentName]);
+            }
             if (!got.ok) return false;
             // A record a poll behind a turn just ended would have Escape reach an idle codex,
             // whose second opens its history: it is given a moment to catch up first.
@@ -985,13 +1006,14 @@ export function createHerdrRunHostFactory(
             if (!(await interrupt(agentName))) return "its harness is gone";
             // A claude that dropped the Enter still holds the cancelled prompt in its input, where
             // the next paste would join it.
-            if (turn && !turn.accepted && harness === "claude") {
+            const untaken = turn && !turn.accepted ? turn.marker : untakenMarker;
+            if (untaken && harness === "claude") {
               const read = await herdr(
                 ["agent", "read", agentName, "--source", "detection"],
                 config.commandTimeoutMs,
               );
-              if (read.ok && heldInInput(read.stdout, turn.marker))
-                return "its cancelled prompt is still unsent in its input";
+              if (read.ok && heldInInput(read.stdout, untaken))
+                return "its prompt is still unsent in its input";
             }
             const busy = await settle(
               agentName,
@@ -1025,6 +1047,8 @@ export function createHerdrRunHostFactory(
           let turn: RecordedTurn | undefined;
           /** The session file its last ended turn was read from, and the session it is. */
           let lastRecorded: { session?: string; file: string } | undefined;
+          /** The marker of a prompt its last operation gave up on before its harness took it in. */
+          let untakenMarker: string | undefined;
           /** Its last turn was settled by its record, and Herdr's wait has not caught up since. */
           let herdrBehind = false;
 
@@ -1147,12 +1171,13 @@ export function createHerdrRunHostFactory(
                 if (still) return still;
                 continue;
               }
-              if (stopped.aborted || shown.ok) break;
-              if (hasHerdrErrorCode(shown.error, "agent_not_found")) {
+              if (stopped.aborted) break;
+              // Answered without a dialog, or failed, it is asked again a moment later.
+              if (!shown.ok && hasHerdrErrorCode(shown.error, "agent_not_found")) {
                 if (++missing >= MISSING_CHECKS) {
                   return localOutcome("failed", "its harness exited during the turn");
                 }
-              } else if (!shown.timedOut) {
+              } else if (shown.ok || !shown.timedOut) {
                 missing = 0;
               }
               if (!(await abortableDelay(config.untakenMs ?? UNTAKEN_MS, stopped))) break;
@@ -1180,7 +1205,6 @@ export function createHerdrRunHostFactory(
             agentName: string,
           ): RecordedTurn => {
             const stopping = new AbortController();
-            let wake: (() => void) | undefined;
             let dialog: Promise<NativeTurnOutcome> | undefined;
             const observing = new AbortController();
             receiptObservers.add(observing);
@@ -1204,11 +1228,19 @@ export function createHerdrRunHostFactory(
               accepted: false,
               received: false,
               marker,
+              // Once it has answered, a later wait asks Herdr afresh: the dialog may be answered.
               dialog: () => {
-                dialog ??= dialogWait(agentName, stopping.signal);
+                if (!dialog) {
+                  const waiting = dialogWait(agentName, stopping.signal);
+                  dialog = waiting;
+                  const clear = () => {
+                    if (dialog === waiting) dialog = undefined;
+                  };
+                  void waiting.then(clear, clear);
+                }
                 return dialog;
               },
-              readNow: () => wake?.(),
+              readNow: () => watching.readNow(),
               stop: () => stopping.abort(),
             };
             void watching
@@ -1231,24 +1263,8 @@ export function createHerdrRunHostFactory(
                     end({ how, ...(session ? { session } : {}) });
                   },
                 },
-                // A pause `readNow` cuts short, reading at once.
-                (paused) =>
-                  new Promise<boolean>((resume) => {
-                    const timer = setTimeout(
-                      () => settle(true),
-                      recorded.accepted ? RECORD_POLL_MS : UNTAKEN_POLL_MS,
-                    );
-                    const abort = () => settle(false);
-                    const settle = (again: boolean) => {
-                      clearTimeout(timer);
-                      paused.removeEventListener("abort", abort);
-                      wake = undefined;
-                      resume(again);
-                    };
-                    if (paused.aborted) return settle(false);
-                    paused.addEventListener("abort", abort, { once: true });
-                    wake = () => settle(true);
-                  }),
+                // A poll in case no change is seen: a change to the file reads it at once.
+                { every: () => (recorded.accepted ? RECORD_POLL_MS : UNTAKEN_POLL_MS) },
                 // A prompt never taken in is read no longer than its operation runs.
                 () =>
                   recorded.accepted
@@ -1841,6 +1857,7 @@ export function createHerdrRunHostFactory(
                 }
                 const waitMs = Math.max(1, remainingMs);
                 const marker = `[awf-delivery:${randomUUID()}]`;
+                untakenMarker = undefined;
                 const dispatchSignal = operation.deliverySignal
                   ? AbortSignal.any([operation.deliverySignal, controller.signal])
                   : controller.signal;
@@ -1928,8 +1945,12 @@ export function createHerdrRunHostFactory(
                   }
                   if (login) return login;
                   // Herdr answered an error, so it said what it did, and sent nothing that runs;
-                  // one that never answered may have pasted the prompt, which the record says.
-                  if (!recorded || !sent.timedOut) {
+                  // one that never answered, or saw no turn start, may have pasted the prompt,
+                  // which the record says.
+                  if (
+                    !recorded ||
+                    !(sent.timedOut || hasHerdrErrorCode(sent.error, "agent_prompt_stalled"))
+                  ) {
                     if (!recorded && hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                       // Herdr had already accepted the submission, so the turn may be running.
                       // Settling here would close the result slot under a live agent and arm the
@@ -2012,7 +2033,15 @@ export function createHerdrRunHostFactory(
                     controller.signal,
                     untaken,
                   );
-                  if ("outcome" in ended) return ended.outcome;
+                  if ("outcome" in ended) {
+                    // A prompt never taken in is read no more once its operation is over: a cancel
+                    // still settles it, and a prompt claude still holds is looked for at release.
+                    if (!recorded.accepted && ended.outcome.state !== "cancelled") {
+                      untakenMarker = marker;
+                      dropTurn();
+                    }
+                    return ended.outcome;
+                  }
                   settled = ended.settled;
                   session = ended.session;
                 } else if (sent.ok) {

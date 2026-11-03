@@ -23,6 +23,9 @@ export type HerdrCommand = (
  */
 export const HERDR_REPORT_GRACE_MS = 30_000;
 
+/** How long a prompt sent without Herdr's wait may take to be submitted. */
+const PROMPT_SUBMIT_MS = 60_000;
+
 export function readId(value: unknown, key: string): string | undefined {
   return text(record(value)?.[key]);
 }
@@ -153,7 +156,8 @@ export async function submitPrompt(
     wait
       ? ["agent", "prompt", target, prompt, "--wait", "--timeout", String(waitMs)]
       : ["agent", "prompt", target, prompt],
-    waitMs + HERDR_REPORT_GRACE_MS,
+    // Submitting returns once the prompt is in; one that hangs is left to the turn's record.
+    wait ? waitMs + HERDR_REPORT_GRACE_MS : Math.min(waitMs, PROMPT_SUBMIT_MS),
     signal,
   );
 }
