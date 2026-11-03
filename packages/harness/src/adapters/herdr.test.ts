@@ -2381,7 +2381,10 @@ describe("createHerdrRunHostFactory", () => {
       // A recorded turn is blocked once Herdr shows a dialog, its record still open; Herdr's
       // `unknown` settles only a turn with no record, as pi's.
       const run: RunProcess = async (input) => {
-        if (verb(input) === "agent wait" && terminalState === "blocked") {
+        if (
+          (verb(input) === "agent wait" || verb(input) === "agent get") &&
+          terminalState === "blocked"
+        ) {
           return commandResult({
             agent: { agent_status: terminalState, agent_status_text: "stuck" },
           });
@@ -2799,7 +2802,7 @@ describe("createHerdrRunHostFactory", () => {
           recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
           return commandResult({ agent: { agent_status: "working" } });
         }
-        if (verb(input) === "agent wait") {
+        if (verb(input) === "agent wait" || verb(input) === "agent get") {
           return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
         }
         return base.run(input);
@@ -2895,6 +2898,31 @@ describe("createHerdrRunHostFactory", () => {
       await host.close();
     });
 
+    test("a dialog shown only a moment does not end the turn", async () => {
+      const base = hostStub();
+      let end: ((interrupted?: boolean) => void) | undefined;
+      let waits = 0;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent wait" && ++waits === 1) {
+          return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
+        }
+        if (verb(input) === "agent get") {
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "claude");
+      await Bun.sleep(800);
+      end!();
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      await host.close();
+    });
+
     test("a dialog wait Herdr fails once is asked again, and the dialog still ends the turn", async () => {
       const base = hostStub();
       let waits = 0;
@@ -2908,6 +2936,9 @@ describe("createHerdrRunHostFactory", () => {
           return ++waits === 1
             ? { stdout: "", stderr: "herdr: socket closed", exitCode: 1, timedOut: false }
             : commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
+        }
+        if (verb(input) === "agent get") {
+          return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
         }
         return base.run(input);
       };

@@ -61,7 +61,7 @@ describe("a usage screen read in a pane", () => {
     expect(await readPaneAllowance("cursor", CONFIG, { run })).toEqual({
       read: "none",
       reason:
-        "cursor's usage screen: `Run Everything` never showed: timed out; it shows Sign in to Cursor",
+        "cursor's usage screen: starting it failed: cursor never showed it was ready: Sign in to Cursor",
     });
     expect(calls.at(-1)).toEqual(["workspace", "close", "w1"]);
   });
