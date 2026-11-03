@@ -1,6 +1,6 @@
 {
   "name": "@agentswf/sandbox",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0-beta.5",
   "description": "agents.wf: the sandboxes a workflow opens, and their providers",
   "license": "MIT",
   "homepage": "https://agents.wf",
