@@ -69,8 +69,8 @@ export async function readPaneAllowance(
         left() + 5_000,
         signal,
       );
-    const steps = [...(spec.paneReady ? [{ await: spec.paneReady }] : []), ...pane.steps];
-    for (const step of steps) {
+    // Its start has waited for it to draw.
+    for (const step of pane.steps) {
       const done =
         "type" in step
           ? await herdr(["pane", "send-text", paneId, step.type], left(), signal)
