@@ -34,7 +34,7 @@ export function expected(probe: Pick<Probe, "secret">, field: "stamp" | "seal", 
   return `${field.toUpperCase()}-${hash.slice(0, 16)}`;
 }
 
-/** A receipt under the run root: its path there, from a leading `/`, and the build ids in it. */
+/** A receipt under the run root or a sandbox: its path there, from a leading `/`, and the build ids in it. */
 export type Receipt = { path: string; builds: string[] };
 
 export function problems(
@@ -147,12 +147,13 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
   }
 }
 
-async function findReceipts(root: string): Promise<Receipt[]> {
+/** Receipts under `root`, each path from `/{label}`. */
+async function findReceipts(root: string, label: string): Promise<Receipt[]> {
   const found: Receipt[] = [];
   for (const path of await readdir(root, { recursive: true })) {
     if (!path.endsWith("/receipts")) continue;
     const text = await readFile(join(root, path), "utf8").catch(() => "");
-    found.push({ path: `/${path}`, builds: text.split("\n").filter(Boolean) });
+    found.push({ path: `/${label}/${path}`, builds: text.split("\n").filter(Boolean) });
   }
   return found;
 }
@@ -197,7 +198,17 @@ if (import.meta.main) {
     },
   );
   const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const receipts = await findReceipts(runs).catch(() => []);
+  // A sandboxed agent's home, and its skills with it, is under ~/.awf/sandboxes, not the run root.
+  const roots = [
+    { root: runs, label: "runs" },
+    ...(record?.sandboxes ?? []).map((sandbox) => ({
+      root: sandbox.directory,
+      label: `sandboxes/${sandbox.key}`,
+    })),
+  ];
+  const receipts = (
+    await Promise.all(roots.map(({ root, label }) => findReceipts(root, label).catch(() => [])))
+  ).flat();
   const failed = problems(exitCode, record, probes, builds, receipts, await operatorSkills());
   // A source is never an agent's to run: every copy is made before any agent starts.
   for (const probe of Object.values(probes)) {
