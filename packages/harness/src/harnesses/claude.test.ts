@@ -18,7 +18,10 @@ test("every claude launch refuses messages from the user's other sessions", asyn
       // One, so no later `--settings` from the launch arguments stands beside it.
       expect(argv.filter((arg) => arg === "--settings")).toHaveLength(1);
       const at = argv.indexOf("--settings");
-      expect(JSON.parse(argv[at + 1]!)).toEqual({ crossSessionInbound: "refuse" });
+      expect(JSON.parse(argv[at + 1]!)).toEqual({
+        crossSessionInbound: "refuse",
+        skillOverrides: { "auto-mode-setup": "off" },
+      });
     }
   }
 });

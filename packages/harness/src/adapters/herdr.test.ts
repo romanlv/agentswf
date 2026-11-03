@@ -2244,7 +2244,7 @@ describe("createHerdrRunHostFactory", () => {
       "--model",
       "opus",
       "--settings",
-      '{"crossSessionInbound":"refuse"}',
+      '{"crossSessionInbound":"refuse","skillOverrides":{"auto-mode-setup":"off"}}',
       "--setting-sources",
       "project,local",
       "--add-dir",

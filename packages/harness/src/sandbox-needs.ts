@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
+import { CLAUDE_SESSION_SETTINGS } from "./harnesses/claude-settings";
 import { harnessSpec } from "./spec";
 import { HOME_ENV, harnessState } from "./state";
 import { type Absent, type Harness, isAbsent } from "./types";
@@ -76,8 +77,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     // prompt, and loses that prompt otherwise (H3, H6). Headless asks for none; one home's files
     // serve both placements, and a trusted folder's project settings stay inside the sandbox.
     // Its permission prompts are off, as the sandbox answers what they would ask (permissions.md),
-    // in this home's user settings, which only a sandboxed claude reads. Messages from other claude
-    // sessions are refused here too, for a launch that misses the `--settings` flag. Its commits and
+    // in this home's user settings, which only a sandboxed claude reads. The `--settings` a launch
+    // gives is here too, for a launch that misses the flag. Its commits and
     // pull requests carry no Claude attribution: the host's home, where the operator sets it, is absent.
     defaults: (cwd) => [
       {
@@ -93,7 +94,7 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
         contents: `${JSON.stringify({
           skipDangerousModePermissionPrompt: true,
           permissions: { defaultMode: "bypassPermissions" },
-          crossSessionInbound: "refuse",
+          ...CLAUDE_SESSION_SETTINGS,
           attribution: { commit: "", pr: "", sessionUrl: false },
         })}\n`,
       },

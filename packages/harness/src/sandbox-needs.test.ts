@@ -63,6 +63,7 @@ describe("sandboxNeeds", () => {
       skipDangerousModePermissionPrompt: true,
       permissions: { defaultMode: "bypassPermissions" },
       crossSessionInbound: "refuse",
+      skillOverrides: { "auto-mode-setup": "off" },
       attribution: { commit: "", pr: "", sessionUrl: false },
     });
     expect({ ...needs, defaults: [] }).toEqual({

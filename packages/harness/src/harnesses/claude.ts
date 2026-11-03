@@ -12,6 +12,7 @@ import {
   readClaudeUsage,
 } from "../usage/claude";
 import { ownFiles } from "../usage/files";
+import { CLAUDE_SESSION_SETTINGS } from "./claude-settings";
 import {
   defineHarness,
   type HarnessDefinition,
@@ -49,15 +50,11 @@ function claudeSettings({ model, effort }: LaunchSettings): string[] {
   return [
     ...(model ? ["--model", model] : []),
     ...(effort ? ["--effort", effort] : []),
-    ...REFUSE_CROSS_SESSION,
+    ...SESSION_SETTINGS,
   ];
 }
 
-/**
- * Peers reach an agent only through awf's routes, so claude's own messaging from the user's other
- * sessions is refused: a restrictive value, which no other settings source can loosen.
- */
-const REFUSE_CROSS_SESSION = ["--settings", JSON.stringify({ crossSessionInbound: "refuse" })];
+const SESSION_SETTINGS = ["--settings", JSON.stringify(CLAUDE_SESSION_SETTINGS)];
 
 const CLAUDE = {
   // What a Claude Code session sets for the commands it runs. The findings tie inherited
