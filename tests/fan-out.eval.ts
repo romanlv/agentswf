@@ -7,10 +7,10 @@ import type { FanOutAnswer } from "./fixtures/fan-out";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
- * Twelve codex and six claude TUI agents prompted at once, twice each (story concurrent-agents):
+ * Twelve codex, six claude and four cursor TUI agents prompted at once, twice each (story concurrent-agents):
  * with twelve codex panes busy, Herdr missed half their turns and showed the rest's end past the
  * release. Every answer must be right, and the run end with no cleanup left unresolved.
- * `bun tests/fan-out.eval.ts codex=4` runs fewer. 18 agents, ~1 min, ~$0.63 at list prices.
+ * `bun tests/fan-out.eval.ts codex=4` runs fewer. 22 agents, ~1 min, ~$0.65 at list prices.
  */
 const FAN_OUT = join(import.meta.dir, "fixtures/fan-out.ts");
 

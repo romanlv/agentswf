@@ -2626,6 +2626,29 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("a cursor pane is prompted only once its screen shows it takes input", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "cursor", model: "composer-2.5" },
+    });
+    await (
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
+    ).settled;
+    const order = calls.map(verb).filter((v) => v === "pane wait-output" || v === "agent prompt");
+    expect(order).toEqual(["pane wait-output", "agent prompt"]);
+    const waited = calls.find((call) => verb(call) === "pane wait-output")!;
+    expect(waited.argv).toEqual(expect.arrayContaining(["--match", "Run Everything"]));
+    await host.close();
+  });
+
   describe("a turn read from its harness's record", () => {
     // Untaken past the record's own poll, as in production, where it waits 5 s on a 100 ms poll.
     const FAST: HerdrConfig = { ...CONFIG, turnPollMs: 20, untakenMs: 300 };
