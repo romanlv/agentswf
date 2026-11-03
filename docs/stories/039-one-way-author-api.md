@@ -3,7 +3,7 @@ id: "039"
 title: "An author learns one way to do each thing"
 summary: "One context type for every workflow, participants routed to the code declared in events, one duration grammar, one testWorkflow signature, one word per state, and what is unbuilt or unused removed, each through a deprecation that ends before 0.1.0."
 type: story
-status: ready
+status: in-progress
 priority: P0
 epic: authoring
 discovered_in: "a review of the workflow API while running the Datadog watcher, 2026-10-26"
@@ -1492,6 +1492,27 @@ Built:
   `layout`'s `tab` shows there); it can carry the written `pane` when `layout` goes.
 - An older awf continuing a run with `panes` ignores them silently (it reads `run.json` version 1
   and doesn't know the field).
+
+### Task 10, not started
+
+It removes what tasks 1–9 deprecated, at least one beta after the beta that ships them. Tasks
+1–9 are one branch, so all of them ship together and task 10 waits for the beta after. It also
+waits on three decisions:
+- Agent keys made at run time (`reviewer#2`), which no fixed `events` can declare.
+- Cost grouping once colons are refused.
+- How a test keeps a pane once `keepPane` goes.
+
+Engine tests that still call deprecated forms move with it.
+
+### Live checks not run
+
+Each costs model turns, so each is left for a person. The commands are in the task's notes:
+- Task 4: `close()` on a real TUI agent closes its Herdr pane, or keeps it as asked, and hands a
+  `--here` session back.
+- Task 7: a participant routed to the code replies through `awf emit` (one cheap model turn).
+- Task 8: a real harness's `wfa` in a pane across a reinstall mid-run.
+- Task 9: the Herdr check of `--workspace` and `--keep-panes`. It also settles whether `front` can
+  apply outside the operator's own workspace.
 
 ## Human review
 
