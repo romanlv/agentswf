@@ -498,13 +498,15 @@ async function untilDrawn(
     if (shown.cancelled || signal?.aborted) {
       return { error: "operation cancelled", timedOut: false, cancelled: true };
     }
-    // Herdr's own timeout comes back as an error, not as awf's kill: only the limit ends it.
+    // Herdr's own timeout comes back as its `timeout` error, not as awf's kill: that is waited
+    // on to the limit; any other error, a pane gone, ends it.
     const screen = await read();
     const login = spec.login?.screen(screen) !== undefined;
-    if (login || Date.now() >= limit) {
+    const waiting = !shown.ok && hasHerdrErrorCode(shown.error, "timeout");
+    if (login || !waiting || Date.now() >= limit) {
       return {
         error: `${kind} never showed it was ready: ${screen.trim().slice(-300) || shown.error}`,
-        timedOut: !login,
+        timedOut: !login && waiting,
         cancelled: false,
       };
     }
@@ -980,8 +982,14 @@ export function createHerdrRunHostFactory(
               turn.readNow();
               await Promise.race([turn.ended, Bun.sleep(RECORD_CATCH_UP_MS)]);
             }
-            // A dialog is left for the operator to answer: Escape would dismiss it.
-            const status = reportedAgent(got.result).agent_status;
+            // A dialog is left for the operator to answer: Escape would dismiss it. One shown only
+            // a moment, as claude's auto mode asking under load, is no dialog.
+            let status = reportedAgent(got.result).agent_status;
+            if (status === "blocked") {
+              await Bun.sleep(RECORD_CATCH_UP_MS);
+              const again = await herdr(["agent", "get", agentName]);
+              if (again.ok) status = reportedAgent(again.result).agent_status;
+            }
             if (
               recordSpeaks(turn)
                 ? turn.end === undefined && status !== "blocked"
@@ -1365,19 +1373,20 @@ export function createHerdrRunHostFactory(
             const session = operation.previousSessionRef;
             const record =
               turnRecord && session
-                ? await prepareTurnRecord(
-                    await turnRecord.place(
-                      request.cwd,
-                      launchedAt,
-                      request.home,
-                      session,
-                      lastRecorded?.session === session ? lastRecorded.file : undefined,
-                    ),
-                    // No prompt of a compaction is marked: only the session's own file is read.
-                    `[awf-compaction:${randomUUID()}]`,
-                    turnRecord.compaction,
-                    { signal },
-                  ).catch(() => undefined)
+                ? await (async () =>
+                    prepareTurnRecord(
+                      await turnRecord.place(
+                        request.cwd,
+                        launchedAt,
+                        request.home,
+                        session,
+                        lastRecorded?.session === session ? lastRecorded.file : undefined,
+                      ),
+                      // No prompt of a compaction is marked: only the session's own file is read.
+                      `[awf-compaction:${randomUUID()}]`,
+                      turnRecord.compaction,
+                      { signal },
+                    ))().catch(() => undefined)
                 : undefined;
             const reading = new AbortController();
             let started = false;
@@ -1920,8 +1929,28 @@ export function createHerdrRunHostFactory(
 
                 const placement = current;
                 if (!placement) throw new Error("operation pane was not retained");
+                // A prompt its last operation gave up on, still in claude's input, would be sent
+                // with what is typed now. Held on two looks running, as a loaded screen lags; then
+                // it is the agent's to close, not to be asked again.
+                if (untakenMarker && harness === "claude") {
+                  const held = untakenMarker;
+                  untakenMarker = undefined;
+                  const look = async () => {
+                    const read = await herdr(
+                      ["agent", "read", placement.agentName, "--source", "detection"],
+                      config.commandTimeoutMs,
+                      controller.signal,
+                    );
+                    return read.ok && heldInInput(read.stdout, held);
+                  };
+                  const heldOnce = await look();
+                  if (heldOnce) await Bun.sleep(RECORD_CATCH_UP_MS);
+                  if (heldOnce && (await look())) {
+                    return localOutcome("failed", "its last prompt is still unsent in its input");
+                  }
+                }
                 if (operation.kind === "compact") {
-                  // No record marks a compaction's end, so the screen settles what follows it.
+                  // A compaction is no recorded turn: Herdr settles what follows it.
                   dropTurn();
                   // Its prompts wait through Herdr, which may not yet show the last turn's end,
                   // its record's: that end would match the wait before the compaction ran.
@@ -1946,19 +1975,7 @@ export function createHerdrRunHostFactory(
                 }
                 const waitMs = Math.max(1, remainingMs);
                 const marker = `[awf-delivery:${randomUUID()}]`;
-                // A prompt its last operation gave up on, still in claude's input, would be sent
-                // with this one, which its record would then never find.
-                if (untakenMarker && harness === "claude") {
-                  const read = await herdr(
-                    ["agent", "read", placement.agentName, "--source", "detection"],
-                    config.commandTimeoutMs,
-                    controller.signal,
-                  );
-                  if (read.ok && heldInInput(read.stdout, untakenMarker)) {
-                    return localOutcome("failed", "its last prompt is still unsent in its input");
-                  }
-                }
-                untakenMarker = undefined;
+
                 const dispatchSignal = operation.deliverySignal
                   ? AbortSignal.any([operation.deliverySignal, controller.signal])
                   : controller.signal;
