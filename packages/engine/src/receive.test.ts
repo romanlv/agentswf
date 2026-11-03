@@ -460,7 +460,7 @@ test("a wait's sources are checked: a promise, a name with @, a race in a stage"
       };
       await attempt(() => workflow.race("p", { done: Promise.resolve() } as never));
       await attempt(() => workflow.timer("a@b", "1h"));
-      await attempt(() => workflow.sleep("s", "30s" as never));
+      await attempt(() => workflow.sleep("s", "30x" as never));
       await workflow.stage("in-stage", async () => {
         await attempt(() => workflow.race("r", { later: "1h" }));
       });
@@ -471,7 +471,7 @@ test("a wait's sources are checked: a promise, a name with @, a race in a stage"
   const errors = run.value as string[];
   expect(errors[0]).toContain("is not a source");
   expect(errors[1]).toContain("timer a@b");
-  expect(errors[2]).toContain("days, hours or minutes");
+  expect(errors[2]).toContain("a decimal and s, m, h or d");
   expect(errors[3]).toContain("a race is recorded on its own");
 });
 

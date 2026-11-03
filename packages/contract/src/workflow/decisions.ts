@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from "./json";
 import type { AbsoluteDeadline } from "./timing";
+import type { Timeout } from "./waits";
 
 /** Instructions, an option's description or a level: text, or structured text, as Jev allows. */
 export type DecisionText = string | JsonObject;
@@ -114,7 +115,9 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
   state: string | JsonObject | JsonValue[];
   /** At least one. They are answered independently and do not see each other's answers. */
   questions: Q;
-  /** Defaults to the current scope's deadline, and can only be earlier. */
+  /** Bounds the call, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"30s"`. */
   deadline?: AbsoluteDeadline;
 }
 

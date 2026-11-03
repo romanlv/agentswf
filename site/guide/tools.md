@@ -91,7 +91,7 @@ codes.
 
 The agent waits while the handler runs, so keep it short.
 
-- **A handler has 30 seconds** by default. `timeoutMs` sets its own budget; `timeoutMs: false`
+- **A handler has 30 seconds** by default. `timeout` sets each call's budget, `"2m"`; `timeout: false`
   leaves only the turn's deadline. The turn's deadline always bounds it.
 - **When the time is up, or the turn ends, `call.signal` aborts.** A handler that ignores it gets
   5 more seconds, then its call ends without it, and the agent is told it may have run.

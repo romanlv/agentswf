@@ -64,8 +64,6 @@ export type CompactionCheck = {
 /** The codename and colour the agents were checked against, beside their checks. */
 export type CompactionResult = { codename: string; colour: string; checks: CompactionCheck[] };
 
-const MINUTE = 60_000;
-
 export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
   meta: {
     name: "compaction",
@@ -81,7 +79,7 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
           runtime: execution,
         });
         const ask = async (prompt: string) => {
-          const { outcome } = await agent.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
+          const { outcome } = await agent.run({ prompt, schema: NOTED, timeout: "4m" });
           return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const problem =
@@ -94,13 +92,13 @@ export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
 
         const compacted = await agent.compact({
           prompt: `Record in the summary that the project codename is ${args.codename}, and keep the shed's colour.`,
-          timeoutMs: 5 * MINUTE,
+          timeout: "5m",
         });
         const { outcome } = await agent.run({
           prompt:
             "Without running any command or reading any file: what is the project codename, and what colour is the shed? Answer unknown for what you do not know.",
           schema: RECALLED,
-          timeoutMs: 4 * MINUTE,
+          timeout: "4m",
         });
         return {
           runtime,

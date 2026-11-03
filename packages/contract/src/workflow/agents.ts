@@ -4,7 +4,7 @@ import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
-import type { EventLike, Source, Taken } from "./waits";
+import type { Duration, EventLike, Source, Taken, Timeout } from "./waits";
 
 export type AgentKey = string;
 /**
@@ -106,7 +106,9 @@ export type AgentExecution = ExecutionConfig & {
 export interface AgentOpenSpec {
   /** Logical identity scoped to the current workflow run. */
   key: AgentKey;
-  /** Bounds this operation; defaults to the current workflow scope deadline. */
+  /** Bounds opening it, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
   deadline?: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
@@ -147,6 +149,8 @@ export interface AgentOpenSpec {
    */
   keepAlive?: {
     /** How long the run stays live after this agent's last turn ends; absent, an hour. */
+    window?: Duration;
+    /** @deprecated Give `window`, a `Duration` such as `"90s"`. */
     timeoutMs?: number;
     /**
      * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
@@ -185,10 +189,12 @@ export interface ToolSpec<I extends JsonObject = JsonObject> {
   // biome-ignore lint/suspicious/noConfusingVoidType: an async handler that returns nothing is a Promise<void>.
   handler(input: I, call: ToolCall): Promise<JsonValue | void> | JsonValue | void;
   /**
-   * The handler's budget, within the operation's deadline; absent, `TOOL_LIMITS.defaultTimeoutMs`;
+   * Each call's budget, within the operation's deadline; absent, `TOOL_LIMITS.defaultTimeoutMs`;
    * `false`, only the deadline. A shell command past its harness's own limit is moved to the
    * background, or on codex handed back for the agent to poll, past 10 s by default (M2).
    */
+  timeout?: Duration | false;
+  /** @deprecated Give `timeout`, a `Duration` such as `"30s"`, or `false`. */
   timeoutMs?: number | false;
 }
 
@@ -312,22 +318,23 @@ interface AgentRunBase {
   id?: TurnId;
   prompt: string;
   /**
-   * Fixed before queueing; defaults to the current scope and covers all automatic check-ins. A wait
-   * for an outside participant's answer moves it out by the wait's length, within the deadlines
-   * around the operation.
+   * Bounds the turn and its automatic check-ins, fixed when it is called, within the stage,
+   * `parallel` and run around it. A wait for an outside participant's answer moves it out by the
+   * wait's length, within those.
    */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
   deadline?: AbsoluteDeadline;
-  /**
-   * Relative bound from invocation, capped by the current scope; waiting extends it only for an
-   * outside participant's answer, as `deadline`.
-   */
+  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
   timeoutMs?: number;
   label?: string;
-  /**
-   * Enables automatic recovery, with repeated check-ins where delivery is confirmed.
-   * `false` disables it. A supplied deadline can shorten the operation, never extend it.
-   */
-  nudge?: false | (Omit<NudgeOptions, "deadline"> & { deadline?: AbsoluteDeadline });
+  /** Enables automatic recovery, with repeated check-ins where delivery is confirmed. `false` disables it. */
+  nudge?:
+    | false
+    | (Omit<NudgeOptions, "deadline"> & {
+        /** @deprecated Drop it: `timeout` bounds the turn and its check-ins. */
+        deadline?: AbsoluteDeadline;
+      });
 }
 
 export interface AgentRunTextSpec extends AgentRunBase {
@@ -452,9 +459,11 @@ export interface CompactSpec {
   id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
-  /** Bounds this operation; defaults to the current workflow scope deadline. */
+  /** Bounds this operation, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound from invocation, capped by the current workflow scope deadline. */
+  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
   timeoutMs?: number;
 }
 
@@ -471,6 +480,8 @@ export type ForkRuntime = PlacementChoice & {
 export interface CallerForkSpec {
   /** The new agent's key in this run. */
   key: AgentKey;
+  /** Bounds taking the copy and opening it, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
   /** Given with its first turn; it already knows what this agent was told. */
   instructions?: string;
   /** @deprecated Drop it: nothing reads an agent's labels. */
@@ -507,9 +518,11 @@ export interface SettingsSpec {
   /** Another model of the same harness. */
   model?: string;
   effort?: Effort;
-  /** Bounds this operation; defaults to the current workflow scope deadline. */
+  /** Bounds this operation, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound from invocation, capped by the current workflow scope deadline. */
+  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
   timeoutMs?: number;
 }
 

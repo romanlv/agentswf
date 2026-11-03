@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
-import { duration } from "./duration";
+import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
 import {
@@ -133,7 +133,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
       status.ref.padEnd(width),
       states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
-      duration(ms).padEnd(8),
+      formatDuration(ms).padEnd(8),
       money(estimate)
         .join("")
         .concat(waiting ? "  " : ""),
@@ -184,7 +184,7 @@ function agentLine(agent: AgentView, indent: string, now: number, width: number)
             `${said(live.peer, 60)}'s reply${live.until ? ` (until ${clockTime(live.until).slice(0, 5)})` : ""}`,
           ]
         : []),
-    ...(agent.since && agent.state === "working" ? [duration(now - agent.since)] : []),
+    ...(agent.since && agent.state === "working" ? [formatDuration(now - agent.since)] : []),
     ...(agent.last
       ? [`last: ${describeActivity(agent.last.activity)} (${clockTime(agent.last.at)})`]
       : []),
@@ -236,13 +236,13 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       ...(view.stage ? [`stage ${view.stage}`] : []),
       status.state === "interrupted" && view.lastEventAt
         ? `last event ${clockTime(view.lastEventAt)}`
-        : duration(span(status, now).ms),
+        : formatDuration(span(status, now).ms),
       ...money(view.estimate),
     ].join("  "),
   ];
   for (const earlier of status.attempts.slice(0, -1)) {
     const took = earlier.ended
-      ? `  ${duration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
+      ? `  ${formatDuration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
       : "";
     const how = `${earlier.outcome ?? "interrupted"}${earlier.stage ? ` in ${earlier.stage}` : ""}`;
     lines.push(`  attempt ${earlier.attempt}  ${how}${took}`);
@@ -254,7 +254,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     const took =
       stage.state === "reused" || stage.state === "provided" || stage.startedAt === undefined
         ? ""
-        : duration((stage.endedAt ?? now) - stage.startedAt);
+        : formatDuration((stage.endedAt ?? now) - stage.startedAt);
     lines.push(
       `${indent}  stage ${stage.stage.padEnd(8)} ${stage.state.padEnd(10)} ${took}`.trimEnd(),
     );

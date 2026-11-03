@@ -80,7 +80,7 @@ export default defineWorkflow<null, SandboxesResult>({
         const { outcome } = await agent.run({
           prompt: prompt(teamCommands(name)),
           schema: REPORT,
-          timeoutMs: 5 * 60_000,
+          timeout: "5m",
         });
         return report(name, "docker, shared, headed", outcome);
       },
@@ -95,7 +95,7 @@ export default defineWorkflow<null, SandboxesResult>({
     const { outcome } = await auditor.run({
       prompt: prompt(AUDITOR_COMMANDS),
       schema: REPORT,
-      timeoutMs: 5 * 60_000,
+      timeout: "5m",
     });
     return { reports: [...team, report("auditor", "srt, private, headless", outcome)] };
   },

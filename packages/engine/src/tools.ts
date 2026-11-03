@@ -7,6 +7,7 @@ import {
   type AgentTools,
   isJsonValue,
   type JsonValue,
+  positiveDurationMilliseconds,
   TOOL_LIMITS,
   type ToolSpec,
 } from "@agentswf/contract/workflow";
@@ -58,6 +59,8 @@ export type ToolHost<Scope> = {
   /** Runs `fn` in the operation's scope, or in none. */
   runIn<T>(scope: Scope | undefined, fn: () => T): T;
   now?(): number;
+  /** A tool given its deprecated `timeoutMs`. */
+  deprecated?(name: "timeout-ms", call: string): void;
 };
 
 /** An operation as tool calls bind to it. */
@@ -76,7 +79,14 @@ export type ToolAnswer =
   | { kind: "tool-failed"; outcome: ToolFailure; error: string }
   | { kind: "refused"; code: ToolCode | "internal-error"; error: string };
 
-type Held = { specs: AgentTools; schemas: Map<string, JsonSchema | undefined> };
+/** A call's budget: milliseconds from its start, or none of its own. */
+type Budget = number | false;
+
+type Held = {
+  specs: AgentTools;
+  schemas: Map<string, JsonSchema | undefined>;
+  budgets: Map<string, Budget>;
+};
 
 type Running = {
   tool: string;
@@ -115,7 +125,7 @@ export class ToolCalls<Scope> {
 
   /** An agent opened or forked with these tools; checked against the limits first. */
   give(agent: AgentKey, tools: AgentTools): void {
-    this.#held.set(agent, held(agent, tools));
+    this.#held.set(agent, held(agent, tools, this.#host.deprecated));
   }
 
   /**
@@ -124,7 +134,7 @@ export class ToolCalls<Scope> {
    */
   reopen(agent: AgentKey, tools: AgentTools | undefined): void {
     if (tools === undefined) return;
-    const next = held(agent, tools);
+    const next = held(agent, tools, this.#host.deprecated);
     const existing = this.#held.get(agent);
     if (!existing || !sameTools(existing, next)) {
       throw new Error(`agent ${agent} is already open with different tools`);
@@ -289,12 +299,11 @@ export class ToolCalls<Scope> {
     const controller = new AbortController();
     let cause: ToolFailure | undefined;
     let handlerEnded = false;
-    const timeoutMs = spec.timeoutMs === undefined ? TOOL_LIMITS.defaultTimeoutMs : spec.timeoutMs;
+    const budget = tools.budgets.get(request.tool)!;
     const deadline = operation.deadline();
     const startedAt = this.#now();
-    const budgetEnd = minimum(timeoutMs === false ? undefined : startedAt + timeoutMs, deadline);
-    const bound =
-      deadline !== undefined && budgetEnd === deadline ? ("deadline" as const) : timeoutMs;
+    const budgetEnd = minimum(budget === false ? undefined : startedAt + budget, deadline);
+    const bound = deadline !== undefined && budgetEnd === deadline ? ("deadline" as const) : budget;
     const { promise: settled, resolve: settle } = Promise.withResolvers<void>();
     const { promise: answered, resolve: answer } = Promise.withResolvers<ToolAnswer>();
     const running: Running = {
@@ -479,7 +488,7 @@ function aborted(
   tool: string,
   cause: ToolFailure,
   /** What bounded it: its own budget, or the turn's deadline. */
-  bound: number | false | "deadline",
+  bound: Budget | "deadline",
 ): { kind: "tool-failed"; outcome: ToolFailure; error: string } {
   const what =
     cause === "cancelled"
@@ -564,7 +573,11 @@ export function toolsLesson(
   ].join("\n");
 }
 
-function held(agent: AgentKey, tools: AgentTools): Held {
+function held(
+  agent: AgentKey,
+  tools: AgentTools,
+  deprecated: ToolHost<unknown>["deprecated"],
+): Held {
   if (typeof tools !== "object" || tools === null || Array.isArray(tools)) {
     throw new Error(`agent ${agent}'s tools are an object of tools by name`);
   }
@@ -573,6 +586,7 @@ function held(agent: AgentKey, tools: AgentTools): Held {
     throw new Error(`agent ${agent} has ${names.length} tools; at most ${TOOL_LIMITS.tools}`);
   }
   const schemas = new Map<string, JsonSchema | undefined>();
+  const budgets = new Map<string, Budget>();
   for (const name of names) {
     const spec = tools[name]!;
     const where = `agent ${agent}'s tool ${JSON.stringify(name)}`;
@@ -586,14 +600,7 @@ function held(agent: AgentKey, tools: AgentTools): Held {
     if (Buffer.byteLength(spec.description) > TOOL_LIMITS.descriptionBytes) {
       throw new Error(`${where}: its description is over ${TOOL_LIMITS.descriptionBytes} bytes`);
     }
-    const timeout = spec.timeoutMs;
-    if (
-      timeout !== undefined &&
-      timeout !== false &&
-      !(Number.isSafeInteger(timeout) && timeout > 0)
-    ) {
-      throw new Error(`${where}: timeoutMs is a positive integer, or false for none`);
-    }
+    budgets.set(name, budgetOf(where, spec, deprecated));
     if (spec.input === undefined) {
       schemas.set(name, undefined);
       continue;
@@ -619,7 +626,28 @@ function held(agent: AgentKey, tools: AgentTools): Held {
     // Its JSON, in the author's order for the lesson, without TypeBox's own keys.
     schemas.set(name, JSON.parse(JSON.stringify(input)) as JsonSchema);
   }
-  return { specs: { ...tools }, schemas };
+  return { specs: { ...tools }, schemas, budgets };
+}
+
+/** A tool's `timeout`, or its deprecated `timeoutMs`, checked; absent, the default. */
+function budgetOf(
+  where: string,
+  spec: ToolSpec,
+  deprecated: ToolHost<unknown>["deprecated"],
+): Budget {
+  const { timeout, timeoutMs } = spec;
+  if (timeout != null) {
+    if (timeoutMs != null)
+      throw new Error(`${where}: give timeout alone: timeoutMs is its deprecated form`);
+    if (timeout === false) return false;
+    return positiveDurationMilliseconds(timeout, `${where}: its timeout`);
+  }
+  if (timeoutMs == null) return TOOL_LIMITS.defaultTimeoutMs;
+  if (timeoutMs !== false && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
+    throw new Error(`${where}: timeoutMs is a positive integer, or false for none`);
+  }
+  deprecated?.("timeout-ms", "on a tool");
+  return timeoutMs;
 }
 
 function sameTools(a: Held, b: Held): boolean {

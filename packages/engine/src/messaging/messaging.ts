@@ -9,7 +9,7 @@ import type {
 import type { ParticipantCode, PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
 import type { AgentKey, JsonObject } from "@agentswf/contract/workflow";
 import type { AuthoredMessage } from "@agentswf/harness/adapter";
-import { duration } from "../duration";
+import { formatDuration } from "../duration";
 import { MESSAGE_LIMITS } from "./limits";
 import {
   directions,
@@ -281,11 +281,13 @@ export class Messaging {
     const timeoutMs = options.timeoutMs;
     if (timeoutMs !== undefined) {
       if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
-        throw new Error("a route's timeoutMs is a positive whole number of milliseconds");
+        throw new Error(
+          `a route's timeoutMs is a positive whole number of milliseconds: not ${timeoutMs}`,
+        );
       // Only where an agent can ask an outside participant: nothing else needs it yet.
       if (!pairs.some(([, to]) => this.#outside.has(to)))
         throw new Error(
-          "timeoutMs is only for a route an agent asks an outside participant over: between them, or to it",
+          "a timeout is only for a route an agent asks an outside participant over: between them, or to it",
         );
     }
     const open = pairs.map(([from, to]) => this.#open(from, to));
@@ -1085,7 +1087,7 @@ export class Messaging {
             obligation,
             "timed-out",
             obligation.closes?.by === "route"
-              ? `the question closed unanswered after ${duration(obligation.closes.ms)}`
+              ? `the question closed unanswered after ${formatDuration(obligation.closes.ms)}`
               : `your --timeout passed at ${clock(closesAt, this.#host.now())}`,
           );
         }

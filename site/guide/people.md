@@ -65,7 +65,8 @@ answers it. `1.5` is the message's id, `{attempt}.{n}`: message 5 of attempt 1.
 - **The route** is a [messaging route](/guide/messaging#granting-a-route) with the participant at
   one end. With `{ from: investigator, to: coordinator }` the agent reports and asks, and the holder
   can only answer; `between` lets the holder message the agent first too.
-- **`timeoutMs`**, only on a route to a participant, closes a question unanswered after that long.
+- **`timeout`**, a duration such as `"2h"`, only on a route to a participant, closes a question
+  unanswered after that long.
   Without it, a question waits until it is answered.
 - **`coordinator.release(reason)`** disconnects it: its routes close, and every question still open
   to it ends. Otherwise it stays connected until the workflow has returned and no question to it is
@@ -79,7 +80,7 @@ took. A [deadline](/guide/timeouts) your workflow set around the agent, or on th
 and the question closes there.
 
 A question still open when the workflow returns keeps the run open until it is answered; set
-`timeoutMs` if the run shouldn't wait that long. While it waits, a headless agent has no process
+the route's `timeout` if the run shouldn't wait that long. While it waits, a headless agent has no process
 running, and a TUI agent keeps its pane and process. Either way, awf bounds a turn by a week
 when nothing else does, so ask from a headless agent when answers may take days, and treat a
 question open longer than a week as a run to stop and start again.

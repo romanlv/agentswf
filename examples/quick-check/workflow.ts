@@ -75,7 +75,7 @@ export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
           const { outcome } = await agent.run({
             prompt,
             schema: ANSWER_SCHEMA,
-            timeoutMs: 3 * 60_000,
+            timeout: "3m",
           });
           if (!outcome.answered) {
             answers.push({ outcome: outcome.kind, expected, reason: outcome.reason });

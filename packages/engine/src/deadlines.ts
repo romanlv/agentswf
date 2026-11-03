@@ -1,4 +1,9 @@
-import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
+import {
+  type AbsoluteDeadline,
+  DeadlineExceededError,
+  positiveDurationMilliseconds,
+  type Timeout,
+} from "@agentswf/contract/workflow";
 
 export class WorkflowCancelledError extends Error {
   constructor(readonly reason: unknown) {
@@ -96,9 +101,71 @@ export function deadlineWithin(
   ceiling: AbsoluteDeadline | undefined,
 ): AbsoluteDeadline {
   if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
-    throw new Error("timeoutMs must be a positive safe integer");
+    throw new Error(`timeoutMs is a positive duration, in whole milliseconds: not ${milliseconds}`);
   }
   return earlierDeadline({ unixMilliseconds: Date.now() + milliseconds }, ceiling);
+}
+
+/** A call's bound as a workflow gives it: `timeout`, or the deprecated `deadline` or `timeoutMs`. */
+export type GivenBound = {
+  timeout?: Timeout;
+  deadline?: AbsoluteDeadline;
+  timeoutMs?: number;
+};
+
+/**
+ * The deadline a call's bound sets, never past `ceiling`, the deadlines around it; `ceiling` when it
+ * sets none of its own. A deprecated form is checked, then reported under `call`, the call it was
+ * given to, and refused beside `timeout`. `null` from an untyped caller is no bound, as it was.
+ */
+export function boundedDeadline(
+  given: GivenBound,
+  ceiling: AbsoluteDeadline | undefined,
+  deprecated: (name: "timeout-ms" | "deadline-option", call: string) => void,
+  call: string,
+): AbsoluteDeadline | undefined {
+  const { timeout, deadline, timeoutMs } = given;
+  if (timeout != null) {
+    if (deadline != null || timeoutMs != null)
+      throw new Error(
+        "give timeout alone: deadline and timeoutMs are its deprecated forms, not limits beside it",
+      );
+    return timeoutDeadline(timeout, ceiling);
+  }
+  if (deadline != null && timeoutMs != null)
+    throw new Error("an operation cannot specify both deadline and timeoutMs");
+  if (timeoutMs != null) {
+    const bounded = deadlineWithin(timeoutMs, ceiling);
+    deprecated("timeout-ms", call);
+    return bounded;
+  }
+  if (deadline == null) return ceiling;
+  // A copy: the object given may be `wf.deadline`, whose `unixMilliseconds` reports each read.
+  const own = { unixMilliseconds: deadline.unixMilliseconds };
+  assertDeadlineValue(own);
+  deprecated("deadline-option", call);
+  return earlierDeadline(own, ceiling);
+}
+
+/** The deadline `timeout` sets from now, never past `ceiling`; `ceiling` for `false`. */
+export function timeoutDeadline(
+  timeout: Timeout,
+  ceiling: AbsoluteDeadline | undefined,
+): AbsoluteDeadline | undefined {
+  if (timeout === false) return ceiling;
+  if (timeout instanceof Date) {
+    const at = timeout.getTime();
+    if (!Number.isSafeInteger(at) || at < 0) throw new Error("a timeout's Date is a valid time");
+    return earlierDeadline({ unixMilliseconds: at }, ceiling);
+  }
+  if (typeof timeout !== "string")
+    throw new Error(
+      `a timeout is a Duration such as "10m", a Date, or false; not ${JSON.stringify(timeout)}`,
+    );
+  return earlierDeadline(
+    { unixMilliseconds: Date.now() + positiveDurationMilliseconds(timeout, "a timeout") },
+    ceiling,
+  );
 }
 
 export function assertDeadline(deadline: AbsoluteDeadline | undefined): void {

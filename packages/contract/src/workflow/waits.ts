@@ -1,10 +1,58 @@
 import type { EventId, Matched, WorkflowEvent } from "./events";
 
 /**
- * A length of time: days, hours or minutes, `"14d"`, `"4h"`, `"1.5h"`. A typo of the unit fails
- * `tsc`; a number that isn't a plain positive one, such as `"-2d"`, throws where it is given.
+ * A length of time: a decimal and `s`, `m`, `h` or `d`, `"90s"`, `"10m"`, `"1.5h"`, `"14d"`. A typo
+ * of the unit fails `tsc`; a number that isn't a plain one, such as `"-2d"` or `"1e3s"`, throws
+ * where it is given. A string read from data is checked with `duration()`.
  */
-export type Duration = `${number}d` | `${number}h` | `${number}m`;
+export type Duration = `${number}s` | `${number}m` | `${number}h` | `${number}d`;
+
+const DURATION = /^(\d+(?:\.\d+)?)(s|m|h|d)$/;
+const UNIT_MILLISECONDS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+/** A duration's length in milliseconds, rounded; throws, saying the grammar, for anything else. */
+export function durationMilliseconds(text: unknown): number {
+  const matched = typeof text === "string" ? DURATION.exec(text) : null;
+  if (!matched)
+    throw new Error(
+      `a duration is a decimal and s, m, h or d, such as "90s", "10m", "1.5h" or "14d"; not ${typeof text === "string" ? JSON.stringify(text) : String(text)}`,
+    );
+  const unit = matched[2] as keyof typeof UNIT_MILLISECONDS;
+  const milliseconds = Math.round(Number(matched[1]) * UNIT_MILLISECONDS[unit]);
+  if (!Number.isSafeInteger(milliseconds)) throw new Error(`the duration ${text} is too long`);
+  return milliseconds;
+}
+
+/**
+ * As `durationMilliseconds`, for a length that must be longer than none: `what` names it in the
+ * error, `"a route's timeout"`.
+ */
+export function positiveDurationMilliseconds(text: unknown, what: string): number {
+  let milliseconds: number;
+  try {
+    milliseconds = durationMilliseconds(text);
+  } catch (error) {
+    throw new Error(`${what} is a positive duration: ${(error as Error).message}`);
+  }
+  if (milliseconds <= 0)
+    throw new Error(`${what} is a positive duration: not ${JSON.stringify(text)}`);
+  return milliseconds;
+}
+
+/**
+ * A duration read from data, checked: `duration(event.data.every)`. Throws, saying the grammar, for
+ * anything else.
+ */
+export function duration(text: unknown): Duration {
+  durationMilliseconds(text);
+  return text as Duration;
+}
+
+/**
+ * A call's bound: how long from when it is called, or the time it ends by; `false`, none of its
+ * own. Either way it never reaches past the stage, `parallel` or run around the call.
+ */
+export type Timeout = Duration | Date | false;
 
 /** When a timer is due: a duration from when it is first set, or a time. */
 export type When = Duration | Date;

@@ -6,15 +6,19 @@ import {
   type AgentOpenSpec,
   type AgentRef,
   type CallerRef,
+  type Duration,
   defineExecutableWorkflow,
   defineWorkflow,
+  duration,
   type EventAgentDirectory,
   type EventAgentOpenSpec,
   type EventAgentRef,
   type EventWorkflowContext,
   isAnswered,
   type OutputSchema,
+  tool,
   type WorkflowContext,
+  yesNo,
 } from "./workflow";
 
 type Surface = typeof import("./workflow");
@@ -103,6 +107,78 @@ export async function caller(): Promise<void> {
   if (won.mine && me.is({ name: "agent:ended", from: "me", data: won.mine })) void won.mine;
   await fork.close("enough");
   await me.close();
+}
+
+export async function time(): Promise<void> {
+  const reviewer = await wf.agents.open({ key: "r", runtime: "claude", timeout: "90s" });
+  const until = new Date(Date.now() + 60_000);
+  await reviewer.run({ prompt: "Review.", timeout: "1.5h" });
+  await reviewer.run({ prompt: "Review.", timeout: until });
+  await reviewer.run({ prompt: "Review.", timeout: false });
+  await reviewer.start({ prompt: "Review.", timeout: "10m" });
+  await reviewer.compact({ prompt: "Keep it.", timeout: "2m" });
+  await reviewer.set({ effort: "high", timeout: "30s" });
+  await reviewer.fork({ key: "r2", timeout: "1m" });
+  await plain.agents.forkCaller({ key: "me6", timeout: until });
+  await plain.parallel([1], async (n) => n, { timeout: "20m" });
+  await plain.decisions.decide({
+    key: "ok",
+    model: "jev",
+    state: "x",
+    questions: { ok: yesNo("Is it ok?") },
+    timeout: "30s",
+  });
+  await wf.agents.open({
+    key: "k",
+    runtime: "claude",
+    keepAlive: { window: "90s" },
+    tools: { look: tool({ description: "Look.", handler: () => "seen", timeout: "30s" }) },
+  });
+  await wf.messages.allow({ from: reviewer, to: reviewer, purpose: "p", timeout: "30m" });
+  wf.timer("in-90s", "90s");
+  wf.timer("in-1.5h", "1.5h");
+  wf.timer("at", until);
+  await wf.sleep("a-while", "14d");
+  const every: Duration = duration(String(JSON.parse('"2h"')));
+  void every;
+  const end: Date | undefined = plain.deadline;
+  void end;
+  // @ts-expect-error A duration is a decimal and s, m, h or d.
+  await reviewer.run({ prompt: "Review.", timeout: "10x" });
+  // @ts-expect-error Nor a number: milliseconds are what timeoutMs took.
+  await reviewer.run({ prompt: "Review.", timeout: 60_000 });
+  // @ts-expect-error A timer's duration is the same grammar.
+  wf.timer("typo", "10x");
+  // @ts-expect-error A route's timeout is a length of time per question, not a time.
+  await wf.messages.allow({ from: reviewer, to: reviewer, purpose: "p", timeout: until });
+  // @ts-expect-error A tool's timeout is each call's budget, not a time.
+  tool({ description: "Look.", handler: () => "seen", timeout: until });
+}
+
+export async function deprecatedTime(): Promise<void> {
+  const deadline = { unixMilliseconds: Date.now() + 60_000 };
+  const reviewer = await wf.agents.open({ key: "r", runtime: "claude", deadline });
+  await reviewer.run({ prompt: "Review.", timeoutMs: 60_000, nudge: { deadline } });
+  await reviewer.run({ prompt: "Review.", deadline });
+  await reviewer.compact({ prompt: "Keep it.", timeoutMs: 60_000 });
+  await reviewer.set({ effort: "high", deadline });
+  await plain.parallel([1], async (n) => n, { deadline });
+  await plain.decisions.decide({
+    key: "ok",
+    model: "jev",
+    state: "x",
+    questions: { ok: yesNo("Is it ok?") },
+    deadline,
+  });
+  await wf.agents.open({
+    key: "k",
+    runtime: "claude",
+    keepAlive: { timeoutMs: 90_000 },
+    tools: { look: tool({ description: "Look.", handler: () => "seen", timeoutMs: false }) },
+  });
+  await wf.messages.allow({ from: reviewer, to: reviewer, purpose: "p", timeoutMs: 60_000 });
+  const left = plain.deadline ? plain.deadline.unixMilliseconds - Date.now() : undefined;
+  void left;
 }
 
 export const old = defineExecutableWorkflow({

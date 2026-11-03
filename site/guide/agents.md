@@ -123,7 +123,7 @@ agent, or when the deadline around the whole scope has passed. A turn's own time
 outcome.
 
 **An agent that stops without answering** gets a nudge before the turn ends `unanswered`.
-`timeoutMs` bounds a turn, nudges included, and the `nudge` option changes or turns them off:
+`timeout` bounds a turn, nudges included, and the `nudge` option changes or turns them off:
 [Timeouts](/guide/timeouts).
 
 ## Several turns

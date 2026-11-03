@@ -46,9 +46,10 @@ and an expiry at fourteen that every round shares:
 
 <<< @/../examples/site/reference/workflow-api.ts#race
 
-- **`when` is a duration or a `Date`.** A duration, `"{n}d"`, `"{n}h"` or `"{n}m"`, decimals
-  allowed (`"1.5h"`), counts from the first call under the name; a unit typo, `"1hr"` or `"60s"`,
-  fails `tsc`. A `Date` is a fixed time, from the run's event, arguments or files.
+- **`when` is a duration or a `Date`.** A [duration](/reference/workflow-api#waiting-on-time),
+  `"90s"`, `"10m"`, `"1.5h"` or `"14d"`, counts from the first call under the name; a unit typo,
+  `"1hr"`, fails `tsc`, and a string read from data is checked with `duration(text)`. A `Date`
+  is a fixed time, from the run's event, arguments or files.
 - **`wf.timer` returns at once.** It records the time; a wait takes its `timer:due` when it comes.
   The timer has `name`, `due` (an ISO time), `cancel()` and `is(e)`.
 

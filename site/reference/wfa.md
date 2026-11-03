@@ -170,7 +170,7 @@ as JSON, nothing as nothing. Everything else goes to standard error.
 ### Time {#tool-time}
 
 `wfa tool` waits as long as the call takes. A handler has 30 seconds by default, or its own
-`timeoutMs`, always within the turn's deadline; `timeoutMs: false` leaves only the turn's
+`timeout`, always within the turn's deadline; `timeout: false` leaves only the turn's
 deadline. When that passes, the handler's signal aborts; a
 handler that ignores it gets 5 more seconds, then the call ends `timed-out` and exits 4.
 

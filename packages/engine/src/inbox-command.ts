@@ -11,7 +11,7 @@ import type {
 import type { InboxCode } from "@agentswf/contract/wire";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { maskCredentials } from "@agentswf/harness";
-import { duration } from "./duration";
+import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
@@ -658,7 +658,7 @@ function textOf(item: InboxItemJson, all: boolean): string {
             ? `${item.agent} → ${item.participant}`
             : `${item.participant} → ${item.agent}`;
       return item.state === "opened"
-        ? `${head}route ${arrow} opened  “${item.purpose}”${item.timeoutMs === undefined ? "" : `  ${duration(item.timeoutMs)}`}`
+        ? `${head}route ${arrow} opened  “${item.purpose}”${item.timeoutMs === undefined ? "" : `  ${formatDuration(item.timeoutMs)}`}`
         : `${head}route ${arrow} closed  ${item.reason}`;
     }
     case "message": {

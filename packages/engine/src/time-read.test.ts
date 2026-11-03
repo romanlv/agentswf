@@ -138,7 +138,9 @@ test("a read is refused what would never come due, and a race refuses a time rea
   expect(errors[4]).toBe("the ledger is torn");
   expect(errors[5]).toContain("race r's due is wf.at(), a select's");
   expect(errors[6]).toContain("wf.at() is a select's branch");
-  expect(errors[7]).toContain('wf.after takes days, hours or minutes, "1d"');
+  expect(errors[7]).toContain(
+    "wf.after takes a duration: a duration is a decimal and s, m, h or d",
+  );
   expect(errors[8]).toContain("wf.at takes a function");
 });
 

@@ -24,7 +24,7 @@ has the types, with every field documented.
 - **Options:** [`agents`](#scripts), [`compactions`](#compactions), [`messages`](#messages),
   [`participants`](#participants), [`decisions`](#decisions),
   [`allowance`](#allowance), [`runtimes`](#runtimes), [`caller`](#caller),
-  [`timeoutMs`](#time), [`stallMs`](#time), [`maxTimers`](#time), [`files`](#files),
+  [`timeout`](#time), [`stall`](#time), [`maxTimers`](#time), [`files`](#files),
   [`cwd`](#files), [`recorded`, `fromStage`, `values`](#continuing-over-recorded-stages); with
   events, [`id`, `args`, `event`, `events`, `maxTurns`, `mailbox`](#a-workflow-with-events).
   [Options](#options) has them in one table, with defaults.
@@ -79,8 +79,8 @@ test("a reader that never answers is nudged once, then the summary says why", as
 | [`allowance`](#allowance) | every harness reads `none` | what `wf.allowance` reads |
 | [`runtimes`](#runtimes) | `claude` and `codex` | runtime aliases added or replaced |
 | [`caller`](#caller) | none | the session the run is started from |
-| [`timeoutMs`](#time) | none | the run's deadline |
-| [`stallMs`](#time) | 2 s | real time with nothing starting or ending before the test fails |
+| [`timeout`](#time) | none | the run's deadline, a duration |
+| [`stall`](#time) | `"2s"` | real time with nothing starting or ending before the test fails |
 | [`maxTimers`](#time) | 20 | timers the virtual clock skips to before the run parks |
 | [`files`](#files) | none | files laid out under the run's directory first |
 | [`cwd`](#files) | a temporary directory, removed after | where the agents work |
@@ -175,10 +175,10 @@ const asking = (change: string, summary: string) =>
   });
 ```
 
-- **`turn.send(peer, text, { awaitReply?, timeoutMs? })`**, as `wfa send`, resolves to `sent`,
+- **`turn.send(peer, text, { awaitReply?, timeout? })`**, as `wfa send`, resolves to `sent`,
   `replied` with `text`, `failed` with a `reason`, or `refused` with a `code`: values to test,
   not throws. While a reply is awaited, the script awaits only these calls.
-- **`turn.reply(peer, text, { awaitReply?, timeoutMs? })`**, as `wfa reply`, answers a question among `turn.messages`. A
+- **`turn.reply(peer, text, { awaitReply?, timeout? })`**, as `wfa reply`, answers a question among `turn.messages`. A
   result while the agent owes a reply fails the test.
 - **`turn.tool(name, input?)`**, as `wfa tool` with JSON, calls the agent's
   [tool](/guide/tools) through the run's own checks and handler, and resolves to `result` with
@@ -288,16 +288,17 @@ Without it, both answer `null`.
 
 ## Time
 
-- **`timeoutMs`** is the run's deadline, none unless given, as `awf run` has none without
-  `--timeout`. Deadlines are real time: a turn's `timeoutMs` runs on the clock, and
+- **`timeout`**, a [duration](/reference/workflow-api#waiting-on-time) such as `"5s"`, is the
+  run's deadline, none unless given, as `awf run` has none without `--timeout`. Deadlines are
+  real time: a turn's `timeout` runs on the clock, and
   `noAnswer.timedOut()` ends a turn as timed out at once.
-- **`stallMs`**, 2 s by default: nothing starting or ending for that long fails the test, so a
+- **`stall`**, a duration, `"2s"` by default: nothing starting or ending for that long fails the test, so a
   stuck test fails rather than hangs. A wait for a participant question's `until` doesn't count.
 - **The clock is virtual.** Where the run would park with a timer to come, the test moves its
   clock to the timer, which fires: a two-day reminder takes no time, and `wf.now()`, timers and
   the events a test sends read that clock. After **`maxTimers`**, 20 by default, the run parks
   instead, and `run.value` says so; `maxTimers: 0` parks at the first, to test the parking.
-  [`run.timers`](#what-the-run-did) lists each. A turn's `timeoutMs` and `keepAlive` windows stay
+  [`run.timers`](#what-the-run-did) lists each. A turn's `timeout` and `keepAlive` windows stay
   on real time.
 
 ## Files
@@ -393,7 +394,7 @@ expect(run.emits).toEqual([]);
   the test's clock as it is sent.
 - `n` counts the turns the workflow started: a nudge or a wake for a message keeps the turn's
   number, so with one, `#2` is not `turnsOf(agent)[1]`.
-- A `keepAlive` window with no `timeoutMs` lasts 100 ms in a test rather than the hour, so a
+- A `keepAlive` with no `window` lasts 100 ms in a test rather than the hour, so a
   kept-alive workflow's test doesn't stall in it. A compaction `onTimeout` asks for is in
   `run.compactionsOf(key)`.
 - **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes: a
@@ -430,7 +431,7 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 - an answer the turn's schema refuses, or a result while the agent owes a reply;
 - a script that throws;
 - `noAnswer.interrupted()` on an agent other than the calling session;
-- a stall: nothing starting or ending for `stallMs`, so a stuck test fails rather than hangs;
+- a stall: nothing starting or ending for `stall`, so a stuck test fails rather than hangs;
 - with events, more than `maxTurns` turns, or a scripted event never sent.
 
 ## `awf test` {#awf-test}
@@ -447,7 +448,9 @@ on [the `awf` reference](/reference/awf#test).
 ## Deprecated
 
 These still compile and work until 0.1.0. Each test that uses one logs it once, in `run.logs`,
-as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read.
+as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read. An
+old option given with its replacement, `timeoutMs` with `timeout` or `stallMs` with `stall`, is
+refused.
 
 | Old form | Instead |
 | --- | --- |
@@ -457,6 +460,9 @@ as a warning naming what replaces it; `run.stopped` and `run.parked` log when th
 | `run.stopped` | [`run.ending`](#what-the-run-did), whose `kind` is `stopped`. |
 | `run.parked` | `run.ending`, whose `kind` is `parked`. |
 | `id` on `event` and on each of `events` | `eventId`. |
+| `timeoutMs` | `timeout`, a duration: `timeout: "5s"`. |
+| `stallMs` | `stall`, a duration: `stall: "2s"`. |
+| `timeoutMs` on a script's `turn.send` or `turn.reply` | `timeout`, a duration. |
 
 A turn's `outcome` changed without a deprecation: it is the one the engine recorded, where it was
 the script's word. A turn its script left silent is `unanswered`, where it was `silent`;

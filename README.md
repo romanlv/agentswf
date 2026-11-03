@@ -187,7 +187,7 @@ export default defineWorkflow({
     const { outcome } = await agent.run<Type.Static<typeof ANSWER>>({
       prompt: "What is 17 multiplied by 23? Work it out yourself; do not run any code.",
       schema: ANSWER,
-      timeoutMs: 3 * 60_000,
+      timeout: "3m",
     });
     return outcome.answered ? outcome.value : { unanswered: outcome.reason };
   },

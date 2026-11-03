@@ -49,7 +49,7 @@ export default defineWorkflow({
     const { outcome } = await reviewer.run({
       prompt:
         "Find dead code in src/. Record each finding with add_finding as you go.",
-      timeoutMs: 20 * 60_000,
+      timeout: "20m",
     });
     // What the agent recorded is kept, however its turn ended.
     return {

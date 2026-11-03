@@ -5,7 +5,7 @@ import { outputSchema } from "../output-schema";
 export const Note = outputSchema(Type.Object({ text: Type.String() }));
 
 /** Short, so the live check waits minutes rather than claude's cache hour, the default. */
-export const WINDOW_MS = 90_000;
+export const WINDOW = "90s";
 
 /** What onTimeout asks the compaction to keep: the notes, which a later wake recalls. */
 export const FOCUS = "Keep every note's text exactly, in order; drop everything else.";
@@ -25,7 +25,7 @@ export default defineWorkflow({
       runtime: { harness: "claude", model: "claude-haiku-5-5" },
       instructions: "You keep notes. Each turn gives you one; remember every one you are given.",
       keepAlive: {
-        timeoutMs: WINDOW_MS,
+        window: WINDOW,
         onTimeout: async (agent) => {
           await agent.compact({ prompt: FOCUS });
         },

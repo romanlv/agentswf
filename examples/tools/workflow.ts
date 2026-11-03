@@ -96,7 +96,7 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
             list_open: tool({
               description: "The items still open, one per line: their id, then their title.",
               // Slowed past every limit on purpose, so only the turn's deadline bounds it.
-              ...(args.slowMs ? { timeoutMs: false as const } : {}),
+              ...(args.slowMs ? { timeout: false as const } : {}),
               handler: async () => {
                 if (args.slowMs) await new Promise((resolve) => setTimeout(resolve, args.slowMs));
                 const left = items.filter((item) => item.status === "open");
@@ -124,7 +124,7 @@ export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
         const { outcome } = await agent.run({
           prompt: PROMPT,
           schema: Summary,
-          timeoutMs: 5 * 60_000,
+          timeout: "5m",
         });
         return {
           runtime,

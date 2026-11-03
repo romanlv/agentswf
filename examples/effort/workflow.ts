@@ -83,7 +83,6 @@ export type EffortCheck = { runtime: RuntimeName; steps: EffortStep[]; problem?:
 
 export type EffortResult = { word: string; checks: EffortCheck[] };
 
-const MINUTE = 60_000;
 /** pi names its model and level to its shell; elsewhere the line comes back empty. */
 const SHELL = 'Run `echo "$PI_MODEL $PI_REASONING_LEVEL"` and give its output as `shell`.';
 
@@ -106,7 +105,7 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
           const { outcome } = await agent.run({
             prompt: `${prompt} ${SHELL}`,
             schema: ANSWER,
-            timeoutMs: 4 * MINUTE,
+            timeout: "4m",
           });
           steps.push({
             kind: "turn",
@@ -118,7 +117,7 @@ export const effort = defineWorkflow<EffortArgs, EffortResult>({
           return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const set = async (spec: { effort?: Effort; model?: string }) => {
-          const outcome = await agent.set({ ...spec, timeoutMs: 3 * MINUTE });
+          const outcome = await agent.set({ ...spec, timeout: "3m" });
           steps.push({
             kind: "set",
             outcome: outcome.kind,

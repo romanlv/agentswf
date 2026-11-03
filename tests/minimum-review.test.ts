@@ -68,7 +68,7 @@ describe("minimum two-agent review", () => {
     await runNew(
       createMinimumReview(
         { correctness: "correctness", maintainability: "maintainability" },
-        operationTimeoutMs,
+        `${operationTimeoutMs / 1000}s`,
       ),
       args(),
       {
@@ -95,7 +95,7 @@ describe("minimum two-agent review", () => {
     await runNew(
       createMinimumReview(
         { correctness: "correctness", maintainability: "maintainability" },
-        20 * 60_000,
+        "20m",
       ),
       args(),
       {

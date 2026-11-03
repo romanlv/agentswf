@@ -37,7 +37,7 @@ test("a reviewer that goes quiet is nudged in the workflow's words, and answers"
   expect(checkIn?.prompt).toContain("Send the findings you have so far");
 });
 
-test("a turn past its timeoutMs ends timed-out, and the run goes on to the next", async () => {
+test("a turn past its timeout ends timed-out, and the run goes on to the next", async () => {
   const run = await testWorkflow(
     timedReview,
     { minutes: 20 },
@@ -63,7 +63,7 @@ test("no answer at all stops the run on purpose, saying why", async () => {
   });
 });
 
-test("past the parallel deadline, the review stops instead of failing", async () => {
+test("past the parallel timeout, the review stops instead of failing", async () => {
   const run = await testWorkflow(
     timedReview,
     { minutes: 0.001 },

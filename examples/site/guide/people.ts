@@ -27,7 +27,7 @@ export default defineWorkflow({
       between: [investigator, coordinator],
       purpose:
         "Report findings that hold up; ask when the logs can't settle it.",
-      timeoutMs: 2 * 60 * 60_000,
+      timeout: "2h",
     });
     // #endregion connect
 

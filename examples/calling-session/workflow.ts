@@ -39,7 +39,7 @@ export const callingSession = defineWorkflow<CallingSessionArgs, CallingSessionR
     if (!author) {
       throw new Error("no calling session: start this workflow with awf run --here from an agent");
     }
-    const steps = { timeoutMs: 5 * 60_000 };
+    const steps = { timeout: "5m" } as const;
     const { outcome: picked } = await author.run({
       prompt:
         "Pick a whole number between 1000 and 9999 and remember it; a later step asks for it. Do not run any code to pick it.",

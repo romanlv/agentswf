@@ -27,7 +27,7 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
       "Place a lead and two reviewers in one tab, two columns with the right one stacked, and keep the lead's pane.",
   },
   async run(wf, args) {
-    const steps = { timeoutMs: 5 * 60_000 };
+    const steps = { timeout: "5m" } as const;
     const ask = {
       prompt: "Reply with your name: one word you make up. Do not run any code.",
       schema: NAMED,

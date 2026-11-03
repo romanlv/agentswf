@@ -106,7 +106,7 @@ export default defineWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
             "used it or not.",
           ].join(" "),
           schema: REPORT,
-          timeoutMs: 4 * 60_000,
+          timeout: "4m",
         });
         return outcome.answered
           ? { agent: name, outcome: outcome.kind, ...outcome.value }

@@ -113,6 +113,7 @@ export type {
   Next,
   Signal,
   Source,
+  Timeout,
   TimeRead,
   Timer,
   TimerDue,
@@ -120,6 +121,7 @@ export type {
   WaitOptions,
   When,
 } from "./waits";
+export { duration } from "./waits";
 export type {
   EventWorkflowContext,
   ParallelOptions,

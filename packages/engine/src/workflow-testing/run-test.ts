@@ -12,6 +12,7 @@ import {
 } from "@agentswf/contract/records";
 import {
   AWF_ID_PREFIX,
+  type Duration,
   type Ending,
   type EventSchemas,
   type HarnessAllowance,
@@ -20,6 +21,7 @@ import {
   type JsonValue,
   type OutputOf,
   type ParticipantReply,
+  positiveDurationMilliseconds,
   type RuntimeAliases,
   type Workflow,
 } from "@agentswf/contract/workflow";
@@ -82,7 +84,7 @@ export type TestOptions = {
    * Each participant's script, by the key the workflow connects it under. When no turn runs, no
    * script is still working, and everything left waits on a participant with no `until`, the attempt
    * ends: its open questions expire `attempt-ended` and, unless the workflow returned, `run.value`
-   * throws. While a question has an `until`, the test waits for the earliest, and `stallMs` does not
+   * throws. While a question has an `until`, the test waits for the earliest, and `stall` does not
    * count that wait. A route
    * or message reaching a participant with none here fails the test.
    */
@@ -94,8 +96,12 @@ export type TestOptions = {
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
   runtimes?: RuntimeAliases;
   /** The run's deadline; none unless given, as `awf run` has none unless `--timeout` gives one. */
+  timeout?: Duration;
+  /** @deprecated Give `timeout`, a `Duration` such as `"5m"`. */
   timeoutMs?: number;
-  /** Real time with no turn or decision starting or ending before the test fails; 2 s. */
+  /** Real time with no turn or decision starting or ending before the test fails; `"2s"`. */
+  stall?: Duration;
+  /** @deprecated Give `stall`, a `Duration` such as `"2s"`. */
   stallMs?: number;
   /**
    * The run's clock is virtual: where a run would park with a timer to come, the clock moves to it
@@ -137,10 +143,33 @@ export type EngineTestOptions = {
   awaitReply?: "listed" | "anywhere";
 };
 
+/**
+ * A test's length of time in milliseconds: `field`, a `Duration`, or `old`, its deprecated form in
+ * milliseconds, which is reported; both at once are refused.
+ */
+function milliseconds(
+  options: TestOptions,
+  field: "timeout" | "stall",
+  old: "timeoutMs" | "stallMs",
+  deprecated: () => void,
+): number | undefined {
+  const given = options[field];
+  const ms = options[old];
+  if (given != null) {
+    if (ms != null) throw new Error(`give ${field} alone: ${old} is its deprecated form`);
+    return positiveDurationMilliseconds(given, `a test's ${field}`);
+  }
+  if (ms == null) return undefined;
+  if (!Number.isSafeInteger(ms) || ms <= 0)
+    throw new Error(`a test's ${old} is a positive whole number of milliseconds: not ${ms}`);
+  deprecated();
+  return ms;
+}
+
 /** A file's contents, or a directory of them by name. */
 export type FileTree = string | { readonly [name: string]: FileTree };
 
-/** A `keepAlive` window that gives no `timeoutMs`, in a test: the hour it would be stalls it. */
+/** A `keepAlive` that gives no `window`, in a test: the hour it would be stalls it. */
 const TEST_WINDOW_MS = 100;
 
 const WAITED_OUT = "the test ended the attempt: everything left waited on a participant";
@@ -297,7 +326,11 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   }
   const stopping = new AbortController();
   const problems: string[] = [];
-  const stallMs = options.stallMs ?? 2_000;
+  const stallMs =
+    milliseconds(options, "stall", "stallMs", () => deprecations.used("stall-ms")) ?? 2_000;
+  const timeoutMs = milliseconds(options, "timeout", "timeoutMs", () =>
+    deprecations.used("timeout-ms", "in testWorkflow's options"),
+  );
   let stall: ReturnType<typeof setTimeout> | undefined;
   /** The test ended the attempt: everything left waited on a coordinator's script. */
   let waitedOut = false;
@@ -317,7 +350,7 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
     }
     if (host.inFlight().length === 0 && liveUntil !== undefined && liveUntil > now())
       return stopWith(
-        `the run stalled: it waits live in an agent's keepAlive window for ${liveUntil - now()} ms more; a test gives the agent a short timeoutMs, or none`,
+        `the run stalled: it waits live in an agent's keepAlive window for ${liveUntil - now()} ms more; a test gives the agent a short window, or none`,
       );
     const waiting = host
       .inFlight()
@@ -356,7 +389,7 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   const events = {
     onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
-    onDeprecated: deprecated,
+    onDeprecated: (name: Deprecated, subject?: string) => deprecations.used(name, subject),
     ...(scripted
       ? {
           onTurnStarted: async (turn: TestTurn) => {
@@ -422,9 +455,7 @@ export async function runTest<Args extends JsonValue, Result extends JsonValue>(
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
   const deadline =
-    options.timeoutMs === undefined
-      ? undefined
-      : { unixMilliseconds: Date.now() + options.timeoutMs };
+    timeoutMs === undefined ? undefined : { unixMilliseconds: Date.now() + timeoutMs };
   const run = await createRun(runRoot, {
     id: started ? started.id : "test",
     workflow: definition.meta.name,

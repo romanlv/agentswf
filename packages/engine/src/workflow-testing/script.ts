@@ -6,6 +6,7 @@ import type {
   ToolFailure,
 } from "@agentswf/contract/wire";
 import type {
+  Duration,
   Effort,
   JsonObject,
   JsonValue,
@@ -79,7 +80,13 @@ export type Message = {
   answers?: true;
 };
 
-export type SendOptions = { awaitReply?: boolean; timeoutMs?: number };
+export type SendOptions = {
+  awaitReply?: boolean;
+  /** How long an awaited reply is waited for, as `wfa send --timeout` gives it. */
+  timeout?: Duration;
+  /** @deprecated Give `timeout`, a `Duration` such as `"30s"`. */
+  timeoutMs?: number;
+};
 
 /** How a send or reply ended; a refusal is a value to test, not a throw. */
 export type MessageOutcome =

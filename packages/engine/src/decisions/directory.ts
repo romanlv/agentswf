@@ -14,13 +14,7 @@ import {
   type Question,
 } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
-import {
-  abortableSleep,
-  assertDeadline,
-  assertDeadlineValue,
-  earlierDeadline,
-  scheduleAt,
-} from "../deadlines";
+import { abortableSleep, assertDeadline, boundedDeadline, scheduleAt } from "../deadlines";
 import { messageOf } from "../errors";
 import type { RunEventBody } from "../run-event-log";
 import {
@@ -41,6 +35,8 @@ export type DecisionScope = {
   add?(cancel: (reason: string) => Promise<unknown>): () => void;
   /** The workflow stage it is asked in. */
   stage?: string;
+  /** The spec gave a deprecated form of `timeout`. */
+  deprecated?(name: "timeout-ms" | "deadline-option", call: string): void;
 };
 
 type PreparedCall = {
@@ -133,10 +129,12 @@ export class RunDecisions {
       ? installed.providers[resolved.provider]
       : undefined;
     if (!provider) throw new Error(`decision provider "${resolved.provider}" is not installed`);
-    if (spec.deadline) assertDeadlineValue(spec.deadline);
-    const deadline = spec.deadline
-      ? earlierDeadline(spec.deadline, scope.deadline)
-      : scope.deadline;
+    const deadline = boundedDeadline(
+      { timeout: spec.timeout, deadline: spec.deadline },
+      scope.deadline,
+      (name, call) => scope.deprecated?.(name, call),
+      "on decide",
+    );
     assertDeadline(deadline);
     const slot = this.#slots.length;
     this.#slots.push(undefined);

@@ -199,7 +199,7 @@ Betas from the design's §8 in brackets.
 - [x] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
 - [x] 3. One context type, and `--from-stage` for every run (B)
 - [x] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
-- [ ] 5. One duration and `timeout` in the API (B)
+- [x] 5. One duration and `timeout` in the API (B)
 - [ ] 6. One `testWorkflow` signature (B)
 - [ ] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
 - [ ] 8. Durations and one word per state on the CLI and the wire (D)
@@ -363,11 +363,11 @@ Outcome: every time in the API is a `Duration` or a `Date`, and every bound on a
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -478,7 +478,8 @@ Execution:
 Work:
 
 - `--timeout` and `--wait` take a `Duration`. A bare number for `--wait` still means seconds
-  until 0.1.0.
+  until 0.1.0. The CLI's `parseDuration` (`engine/src/duration.ts`) and `wfa`'s own parser
+  (`agent-cli/cli.ts`) move to contract's one grammar, `durationMilliseconds`.
 - **Structural:** wire version 6 and JSON `v` 2 with the state table in design §7:
   `peer-stopped`, `awaiting-reply`, `already-awaiting`, `kind: "participant"`, and a fixed set of
   agent states in `awf runs --json`.
@@ -653,6 +654,27 @@ Correctness and proof review: no defect. `close()`'s doc claimed `false` for an 
 had closed; the code, like `stop`, resolves `true` there, and the doc now says so. Tests were added
 for the fork forms in both orders, `runtime: {}`, a TUI fork dropping `metered`, and effort
 inherited. A fork's identity lives in memory only, so no recorded spec changed.
+
+### Task 5
+
+Architecture and scope review: nothing blocking.
+- A tool's `timeout` took a `Date`, which on a reusable `tool()` fails every later call; it is a
+  per-call budget, so it takes `Duration | false`, as a route's does.
+- `RunDeadline` was exported only to carry a deprecated property; it is written inline instead.
+- Five positive-duration checks became one, `positiveDurationMilliseconds`, and the test host's
+  send now refuses `"0s"`.
+- `timeout-ms` and `deadline-option` name the call each was used on.
+- The docs' `timeout: wf.deadline` example was wrong in a stage or `parallel`, and was dropped.
+- `wfa`'s own duration parser went to task 8.
+
+Correctness and proof review: no defect for typed callers. For untyped ones:
+- `deadline: null` now reads as absent, as before.
+- `parallel` no longer honours a `timeoutMs` it never had.
+- An invalid old form throws without warning first.
+
+The "cut to the stage's" proof was really the run's: a stage has no deadline of its own, so the
+test cuts a timeout to a `parallel`'s inside a stage, and a past `Date` is shown to fail `open` and
+`decide`.
 
 ## Readiness
 
@@ -871,6 +893,77 @@ As built, after review:
 - Unverified, a live check to return to: that `close()` on a real TUI agent closes its Herdr pane,
   and keeps it per `keepPane`, and that it hands a real `--here` session back. The code path is
   `stop`'s unchanged, and the fake adapter's close is what the tests observe.
+
+### Task 5
+
+- **One parser, in the contract.** `Duration` gains `s`; `durationMilliseconds(text)` (pure, in
+  `contract/src/workflow/waits.ts`) is the one grammar, a decimal and `s`, `m`, `h` or `d`, read by
+  timers (`parseWhen`, `wf.after`), every `timeout`, `keepAlive.window`, a route's `timeout` and a
+  test's options. `duration(text)` checks a string read from data and returns it as a `Duration`;
+  it and the `Timeout` type (`Duration | Date | false`) are on the author list; `wf.deadline`'s
+  type is written inline, not exported. `positiveDurationMilliseconds(text, what)` beside it is the
+  one check for a length that must be longer than none, with one message, `{what} is a positive
+  duration: …`: every `timeout`, `keepAlive.window`, a route's, a tool's, a test's options and a
+  script's send. `"0s"` parses, as `"0m"` did for a timer; a bound refuses it. The CLI's
+  `parseDuration` (whole numbers, `ms`) is untouched: task 8. The engine's formatter of
+  milliseconds is `formatDuration`, so it doesn't share `duration`'s name.
+- **One resolver in the engine.** `boundedDeadline(given, ceiling, deprecated)` in `deadlines.ts`
+  turns `timeout`, or the deprecated `deadline` or `timeoutMs`, into a deadline cut to the bound
+  around the call; `false` and nothing are the bound around it. `open`, `fork`/`forkCaller`,
+  `run`/`start`, `compact`, `set`, `parallel` and `decide` (in the decisions directory, which owns a
+  call's deadline) all go through it, so the old forms resolve to the deadline the new one does.
+  An untyped caller's `null` is no bound, as the old truthy checks had it, and an invalid old form
+  throws without being logged. `parallel` reads only `timeout` and `deadline`, never a
+  `timeoutMs` it never took.
+- **A tool's `timeout` is `Duration | false`**, as a route's is a `Duration`: each is a budget per
+  call or question, and a `Date` on a reusable `tool()` would fail every later call.
+  `false` leaves the turn's deadline alone.
+- **Old and new together are refused**, as task 4 refused flat beside `runtime`: `timeout` beside
+  `deadline` or `timeoutMs`, `window` beside `keepAlive.timeoutMs`, a route's, a tool's and a
+  test's `timeout` beside their `timeoutMs`, `stall` beside `stallMs`. Nothing is logged then.
+  `nudge.deadline` is not a form of `timeout`, so beside it it still shortens the turn, logged.
+- **`fork` and `forkCaller` gained `timeout`**, which had no bound: it bounds taking the copy (still
+  within 60 s) and opening the fork. It is the call's, so it is left out of the spec a repeat is
+  compared by.
+- **`wf.deadline` is a `Date`** that still answers `unixMilliseconds`, a non-enumerable getter that
+  logs `run-deadline-ms` and returns `getTime()`: typed inline as `Date & { readonly
+  unixMilliseconds }`, the property `@deprecated`. Code that reads `wf.deadline?.unixMilliseconds`
+  keeps working, logged once; code that passes it as a deprecated `deadline` keeps compiling and
+  works, since a deprecated `deadline` or `nudge.deadline` is copied to a plain object first (which
+  reads the getter, so it logs). Each read of `wf.deadline` is a new `Date`, so changing one moves
+  nothing. Rejected: a new name (`wf.endsAt`), which would leave `wf.deadline` an old shape to remove
+  and a second name to learn; and a plain `Date`, which would break `.unixMilliseconds` silently,
+  as `undefined`, with no log. What breaks with no log: code that compared `wf.deadline` with
+  `toEqual({ unixMilliseconds })`, or put it in a JSON value (a `Date` is not one); `tsc` flags
+  the second.
+- **A route's `timeout` is a `Duration` only**: it is how long each question waits, not a time.
+  Route records keep `timeoutMs`, and a route granted with either form compares equal. That a
+  route's timeout works on any route is still task 7's; the refusal now says `timeout`.
+- **Records keep milliseconds**: no record or wire field changed (`route-opened.timeoutMs`, the
+  inbox's `route.timeoutMs`, `wfa`'s `timeoutMs`). A timer's record keeps `when` as written, so a
+  `"90s"` timer records `"90s"`.
+- Deprecations added to the one list: `timeout-ms` (every `timeoutMs`, a test's and a send's
+  included), `deadline-option`, `nudge-deadline`, `keep-alive-timeout-ms`, `run-deadline-ms`,
+  `stall-ms`. `timeout-ms` and `deadline-option` name the call as their subject (`on run`, `on a
+  tool`, `on a route`, `on parallel`, `in testWorkflow's options`, …), so each call's old form is
+  said once an attempt. Testing logs its three through its own instance; a send's through the host's
+  `onDeprecated`.
+- `DeadlineExceededError.deadline` stays `{ unixMilliseconds }`, as does `AbsoluteDeadline` on the
+  author list: the deprecated fields name it. Task 10 decides whether the error carries a `Date`.
+- Proof: `packages/agentswf/src/workflow.typecheck.ts` (`"10x"` and a number fail as a `timeout`
+  and a timer; `"1.5h"`, `"90s"`, a `Date` and `false` pass on the calls; a route and a tool
+  refuse a `Date`; every old form compiles); `engine/src/timeouts.test.ts` (an hour's `timeout`,
+  `Date`, `deadline` or `timeoutMs` in a `parallel` in a stage is cut to the parallel's; one in a
+  stage to the run's, and `timeout: wf.deadline` is the run's; the old fields resolve to the new
+  one's deadline; each family's old forms work and log once per call: agent calls, nudge,
+  parallel, decide, tool, keepAlive, route, `wf.deadline`, a test's options and a send; both forms
+  refused; a tool's `timeout: false` at run time; a `Date` already past fails `open` and `decide`
+  with `DeadlineExceededError`); `decisions.test.ts` (a decision's `timeout` times out as a
+  `deadline` did). A stage has no deadline of its own (it takes the run's), so "cut to the
+  stage's" is proved through a `parallel` inside one.
+- Unverified: a fork's `timeout` cutting a slow native fork short (the code passes the bound to the
+  same `deadlineWithin(FORK_TIMEOUT_MS, …)`; no test makes a fork slow); `keepAlive.window` is
+  proved through `checkedKeepAlive` and the window `timeoutMs` already had, not a live check.
 
 ## Human review
 

@@ -50,6 +50,7 @@ import {
   DEPRECATED_DEFINITION,
   DeadlineExceededError,
   type Duration,
+  durationMilliseconds,
   type EmitOutcome,
   type ForkRuntime,
   type HarnessAllowance,
@@ -69,6 +70,7 @@ import {
   type ParticipantSpec,
   type PlacementChoice,
   placementOf,
+  positiveDurationMilliseconds,
   type RaceBranches,
   REPORT_DEPRECATED,
   type RunResult,
@@ -126,8 +128,10 @@ import type { CoordinatorPort } from "./coordinator-port";
 import {
   assertDeadline,
   assertDeadlineValue,
+  boundedDeadline,
   deadlineWithin,
   earlierDeadline,
+  type GivenBound,
   harnessDeadline,
   runUntilStopped,
   scheduleAt,
@@ -214,7 +218,7 @@ export type RunnableWorkflow<Args extends JsonValue, Result extends JsonValue> =
 export type RunWorkflowOptions = {
   /** Internal timing policy; workflow authors use the operation deadline. */
   livenessPolicy?: LivenessPolicy;
-  /** A `keepAlive` window that gives no `timeoutMs`; absent, an hour. A test's is short. */
+  /** A `keepAlive` that gives no `window`; absent, an hour. A test's is short. */
   defaultWindowMs?: number;
   /** The run's time, which its timers and `wf.now()` read; absent, the clock's. A test's is virtual. */
   now?: () => number;
@@ -1029,6 +1033,7 @@ class WorkflowOwner {
     this.#tools = new ToolCalls<ExecutionScope>({
       record: (event) => options.events.event(event),
       runIn: (scope, fn) => (scope ? scopes.run(scope, fn) : scopes.exit(fn)),
+      deprecated: (name, call) => options.deprecations.used(name, call),
     });
     options.control.attachTools(this.#tools);
     const holder = {
@@ -1041,7 +1046,9 @@ class WorkflowOwner {
       runId: options.runId,
       attempt: options.attempt,
       cwd: options.cwd,
-      deadline: options.deadline,
+      get deadline() {
+        return runDeadline(options.deadline, () => options.deprecations.used("run-deadline-ms"));
+      },
       agents: {
         open: (spec) => {
           try {
@@ -1101,6 +1108,7 @@ class WorkflowOwner {
           const decided = this.track(
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
+              deprecated: (name, call) => options.deprecations.used(name, call),
               ...(scope ? { add: (cancel) => scope.add((stop) => cancel(stop.reason)) } : {}),
               ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
             }),
@@ -1135,9 +1143,17 @@ class WorkflowOwner {
       },
       parallel: (items, operation, parallelOptions) => {
         const inherited = scopes.getStore()?.deadline ?? options.deadline;
-        const deadline = parallelOptions?.deadline
-          ? earlierDeadline(parallelOptions.deadline, inherited)
-          : inherited;
+        let deadline: AbsoluteDeadline | undefined;
+        try {
+          deadline = boundedDeadline(
+            { timeout: parallelOptions?.timeout, deadline: parallelOptions?.deadline },
+            inherited,
+            (name, call) => options.deprecations.used(name, call),
+            "on parallel",
+          );
+        } catch (error) {
+          return Promise.reject(error);
+        }
         const label = parallelOptions?.label;
         return runParallel(items, operation, deadline, parallelOptions?.concurrency, () =>
           label === undefined ? undefined : options.progress.group(label, items.length),
@@ -1182,11 +1198,13 @@ class WorkflowOwner {
       at: (read: () => Date | null) => timeRead(read),
       after: (duration: Duration) => {
         this.#notReading("wf.after()");
-        if (typeof duration !== "string" || !/^\d+(?:\.\d+)?[dhm]$/.test(duration))
-          throw new Error(
-            `wf.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
-          );
-        return new Date(parseWhen(duration, options.now()).due);
+        let milliseconds: number;
+        try {
+          milliseconds = durationMilliseconds(duration);
+        } catch (error) {
+          throw new Error(`wf.after takes a duration: ${messageOf(error)}`);
+        }
+        return new Date(options.now() + milliseconds);
       },
       signal: ((name: string) => signalSource(name, options.declared)) as WorkflowContext["signal"],
       ...(options.mailbox?.started
@@ -1647,12 +1665,20 @@ class WorkflowOwner {
         throw new Error("a route between agents names two of them");
       ends = { between: [end(shape.between[0]), end(shape.between[1])] };
     } else ends = { from: end(shape.from), to: end(shape.to) };
+    if (access.timeout != null && access.timeoutMs != null)
+      throw new Error("a route's timeout is given alone: timeoutMs is its deprecated form");
+    const timeoutMs =
+      access.timeout == null
+        ? (access.timeoutMs ?? undefined)
+        : positiveDurationMilliseconds(access.timeout, "a route's timeout");
     this.#messaging.grant(ends, {
       purpose: access.purpose,
       maxMessages: access.maxMessages,
-      timeoutMs: access.timeoutMs,
+      timeoutMs,
       scope: scope?.messages ?? this.#messaging.attempt,
     });
+    if (access.timeout == null && access.timeoutMs != null)
+      this.options.deprecations.used("timeout-ms", "on a route");
   }
 
   /** Who owns a message operation a route in `scope` opens: its stage, or the attempt. */
@@ -1915,7 +1941,12 @@ class WorkflowOwner {
       throw new Error(
         `agent ${spec.key}: keepAlive is for a workflow with events, whose runs park; this one's never do`,
       );
-    const keepAlive = given === undefined ? undefined : checkedKeepAlive(spec.key, given);
+    const keepAlive =
+      given === undefined
+        ? undefined
+        : checkedKeepAlive(spec.key, given, () =>
+            this.options.deprecations.used("keep-alive-timeout-ms"),
+          );
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
@@ -1936,9 +1967,12 @@ class WorkflowOwner {
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
-    const effectiveDeadline = spec.deadline
-      ? earlierDeadline(spec.deadline, inheritedDeadline)
-      : inheritedDeadline;
+    const effectiveDeadline = boundedDeadline(
+      { timeout: spec.timeout, deadline: spec.deadline },
+      inheritedDeadline,
+      (name, call) => this.options.deprecations.used(name, call),
+      "on open",
+    );
     assertDeadline(effectiveDeadline);
     if (existing) {
       assertCompatibleAgent(spec.key, existing.identity, identity, spec);
@@ -2199,11 +2233,10 @@ class WorkflowOwner {
       channel: Promise.resolve(undefined),
     };
     parent.state.catch(() => undefined);
-    const deadline = scope?.deadline ?? this.options.deadline;
     return this.forkAgent(
       CALLING,
       spec,
-      (into) =>
+      (deadline, into) =>
         calling
           .fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into, this.#closingRun.signal)
           .then((native) => ({ native, after: null })),
@@ -2455,7 +2488,7 @@ class WorkflowOwner {
           return Promise.reject(error);
         }
       },
-      deprecated: (name) => this.options.deprecations.used(name),
+      deprecated: (name, subject) => this.options.deprecations.used(name, subject),
       reporting: (outcome) => this.#reporting(outcome),
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
       keepAlive: () => this.#agents.get(key)?.keepAlive,
@@ -2489,8 +2522,11 @@ class WorkflowOwner {
   private forkAgent(
     parentKey: string,
     spec: AgentForkSpec,
-    /** Queues the native fork, or its copy `into` another home; or why its host cannot fork. */
-    take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
+    /**
+     * Queues the native fork, or its copy `into` another home, within the fork's `deadline`; or why
+     * its host cannot fork.
+     */
+    take: TakeFork | string,
     /** The parent's settings once every `set` queued before the fork has run. */
     parentSettings: AgentExecution,
     /** A parent the run never opened: the session it was started from. */
@@ -2506,12 +2542,18 @@ class WorkflowOwner {
     }
     this.#assertFreeKey(spec.key, "an agent");
     // Out before the clone, which throws on a handler, and out of the spec a repeat is compared by.
-    const { tools, ...given } = spec;
+    // A bound is the call's, not the fork's: a repeat with another is the same fork.
+    const { tools, timeout, ...given } = spec;
     const forkSpec = structuredClone(
       forkSpecOf(given, () => this.options.deprecations.used("fork-runtime")),
     );
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
-    const deadline = scope?.deadline ?? this.options.deadline;
+    const deadline = boundedDeadline(
+      { timeout },
+      scope?.deadline ?? this.options.deadline,
+      (name, call) => this.options.deprecations.used(name, call),
+      "on fork",
+    );
     assertDeadline(deadline);
     // A fork of the calling session is one whichever way it was asked for.
     const from = unopened || this.#caller?.key === parentKey ? CALLING : parentKey;
@@ -2577,7 +2619,7 @@ class WorkflowOwner {
     let continues: NativeFork | undefined;
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
-    const forked = take(copy === undefined ? undefined : { directory: copy })
+    const forked = take(deadline, copy === undefined ? undefined : { directory: copy })
       .then(({ native: fork, after }) => {
         if (ofCaller) {
           if (!fork.model) throw new Error(`agent ${parentKey}'s fork named no model to run on`);
@@ -2870,19 +2912,19 @@ class LogicalAgent implements AgentRef {
        */
       fork(
         spec: AgentForkSpec,
-        take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
+        take: TakeFork | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
       /** The workflow ends it: the run tears it down and its key is not opened again. */
       close(reason: string | undefined): Promise<boolean>;
-      deprecated(name: Deprecated): void;
+      deprecated(name: Deprecated, subject?: string): void;
       /** An outcome as the workflow is handed it, which a deprecated name it is given reports on. */
       reporting<T>(outcome: T): T;
       /** As the workflow wrote it; decides, at close, whether its pane stays. */
       keepPane(): KeepPane | undefined;
       /** As the workflow's last open of it gave it. */
       keepAlive(): KeepAlive | undefined;
-      /** Its window when `keepAlive` gives no `timeoutMs`. */
+      /** Its window when `keepAlive` gives no `window`. */
       defaultWindowMs: number;
       /** The run's time, which its window is measured on. */
       now: () => number;
@@ -2936,7 +2978,7 @@ class LogicalAgent implements AgentRef {
   liveUntil(now = this.options.now()): number | undefined {
     const keepAlive = this.options.keepAlive();
     if (this.#closed || !keepAlive || this.#lastEnd === undefined) return undefined;
-    const until = this.#lastEnd + (keepAlive.timeoutMs ?? this.options.defaultWindowMs);
+    const until = this.#lastEnd + (keepAlive.windowMs ?? this.options.defaultWindowMs);
     return until > now ? until : undefined;
   }
 
@@ -3145,11 +3187,13 @@ class LogicalAgent implements AgentRef {
     }
     let deadline: AbsoluteDeadline | undefined;
     try {
-      deadline = this.operationDeadline(spec, scope);
+      deadline = this.operationDeadline(spec, scope, this.#launching ? "on start" : "on run");
       const recoveryDeadline = spec.nudge ? spec.nudge.deadline : undefined;
       if (recoveryDeadline) {
-        assertDeadlineValue(recoveryDeadline);
-        deadline = earlierDeadline(deadline, recoveryDeadline);
+        this.options.deprecated("nudge-deadline");
+        const own = { unixMilliseconds: recoveryDeadline.unixMilliseconds };
+        assertDeadlineValue(own);
+        deadline = earlierDeadline(deadline, own);
       }
     } catch (error) {
       const rejected = Promise.reject<RunResult<string | T>>(error);
@@ -3227,7 +3271,7 @@ class LogicalAgent implements AgentRef {
     }
     let deadline: AbsoluteDeadline;
     try {
-      deadline = harnessDeadline(this.operationDeadline(spec, scope));
+      deadline = harnessDeadline(this.operationDeadline(spec, scope, "on compact"));
     } catch (error) {
       const rejected = Promise.reject<TurnOutcome<string>>(error);
       scope?.track(rejected);
@@ -3289,7 +3333,7 @@ class LogicalAgent implements AgentRef {
     let deadline: AbsoluteDeadline;
     try {
       change = this.settingsChange(spec);
-      deadline = harnessDeadline(this.operationDeadline(spec, scope));
+      deadline = harnessDeadline(this.operationDeadline(spec, scope, "on set"));
     } catch (error) {
       const rejected = Promise.reject<TurnOutcome<null>>(error);
       scope?.track(rejected);
@@ -3394,7 +3438,6 @@ class LogicalAgent implements AgentRef {
     const refused = this.#refusedWhileStarted("fork");
     if (refused) return Promise.reject(refused);
     const scope = scopes.getStore();
-    const deadline = this.deadlineCeiling(scope);
     const { session, execution } = this.options;
     const settings = this.queuedExecution();
     const fork = session.fork?.bind(session);
@@ -3413,7 +3456,7 @@ class LogicalAgent implements AgentRef {
     }
     // The harness bounds its fork by this deadline and stops it there, so the session is idle again
     // when the fork rejects.
-    const take = (into?: SessionCopy) =>
+    const take: TakeFork = (deadline, into) =>
       this.queue(async () => {
         if (this.#closed || this.options.isRunClosing()) {
           throw new Error("logical agent is closed");
@@ -3436,19 +3479,19 @@ class LogicalAgent implements AgentRef {
     }
   }
 
-  /** `deadline` or `timeoutMs`, never later than the scope's or the run's; else the earlier of those. */
+  /** Its `timeout`, never later than the scope's or the run's; else the earlier of those. */
   private operationDeadline(
-    spec: { deadline?: AbsoluteDeadline; timeoutMs?: number },
+    spec: GivenBound,
     scope: ExecutionScope | undefined,
+    call: string,
   ): AbsoluteDeadline | undefined {
-    if (spec.deadline && spec.timeoutMs !== undefined) {
-      throw new Error("an operation cannot specify both deadline and timeoutMs");
-    }
-    const ceiling = this.deadlineCeiling(scope);
-    if (spec.timeoutMs !== undefined) return deadlineWithin(spec.timeoutMs, ceiling);
-    if (!spec.deadline) return ceiling;
-    assertDeadlineValue(spec.deadline);
-    return earlierDeadline(spec.deadline, ceiling);
+    const { timeout, deadline, timeoutMs } = spec;
+    return boundedDeadline(
+      { timeout, deadline, timeoutMs },
+      this.deadlineCeiling(scope),
+      this.options.deprecated,
+      call,
+    );
   }
 
   /** The deadlines around an operation: its scope's and the run's, if either has one. */
@@ -3657,7 +3700,6 @@ class LogicalAgent implements AgentRef {
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     scope?.assertActive();
-    if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
     return this.executeWaitingOperation(spec, scope, operationDeadline, operation, nudge);
   }
 
@@ -4651,6 +4693,7 @@ type OperationLog = {
 
 /** A native fork, and the parent's operation it was copied after: null when it ran none. */
 type TakenFork = { native: NativeFork; after: string | null };
+type TakeFork = (deadline: AbsoluteDeadline | undefined, into?: SessionCopy) => Promise<TakenFork>;
 
 /** A settled turn or compaction, kept in the run's `turns.jsonl`. */
 type RecordTurn = (outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]) => void;
@@ -4815,7 +4858,7 @@ function withKnownEffort(execution: AgentExecution): AgentExecution {
 /** What `set` changes. */
 type SettingsChange = Partial<Pick<AgentExecution, "model" | "effort">>;
 
-const SETTINGS_FIELDS = new Set(["id", "model", "effort", "deadline", "timeoutMs"]);
+const SETTINGS_FIELDS = new Set(["id", "model", "effort", "timeout", "deadline", "timeoutMs"]);
 
 function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
   return { model, ...(effort === undefined ? {} : { effort }) };
@@ -5018,3 +5061,22 @@ type LogicalAgentTurns = {
   end(turn: TurnId, meta: JsonValue, outcome: TurnOutcome<JsonValue>): Promise<void>;
   restored(): RestoredTurn | undefined;
 };
+
+/**
+ * The run's deadline as `wf.deadline` hands it: a new `Date` each time, so one a workflow changes
+ * isn't the run's, whose deprecated `unixMilliseconds` reports its use.
+ */
+function runDeadline(
+  deadline: AbsoluteDeadline | undefined,
+  deprecated: () => void,
+): WorkflowContext["deadline"] {
+  if (!deadline) return undefined;
+  const date = new Date(deadline.unixMilliseconds);
+  Object.defineProperty(date, "unixMilliseconds", {
+    get() {
+      deprecated();
+      return date.getTime();
+    },
+  });
+  return date as WorkflowContext["deadline"];
+}

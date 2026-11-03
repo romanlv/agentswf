@@ -55,7 +55,7 @@ const minimumReview = createMinimumReview(
     correctness: "correctness",
     maintainability: "maintainability",
   },
-  LIVE_EVALUATION_BOUNDS.initialTurnMilliseconds,
+  `${LIVE_EVALUATION_BOUNDS.initialTurnMilliseconds / 1000}s`,
 );
 
 type Check = {

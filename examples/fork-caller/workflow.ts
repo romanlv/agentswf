@@ -26,7 +26,7 @@ export const forkCaller = defineWorkflow<null, ForkCallerResult>({
       prompt:
         "In one sentence, what was this session working on just before it ran awf? Answer from what you remember; do not run any commands.",
       schema: RECALLED,
-      timeoutMs: 5 * 60_000,
+      timeout: "5m",
     });
     if (!outcome.answered) throw new Error(`the fork did not answer: ${outcome.kind}`);
     return { model: fork.execution.model, workingOn: outcome.value.working_on };

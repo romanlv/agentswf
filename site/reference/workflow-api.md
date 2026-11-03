@@ -29,26 +29,26 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 
 | Call | Returns |
 | --- | --- |
-| [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools?, deadline? })`](#agents-open) | an agent |
-| [`agent.run({ prompt, schema?, timeoutMs?, deadline?, label?, nudge? })`](#agent-run) | `{ outcome }`, in the agent's same session |
-| [`agent.compact({ prompt, timeoutMs?, deadline? })`](#agent-compact) | an outcome; the harness's own compaction |
-| [`agent.set({ model?, effort?, timeoutMs?, deadline? })`](#agent-set) | an outcome; later turns run at these |
-| [`agent.fork({ key, runtime?, instructions?, layout?, keepPane?, tools? })`](#agent-fork) | a new agent on a copy of this one's session |
+| [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools?, timeout? })`](#agents-open) | an agent |
+| [`agent.run({ prompt, schema?, timeout?, label?, nudge? })`](#agent-run) | `{ outcome }`, in the agent's same session |
+| [`agent.compact({ prompt, timeout? })`](#agent-compact) | an outcome; the harness's own compaction |
+| [`agent.set({ model?, effort?, timeout? })`](#agent-set) | an outcome; later turns run at these |
+| [`agent.fork({ key, runtime?, instructions?, layout?, keepPane?, tools?, timeout? })`](#agent-fork) | a new agent on a copy of this one's session |
 | [`agent.execution`](#agent-execution) | the agent's harness, model, effort and placement now |
 | [`agent.close(reason?)`](#agent-close) | `true` once closed; `false` if an earlier `close()` closed it |
 | [`wf.agents.caller({ key })`](#agents-caller) | the session `awf run --here` was typed in, or `null` |
-| [`wf.agents.forkCaller({ key, runtime?, instructions?, layout?, keepPane? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
-| [`tool({ description, input?, handler, timeoutMs? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
+| [`wf.agents.forkCaller({ key, runtime?, instructions?, layout?, keepPane?, timeout? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
+| [`tool({ description, input?, handler, timeout? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
 
 **Composing work**
 
 | Call | Returns |
 | --- | --- |
-| [`wf.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })`](#parallel) | results in item order |
+| [`wf.parallel(items, (item, i) => …, { concurrency?, label?, timeout? })`](#parallel) | results in item order |
 | [`wf.sandboxes.open({ key, cwd?, read?, write?, network?, sockets?, webSearch?, srt? or docker? })`](#sandboxes-open) | a sandbox, for `open`'s `sandbox` |
-| [`wf.decisions.decide({ key, model, state, questions, deadline? })`](#decide) | `{ answers, record }` |
+| [`wf.decisions.decide({ key, model, state, questions, timeout? })`](#decide) | `{ answers, record }` |
 | [`choice(…)`, `yesNo(…)`, `score(…)`](#decide) | a decision question |
-| [`wf.messages.allow({ from, to, purpose, maxMessages?, timeoutMs? })`](#messages-allow) | routes granted; also `{ between: [a, b], … }` |
+| [`wf.messages.allow({ from, to, purpose, maxMessages?, timeout? })`](#messages-allow) | routes granted; also `{ between: [a, b], … }` |
 | [`wf.participants.connect({ key, labels? })`](#participants-connect) | a participant outside the run; `.release(reason?)` |
 
 **Stages and time**
@@ -80,7 +80,7 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | --- | --- |
 | [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `agent:ended` |
 | [`agent.turn`, `turn.cancel(reason?)`](#agent-turn) | the started turn, until a wait takes its end |
-| [`wf.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
+| [`wf.agents.open({ …, keepAlive: { window?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
 | [`wf.participants.connect({ key, labels?, to: "code" })`](#participant-to-code) | a participant whose replies come to the code; `.post(text)` |
 | [`wf.emit(target, run, name, data, { eventId? })`](#emit) | `"accepted"`, `"duplicate"` or `"refused"`; any workflow emits |
 
@@ -91,14 +91,15 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`wf.log(message, fields?)`](#log) | nothing; a line in the progress view and `awf logs` |
 | [`wf.usage()`](#usage) | this scope's finished operations |
 | [`wf.allowance(harness)`](#allowance) | what is left of a harness's plan |
-| [`wf.runId`, `wf.attempt`, `wf.cwd`, `wf.deadline`](#run-context) | the run's id, the attempt's number, its directory and deadline |
+| [`wf.runId`, `wf.attempt`, `wf.cwd`, `wf.deadline`](#run-context) | the run's id, the attempt's number, its directory and deadline, a `Date` |
 
 **Results and errors**
 
 | Name | What it is |
 | --- | --- |
 | [Outcomes](#outcomes) | how a turn ended: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled` |
-| [Deadlines](#deadlines) | `{ unixMilliseconds }` bounds, each only earlier than the one around it |
+| [Deadlines](#deadlines) | `timeout`, a duration or a `Date`, never past the bound around it |
+| [`duration(text)`](#waiting-on-time) | a string read from data, checked, as a `Duration` |
 | [`DeadlineExceededError`](#deadlines) | what `parallel`, `decide` and a call past its scope's deadline reject with |
 | [`DecisionError`](#decide) | a decision that was sent and didn't answer |
 | [`Ending`](#ending) | how an attempt ended, `parked` included, as `present` and `report` get it |
@@ -184,7 +185,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 | `cwd` | Where the agent works; `wf.cwd` by default, which `awf run --cwd` sets. |
 | `layout`, `keepPane` | Where its pane appears, and whether it stays once the agent is done: [Where panes go](#where-panes-go-layout-and-keeppane). |
 | `tools` | What it can ask your code to do mid-turn: [`tool`](#tool). |
-| `deadline` | `{ unixMilliseconds }`, bounding the open; the enclosing scope's by default. |
+| `timeout` | Bounds the open, as for [`run`](#agent-run); the enclosing scope's by default. |
 
 The `runtime` fields:
 
@@ -209,10 +210,9 @@ The aliases `awf run` installs are `claude` (claude, `sonnet`) and `codex` (code
 | --- | --- |
 | `prompt` | Required. The turn's prompt. |
 | `schema` | A JSON Schema, such as a TypeBox one, the answer must fit. The agent answers with [`wfa result`](/reference/wfa#result); a refused answer can be sent again within the turn. Without it, the answer is a string. |
-| `timeoutMs` | Bounds the whole turn, nudges included, from the call; capped by the enclosing [deadline](#deadlines). |
-| `deadline` | `{ unixMilliseconds }`: the same bound as an absolute time. |
+| `timeout` | Bounds the whole turn, nudges included: a [duration](#waiting-on-time) from the call, a `Date` to end by, or `false` for no bound of its own. Never past the enclosing [deadline](#deadlines). |
 | `label` | The turn's name in the progress view and the record. |
-| `nudge` | On by default: an agent that stops without an answer is nudged to give it. `false` turns it off. `{ prompt }` replaces the nudge's opening line; the lines on how to answer still follow. `{ deadline }` caps the whole turn, as `deadline` does: it can make it sooner, never later. |
+| `nudge` | On by default: an agent that stops without an answer is nudged to give it. `false` turns it off. `{ prompt }` replaces the nudge's opening line; the lines on how to answer still follow. |
 
 The type argument, `run<Type.Static<typeof X>>`, gives the answer its TypeScript type; a TypeBox
 schema doesn't carry one on its own. A wait on a [participant](#participants-connect)'s answer
@@ -265,7 +265,7 @@ what to drop; the next `run` goes on in the compacted session.
 
 <<< @/../examples/site/reference/workflow-api.ts#compact
 
-- **Fields:** `prompt`, required; `timeoutMs` and `deadline`, as for `run`.
+- **Fields:** `prompt`, required; `timeout`, as for `run`.
 - **`answered`** means it compacted. `value` is the summary from claude and pi, `""` from codex,
   which keeps it encrypted, and `""` from cursor.
 - **Any other outcome** leaves the context as it was, so going on is usually right.
@@ -283,8 +283,7 @@ The session and its context stay.
 
 <<< @/../examples/site/reference/workflow-api.ts#set
 
-- **Fields:** `model`, another model of the same harness; `effort`; `timeoutMs` and `deadline`,
-  as for `run`.
+- **Fields:** `model`, another model of the same harness; `effort`; `timeout`, as for `run`.
 - **`answered`** means the switch is in force, and [`agent.execution`](#agent-execution) shows the
   new settings.
 - **It is refused** for an effort the harness doesn't list and on a cursor TUI agent. The calling
@@ -308,7 +307,8 @@ being told again, and reads that context from the provider's cache
   skills and tools. It may name its own `instructions`, `tools` (`{}` for none) and `runtime`,
   `{ placement?, metered?, effort? }`, as [`open`'s](#agents-open) fields: never a harness or
   model, since it continues its parent's session on them. It never inherits `layout` or
-  `keepPane`: without them it gets a tab of its own.
+  `keepPane`: without them it gets a tab of its own. `timeout`, as for [`run`](#agent-run), bounds
+  taking the copy and opening the fork.
 - **It rejects** before the parent's first turn, once the parent is closed, and after a `set`
   queued before it that didn't take. Every harness forks, in its TUI or headless, sandboxed too.
 - **The same key** with the same parent and spec returns the same agent.
@@ -387,7 +387,7 @@ result as its output. The guide: [Calling session](/guide/calling-session).
 <<< @/../examples/site/reference/workflow-api.ts#forkcaller
 
 - **Fields:** those of [`fork`](#agent-fork) but `tools`: `key`, `runtime`, `instructions`,
-  `layout` and `keepPane`. Root scope only.
+  `layout`, `keepPane` and `timeout`. Root scope only.
 - **`null`** means there is no session to fork, and the run's output says why.
 - **The copy** holds the session up to the command that started the run; with `--here`, after the
   run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
@@ -411,7 +411,7 @@ what it returns. Holding a tool is what lets the agent call it. The guide: [Tool
 | `description` | Required. What it is for, as the agent reads it in its prompt. |
 | `input` | An object schema. A TypeBox schema carries no TypeScript type, so give it as the type argument, `tool<Type.Static<typeof X>>`, which types the handler's input. Left out, the tool takes none, and the handler gets `{}`. |
 | `handler(input, call)` | Required. Runs once per accepted call; what it returns is what the agent reads. `call` has `id`, `agent` (the caller's key, a fork's own) and `signal`, aborted when the call's budget passes or its turn ends. |
-| `timeoutMs` | The handler's budget, 30 s by default; `false` leaves only the turn's deadline. |
+| `timeout` | Each call's budget, 30 s by default; `false` leaves only the turn's deadline. |
 
 - **The agent's prompt teaches its tools**, in every turn: each one's name and description, and how
   to call it. A simple input, up to 6 strings, numbers, booleans or enums, is taught as flags,
@@ -444,8 +444,8 @@ come back in item order. The guide: [Parallel](/guide/parallel-and-loops).
 <<< @/../examples/site/reference/workflow-api.ts#parallel
 
 - **`concurrency`**, a positive integer, defaults to all at once. **`label`** names the group in
-  the progress view ("review 2/3"). **`deadline`**, `{ unixMilliseconds }`, can only be earlier
-  than the enclosing one.
+  the progress view ("review 2/3"). **`timeout`** bounds the whole group, as
+  for [`run`](#agent-run).
 - **When its deadline passes**, the turns still running end `timed-out`, and `parallel` rejects
   with `DeadlineExceededError`: the results already gathered are dropped.
 - **It's fail-fast.** If one item throws, the others are cancelled and `parallel` rejects. Outcomes
@@ -455,14 +455,13 @@ come back in item order. The guide: [Parallel](/guide/parallel-and-loops).
 ### Deadlines {#deadlines}
 
 A run has no deadline unless `awf run --timeout 2h` gives it one, as `wf.deadline`. Everything
-inside inherits it, and anything can set an earlier one, never a later one. The guide:
+inside inherits it. A call that takes `timeout` sets its own bound: a
+[duration](#waiting-on-time), `"10m"`, counts from the call; a `Date` is the time it ends by,
+but not on a [tool](#tool) or a [route](#messages-allow), whose bound is per call; `false` means
+no bound of its own. Whatever it gives, the bound never reaches past the stage, `parallel` or run around the call: a later one is cut to it, so
+`agent.run({ prompt, timeout: "2h" })` inside a `parallel` with `timeout: "20m"` has twenty
+minutes at most. The guide:
 [Timeouts and nudges](/guide/timeouts).
-
-```text
-run deadline (--timeout)
- └─ parallel({ deadline })          earlier or equal
-     └─ agent.run({ timeoutMs })    earlier or equal
-```
 
 When a deadline passes, turns under it end `timed-out`, and `parallel` and `decide` reject with
 `DeadlineExceededError`, which `agentswf/workflow` exports. Without any deadline, turn liveness
@@ -522,7 +521,7 @@ ask all your questions together. The guide: [Decisions](/guide/decisions).
 | `model` | Required. A decision model alias: `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter, which needs `OPENROUTER_API_KEY` in the environment or a `.env` where you run `awf`. |
 | `state` | Required. What every question is about: a string, a JSON object or an array. |
 | `questions` | Required, at least one. Each is answered on its own. |
-| `deadline` | `{ unixMilliseconds }`; the scope's by default, and only earlier. |
+| `timeout` | As for [`run`](#agent-run); the scope's by default. |
 
 The questions. `instructions`, an option's description and a level are text, or a JSON object of
 structured text:
@@ -557,7 +556,7 @@ code grants the route and reads typed results; what the agents say is between th
 | `between: [a, b]` | Both ways, sharing one count. Give this or `from` and `to`. |
 | `purpose` | Required. Shown with every message on the route. |
 | `maxMessages` | Lowers the ceiling of 40 messages a route an attempt, replies included. |
-| `timeoutMs` | Only on a route to a participant: a question closes unanswered after this long. Without it, a question waits until answered; an agent's `--timeout` can only shorten it. |
+| `timeout` | A [duration](#waiting-on-time), only on a route to a participant: a question closes unanswered after this long. Without it, a question waits until answered; an agent's `--timeout` can only shorten it. |
 
 - **Scope:** granted inside a stage, a route closes with the stage; otherwise with the attempt. A
   pair has one open route at a time; granting it again must match, or it rejects.
@@ -761,7 +760,8 @@ warm turn in the same pane, and its end opens a new window.
 
 <<< @/../examples/site/reference/workflow-api.ts#keepalive
 
-- **`timeoutMs`** is the window, an hour by default: the life of claude's prompt cache on a
+- **`window`**, a [duration](#waiting-on-time) such as `"90s"`, is how long the run stays live
+  after the agent's last turn, an hour by default: the life of claude's prompt cache on a
   subscription.
 - **`onTimeout(agent)`** is called once the window passes, if a turn ended since it last ran, at
   a wait with nothing to take and nothing working, which awaits it in its own scope. A turn it
@@ -787,8 +787,12 @@ run keeps it connected.
 
 ### Waiting on time {#waiting-on-time}
 
-A **duration** is `"{n}d"`, `"{n}h"` or `"{n}m"`, decimals allowed (`"1.5h"`); a unit typo fails
-`tsc`, and a number that isn't plain and positive throws. A timer is a time recorded once under a
+A **duration**, the type `Duration`, is a decimal and `s`, `m`, `h` or `d`: `"90s"`, `"10m"`,
+`"1.5h"`, `"14d"`. Every call that takes a length of time takes one, a `timeout` as a timer. A unit
+typo fails `tsc`, and a number that isn't plain throws; a bound also refuses one of no length,
+`"0s"`, which a timer takes as now. A string read from data is
+checked with `duration(text)`, which returns it as a `Duration` and throws, saying the grammar,
+for anything else: `const every = duration(event.data.every)`. A timer is a time recorded once under a
 name; due, it fires into the mailbox as `timer:due`, from
 its name, at its due time. A **source** is something a wait can take: a timer, a declared event
 (`wf.signal(name)`), a participant routed to the code, or an agent (the end of the turn it
@@ -948,8 +952,8 @@ if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent 
 - **`wf.runId`** is the run's id, the same in every attempt.
 - **`wf.attempt`** is which `awf run` of the run this is: 1, then one more for each continue.
 - **`wf.cwd`** is the working directory, which `awf run --cwd` sets.
-- **`wf.deadline`** is the run's deadline, `{ unixMilliseconds }`, absent unless
-  `awf run --timeout` sets one.
+- **`wf.deadline`** is the run's deadline, a `Date`, absent unless `awf run --timeout` sets one.
+  Read it with `wf.deadline.getTime()`.
 
 ## Types
 
@@ -966,13 +970,15 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
 | `Workflow<Args, Result, Events>` | What `defineWorkflow` returns. |
 | `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. |
+| `Duration`, `Timeout` | A [duration](#waiting-on-time); and a call's [bound](#deadlines), `Duration \| Date \| false`. |
 | `WaitOptions` | The options of `receive`, `race` and `select`: `label?`, a string or a function. |
 | `TOOL_LIMITS` | The tool limits: `name` (a pattern), `tools` 16, `descriptionBytes` 1024, `schemaBytes` 8192, `defaultTimeoutMs` 30000, `inputBytes` and `resultBytes` 65536. |
 
 ## Deprecated
 
 These still compile and work until 0.1.0. Each attempt that uses one logs it once, as a warning
-naming what replaces it.
+naming what replaces it. An old bound given with its replacement, `timeoutMs` or `deadline` with
+`timeout`, or `keepAlive`'s `timeoutMs` with `window`, is refused rather than merged.
 
 | Old form | Instead |
 | --- | --- |
@@ -987,6 +993,11 @@ naming what replaces it.
 | An agent's or participant's key with a colon, `review:security` | `-` in its place, `review-security`: a colon is kept for awf's own event names. The warning names each such key, and the key to use. |
 | `wf.agents.stop(key, reason?)` | [`agent.close(reason?)`](#agent-close) on the agent's ref. |
 | `placement`, `metered` and `effort` beside a fork's or `forkCaller`'s `key` | The same in its `runtime`: `fork({ key, runtime: { placement: "headless", metered: true } })`. Given beside `runtime`, they are refused. |
+| `timeoutMs` on `open`, `run`, `start`, `compact`, `set`, a [tool](#tool) or a [route](#messages-allow) | `timeout`, a [duration](#waiting-on-time): `timeout: "10m"`. |
+| `deadline: { unixMilliseconds }` on `open`, `run`, `start`, `compact`, `set`, `parallel` or `decide` | `timeout`, a `Date`: `timeout: new Date(ms)`. |
+| `nudge: { deadline }` | Drop it: the turn's `timeout` bounds its nudges too. |
+| `keepAlive: { timeoutMs }` | `keepAlive: { window }`, a duration such as `"90s"`. |
+| `wf.deadline.unixMilliseconds` | `wf.deadline.getTime()`. `wf.deadline` is now a `Date`, the one change here to a value rather than a field: its `unixMilliseconds` still reads the same time, and logs once. |
 | `EventWorkflowContext<Events>`, `EventAgentRef`, `EventAgentOpenSpec`, `EventAgentDirectory` | `WorkflowContext<Events>`, `AgentRef`, `AgentOpenSpec`, `AgentDirectory`: every workflow has one of each. Types log nothing. |
 
 A test's old forms, such as `reply.silent()` and `run.stopped`, are on

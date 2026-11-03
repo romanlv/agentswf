@@ -55,7 +55,7 @@ exists, the code is right, then this page.
   test, `package.json`, `tsconfig.json`, `.gitignore` and `AGENTS.md`, never overwriting, then
   `bun install` for editor types.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
-  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in its
+  015, ADR 0007), within the workflow's deadline unless `timeout` bounds it: every harness in its
   TUI, and headless all but cursor, which refuses.
   `examples/compaction` checks each live.
 - `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
@@ -86,7 +86,7 @@ exists, the code is right, then this page.
   `cause` is in `wf.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
   messages, waits and queues, and a workflow's tests script them for free.
 - A workflow connects a coordinator outside the run with `wf.participants.connect` (story
-  032), and its agents report to it and ask it over routes like any peer's, a route's `timeoutMs`
+  032), and its agents report to it and ask it over routes like any peer's, a route's `timeout`
   bounding a question. Whatever holds it answers: `awf run`'s terminal asks each question there;
   another session or an app reads `awf inbox` from a saved cursor and answers with `awf reply` or
   messages first with `awf send` ([`site/guide/people.md`](../site/guide/people.md), the `awf-coordinator` skill).
@@ -258,7 +258,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   awaiting human review. Live on every harness, headless and in their TUI, claude in its TUI only.
 - [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): tasks 1–2 built,
   task 3's code and a live check done; the watcher's case run in Slack waits for the operator.
-  `keepAlive: { timeoutMs?, onTimeout? }` on an agent of a workflow with events keeps the run live
+  `keepAlive: { window?, onTimeout? }` on an agent of a workflow with events keeps the run live
   for a window after its turns, so a message then is a warm turn in the same pane, and its
   `onTimeout` compacts it before the run parks. ADR 0012.
 - [037 — a workflow waits on time in code that says what it waits for](stories/037-workflow-timers.md):
@@ -311,6 +311,14 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   fork takes no `tools`, which every `AgentRef` is; `fork` and `forkCaller` take `runtime: {
   placement?, metered?, effort? }`, the flat fields deprecated and refused beside it; `agent.close()`
   replaces `wf.agents.stop(key)`, which is deprecated, and on the caller hands the session back.
+  Task 5 built: one `Duration`, a decimal and `s`, `m`, `h` or `d`, for timers and bounds, and
+  `duration()` to check one read from data; `timeout?: Duration | Date | false` on `open`, `fork`,
+  `forkCaller`, `run`, `start`, `compact`, `set`, `parallel`, `decide` and tools, cut to the bound
+  around it; `keepAlive.window`; a route's `timeout`; `wf.deadline` a `Date`; in tests `timeout`,
+  `stall` and a send's `timeout`. `timeoutMs`, `deadline: { unixMilliseconds }`, `nudge.deadline`,
+  `keepAlive.timeoutMs`, `stallMs` and `wf.deadline.unixMilliseconds` are deprecated, each logged
+  once per attempt; each but `nudge.deadline` is refused beside its replacement. Records keep
+  milliseconds.
 
 ## Known gaps
 

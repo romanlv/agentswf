@@ -18,7 +18,7 @@ export type Result =
 
 // #region bound
 const ROUNDS = 3;
-const TURN_MS = 20 * 60_000;
+const TURN = "20m";
 // #endregion bound
 
 export default defineWorkflow({
@@ -45,7 +45,7 @@ export default defineWorkflow({
       let work = await implementer.run<Done>({
         prompt,
         schema: DONE,
-        timeoutMs: TURN_MS,
+        timeout: TURN,
       });
       const closed =
         work.outcome.kind === "failed" || work.outcome.kind === "timed-out";
@@ -65,7 +65,7 @@ export default defineWorkflow({
         work = await implementer.run<Done>({
           prompt: round === 1 ? handover : `${handover}\n${prompt}`,
           schema: DONE,
-          timeoutMs: TURN_MS,
+          timeout: TURN,
         });
       }
       if (!work.outcome.answered) {
@@ -83,7 +83,7 @@ export default defineWorkflow({
             : `The author says it made your changes: ${work.outcome.value.summary}\n` +
               "Check each one, then the rest of the change.",
         schema: VERDICT,
-        timeoutMs: TURN_MS,
+        timeout: TURN,
       });
       if (!review.outcome.answered) {
         return wf.stop(

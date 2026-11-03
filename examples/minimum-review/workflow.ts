@@ -1,5 +1,7 @@
 import {
+  type Duration,
   defineWorkflow,
+  duration,
   type RuntimeSelection,
   type Workflow,
   type WorkflowInvocation,
@@ -59,18 +61,15 @@ export type ReviewRuntimes = Readonly<Record<ReviewLens, RuntimeSelection>>;
 
 export type ReviewWorkflowConfig = WorkflowMeta & {
   reviewers: ReviewRuntimes;
-  operationTimeoutMs?: number;
+  operationTimeout?: Duration;
 };
-
-const DEFAULT_OPERATION_TIMEOUT_MS = 5 * 60 * 1_000;
 
 export function createMinimumReview(
   runtimes: ReviewRuntimes,
-  operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
+  operationTimeout: Duration = "5m",
 ): Pick<Workflow<MinimumReviewArgs, MinimumReviewResult>, "meta" | "run"> {
-  if (!Number.isSafeInteger(operationTimeoutMs) || operationTimeoutMs <= 0) {
-    throw new Error("operation duration must be a positive safe integer");
-  }
+  // A config may come from data, past what `tsc` checks.
+  const timeout = duration(operationTimeout);
   return {
     meta: {
       name: "minimum-review",
@@ -87,7 +86,7 @@ export function createMinimumReview(
             runtime: runtimes[lens],
           });
           const { outcome } = await reviewer.run({
-            timeoutMs: operationTimeoutMs,
+            timeout,
             prompt: `Review target ${JSON.stringify(args.target)} using only the ${lens} lens.`,
             schema: reviewSchema(lens),
           });
@@ -116,8 +115,8 @@ export function createMinimumReview(
 export function defineReviewWorkflow(
   config: ReviewWorkflowConfig,
 ): Workflow<MinimumReviewArgs, MinimumReviewResult> {
-  const { reviewers, operationTimeoutMs, ...meta } = config;
-  const minimumReview = createMinimumReview(reviewers, operationTimeoutMs);
+  const { reviewers, operationTimeout, ...meta } = config;
+  const minimumReview = createMinimumReview(reviewers, operationTimeout);
   return defineWorkflow<MinimumReviewArgs, MinimumReviewResult>({
     meta,
     prepare: (invocation) => ({ target: parseReviewTarget(meta.name, invocation) }),

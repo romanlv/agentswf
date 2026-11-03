@@ -276,9 +276,9 @@ describe("a coordinator in a workflow's test", () => {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
         const coordinator = await workflow.participants.connect({ key: "coordinator" });
         await workflow.messages.allow({ between: [investigator, coordinator], purpose: PURPOSE });
-        const { outcome } = await investigator.run({ prompt: "Ask.", timeoutMs: 150 });
+        const { outcome } = await investigator.run({ prompt: "Ask.", timeout: "0.15s" });
         return {
-          deadline: workflow.deadline ?? null,
+          deadline: workflow.deadline?.toISOString() ?? null,
           outcome: outcome.kind === "answered" ? outcome.value : outcome.kind,
         };
       },
@@ -295,7 +295,7 @@ describe("a coordinator in a workflow's test", () => {
         },
       },
     });
-    // No `timeoutMs`: the run has no deadline.
+    // No `timeout`: the run has no deadline.
     expect(run.value).toEqual({ deadline: null, outcome: "Keep two." });
     expect(run.turnsOf("investigator").map(({ outcome }) => outcome)).toEqual([
       "awaiting-reply",
@@ -413,7 +413,7 @@ describe("a coordinator in a workflow's test", () => {
       "user is reserved: an agent could read a message from it as authority; an agent takes another key",
       "a is an agent's key; a participant takes a key of its own",
       "coordinator is a participant outside the run; an agent takes another key",
-      "timeoutMs is only for a route an agent asks an outside participant over: between them, or to it",
+      "a timeout is only for a route an agent asks an outside participant over: between them, or to it",
     ]);
   });
 

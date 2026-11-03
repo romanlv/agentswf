@@ -44,7 +44,7 @@ export const agents = defineWorkflow({
     const { outcome } = await reviewer.run<Type.Static<typeof FINDINGS>>({
       prompt: "Review the diff on this branch against main.",
       schema: FINDINGS,
-      timeoutMs: 15 * 60_000,
+      timeout: "15m",
       label: "first pass",
     });
     // #endregion run
@@ -222,7 +222,7 @@ export const composing = defineWorkflow({
     await wf.messages.allow({
       between: [reader, coordinator],
       purpose: "report findings that hold up; ask when the logs can't settle it",
-      timeoutMs: 2 * 60 * 60_000,
+      timeout: "2h",
     });
     // #endregion connect
 

@@ -117,9 +117,9 @@ as they do on `awf run`; `runtimes` in the options adds or replaces others.
   turn's schema refuses, or a script that throws is the test's mistake, and the test fails saying
   so.
 - **A stuck run fails rather than hangs.** Nothing starting or ending for 2 s fails the test;
-  `stallMs` in `testWorkflow`'s options changes it. A loop whose turns keep answering never
+  `stall` in `testWorkflow`'s options, a duration such as `"5s"`, changes it. A loop whose turns keep answering never
   stalls, so it runs until `awf test`'s per-test timeout, 5 s unless `--timeout` says otherwise.
-- **Deadlines are real time.** A turn's `timeoutMs` runs on the clock, so keep them short in a
+- **Deadlines are real time.** A turn's `timeout` runs on the clock, so keep them short in a
   test, or end the turn at once with `noAnswer.timedOut()`.
 - **Sandboxes are fakes.** They confine nothing; a test checks what each agent was given, not what
   a real sandbox enforces.

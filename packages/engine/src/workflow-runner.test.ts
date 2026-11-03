@@ -126,7 +126,7 @@ describe("runWorkflow", () => {
     const controller = new AbortController();
     const deadline = { unixMilliseconds: Date.now() + 20 };
     const workflow = workflowOf("run-deadline", async (context) => {
-      expect(context.deadline).toEqual(deadline);
+      expect(context.deadline?.getTime()).toBe(deadline.unixMilliseconds);
       expect(context.cwd).toBe("/repo");
       return await new Promise<never>(() => undefined);
     });

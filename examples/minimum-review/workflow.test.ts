@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { answer, noAnswer, testWorkflow } from "agentswf/testing";
+import type { Duration } from "agentswf/workflow";
 import reviewLoop from "./review-loop";
 import { createMinimumReview, type ReviewLens, reviewSchema } from "./workflow";
 
@@ -118,14 +119,14 @@ describe("minimum-review", () => {
     });
   });
 
-  test("an operation's bound must be a positive whole number of milliseconds", () => {
-    for (const operationTimeoutMs of [0, -1, 1.5]) {
+  test("an operation's bound must be a duration", () => {
+    for (const operationTimeout of ["10x", "-1m", "5 m"]) {
       expect(() =>
         createMinimumReview(
           { correctness: "claude", maintainability: "codex" },
-          operationTimeoutMs,
+          operationTimeout as Duration,
         ),
-      ).toThrow("operation duration must be a positive safe integer");
+      ).toThrow('a duration is a decimal and s, m, h or d, such as "90s"');
     }
   });
 

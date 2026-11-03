@@ -1194,7 +1194,7 @@ describe("an outside participant", () => {
           { from: "investigator", to: "coordinator" },
           { purpose: ASK, scope, timeoutMs },
         ),
-      ).toThrow("positive whole number");
+      ).toThrow("a positive whole number of milliseconds");
     }
     messaging.grant(
       { between: ["investigator", "coordinator"] },

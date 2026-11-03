@@ -30,7 +30,7 @@ with its test beside it.
 ### The options
 
 ```ts
-wf.parallel(items, (item, index) => …, { concurrency?, label?, deadline? })
+wf.parallel(items, (item, index) => …, { concurrency?, label?, timeout? })
 ```
 
 - **`concurrency`** is how many items run at once. It defaults to all of them, and must be a
@@ -39,7 +39,7 @@ wf.parallel(items, (item, index) => …, { concurrency?, label?, deadline? })
 - **`label`** names the group in the run's [progress view](/guide/following-runs), where it shows
   as `lenses 0/3 · 1 queued` while the first two work, then `lenses 1/3`, with how many of its
   agents failed. An unlabelled `parallel` inside a labelled one counts as part of it.
-- **`deadline`** bounds the whole group. When it passes, `parallel` rejects and drops what it had
+- **`timeout`**, `"20m"` or a `Date`, bounds the whole group. When it passes, `parallel` rejects and drops what it had
   gathered; [A group of agents](/guide/timeouts#a-group-of-agents) has how to keep it.
 
 The function gets each item and its index. An empty list resolves to `[]` at once.
@@ -124,7 +124,7 @@ can be continued, or let an error throw and fail it
 - **Rounds, in code.** A reviewer can always find something more. `ROUNDS` ends the loop, and
   the result says it wasn't approved and what is still open, for a person or the next workflow to
   pick up. Never write the loop as `while (true)`.
-- **Time, per turn.** `timeoutMs` ends a turn `timed-out` when it passes, and `awf run --timeout`
+- **Time, per turn.** `timeout` ends a turn `timed-out` when it passes, and `awf run --timeout`
   bounds the whole run: [Timeouts and nudges](/guide/timeouts).
 
 Without either, a turn whose agent stops without answering still ends: the engine nudges it, and

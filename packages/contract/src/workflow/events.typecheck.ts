@@ -287,10 +287,10 @@ defineWorkflow({
     await wf.race("promise", { done: investigator.run({ prompt: "Look" }) });
     // @ts-expect-error Only a declared event is a signal.
     wf.signal("dd.opened");
-    // @ts-expect-error A duration is days, hours or minutes.
+    // @ts-expect-error A duration is a decimal and s, m, h or d.
     wf.timer("typo", "2 days");
-    // @ts-expect-error Nor seconds.
-    await wf.sleep("short", "30s");
+    // @ts-expect-error Nor milliseconds.
+    await wf.sleep("short", "500ms");
     for (const e of await wf.receive()) {
       const retry = wf.timer("retry-1", "10m");
       if (retry.is(e)) void [e.at, e.data.name];

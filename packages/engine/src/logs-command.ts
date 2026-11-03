@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
-import { duration } from "./duration";
+import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/logs.txt" with { type: "text" };
 import {
@@ -511,7 +511,7 @@ function trailer(
     return `run interrupted${go ? ` · continue: ${go}` : ""}`;
   }
   const { ended, started } = span(status, Date.now());
-  const took = ended === undefined ? "" : ` in ${duration(ended - started)}`;
+  const took = ended === undefined ? "" : ` in ${formatDuration(ended - started)}`;
   return `run ended: ${status.state}${took} · result: ${shellLine(command(place, "awf", "runs", status.ref))}`;
 }
 
@@ -569,7 +569,7 @@ function describeLine(line: RunLogLine, places: Places): string {
     case "compact": {
       const took =
         line.deliveredAt && line.settledAt
-          ? `  ${duration(Date.parse(line.settledAt) - Date.parse(line.deliveredAt))}`
+          ? `  ${formatDuration(Date.parse(line.settledAt) - Date.parse(line.deliveredAt))}`
           : "";
       return `${operation(line.kind)} ended  ${line.outcome}${took}`;
     }
@@ -591,7 +591,9 @@ function describeLine(line: RunLogLine, places: Places): string {
       return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
     case "route-opened":
       return `route ${routeEnds(line)} opened  "${said(line.purpose)}"  ${line.maxMessages} messages${
-        line.timeoutMs === undefined ? "" : `, a question closes after ${duration(line.timeoutMs)}`
+        line.timeoutMs === undefined
+          ? ""
+          : `, a question closes after ${formatDuration(line.timeoutMs)}`
       }`;
     case "route-closed":
       return `route ${routeEnds(line)} closed  ${line.reason}`;
@@ -640,7 +642,9 @@ function describeLine(line: RunLogLine, places: Places): string {
         line.tool,
         places.calls.get(line.call)?.input,
         // Most calls take under a second; a duration says something only past one.
-        line.durationMs < 1000 ? line.outcome : `${line.outcome}  ${duration(line.durationMs)}`,
+        line.durationMs < 1000
+          ? line.outcome
+          : `${line.outcome}  ${formatDuration(line.durationMs)}`,
         answered,
       );
     }

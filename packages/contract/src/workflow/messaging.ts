@@ -1,36 +1,36 @@
 import type { PeerRef } from "./participants";
+import type { Duration } from "./waits";
+
+/** A route's limits, either shape. */
+interface RouteLimits {
+  /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
+  maxMessages?: number;
+  /**
+   * Only on a route to an outside participant: a question on it closes unanswered after this
+   * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
+   */
+  timeout?: Duration;
+  /** @deprecated Give `timeout`, a `Duration` such as `"30m"`. */
+  timeoutMs?: number;
+}
 
 /**
  * A route: `from` may message `to`, which answers over it when asked; `between` is both directions,
  * sharing one count. Its purpose is shown with every message on it.
  */
 export type MessageAccess =
-  | {
+  | (RouteLimits & {
       from: PeerRef;
       to: PeerRef;
       between?: never;
       purpose: string;
-      /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
-      maxMessages?: number;
-      /**
-       * Only on a route to an outside participant: a question on it closes unanswered after this
-       * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
-       */
-      timeoutMs?: number;
-    }
-  | {
+    })
+  | (RouteLimits & {
       between: readonly [PeerRef, PeerRef];
       from?: never;
       to?: never;
       purpose: string;
-      /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
-      maxMessages?: number;
-      /**
-       * Only on a route to an outside participant: a question on it closes unanswered after this
-       * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
-       */
-      timeoutMs?: number;
-    };
+    });
 
 export interface Messaging {
   /**

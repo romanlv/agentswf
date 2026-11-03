@@ -103,7 +103,7 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
       const { outcome } = await agent.run({
         prompt: probePrompt(plan.scripts[name]),
         schema: REPORT,
-        timeoutMs: 3 * 60_000,
+        timeout: "3m",
       });
       return outcome.answered
         ? {

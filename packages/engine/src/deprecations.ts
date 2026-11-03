@@ -60,6 +60,27 @@ export const DEPRECATIONS = {
     instead:
       "give them in its runtime, as open does: fork({ key, runtime: { placement, metered, effort } })",
   },
+  "timeout-ms": {
+    old: "timeoutMs",
+    instead: 'give timeout, a Duration such as "90s" or "10m"',
+  },
+  "deadline-option": {
+    old: "a deadline: { unixMilliseconds } option",
+    instead: 'give timeout: a Date, or a Duration such as "20m"',
+  },
+  "nudge-deadline": {
+    old: "nudge.deadline",
+    instead: "drop it: the turn's timeout bounds its check-ins",
+  },
+  "keep-alive-timeout-ms": {
+    old: "keepAlive.timeoutMs",
+    instead: 'give keepAlive.window, a Duration such as "90s"',
+  },
+  "run-deadline-ms": {
+    old: "wf.deadline.unixMilliseconds",
+    instead: "wf.deadline is a Date: read wf.deadline.getTime()",
+  },
+  "stall-ms": { old: "a test's stallMs", instead: 'give stall, a Duration such as "2s"' },
 } as const satisfies Record<
   string,
   { old: string; instead: string | ((subject: string) => string) }

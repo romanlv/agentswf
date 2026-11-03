@@ -290,9 +290,9 @@ operation deadline exceeded
 a deadline around it passed while it waited
 ```
 
-The turn's `timeoutMs`, or a deadline around it such as the run's `--timeout`, passed first. The
+The turn's `timeout`, or a deadline around it such as the run's `--timeout`, passed first. The
 turn ends `timed-out`, and that closes the agent. Without a deadline, an agent that keeps working
-is never cut off, since a nudge only reaches one that stopped: give its `run` a `timeoutMs`, or
+is never cut off, since a nudge only reaches one that stopped: give its `run` a `timeout`, or
 the run a `--timeout` ([Timeouts](/guide/timeouts#the-run)).
 
 ### `logical agent is closed`

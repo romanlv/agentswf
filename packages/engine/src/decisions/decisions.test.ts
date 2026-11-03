@@ -282,6 +282,18 @@ describe("decisions.decide", () => {
     expect(failure.decisions?.[0]?.tokens).toBeUndefined();
   });
 
+  test("a timeout that passes mid-call rejects as a deadline does", async () => {
+    const provider = createFakeDecisionProvider([() => new Promise<never>(() => undefined)]);
+    const result = await run(provider, runDirs.tempRunDir(), async (context) => {
+      const failure = await context.decisions
+        .decide({ key: "slow", model: "jev", state: "s", questions: TRIAGE, timeout: "0.1s" })
+        .catch((error: unknown) => error);
+      return failure instanceof DeadlineExceededError;
+    });
+    expect(result.value).toBe(true);
+    expect(result.decisions?.[0]).toMatchObject({ outcome: "timed-out", attempts: 1 });
+  });
+
   test("a deadline that passes mid-call rejects, and the call is recorded as timed out", async () => {
     const provider = createFakeDecisionProvider([() => new Promise<never>(() => undefined)]);
     const result = await run(provider, runDirs.tempRunDir(), async (context) => {

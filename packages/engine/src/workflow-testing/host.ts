@@ -18,6 +18,7 @@ import {
   type KeepPane,
   type PaneLayout,
   placementOf,
+  positiveDurationMilliseconds,
 } from "@agentswf/contract/workflow";
 import {
   createPlacementHostFactory,
@@ -146,7 +147,7 @@ export function createScriptedHost(
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
     /** A script ended a turn through a deprecated name, for the run to log. */
-    onDeprecated(name: Deprecated): void;
+    onDeprecated(name: Deprecated, subject?: string): void;
     /** A turn began, before its script answers: what a test sends during it goes now. */
     onTurnStarted?(turn: TestTurn): Promise<void>;
   },
@@ -218,13 +219,20 @@ export function createScriptedHost(
       failTest(why);
       throw new Error(why);
     }
+    if (options.timeout != null && options.timeoutMs != null)
+      throw new Error(`a ${command}'s timeout is given alone: timeoutMs is its deprecated form`);
+    const timeoutMs =
+      options.timeout == null
+        ? (options.timeoutMs ?? undefined)
+        : positiveDurationMilliseconds(options.timeout, `a ${command}'s timeout`);
+    if (options.timeoutMs != null) events.onDeprecated("timeout-ms", `on a script's ${command}`);
     const call = submitControl(operation.binding.endpoint, {
       version: WIRE_VERSION,
       command,
       peer,
       text,
       ...(options.awaitReply ? { awaitReply: true as const } : {}),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
     invocation.calls.add(call);
     let response: MessageResponse;

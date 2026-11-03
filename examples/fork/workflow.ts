@@ -74,7 +74,6 @@ export type ForkCheck = {
   problem?: string;
 };
 
-const MINUTE = 60_000;
 const RECALL =
   "Without running any command or reading any file: what is this project's codename, and what is its next release? Answer unknown for what you do not know.";
 
@@ -101,14 +100,14 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
           ...(item.sandbox ? { sandbox: { srt: {} } } : {}),
         });
         const note = async (prompt: string) => {
-          const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
+          const { outcome } = await worker.run({ prompt, schema: NOTED, timeout: "4m" });
           return outcome.answered ? undefined : `${outcome.kind}: ${outcome.reason}`;
         };
         const recall = async (agent: typeof worker) => {
           const { outcome } = await agent.run({
             prompt: RECALL,
             schema: RECALLED,
-            timeoutMs: 4 * MINUTE,
+            timeout: "4m",
           });
           return outcome.answered ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
         };
@@ -124,7 +123,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
         if (item.compact) {
           const compacted = await worker.compact({
             prompt: "Keep the project's codename.",
-            timeoutMs: 5 * MINUTE,
+            timeout: "5m",
           });
           if (!compacted.answered) {
             return { name, problem: `compaction ${compacted.kind}: ${compacted.reason}` };

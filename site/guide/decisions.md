@@ -53,8 +53,8 @@ for each:
   once per call however many questions you ask, so ask them together rather than one call each.
 - **`questions`** are at least one, keyed by the name you read the answer by. Each is answered on
   its own and doesn't see the others' answers.
-- **`deadline`**, optional, `{ unixMilliseconds }`, is an earlier deadline for this call than the
-  one around it.
+- **`timeout`**, optional, a duration or a `Date`, bounds this call, within the
+  [deadline](/reference/workflow-api#deadlines) around it.
 
 The sample at the top uses all three kinds of question:
 
@@ -106,7 +106,7 @@ was fitted on.
 
 - **Refused before it is sent.** A call that can't be asked rejects with an `Error` that says what
   to fix: no key, no questions, a question of unknown type, a state that isn't text, an object or
-  an array, an unknown alias, a bad deadline, or `jev` without a key, for example
+  an array, an unknown alias, a bad timeout, or `jev` without a key, for example
   `decision model "jev" is unavailable: OPENROUTER_API_KEY is not set`. Nothing is sent or
   recorded. A `choice` with no options or a `score` with no levels throws sooner, where you build
   it.

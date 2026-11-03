@@ -12,7 +12,6 @@ export const FINDINGS = Type.Object(
 );
 export type Findings = Type.Static<typeof FINDINGS>;
 
-const MINUTE = 60_000;
 export const LENSES = ["correctness", "tests"] as const;
 
 export default defineWorkflow({
@@ -38,7 +37,7 @@ export default defineWorkflow({
           const { outcome } = await reviewer.run<Findings>({
             prompt: `Review the diff on this branch against main, for ${lens} only.`,
             schema: FINDINGS,
-            timeoutMs: 10 * MINUTE,
+            timeout: "10m",
             nudge: {
               prompt:
                 "Send the findings you have so far, even if the review isn't done.",
@@ -50,7 +49,7 @@ export default defineWorkflow({
         {
           label: "review",
           concurrency: 1,
-          deadline: { unixMilliseconds: Date.now() + minutes * MINUTE },
+          timeout: `${minutes}m`,
         },
       );
       // #endregion parallel

@@ -24,6 +24,7 @@ import type {
   RaceBranches,
   RaceChecked,
   Signal,
+  Timeout,
   TimeRead,
   Timer,
   WaitOptions,
@@ -43,7 +44,9 @@ export interface WorkflowMeta {
 }
 
 export interface ParallelOptions {
-  /** Defaults to the current workflow scope deadline. */
+  /** Bounds every item, within the stage, `parallel` and run around it. */
+  timeout?: Timeout;
+  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"20m"`. */
   deadline?: AbsoluteDeadline;
   /** Positive integer local maximum; global admission may reduce it. */
   concurrency?: number;
@@ -82,7 +85,10 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   /** Working directory and hard bound for this invocation, supplied and enforced by the engine. */
   readonly cwd: string;
   /** The run's deadline; absent when it has none, as it has unless `awf run --timeout` sets one. */
-  readonly deadline?: AbsoluteDeadline;
+  readonly deadline?: Date & {
+    /** @deprecated `wf.deadline` is a `Date`: read `wf.deadline.getTime()`. */
+    readonly unixMilliseconds: number;
+  };
   readonly agents: AgentDirectory;
   readonly sandboxes: SandboxDirectory;
   /** Closed questions to a decision model: probabilities back in a few hundred milliseconds. */
