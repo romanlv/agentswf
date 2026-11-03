@@ -8,11 +8,12 @@ import {
 /**
  * Many TUI agents at once (story concurrent-agents): every agent prompted together, twice, the
  * second turn needing the first's context, so each turn must start, end and be released in its own
- * pane while the rest are busy. `codex=12 claude=6` names how many of each.
+ * pane while the rest are busy. `codex=12 claude=6 cursor=4` names how many of each.
  */
 const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna" },
   claude: { harness: "claude", model: "claude-sonnet-5-5" },
+  cursor: { harness: "cursor", model: "composer-2.5" },
 } satisfies Record<string, ExecutionConfig>;
 type Runtime = keyof typeof RUNTIMES;
 
@@ -71,7 +72,8 @@ export default defineWorkflow<{ agents: { runtime: Runtime; index: number }[] },
     });
   },
   prepare(invocation: WorkflowInvocation) {
-    const counts = invocation.argv.length > 0 ? invocation.argv : ["codex=12", "claude=6"];
+    const counts =
+      invocation.argv.length > 0 ? invocation.argv : ["codex=12", "claude=6", "cursor=4"];
     const agents: { runtime: Runtime; index: number }[] = [];
     for (const count of counts) {
       const [runtime, n] = count.split("=");

@@ -1444,6 +1444,39 @@ export function createHerdrRunHostFactory(
                 )
               );
             }
+            // Herdr reports cursor ready about 3.5 s after it starts, drawn or not: with many
+            // panes starting, a prompt pasted sooner went to the shell and sat unsent in cursor's
+            // input once it drew. A typed start has already waited for it.
+            if (!terminal && spec.paneReady) {
+              const waitMs = Math.max(
+                1,
+                Math.min(deadline.unixMilliseconds - Date.now(), AGENT_START_WAIT_MS),
+              );
+              const drawn = await herdr(
+                [
+                  "pane",
+                  "wait-output",
+                  paneId,
+                  "--match",
+                  spec.paneReady,
+                  "--timeout",
+                  String(waitMs),
+                ],
+                waitMs + HERDR_REPORT_GRACE_MS,
+                signal,
+              );
+              if (!drawn.ok) {
+                await closeCurrentPane().catch(() => undefined);
+                current = undefined;
+                if (signal.aborted || drawn.cancelled) {
+                  return localOutcome("cancelled", "pane operation cancelled");
+                }
+                return localOutcome(
+                  drawn.timedOut ? "timed-out" : "failed",
+                  `${harness} never showed it was ready: ${drawn.error}`,
+                );
+              }
+            }
             if (launch.sessionId) onSession?.(launch.sessionId);
             return undefined;
           };
