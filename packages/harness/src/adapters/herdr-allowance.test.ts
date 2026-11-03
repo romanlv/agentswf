@@ -58,7 +58,9 @@ describe("a usage screen read in a pane", () => {
       "pane wait-output": { exitCode: 1, stderr: "timed out" },
       "pane read": { stdout: "Sign in to Cursor\n" },
     });
-    expect(await readPaneAllowance("cursor", CONFIG, { run })).toEqual({
+    // Its read's 90 s, all but gone: the start waits for its pane to draw until then.
+    const now = () => Date.now() - 89_800;
+    expect(await readPaneAllowance("cursor", CONFIG, { run, now })).toEqual({
       read: "none",
       reason:
         "cursor's usage screen: starting it failed: cursor never showed it was ready: Sign in to Cursor",

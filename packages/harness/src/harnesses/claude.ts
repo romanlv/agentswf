@@ -1,7 +1,11 @@
 import { basename } from "node:path";
 import { claudeActivity } from "../activity/rows";
 import { count, jsonLines, record, reported, text } from "../json";
-import { claudeTurnPlace, createClaudeReceiptReducer } from "../turns/claude";
+import {
+  claudeTurnPlace,
+  createClaudeCompactionReducer,
+  createClaudeReceiptReducer,
+} from "../turns/claude";
 import { readClaudeAllowance } from "../usage/allowance";
 import { readClaudeBilling } from "../usage/billing";
 import {
@@ -200,6 +204,7 @@ const CLAUDE = {
   turnRecord: {
     place: (cwd, _since, home, session) => claudeTurnPlace(cwd, home, session),
     reducer: createClaudeReceiptReducer,
+    compaction: createClaudeCompactionReducer,
     session: (file) => basename(file, ".jsonl"),
   },
   findSession: (marker, since, cwd, home) => findClaudeSession(marker, since, cwd, home),

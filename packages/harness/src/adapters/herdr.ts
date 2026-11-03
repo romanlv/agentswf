@@ -84,8 +84,8 @@ export type HerdrConfig = {
   turnPollMs?: number;
   /** How long a prompt may go untaken before its screen is read; see `UNTAKEN_MS`. */
   untakenMs?: number;
-  /** How long a prompt may go unrecorded before its turn fails; see `UNRECORDED_MS`. */
-  unrecordedMs?: number;
+  /** How long a compaction may go unseen in its record; see `COMPACTION_GRACE_MS`. */
+  compactionGraceMs?: number;
   /**
    * At a sandbox's first TUI agent, open a tab in the run's workspace attached to the sandbox's
    * own Herdr, so its panes show beside the run's.
@@ -122,12 +122,6 @@ const TURN_POLL_MS = 2_000;
  * it lacks, or a claude that dropped the Enter after the paste.
  */
 const UNTAKEN_MS = 5_000;
-/**
- * How long a prompt may go untaken by its record, its harness not working, before the turn fails:
- * a record read where its harness does not write, or a prompt never sent, would otherwise wait out
- * its deadline. A loaded codex began its turn 19 s late.
- */
-const UNRECORDED_MS = 60_000;
 /** How many times running, `UNTAKEN_MS` apart, Herdr must not find an agent for it to have exited. */
 const MISSING_CHECKS = 3;
 /** How long one wait on Herdr for a dialog runs before it is asked again. */
@@ -504,11 +498,13 @@ async function untilDrawn(
     if (shown.cancelled || signal?.aborted) {
       return { error: "operation cancelled", timedOut: false, cancelled: true };
     }
+    // Herdr's own timeout comes back as an error, not as awf's kill: only the limit ends it.
     const screen = await read();
-    if (spec.login?.screen(screen) || Date.now() >= limit || !shown.timedOut) {
+    const login = spec.login?.screen(screen) !== undefined;
+    if (login || Date.now() >= limit) {
       return {
         error: `${kind} never showed it was ready: ${screen.trim().slice(-300) || shown.error}`,
-        timedOut: shown.timedOut && !spec.login?.screen(screen),
+        timedOut: !login,
         cancelled: false,
       };
     }
@@ -525,6 +521,8 @@ const TYPED_START_SETTLE_MS = 10_000;
 const TYPED_START_POLL_MS = 300;
 /** How often a pane whose harness looks idle while it compacts is read for the compaction's end. */
 const COMPACTION_POLL_MS = 500;
+/** How long after its prompts a compaction its record has not seen begin is taken not to run. */
+const COMPACTION_GRACE_MS = 90_000;
 
 export function createPaneAdapter(
   config: HerdrConfig,
@@ -982,10 +980,12 @@ export function createHerdrRunHostFactory(
               turn.readNow();
               await Promise.race([turn.ended, Bun.sleep(RECORD_CATCH_UP_MS)]);
             }
+            // A dialog is left for the operator to answer: Escape would dismiss it.
+            const status = reportedAgent(got.result).agent_status;
             if (
               recordSpeaks(turn)
-                ? turn.end === undefined
-                : reportedAgent(got.result).agent_status === "working"
+                ? turn.end === undefined && status !== "blocked"
+                : status === "working"
             ) {
               await herdr(["agent", "send-keys", agentName, "esc"]);
             }
@@ -1360,75 +1360,164 @@ export function createHerdrRunHostFactory(
               }
               before = read.stdout;
             }
-            let agent: Record<string, unknown> | undefined;
-            for (const [index, text] of compaction.prompts(operation.prompt).entries()) {
-              if (index > 0) {
-                const idle = await settle(agentName, operation.deadline, signal);
-                if (idle) return idle;
+            // Where its harness records its compaction, the record says it ran: a loaded
+            // screen showed none, and Herdr's wait ended before it began.
+            const session = operation.previousSessionRef;
+            const record =
+              turnRecord && session
+                ? await prepareTurnRecord(
+                    await turnRecord.place(
+                      request.cwd,
+                      launchedAt,
+                      request.home,
+                      session,
+                      lastRecorded?.session === session ? lastRecorded.file : undefined,
+                    ),
+                    // No prompt of a compaction is marked: only the session's own file is read.
+                    `[awf-compaction:${randomUUID()}]`,
+                    turnRecord.compaction,
+                    { signal },
+                  ).catch(() => undefined)
+                : undefined;
+            const reading = new AbortController();
+            let started = false;
+            const recorded = record
+              ? new Promise<boolean>((resolve) => {
+                  void record
+                    .watch(
+                      AbortSignal.any([signal, reading.signal]),
+                      {
+                        accepted() {
+                          started = true;
+                        },
+                        received() {},
+                        ended: () => resolve(true),
+                      },
+                      undefined,
+                      () => operation.deadline.unixMilliseconds,
+                    )
+                    .then(
+                      () => resolve(false),
+                      () => resolve(false),
+                    );
+                })
+              : undefined;
+            try {
+              return await compactThrough(recorded);
+            } finally {
+              reading.abort();
+            }
+
+            async function compactThrough(
+              recorded: Promise<boolean> | undefined,
+            ): Promise<NativeTurnOutcome> {
+              let agent: Record<string, unknown> | undefined;
+              for (const [index, text] of compaction.prompts(operation.prompt).entries()) {
+                if (index > 0) {
+                  const idle = await settle(agentName, operation.deadline, signal);
+                  if (idle) return idle;
+                }
+                const waitMs = remaining();
+                if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+                const sent = await herdr(
+                  ["agent", "prompt", agentName, text, "--wait", "--timeout", String(waitMs)],
+                  waitMs + HERDR_REPORT_GRACE_MS,
+                  signal,
+                );
+                if (!sent.ok) {
+                  if (sent.cancelled || signal.aborted) {
+                    return localOutcome("cancelled", "pane operation cancelled");
+                  }
+                  // A stall says nothing about whether it ran; the screen will, once it settles.
+                  if (!hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                    return herdrFailure(sent, remaining());
+                  }
+                  const idle = await settle(agentName, operation.deadline, signal);
+                  if (idle) return idle;
+                } else {
+                  agent = reportedAgent(sent.result);
+                }
               }
-              const waitMs = remaining();
-              if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-              const sent = await herdr(
-                ["agent", "prompt", agentName, text, "--wait", "--timeout", String(waitMs)],
-                waitMs + HERDR_REPORT_GRACE_MS,
-                signal,
-              );
-              if (!sent.ok) {
-                if (sent.cancelled || signal.aborted) {
+              // Either may show it first: the record, or a screen that has caught up.
+              const shownOnScreen = async (): Promise<boolean> => {
+                for (;;) {
+                  const read = await readScreen();
+                  if (
+                    read.ok &&
+                    compaction.compacted(read.stdout, operation.prompt, before) &&
+                    (!compaction.ended || compaction.ended(read.stdout, before))
+                  ) {
+                    return true;
+                  }
+                  if (
+                    remaining() <= 0 ||
+                    !(await abortableDelay(COMPACTION_POLL_MS, reading.signal))
+                  )
+                    return false;
+                }
+              };
+              // One its record has not seen begin a while after its prompts went is taken not to have
+              // run, as the screen then says: a loaded codex began a turn 70 s late.
+              const begun = abortableDelay(
+                Math.max(0, Math.min(remaining(), config.compactionGraceMs ?? COMPACTION_GRACE_MS)),
+                reading.signal,
+              ).then(() => (started ? new Promise<boolean>(() => {}) : false));
+              const inRecord = recorded
+                ? await Promise.race([recorded, shownOnScreen(), begun])
+                : false;
+              if (recorded && !inRecord && (signal.aborted || remaining() <= 0)) {
+                return signal.aborted
+                  ? localOutcome("cancelled", "pane operation cancelled")
+                  : localOutcome("timed-out", "operation deadline exceeded");
+              }
+              let read = await readScreen();
+              while (
+                !inRecord &&
+                read.ok &&
+                compaction.ended &&
+                !compaction.ended(read.stdout, before)
+              ) {
+                // Herdr sees the agent idle, so nothing else would stop a compaction left running.
+                const interrupt = () => herdr(["agent", "send-keys", agentName, "esc"]);
+                if (remaining() <= 0) {
+                  await interrupt();
+                  return localOutcome("timed-out", "operation deadline exceeded");
+                }
+                if (!(await abortableDelay(COMPACTION_POLL_MS, signal))) {
+                  await interrupt();
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
-                // A stall says nothing about whether it ran; the screen will, once it settles.
-                if (!hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
-                  return herdrFailure(sent, remaining());
-                }
-                const idle = await settle(agentName, operation.deadline, signal);
-                if (idle) return idle;
-              } else {
-                agent = reportedAgent(sent.result);
+                read = await readScreen();
               }
-            }
-            let read = await readScreen();
-            while (read.ok && compaction.ended && !compaction.ended(read.stdout, before)) {
-              // Herdr sees the agent idle, so nothing else would stop a compaction left running.
-              const interrupt = () => herdr(["agent", "send-keys", agentName, "esc"]);
-              if (remaining() <= 0) {
-                await interrupt();
-                return localOutcome("timed-out", "operation deadline exceeded");
+              if (!read.ok) {
+                return read.cancelled || signal.aborted
+                  ? localOutcome("cancelled", "pane operation cancelled")
+                  : localOutcome("failed", `the pane could not be read: ${read.error}`);
               }
-              if (!(await abortableDelay(COMPACTION_POLL_MS, signal))) {
-                await interrupt();
-                return localOutcome("cancelled", "pane operation cancelled");
+              const evidence = { kind: "transcript" as const, text: read.stdout };
+              if (!inRecord && !compaction.compacted(read.stdout, operation.prompt, before)) {
+                return {
+                  state: "failed",
+                  detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
+                  resultEvidence: evidence,
+                  chargesUsd: [],
+                };
               }
-              read = await readScreen();
-            }
-            if (!read.ok) {
-              return read.cancelled || signal.aborted
-                ? localOutcome("cancelled", "pane operation cancelled")
-                : localOutcome("failed", `the pane could not be read: ${read.error}`);
-            }
-            const evidence = { kind: "transcript" as const, text: read.stdout };
-            if (!compaction.compacted(read.stdout, operation.prompt, before)) {
+              // A stalled prompt returns no agent; the session is the one its turns already named.
+              const sessionRef =
+                (agent && spec.herdrSessionIsOwn && readSessionRef(agent)) ||
+                operation.previousSessionRef;
+              const summary = sessionRef
+                ? await spec.readCompactSummary?.(sessionRef, request.cwd)
+                : undefined;
               return {
-                state: "failed",
-                detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
+                state: "completed",
                 resultEvidence: evidence,
+                ...(sessionRef ? { sessionRef } : {}),
                 chargesUsd: [],
+                summary: summary ?? "",
               };
             }
-            // A stalled prompt returns no agent; the session is the one its turns already named.
-            const sessionRef =
-              (agent && spec.herdrSessionIsOwn && readSessionRef(agent)) ||
-              operation.previousSessionRef;
-            const summary = sessionRef
-              ? await spec.readCompactSummary?.(sessionRef, request.cwd)
-              : undefined;
-            return {
-              state: "completed",
-              resultEvidence: evidence,
-              ...(sessionRef ? { sessionRef } : {}),
-              chargesUsd: [],
-              summary: summary ?? "",
-            };
           };
 
           /**
@@ -1857,6 +1946,18 @@ export function createHerdrRunHostFactory(
                 }
                 const waitMs = Math.max(1, remainingMs);
                 const marker = `[awf-delivery:${randomUUID()}]`;
+                // A prompt its last operation gave up on, still in claude's input, would be sent
+                // with this one, which its record would then never find.
+                if (untakenMarker && harness === "claude") {
+                  const read = await herdr(
+                    ["agent", "read", placement.agentName, "--source", "detection"],
+                    config.commandTimeoutMs,
+                    controller.signal,
+                  );
+                  if (read.ok && heldInInput(read.stdout, untakenMarker)) {
+                    return localOutcome("failed", "its last prompt is still unsent in its input");
+                  }
+                }
                 untakenMarker = undefined;
                 const dispatchSignal = operation.deliverySignal
                   ? AbortSignal.any([operation.deliverySignal, controller.signal])
@@ -1978,7 +2079,6 @@ export function createHerdrRunHostFactory(
                   // A harness that cannot sign in takes nothing.
                   let pressed = false;
                   let heldBefore = false;
-                  const dispatchedAt = Date.now();
                   const untaken = async () => {
                     const read = await herdr(
                       ["agent", "read", placement.agentName, "--source", "detection"],
@@ -2010,20 +2110,6 @@ export function createHerdrRunHostFactory(
                         config.commandTimeoutMs,
                         controller.signal,
                       );
-                    }
-                    if (Date.now() - dispatchedAt >= (config.unrecordedMs ?? UNRECORDED_MS)) {
-                      const got = await herdr(
-                        ["agent", "get", placement.agentName],
-                        config.commandTimeoutMs,
-                        controller.signal,
-                      );
-                      const agent = got.ok ? reportedAgent(got.result) : undefined;
-                      if (agent && agent.agent_status !== "working") {
-                        return localOutcome(
-                          "failed",
-                          `its harness's record never showed the prompt, and Herdr shows it ${String(agent.agent_status)}`,
-                        );
-                      }
                     }
                     return undefined;
                   };

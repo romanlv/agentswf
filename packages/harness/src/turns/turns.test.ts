@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HARNESSES } from "../spec";
-import { createClaudeReceiptReducer } from "./claude";
-import { codexTurnPlace, createCodexTurnReducer } from "./codex";
+import { createClaudeCompactionReducer, createClaudeReceiptReducer } from "./claude";
+import { codexTurnPlace, createCodexCompactionReducer, createCodexTurnReducer } from "./codex";
 import { prepareTurnRecord, type TurnReading, type TurnReducer } from "./record";
 
 const MARKER = "[awf-delivery:fixture]";
@@ -217,4 +217,19 @@ test("an interrupt of the turn a queued prompt waits behind does not end it", ()
     message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
   };
   expect(reducer.push(stopped).ended).toBeUndefined();
+});
+
+test("claude's compaction ends at the summary after its boundary", () => {
+  const reducer = createClaudeCompactionReducer();
+  expect(reducer.push({ type: "user", isCompactSummary: true }).ended).toBeUndefined();
+  expect(reducer.push({ type: "system", subtype: "compact_boundary" }).ended).toBeUndefined();
+  expect(reducer.push({ type: "user", isCompactSummary: true }).ended).toBe("completed");
+});
+
+test("codex's compaction ends at the end of the task that compacted", () => {
+  const reducer = createCodexCompactionReducer();
+  const end = { type: "event_msg", payload: { type: "task_complete" } };
+  expect(reducer.push(end).ended).toBeUndefined();
+  reducer.push({ type: "compacted", payload: {} });
+  expect(reducer.push(end).ended).toBe("completed");
 });

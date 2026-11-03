@@ -120,3 +120,42 @@ export function recordTurn(
     );
   };
 }
+
+/** Records a compaction of `session` as claude and codex would, in each one's home. */
+export function recordCompaction(session: string, options: { cwd?: string } = {}) {
+  const project = join(
+    isolated("CLAUDE_CONFIG_DIR"),
+    "projects",
+    (options.cwd ?? "/repo").replace(/[^A-Za-z0-9]/g, "-"),
+  );
+  mkdirSync(project, { recursive: true });
+  appendFileSync(
+    join(project, `${session}.jsonl`),
+    [
+      { type: "system", subtype: "compact_boundary" },
+      { type: "user", isCompactSummary: true, message: { content: "The summary." } },
+    ]
+      .map((row) => `${JSON.stringify(row)}\n`)
+      .join(""),
+  );
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const day = join(
+    isolated("CODEX_HOME"),
+    "sessions",
+    String(now.getFullYear()),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+  );
+  mkdirSync(day, { recursive: true });
+  appendFileSync(
+    join(day, `rollout-2026-01-01T00-00-00-${session}.jsonl`),
+    [
+      { type: "event_msg", payload: { type: "task_started", turn_id: "c1" } },
+      { type: "compacted", payload: { message: "" } },
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "c1" } },
+    ]
+      .map((row) => `${JSON.stringify(row)}\n`)
+      .join(""),
+  );
+}

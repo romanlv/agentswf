@@ -110,3 +110,22 @@ export async function claudeTurnPlace(
     ...(session ? { known: `${session}.jsonl` } : {}),
   };
 }
+
+/**
+ * claude's own compaction, read from its transcript: `compact_boundary`, then the summary it
+ * continues from. A sidechain's is a subagent's.
+ */
+export function createClaudeCompactionReducer() {
+  let boundary = false;
+  let ended: TurnReading["ended"];
+  return {
+    push(value: unknown): TurnReading {
+      const row = record(value);
+      if (row && row.isSidechain !== true && !ended) {
+        if (row.type === "system" && row.subtype === "compact_boundary") boundary = true;
+        else if (boundary && row.isCompactSummary === true) ended = "completed";
+      }
+      return { accepted: boundary, received: boundary, ...(ended ? { ended } : {}) };
+    },
+  };
+}

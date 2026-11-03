@@ -131,20 +131,14 @@ export async function prepareTurnRecord(
     progress.set(name, cursor);
     return cursor;
   };
-  for await (const name of fileNames()) {
-    options.signal?.throwIfAborted();
-    discoveryNameBytes += Buffer.byteLength(name);
-    if (baseline.size >= MAX_BASELINE_FILES || discoveryNameBytes > MAX_BASELINE_NAME_BYTES)
-      throw new Error("turn record discovery baseline exceeds its bound");
-    baseline.set(name, undefined);
-    if (known && name !== known) continue;
+  const where = async (name: string) => {
     const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW).catch(
       (error: unknown) => {
         if (name !== known || record(error)?.code === "ENOENT") return undefined;
         throw error;
       },
     );
-    if (!file) continue;
+    if (!file) return;
     try {
       const stat = await file.stat();
       baseline.set(name, { inode: stat.ino, offset: stat.size });
@@ -154,13 +148,32 @@ export async function prepareTurnRecord(
     } finally {
       await file.close();
     }
+  };
+  // A batch at a time: a codex home's days can hold hundreds of rollouts, all read before a prompt.
+  let batch: Promise<void>[] = [];
+  for await (const name of fileNames()) {
+    options.signal?.throwIfAborted();
+    discoveryNameBytes += Buffer.byteLength(name);
+    if (baseline.size >= MAX_BASELINE_FILES || discoveryNameBytes > MAX_BASELINE_NAME_BYTES)
+      throw new Error("turn record discovery baseline exceeds its bound");
+    baseline.set(name, undefined);
+    if (known && name !== known) continue;
+    batch.push(where(name));
+    if (batch.length >= SCAN_BATCH) {
+      await Promise.all(batch);
+      batch = [];
+    }
   }
+  await Promise.all(batch);
   /** Cuts the watch's current pause short, so it reads at once. */
   let wake: (() => void) | undefined;
+  /** A `readNow` while it was reading, which its next pause honours. */
+  let woken = false;
   return {
     /** Reads the files now, rather than at the next poll. */
     readNow() {
-      wake?.();
+      if (wake) wake();
+      else woken = true;
     },
     /**
      * Reads until the model has answered, or with `observer.ended` until the turn has ended; or
@@ -189,6 +202,10 @@ export async function prepareTurnRecord(
                 const timer = setTimeout(() => settle(true), pause.every());
                 const abort = () => settle(false);
                 if (stop.aborted) return settle(false);
+                if (woken) {
+                  woken = false;
+                  return settle(true);
+                }
                 stop.addEventListener("abort", abort, { once: true });
                 wake = () => settle(true);
               });

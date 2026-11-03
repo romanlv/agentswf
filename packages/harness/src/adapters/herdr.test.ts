@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
-import { isolateHarnessHomes, recordTurn } from "../testing/turn-records";
+import { isolateHarnessHomes, recordCompaction, recordTurn } from "../testing/turn-records";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
 let homes: ReturnType<typeof isolateHarnessHomes>;
@@ -1645,7 +1645,11 @@ describe("createHerdrRunHostFactory", () => {
       return { run, calls: base.calls };
     };
     const opened = async (run: RunProcess, harness: "claude" | "codex" | "pi") => {
-      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      // A compaction its record never shows is given a short grace here.
+      const host = await createHerdrRunHostFactory(
+        { ...CONFIG, compactionGraceMs: 300 },
+        run,
+      ).openRun({
         runId: "run-1",
         cwd: "/repo",
         deadline: deadline(),
@@ -1710,6 +1714,36 @@ describe("createHerdrRunHostFactory", () => {
       ]);
       await host.close();
     });
+
+    for (const harness of ["claude", "codex"] as const) {
+      test(`a ${harness} compaction its record shows completes, though the screen never does`, async () => {
+        const base = hostStub();
+        const run: RunProcess = async (input) => {
+          if (verb(input) === "agent prompt" && input.argv[6]?.startsWith("/compact")) {
+            base.calls.push(input);
+            recordCompaction(`session-${input.argv[5]}`);
+            return commandResult({ agent: { agent_status: "idle" } });
+          }
+          return base.run(input);
+        };
+        const host = await createHerdrRunHostFactory(
+          { ...CONFIG, compactionGraceMs: 5_000 },
+          run,
+        ).openRun({ runId: "run-1", cwd: "/repo", deadline: deadline() });
+        const session = await host.openAgent({
+          key: "worker",
+          cwd: "/repo",
+          deadline: deadline(),
+          execution: { harness, model: "m" },
+        });
+        await (
+          await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+        ).settled;
+        const compact = await session.compact("c-1", "Keep the path.", deadline());
+        await expect(compact.settled).resolves.toMatchObject({ state: "completed" });
+        await host.close();
+      });
+    }
 
     test("a screen that shows no compaction after /compact fails it, and the agent goes on", async () => {
       const { run, calls } = showing(
@@ -2397,7 +2431,8 @@ describe("createHerdrRunHostFactory", () => {
           agent: { agent_status: terminalState, agent_status_text: "stuck" },
         });
       };
-      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      // A dialog is confirmed a moment later, here a short one.
+      const host = await createHerdrRunHostFactory({ ...CONFIG, untakenMs: 50 }, run).openRun({
         runId: `run-${terminalState}`,
         cwd: "/repo",
         deadline: deadline(),
@@ -2848,38 +2883,6 @@ describe("createHerdrRunHostFactory", () => {
       await Bun.sleep(500);
       end!();
       await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
-      await host.close();
-    });
-
-    test("a prompt its record never shows fails once Herdr shows its harness not working", async () => {
-      const base = hostStub();
-      const run: RunProcess = async (input) => {
-        if (verb(input) === "agent prompt") {
-          base.calls.push(input);
-          return commandResult({ agent: { agent_status: "idle" } });
-        }
-        if (verb(input) === "agent get") return commandResult({ agent: { agent_status: "idle" } });
-        return base.run(input);
-      };
-      const host = await createHerdrRunHostFactory({ ...FAST, unrecordedMs: 400 }, run).openRun({
-        runId: "run-1",
-        cwd: "/repo",
-        deadline: deadline(),
-      });
-      const session = await host.openAgent({
-        key: "reviewer",
-        cwd: "/repo",
-        deadline: deadline(),
-        execution: { harness: "codex", model: "m" },
-      });
-      const turn = await session.start(
-        { id: "one", prompt: "review", deadline: deadline() },
-        binding("op-1"),
-      );
-      await expect(turn.settled).resolves.toMatchObject({
-        state: "failed",
-        detail: expect.stringContaining("record never showed the prompt"),
-      });
       await host.close();
     });
 
