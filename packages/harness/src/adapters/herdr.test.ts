@@ -1687,13 +1687,15 @@ describe("createHerdrRunHostFactory", () => {
       const [, focus, command] = prompted(calls);
       expect(focus).toContain("Keep the path.");
       expect(command).toBe("/compact");
-      // The turn before settles by its record, the compaction's focus by Herdr: no record ends it.
+      // The turn before settles by its record, and by Herdr too, whose wait the compaction's
+      // prompts go through; its focus by Herdr alone: no record ends it.
       const order = calls
         .map(verb)
         .filter((v) => v === "agent prompt" || v === "agent wait" || v === "agent get");
       expect(order).toEqual([
         "agent prompt",
         "agent get",
+        "agent wait",
         "agent prompt",
         "agent wait",
         "agent prompt",
@@ -2774,6 +2776,44 @@ describe("createHerdrRunHostFactory", () => {
       const { host, turn } = await recordedAgent(run, "codex");
       await expect(turn.settled).resolves.toMatchObject({ state: "blocked" });
       await host.close();
+    });
+
+    test("a harness that exits mid-turn, writing no end, fails the turn once Herdr loses it", async () => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent get") return errorResult("agent_not_found");
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await expect(turn.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: "its harness exited during the turn",
+      });
+      await host.close();
+    });
+
+    test("a record that cannot be read leaves the turn to Herdr, as with none", async () => {
+      const base = hostStub();
+      const record = HARNESSES.codex.turnRecord!;
+      const place = record.place;
+      record.place = async () => {
+        throw new Error("EACCES: the sessions are not readable");
+      };
+      try {
+        const { host, turn } = await recordedAgent(base.run, "codex");
+        await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+        const prompt = base.calls.find((call) => verb(call) === "agent prompt")!;
+        expect(prompt.argv).toContain("--wait");
+        expect(prompt.argv[6]).not.toContain("[awf-delivery:");
+        await host.close();
+      } finally {
+        record.place = place;
+      }
     });
 
     test("an answered turn is released once its record ends, though Herdr still shows it working", async () => {

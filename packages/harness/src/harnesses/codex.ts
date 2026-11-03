@@ -233,10 +233,17 @@ const CODEX = {
   sessionFiles: (home, session) => codexSessionFiles(home, session),
   activityRow: codexActivity,
   turnRecord: {
-    // Its rollout is found by the marker: a resumed session goes on in the file it started.
-    place: async (_cwd, since, home, session) => {
-      const files = session ? await codexSessionFiles(home ?? harnessState().codex, session) : [];
-      const own = files?.[0]?.replace(/^sessions\//, "");
+    // Its rollout is found by the marker: a resumed session goes on in the file it started, which
+    // its last turn named, or else is looked up once.
+    place: async (_cwd, since, home, session, file) => {
+      const own =
+        file ??
+        (session
+          ? (await codexSessionFiles(home ?? harnessState().codex, session))?.[0]?.replace(
+              /^sessions\//,
+              "",
+            )
+          : undefined);
       return codexTurnPlace(since, home, own);
     },
     reducer: (marker) => createCodexTurnReducer(marker),

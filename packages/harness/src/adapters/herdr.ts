@@ -127,14 +127,37 @@ type TurnEnd =
   | { failed: string }
   | { stopped: true };
 
-/** A pane's turn, read from its harness's record as it runs. */
+/**
+ * A pane's turn, read from its harness's record as it runs: `watching` until the record shows it
+ * ended, or the watch failed or was stopped, after which the record says nothing more of it.
+ */
 type RecordedTurn = {
   ended: Promise<TurnEnd>;
-  open: boolean;
+  state: "watching" | "ended" | "failed" | "stopped";
   /** Its harness took the prompt in. */
   accepted: boolean;
+  /** Its model answered it. */
+  received: boolean;
   stop(): void;
 };
+
+/**
+ * Whether `turn`'s record speaks for the pane: its harness took the prompt in and the watch on it
+ * neither failed nor was stopped. Otherwise Herdr does, as for a harness with no record.
+ */
+function recordSpeaks(turn: RecordedTurn | undefined): turn is RecordedTurn {
+  return (
+    turn !== undefined && turn.accepted && (turn.state === "watching" || turn.state === "ended")
+  );
+}
+
+/** The outcome a dialog Herdr shows ends a turn with, where it shows one. */
+function blockedBy(got: HerdrResult): NativeTurnOutcome | undefined {
+  const agent = got.ok ? reportedAgent(got.result) : undefined;
+  return agent && settledState(agent) === "blocked"
+    ? { ...settledOutcome(agent), resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
+    : undefined;
+}
 /** How often a pane parent's session is read, while its last turn is still being written. */
 const FORK_SETTLE_POLL_MS = 500;
 
@@ -885,7 +908,11 @@ export function createHerdrRunHostFactory(
           const interrupt = async (agentName: string): Promise<boolean> => {
             const got = await herdr(["agent", "get", agentName]);
             if (!got.ok) return false;
-            if (turn?.accepted ? turn.open : reportedAgent(got.result).agent_status === "working") {
+            if (
+              recordSpeaks(turn)
+                ? turn.state === "watching"
+                : reportedAgent(got.result).agent_status === "working"
+            ) {
               await herdr(["agent", "send-keys", agentName, "esc"]);
             }
             return true;
@@ -933,6 +960,8 @@ export function createHerdrRunHostFactory(
            * harness takes the prompt in, which a cancel can stop, Herdr settles it, as with none.
            */
           let turn: RecordedTurn | undefined;
+          /** The session file its last ended turn was read from, and the session it is. */
+          let lastRecorded: { session?: string; file: string } | undefined;
 
           /**
            * Waits for `recorded` to end, asking Herdr meanwhile only whether a dialog blocks it.
@@ -975,15 +1004,11 @@ export function createHerdrRunHostFactory(
               if (signal.aborted) {
                 return { outcome: localOutcome("cancelled", "pane operation cancelled") };
               }
-              const agent = got.ok ? reportedAgent(got.result) : undefined;
-              if (agent && settledState(agent) === "blocked") {
-                return {
-                  outcome: {
-                    ...settledOutcome(agent),
-                    resultEvidence: { kind: "unavailable" },
-                    chargesUsd: [],
-                  },
-                };
+              const blocked = blockedBy(got);
+              if (blocked) return { outcome: blocked };
+              // A harness that exited mid-turn writes no end to its record.
+              if (!got.ok && hasHerdrErrorCode(got.error, "agent_not_found")) {
+                return { outcome: localOutcome("failed", "its harness exited during the turn") };
               }
               if (typeof next === "object") {
                 const busy = await settleAgent(herdr, agentName, deadline, signal);
@@ -1034,8 +1059,9 @@ export function createHerdrRunHostFactory(
               ended: new Promise<TurnEnd>((resolve) => {
                 end = resolve;
               }),
-              open: true,
+              state: "watching",
               accepted: false,
+              received: false,
               stop: () => stopping.abort(),
             };
             void watching
@@ -1046,26 +1072,37 @@ export function createHerdrRunHostFactory(
                 },
                 received() {
                   recorded.accepted = true;
+                  recorded.received = true;
                   if (receiving()) operation.onReceived?.();
                 },
                 ended(how, file) {
+                  recorded.state = "ended";
                   const session = record.session(file);
+                  lastRecorded = { file, ...(session ? { session } : {}) };
                   end({ how, ...(session ? { session } : {}) });
                 },
               })
               .catch((error: unknown) => {
                 const reason = error instanceof Error ? error.message : String(error);
-                if (receiving()) operation.onDeliveryFailed?.(reason);
+                recorded.state = "failed";
+                // Received, its delivery stands: only the record of its end was lost.
+                if (!recorded.received && receiving()) operation.onDeliveryFailed?.(reason);
                 end({ failed: reason });
               })
               .finally(() => {
-                recorded.open = false;
+                if (recorded.state === "watching") recorded.state = "stopped";
                 end({ stopped: true });
                 receiptObservers.delete(observing);
               });
-            turn?.stop();
+            dropTurn();
             turn = recorded;
             return recorded;
+          };
+
+          /** Stops reading its last turn's record; Herdr settles what follows until another. */
+          const dropTurn = () => {
+            turn?.stop();
+            turn = undefined;
           };
 
           const closeCurrentPane = async (): Promise<void> => {
@@ -1075,8 +1112,7 @@ export function createHerdrRunHostFactory(
             if (pane === closing) {
               pane = undefined;
               current = undefined;
-              turn?.stop();
-              turn = undefined;
+              dropTurn();
             }
           };
 
@@ -1089,20 +1125,14 @@ export function createHerdrRunHostFactory(
             deadline: { unixMilliseconds: number },
             signal: AbortSignal,
           ): Promise<NativeTurnOutcome | undefined> => {
-            if (!turn?.accepted)
+            if (!recordSpeaks(turn))
               return settleAgent(herdr, agentName, deadline.unixMilliseconds, signal);
             const ended = await untilEnded(turn, agentName, deadline.unixMilliseconds, signal);
             if ("outcome" in ended) return ended.outcome;
+            // A dialog can follow the turn's end, as claude's setup offers did.
             const got = await herdr(["agent", "get", agentName], undefined, signal);
             if (signal.aborted) return localOutcome("cancelled", "pane operation cancelled");
-            const agent = got.ok ? reportedAgent(got.result) : undefined;
-            return agent && settledState(agent) === "blocked"
-              ? {
-                  ...settledOutcome(agent),
-                  resultEvidence: { kind: "unavailable" },
-                  chargesUsd: [],
-                }
-              : undefined;
+            return blockedBy(got);
           };
 
           /**
@@ -1361,8 +1391,7 @@ export function createHerdrRunHostFactory(
               const old = pane!;
               current = undefined;
               pane = undefined;
-              turn?.stop();
-              turn = undefined;
+              dropTurn();
               // In the old pane's place, which closes with the harness in it.
               try {
                 pane = await placing.replace(old, paneRequest(deadline, controller.signal));
@@ -1461,7 +1490,7 @@ export function createHerdrRunHostFactory(
                       let outcome: Pick<NativeTurnOutcome, "state" | "detail">;
                       let named: string | undefined;
                       const recorded = turn;
-                      if (recorded) {
+                      if (recordSpeaks(recorded)) {
                         const ended = await untilEnded(
                           recorded,
                           placement.agentName,
@@ -1541,8 +1570,9 @@ export function createHerdrRunHostFactory(
               const stopped = await stopWaiting();
               const agentName = current?.agentName;
               if (!agentName) return stopped;
-              if (turn?.accepted) {
-                if (turn.open) await herdr(["agent", "send-keys", agentName, "esc"]);
+              if (recordSpeaks(turn)) {
+                if (turn.state === "watching")
+                  await herdr(["agent", "send-keys", agentName, "esc"]);
                 return stopped;
               }
               const got = await herdr(["agent", "get", agentName]);
@@ -1617,8 +1647,16 @@ export function createHerdrRunHostFactory(
                 if (!placement) throw new Error("operation pane was not retained");
                 if (operation.kind === "compact") {
                   // No record marks a compaction's end, so the screen settles what follows it.
-                  turn?.stop();
-                  turn = undefined;
+                  dropTurn();
+                  // Its prompts wait through Herdr, which may not yet show the last turn's end,
+                  // its record's: that end would match the wait before the compaction ran.
+                  const shown = await settleAgent(
+                    herdr,
+                    placement.agentName,
+                    operation.deadline.unixMilliseconds,
+                    controller.signal,
+                  );
+                  if (shown) return shown;
                   return await compactInPane(placement.agentName, operation, controller.signal);
                 }
                 // Only once: a later prompt reaches an agent that has already read these, and
@@ -1638,6 +1676,7 @@ export function createHerdrRunHostFactory(
                   ? AbortSignal.any([operation.deliverySignal, controller.signal])
                   : controller.signal;
                 let watching: Awaited<ReturnType<typeof prepareTurnRecord>> | undefined;
+                const resumed = operation.previousSessionRef ?? continued;
                 try {
                   watching = turnRecord
                     ? await prepareTurnRecord(
@@ -1645,7 +1684,9 @@ export function createHerdrRunHostFactory(
                           request.cwd,
                           launchedAt,
                           request.home,
-                          operation.previousSessionRef ?? continued,
+                          resumed,
+                          // The file the last turn was read from, where it is this session's.
+                          lastRecorded?.session === resumed ? lastRecorded?.file : undefined,
                         ),
                         marker,
                         () => turnRecord.reducer(marker, spec.promptLead),
@@ -1656,8 +1697,11 @@ export function createHerdrRunHostFactory(
                   if (operation.deliverySignal?.aborted || controller.signal.aborted)
                     return localOutcome("cancelled", "check-in cancelled before dispatch");
                   const reason = error instanceof Error ? error.message : String(error);
-                  operation.onDeliveryFailed?.(reason);
-                  return localOutcome("failed", reason);
+                  // A delivery confirmed by its record cannot go without it; a turn can, on Herdr.
+                  if (operation.onReceived) {
+                    operation.onDeliveryFailed?.(reason);
+                    return localOutcome("failed", reason);
+                  }
                 }
                 if (operation.deliverySignal?.aborted || controller.signal.aborted) {
                   return localOutcome("cancelled", "check-in cancelled before dispatch");
@@ -1670,8 +1714,7 @@ export function createHerdrRunHostFactory(
                   prompt = `${marker} ${prompt}`;
                   recorded = observeTurn(watching, turnRecord, operation, controller.signal);
                 } else {
-                  turn?.stop();
-                  turn = undefined;
+                  dropTurn();
                 }
                 operation.onDispatched?.();
                 const sent = await submitPrompt(
@@ -1849,13 +1892,14 @@ export function createHerdrRunHostFactory(
                     : "its harness never started");
                 if (!why && kept && pane === kept && (await placing.keep(kept))) {
                   fate = { kept: true };
+                  dropTurn();
                   closed = true;
                   return;
                 }
                 fate = { notKept: why ?? "its pane closed" };
               }
               await closeCurrentPane();
-              turn?.stop();
+              dropTurn();
               closed = true;
             },
           };

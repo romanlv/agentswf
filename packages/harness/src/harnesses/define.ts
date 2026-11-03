@@ -235,10 +235,17 @@ export type HarnessSpec = {
   /**
    * Where a pane's turn is recorded as it runs, read for its start and end in place of Herdr's
    * screen, which with many panes busy misses a turn or shows it late (story concurrent-agents).
-   * `session` is the one the prompt goes to, where known; `since`, when its harness launched.
+   * `session` is the one the prompt goes to, where known, and `file` the file of its place its
+   * last turn was read from; `since`, when its harness launched.
    */
   turnRecord?: {
-    place(cwd: string, since: number, home?: string, session?: string): Promise<TurnRecordPlace>;
+    place(
+      cwd: string,
+      since: number,
+      home?: string,
+      session?: string,
+      file?: string,
+    ): Promise<TurnRecordPlace>;
     reducer(marker: string, lead?: string): TurnReducer;
     /** The session a file of its place is, by its path there. */
     session(file: string): string | undefined;
