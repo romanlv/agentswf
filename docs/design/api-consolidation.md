@@ -340,14 +340,8 @@ Deprecate for one beta, then remove:
 A deprecated name lives one beta after the one that deprecates it, logs once per attempt with its
 replacement, and none survives into 0.1.0.
 
-| Beta | What |
-| --- | --- |
-| A | §6; the turn keeps only `id` and `cancel()` (§2); testing's `noAnswer`, `run.ending`, `eventId` and the participants error (§5) |
-| B | §1; `CallerRef`, fork's `runtime` and `agent.close` (§2); §4 in the API; one `testWorkflow` signature |
-| C | §3, built with story 034's remaining work on the definition; `awf emit` by run ref (§7) |
-| D | §4 on the CLI; §7's state names |
-| E | panes (§2), with stopped-run-recovery |
-| F | remove what A–E deprecated |
+Story 039 built §1–§7 in one branch, so they ship in one beta, and everything they deprecate is
+removed in a later beta, before 0.1.0.
 
 ## Decisions for review
 
@@ -358,8 +352,10 @@ replacement, and none survives into 0.1.0.
 4. Agent keys with a colon (`reviewer:${lens}`). Event names with a colon are awf's own
    (`{key}:ended`, `{key}:reply`), and such a key makes them ambiguous. Decided 2026-11-02: no
    colon in an agent's or participant's key; deprecated for a beta, then refused.
-5. Whether the operator can refuse `metered: true`, an author's consent to per-token billing, in a
-   workflow installed from npm.
+5. Agent keys made at run time, cost grouping without colons, and keeping a pane in a test:
+   decided 2026-11-03, recorded in story 039's task 10.
+
+Whether the operator can refuse `metered: true` in a workflow installed from npm is out of scope.
 
 The story's other candidates stay as they are.
 

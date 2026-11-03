@@ -541,11 +541,15 @@ Work:
 - A key with a colon is refused when the agent or participant opens, with the reason.
 - Agent keys made at run time: `site/patterns/review-on-event` opens `reviewer#2`, `reviewer#3`
   after a failed turn, and no fixed `events` declares their `{key}:ended` without the wildcard 034
-  dropped. Decide before the refusal lands: a pattern that doesn't start a new key, or a declared
-  name a family of keys shares. **Needs the human's decision.**
+  dropped. Decided 2026-11-03: the pattern changes so it never makes a key at run time; awf gains
+  no family of keys sharing one declared name.
 - Cost grouping: a run without stages groups agents by the key's part before a colon (`grouping:
-  "prefix"`, a record value). With colons refused, decide whether it groups at `-`, which regroups
-  existing hyphenated keys, or becomes one row per agent under a new value.
+  "prefix"`, a record value). Decided 2026-11-03: with colons refused it becomes one row per agent,
+  under a new `grouping` value; grouping at `-` would silently regroup existing hyphenated keys.
+  Records written with `"prefix"` still read.
+- Keeping a pane in a test: with `keepPane` gone, decided 2026-11-03: `testWorkflow` takes the same
+  pane settings `awf run` records in `run.json` `panes?`, so a test and a live run keep panes the
+  same way.
 
 Done when:
 
@@ -1496,11 +1500,10 @@ Built:
 ### Task 10, not started
 
 It removes what tasks 1–9 deprecated, at least one beta after the beta that ships them. Tasks
-1–9 are one branch, so all of them ship together and task 10 waits for the beta after. It also
-waits on three decisions:
-- Agent keys made at run time (`reviewer#2`), which no fixed `events` can declare.
-- Cost grouping once colons are refused.
-- How a test keeps a pane once `keepPane` goes.
+1–9 are one branch, so all of them ship together and task 10 waits for the beta after. Its three
+open decisions were settled 2026-11-03 and are in the task's Work: the review-on-event pattern
+makes no key at run time, cost is one row per agent, and `testWorkflow` takes `awf run`'s pane
+settings.
 
 Engine tests that still call deprecated forms move with it.
 
