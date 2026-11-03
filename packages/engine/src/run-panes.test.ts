@@ -197,16 +197,27 @@ test("a continue or awf run --id may repeat a run's pane flags, never change the
     "! awf: k keeps the --keep-panes it was started with; leave --keep-panes out",
   );
   expect(await awf(["run", file, "--id", "k", "--continue", "--workspace", "origin"])).toBe(2);
-  expect(out.at(-1)).toBe("! awf: k was started without --workspace; leave it out");
+  expect(out.at(-1)).toBe(
+    "! awf: k was started without --workspace, so with --workspace run; leave it out",
+  );
+  expect(await awf(["run", file, "--id", "k", "--continue", "--workspace", "run"])).toBe(0);
 });
 
-test("a run an event started has no pane flags, and takes none later", async () => {
+test("a run an event started has no pane flags, and takes only their defaults later", async () => {
   const { file, out, runRoot, awf, send } = setup();
   expect(await send(1)).toBe(0);
   const run = await openRun(runRoot, "panes-kept", "k");
   expect(run.record).not.toHaveProperty("panes");
+  expect(await awf(["run", file, "--id", "k", "--workspace", "run", "--keep-panes", "never"])).toBe(
+    0,
+  );
+  expect((await openRun(runRoot, "panes-kept", "k")).record).not.toHaveProperty("panes");
   expect(await awf(["run", file, "--id", "k", "--keep-panes", "always"])).toBe(2);
-  expect(out.at(-1)).toBe("! awf: k was started without --keep-panes; leave it out");
+  expect(out.at(-1)).toBe(
+    "! awf: k was started without --keep-panes, so with --keep-panes never; leave it out",
+  );
   expect(await awf(["run", file, "--id", "k", "--continue", "--workspace", "origin"])).toBe(2);
-  expect(out.at(-1)).toBe("! awf: k was started without --workspace; leave it out");
+  expect(out.at(-1)).toBe(
+    "! awf: k was started without --workspace, so with --workspace run; leave it out",
+  );
 });

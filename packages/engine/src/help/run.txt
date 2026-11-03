@@ -33,7 +33,8 @@ found or made. --keep-panes says whether an agent's pane stays once it is done: 
 default), on-failure, when its last turn wasn't answered, or always. A kept pane's harness is left
 running, and yours. Both are kept with the run for every attempt, a woken one too, and win over a
 workflow's deprecated layout and keepPane. A run an event started has neither, and takes the
-defaults.
+defaults. A continue may give either again with the run's value, or its default where the run had
+none, and no other.
 --here, run by an agent in a Herdr pane, starts the run in a new tab and has it take that agent's
 session over as one of its agents, from its next turn until the run ends. It prints a line for
 the agent to end its turn with, which is how the run finds the session.

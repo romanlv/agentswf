@@ -216,20 +216,20 @@ export function checkContinue(
 
 /**
  * Why `given` would change the panes `record`'s run was started with; a flag given again with its
- * value changes nothing.
+ * value, or with its default where the run was started without it, changes nothing.
  */
 export function panesChanged(record: RunRecord, given: RunPanes | undefined): string | undefined {
   const flags = [
-    ["--workspace", "workspace"],
-    ["--keep-panes", "keep"],
+    ["--workspace", "workspace", "run"],
+    ["--keep-panes", "keep", "never"],
   ] as const;
-  for (const [flag, field] of flags) {
+  for (const [flag, field, byDefault] of flags) {
     const value = given?.[field];
     const recorded = record.panes?.[field];
-    if (value === undefined || isDeepStrictEqual(value, recorded)) continue;
+    if (value === undefined || isDeepStrictEqual(value, recorded ?? byDefault)) continue;
     // A run an event or an older awf started has none, and keeps the defaults.
     return recorded === undefined
-      ? `${record.id} was started without ${flag}; leave it out`
+      ? `${record.id} was started without ${flag}, so with ${flag} ${byDefault}; leave it out`
       : `${record.id} keeps the ${flag} it was started with; leave ${flag} out`;
   }
   return undefined;

@@ -140,7 +140,8 @@ awf run review.ts --workspace origin --keep-panes on-failure
 pane is left with its harness running, released from the run: what you type into it is yours, and
 awf never closes it. The run keeps both for every attempt, so a run that parks and wakes later
 places and keeps its panes as it was started to. A run an event starts, with `awf emit`, takes the
-defaults: the flags are yours to give when you start a run.
+defaults: the flags are yours to give when you start a run. A continue may repeat them, or a
+default where the run had none, but not change them.
 
 A `pane` that can't be used, such as `beside` an agent with no pane, never fails the agent: it gets
 a tab of its own, and the run's closing lines say why. `pane` on a headless or
