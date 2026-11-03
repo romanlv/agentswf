@@ -35,7 +35,7 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`agent.set({ model?, effort?, timeout? })`](#agent-set) | an outcome; later turns run at these |
 | [`agent.fork({ key, runtime?, instructions?, pane?, tools?, timeout? })`](#agent-fork) | a new agent on a copy of this one's session |
 | [`agent.execution`](#agent-execution) | the agent's harness, model, effort and placement now |
-| [`agent.close(reason?)`](#agent-close) | `true` once closed; `false` if an earlier `close()` closed it |
+| [`agent.close(reason?)`](#agent-close) | `true` once closed; `false` if it was already closed |
 | [`wf.agents.caller({ key })`](#agents-caller) | the session `awf run --here` was typed in, or `null` |
 | [`wf.agents.forkCaller({ key, runtime?, instructions?, pane?, timeout? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
 | [`tool({ description, input?, handler, timeout? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
@@ -357,7 +357,8 @@ places it elsewhere as it opens, or at its first turn in a workflow with events
 `agent.close(reason?)` closes an agent the workflow is done with, so it doesn't sit idle until the
 run ends. A turn it is running ends `cancelled`, its pane is closed or, as `--keep-panes` says, kept,
 and its key can't be opened again. It resolves `true` once the agent is closed, a turn that failed and
-closed it included, and `false` if an earlier `close()` did. Closing the calling session hands it back to its operator then rather than at
+closed it included, and to a `close()` made while another is closing it; `false` if an earlier
+`close()` had already closed it. Closing the calling session hands it back to its operator then rather than at
 the end of the run.
 
 <a id="the-calling-session"></a>
@@ -1019,7 +1020,7 @@ naming what replaces it. An old bound given with its replacement, `timeoutMs` or
 | `layout` on `open`, `fork` and `forkCaller` | `pane: { tab }` or `pane: { beside, side, share? }`, with `front` to bring it forward. Its `workspace` is `awf run --workspace` and its `session` the run session, `AWF_HERDR_SESSION`. Given, the flag wins over the layout. `pane` beside `layout` is refused. |
 | `keepPane` on `open`, `fork` and `forkCaller` | `awf run --keep-panes`, which wins over it when given. |
 | `placement`, `metered` and `effort` beside a fork's or `forkCaller`'s `key` | The same in its `runtime`: `fork({ key, runtime: { placement: "headless", metered: true } })`. Given beside `runtime`, they are refused. |
-| `timeoutMs` on `open`, `run`, `start`, `compact`, `set`, a [tool](#tool) or a [route](#messages-allow) | `timeout`, a [duration](#waiting-on-time): `timeout: "10m"`. |
+| `timeoutMs` on `run`, `start`, `compact`, `set`, a [tool](#tool) or a [route](#messages-allow) | `timeout`, a [duration](#waiting-on-time): `timeout: "10m"`. |
 | `deadline: { unixMilliseconds }` on `open`, `run`, `start`, `compact`, `set`, `parallel` or `decide` | `timeout`, a `Date`: `timeout: new Date(ms)`. |
 | `nudge: { deadline }` | Drop it: the turn's `timeout` bounds its nudges too. |
 | `keepAlive: { timeoutMs }` | `keepAlive: { window }`, a duration such as `"90s"`. |

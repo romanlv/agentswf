@@ -274,6 +274,9 @@ export function testCall(
       );
     return { options, used: [] };
   }
+  // The args-second form never existed for a workflow with events: refused, not deprecated.
+  if (isEventWorkflow(workflow))
+    throw new Error("a workflow with events is tested as testWorkflow(workflow, { id, event? })");
   const [args, optionsGiven = {}] = given;
   const options = plainOptions(optionsGiven);
   if ("args" in options)

@@ -52,6 +52,14 @@ describe("testWorkflow(workflow, options?)", () => {
     ).rejects.toThrow("event is an option for a workflow with events, and turns declares none");
   });
 
+  test("a workflow with events given args second is refused: that form was never its own", async () => {
+    const withEvents = caseRun(async () => null);
+    for (const args of [null, "x"])
+      await expect(testWorkflow(withEvents, args as never)).rejects.toThrow(
+        "a workflow with events is tested as testWorkflow(workflow, { id, event? })",
+      );
+  });
+
   test("meta and run alone are refused: the one form tests what defineWorkflow made", async () => {
     const bare = { meta: { name: "bare", description: "bare" }, run: async () => "ran" };
     await expect(testWorkflow(bare as never)).rejects.toThrow("define it with defineWorkflow");

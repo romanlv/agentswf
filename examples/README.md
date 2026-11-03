@@ -1,9 +1,9 @@
 # Examples
 
 Workflows to run from a clone of this repository, each with the page of the
-[site](../site/) that explains what it shows. They import `@agentswf/contract/workflow`, the
-workspace's name for what a workflow outside this repository imports as `agentswf/workflow`, and
-never the engine or a harness: `bun run scripts/check-boundaries.ts` enforces it.
+[site](../site/) that explains what it shows. They import `agentswf/workflow`, as a workflow
+outside this repository does, and their tests `agentswf/testing`; never the engine or a harness:
+`bun run scripts/check-boundaries.ts` enforces it.
 
 ## Running one
 

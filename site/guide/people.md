@@ -65,8 +65,9 @@ answers it. `1.5` is the message's id, `{attempt}.{n}`: message 5 of attempt 1.
 - **The route** is a [messaging route](/guide/messaging#granting-a-route) with the participant at
   one end. With `{ from: investigator, to: coordinator }` the agent reports and asks, and the holder
   can only answer; `between` lets the holder message the agent first too.
-- **`timeout`**, a duration such as `"2h"`, only on a route to a participant, closes a question
-  unanswered after that long.
+- **`timeout`**, a duration such as `"2h"`, closes a question on the route unanswered after that
+  long, on a route to a participant as on one
+  [between agents](/reference/workflow-api#messages-allow).
   Without it, a question waits until it is answered.
 - **`coordinator.release(reason)`** disconnects it: its routes close, and every question still open
   to it ends. Otherwise it stays connected until the workflow has returned and no question to it is

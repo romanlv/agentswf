@@ -315,6 +315,46 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   expect(output.value).toEqual({ plan: 1, build: 3, ship: 4 });
 }, 90_000);
 
+// Parked at a race with a timeout, a timer of its own.
+const DEADLINE = `import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({
+  meta: { name: "e2e-deadline", description: "Waits for go, an hour at most." },
+  events: { go: { type: "object", properties: {} } },
+  async run(wf) {
+    await wf.stage("plan", async () => undefined);
+    return (await wf.race("approval", { go: wf.signal("go"), timeout: "1h" })).key;
+  },
+});
+`;
+
+test("a --from-stage never reached keeps the timers of the wait it was parked at", async () => {
+  const { root, file, home } = eventProject(dirs, "deadline.ts", DEADLINE);
+  const io = { home, environment: { ...process.env, HOME: home } };
+  expect(
+    await runOperatorCli(["run", file, "--id", "d"], { ...io, stdout: () => {}, stderr: () => {} }),
+  ).toBe(0);
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-deadline", "d");
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
+  const own = async (...words: string[]) => {
+    const child = Bun.spawn({
+      cmd: [process.execPath, CLI, "run", file, "--id", "d", "--continue", ...words],
+      cwd: root,
+      env: { ...process.env, HOME: home },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, text] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    return { code, text };
+  };
+  expect((await own("--from-stage", "nope")).code).toBe(3);
+  const mailbox = await Bun.file(join(run.dir, "mailbox.jsonl")).text();
+  expect(mailbox).not.toContain("timer-cancelled");
+  const next = await own();
+  expect(next.code).toBe(0);
+  expect(next.text).not.toContain("cancelled");
+  expect((await readAttempts(run)).at(-1)?.outcome).toBe("parked");
+}, 60_000);
+
 test("a continue reads the project's .env again, and not what the sender exported", async () => {
   const { root, file, home } = eventProject(
     dirs,

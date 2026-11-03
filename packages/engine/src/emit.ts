@@ -93,6 +93,10 @@ export async function emitToRun(
       `awf emit {run} sends a participant's message to the code, {key}:reply, not ${event.name}; the workflow's own events go by --target {file} --id {id}`,
     );
   if (!run.record.events) throw new EmitError(`${ref} is a run of a workflow without events`);
+  // A returned run takes nothing, so its file, since moved or changed, is not read: a late reply is
+  // refused as returned, not failed for a retry that never ends.
+  if (status.attempts.at(-1)?.outcome === "completed")
+    return deliverReply(status, reply.key, event, context);
   const file = status.attempts.at(-1)?.file ?? run.record.file;
   if (file === undefined) throw new Error(`${ref} has no file to check the event against`);
   const { workflow } = await loadWorkflowFile(file, run.record.cwd);

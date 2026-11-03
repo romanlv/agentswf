@@ -1,7 +1,12 @@
 // The MR review loop's run, from agent/loops/review-loop/style-c-sketch.md: one run per MR, keyed
 // by its iid. The reviewer judges and the code publishes. A type-checked sketch: the ledger and
 // GitLab are declared below.
-import { defineWorkflow, type OutputSchema, type WorkflowContext } from "agentswf/workflow";
+import {
+  AgentEnded,
+  defineWorkflow,
+  type OutputSchema,
+  type WorkflowContext,
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -85,7 +90,12 @@ declare const gitlab: {
 const mrReview = defineWorkflow({
   meta: { name: "mr-review", description: "Review one MR and keep its GitLab threads current." },
   file: import.meta.path,
-  events: { "mr.changes": Changes, "mr.closed": Closed, "mr.rereview": Rereview },
+  events: {
+    "mr.changes": Changes,
+    "mr.closed": Closed,
+    "mr.rereview": Rereview,
+    "reviewer:ended": AgentEnded,
+  },
   starts: ["mr.changes"],
   async run(wf) {
     const iid = Number(wf.runId);

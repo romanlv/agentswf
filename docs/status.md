@@ -327,7 +327,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   workflow with events too); `testWorkflow(workflow, args, options)`, `recorded` and `mailbox` are
   deprecated, each logged once; `agentswf/testing` re-exports one curated list, the engine's
   workflow-testing index, and every example test uses the one signature.
-  Task 7 built, awaiting review: everything that wakes a run is declared in `events`. A
+  Task 7 built: everything that wakes a run is declared in `events`. A
   participant's messages reach the code only under a declared `{key}:reply: ParticipantReply`,
   sent by `awf emit {ref} {key}:reply '{json}' --event-id {id}`, which finds a run by its ref and
   checks the event against the file it runs; an agent's started turn ends as a declared
@@ -339,7 +339,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   each logged; a workflow that declares some reply or end refuses an undeclared `to: "code"` or
   `start()`. The mailbox keeps its record names. The examples with a participant routed to the code
   and the Datadog sketch use the declared form.
-  Task 8 built, awaiting review: `--timeout` (`awf run`, `awf test`, `wfa`) and `--wait` (`awf
+  Task 8 built: `--timeout` (`awf run`, `awf test`, `wfa`) and `--wait` (`awf
   logs`, `awf inbox`) take the one duration grammar, `1d` and `90s` included; a whole number of
   `ms`, and a bare `--wait` number of seconds, still work, each said once on stderr. Wire version 6:
   `wfa peers` gives each peer a `kind`, `agent` or `participant`, and an agent awaiting a reply is
@@ -349,7 +349,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   says it, `interrupted`, not `was working`). A `wfa` and an engine of different wire versions, as
   after installing awf anew while a run is live, are refused with an error naming both, either way round; so is an `awf send` or
   `awf reply` of another version by a run's engine.
-  Task 9 built, awaiting review: `pane: { tab?, front? }` or `{ beside, side, share?, front? }` on
+  Task 9 built, but for its Herdr live check: `pane: { tab?, front? }` or `{ beside, side, share?, front? }` on
   `open`, `fork` and `forkCaller`; `awf run --workspace {run|origin|name}` and `--keep-panes
   {never|on-failure|always}`, recorded in `run.json`'s `panes`, so a continue and a wake keep them,
   and refused on a continue that would change them. `layout` and `keepPane` are deprecated, logged

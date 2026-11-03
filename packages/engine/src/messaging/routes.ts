@@ -21,7 +21,7 @@ export type Route = {
   readonly asked?: number;
   /** As the workflow gave it, for telling an identical grant from a conflicting one. */
   readonly requested?: number;
-  /** On a route an agent asks an outside participant over: how long a question on it waits. */
+  /** How long a question on the route waits, to an agent or an outside participant. */
   readonly timeoutMs?: number;
   readonly scope: Scope;
   /** Messages counted against it, answers reserved for included. */

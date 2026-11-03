@@ -1381,8 +1381,9 @@ class WorkflowOwner {
         return [won.event];
       })) as [WorkflowEvent<string, JsonValue>];
     } catch (error) {
-      // Cut short, not parked: its own timers would fire into a later wait. A park's rerun races again.
-      if (!(error instanceof RunParked))
+      // Cut short, not parked: its own timers would fire into a later wait. A park's rerun races
+      // again, and so does a continue's after a park refused short of its --from-stage.
+      if (!(error instanceof RunParked || error instanceof FromStageUnreached))
         await Promise.all([...owned.values()].map((timer) => mailbox.cancelTimer(timer))).catch(
           () => undefined,
         );

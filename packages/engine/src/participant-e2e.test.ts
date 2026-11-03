@@ -8,7 +8,7 @@ import { foldMailbox, readMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { findRunByRef } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
-import { createTempRunDirs, eventProject, until } from "./testing";
+import { createTempRunDirs, eventProject, until, writeAttempt } from "./testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -294,6 +294,16 @@ test("a participant declared as thread:reply replies by awf emit, received under
     expect(await cli([`e2e-declared/${id}`, "thread:reply", '{"text":"hi"}'])).toBe(code);
     expect(err.join("\n")).toContain(message);
   }
+  // A late reply to a run that returned is refused as returned, its file not read: gone, it would
+  // fail the reply, which a sender retries.
+  await writeAttempt(await runOf("returned", join(root, "flows", "gone.ts")), {
+    outcome: "completed",
+  });
+  out.length = 0;
+  err.length = 0;
+  expect(await cli(["e2e-declared/returned", "thread:reply", '{"text":"hi"}'])).toBe(0);
+  expect(out).toEqual(["refused e2e-declared/returned: returned"]);
+  expect(err).toEqual([]);
   // send --event-id to a participant connected to agents is refused, as it always was, even when
   // the file it would be checked against is gone: the moved run, given k's connections.
   const moved = await openRun(join(root, ".awf", "runs"), "e2e-declared", "moved");

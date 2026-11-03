@@ -72,6 +72,22 @@ test("a plain run logs each deprecated name it uses once, naming its replacement
   );
 });
 
+test("an outcome that can report a deprecated name is still a JSON value, returned whole", async () => {
+  const run = await testWorkflow(
+    defineWorkflow({
+      meta: { name: "outcomes", description: "Returns its turn's outcome." },
+      async run(wf) {
+        const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+        const { outcome } = await agent.run({ prompt: "One." });
+        return { first: outcome, answered: isAnswered(outcome) };
+      },
+    }),
+    { agents: { a: answer("yes") } },
+  );
+  expect(run.value).toMatchObject({ first: { answered: true }, answered: true });
+  expect(said(run)).toMatchObject({ isAnswered: 1 });
+});
+
 test("defineExecutableWorkflow's workflow runs, and its run says so once", async () => {
   const run = await testWorkflow(
     defineExecutableWorkflow({
