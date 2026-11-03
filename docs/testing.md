@@ -107,10 +107,10 @@ What they cover between them:
   usage. `bun tests/fork.eval.ts codex claude>headless` runs only those cases. 32 agents, ~2 min,
   ~$1.40 at list prices, the headless claude's share billed per token.
 - `fan-out` — many TUI agents at once (story concurrent-agents): twelve codex, six claude and
-  four cursor panes prompted together, twice each, the second turn needing the first's context. Every answer
-  must be right and the run end with nothing left unresolved, each turn read from its harness's
-  own session file. `bun tests/fan-out.eval.ts codex=4` runs fewer. 22 agents, ~1 min, ~$0.65 at
-  list prices.
+  four cursor panes prompted together, twice each, the second turn needing the first's context.
+  Every answer must be right and the run end with nothing left unresolved, claude's and codex's
+  turns read from their own session files. `bun tests/fan-out.eval.ts codex=4` runs fewer. 22
+  agents, ~1 min, ~$0.65 at list prices.
 - `effort` — effort and `set` (story 020) on claude, codex and pi, in their TUI and headless: each
   agent opens at `low`, is set to `high`, then to another model, a turn between each. Its record
   must say so, and so must what the harness itself logged it ran at: claude's transcript, codex's
