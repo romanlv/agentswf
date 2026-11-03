@@ -81,7 +81,7 @@ export const agents = defineWorkflow({
     await worker.run({ prompt: "Read the ticket and plan the change.", schema: PLAN });
     const [security, tests] = await Promise.all([
       worker.fork({ key: "security", instructions: "Review the plan for security." }),
-      worker.fork({ key: "tests" }),
+      worker.fork({ key: "tests", runtime: { placement: "headless", metered: true } }),
     ]);
     // #endregion fork
 
@@ -136,9 +136,9 @@ export const agents = defineWorkflow({
     });
     // #endregion tool
 
-    // #region stop
-    await wf.agents.stop("triager"); // true once closed
-    // #endregion stop
+    // #region close
+    await triager.close(); // true once closed
+    // #endregion close
 
     const opened = [security, tests, lensA, lensB, fixer, triager].map((agent) => agent.key);
     return { opened, picked: picked.outcome.kind };

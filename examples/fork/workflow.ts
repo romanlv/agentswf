@@ -133,7 +133,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
         // A fork its host refuses rejects, as an agent that will not open does, and fails the run.
         const fork = await worker.fork({
           key: `fork-${key}`,
-          ...(item.into ? { placement: item.into, metered: true } : {}),
+          ...(item.into ? { runtime: { placement: item.into, metered: true } } : {}),
         });
         const later = await note(
           `Also for later: its next release is ${args.release}. Answer noted: true.`,

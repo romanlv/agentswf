@@ -198,7 +198,7 @@ Betas from the design's §8 in brackets.
 - [x] 1. Unbuilt and unused names out, old forms deprecated, waits name the agent, `agentswf/workflow` an explicit list (A)
 - [x] 2. Testing's renames: `noAnswer`, `run.ending`, `eventId`, `TestTurn` (A)
 - [x] 3. One context type, and `--from-stage` for every run (B)
-- [ ] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
+- [x] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
 - [ ] 5. One duration and `timeout` in the API (B)
 - [ ] 6. One `testWorkflow` signature (B)
 - [ ] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
@@ -337,11 +337,11 @@ Outcome: an agent's ref is the one handle for its turn, its runtime and its end.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -642,6 +642,18 @@ Correctness and proof review, and two targeted re-reviews of `--from-stage` on a
   - A stage entered both before and after the start stage ran twice in one attempt.
 - The colon-key deprecation now names each key once per attempt.
 
+### Task 4
+
+Architecture and scope review: nothing blocking. Internal fork specs were retyped
+`CallerForkSpec`, `ForkRuntime` left the author surface (only `CallerRef` and `CallerForkSpec` are
+new names), and the refused flat-beside-`runtime` fork no longer logs a deprecation first. Accepted:
+a helper typed `(a: AgentRef)` no longer takes the caller, as the design intends.
+
+Correctness and proof review: no defect. `close()`'s doc claimed `false` for an agent a failed turn
+had closed; the code, like `stop`, resolves `true` there, and the doc now says so. Tests were added
+for the fork forms in both orders, `runtime: {}`, a TUI fork dropping `metered`, and effort
+inherited. A fork's identity lives in memory only, so no recorded spec changed.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -820,6 +832,45 @@ As built, after review:
 - The `--from-stage` e2e test (`emit-e2e.test.ts`) runs each hand continue in a process of its
   own: an attempt waits for the one before it to exit, so two in the test's process would wait on
   each other.
+
+### Task 4
+
+- **`CallerRef` is the narrower interface, and `AgentRef extends CallerRef`**, adding `compact`,
+  `set`, and a `fork` that also takes `tools`. `CallerRef` keeps `key`, `execution`, `run`,
+  `fork(CallerForkSpec)`, `turn`, `start`, `is` and `close`, and is a `PeerRef` and a source, so
+  the caller works as a wait's branch, with `is(e)`, and in `messages.allow`, as before. An
+  `AgentRef` is assignable to a `CallerRef`, not the reverse: a helper for any agent, the caller
+  included, takes a `CallerRef`. Accepted cost: a helper typed `(a: AgentRef)` that was passed the
+  caller stops compiling, with no deprecation possible; that is the point of the type. The runtime
+  refusals stay for a JavaScript caller: `set` throws, `compact` ends `failed`, a fork's `tools`
+  throws. Rejected: a third, neutral base name (one more name to learn), and `CallerRef` as an
+  unrelated interface (helpers would need a union).
+- **A fork's runtime** is `PlacementChoice & { effort? }`, `ForkRuntime` in the contract but not
+  in `agentswf/workflow`: no harness, model or alias, since a fork continues its parent's session on them; a JavaScript caller naming one is refused,
+  not ignored. `CallerForkSpec` is what `forkCaller` and the caller's `fork` take, replacing
+  `Omit<AgentForkSpec, "tools">`; `AgentForkSpec` extends it with `tools`. **Flat and `runtime`
+  together are refused** whenever any flat field is given beside `runtime`, not merged by field: one
+  rule to state, and nothing to unpick in task 10. The flat form is rewritten into `runtime` before
+  the spec is kept, so a repeat in either form is the same fork. One deprecation, `fork-runtime`,
+  for all three fields, not logged when refused beside `runtime`.
+- **`close(reason?)` on the caller hands the session back to the operator**, as
+  `agents.stop(callerKey)` did: its running turn is cancelled, `onCallerStopped` runs, later
+  `caller`/`forkCaller` reject. It resolves false when already closed. `close` is the runner's
+  `stopAgent`, so both forms share every rule: stage ownership, the scope's deadline, the refusal
+  in the agent's own tool handler (now naming `close()`), a retry after a failed teardown. The
+  runner's internal teardown, which `LogicalAgent` called `close`, is now `terminate`.
+  `wf.agents.stop` alone still answers false for a key never opened or that failed to open; a ref
+  exists only for an agent that opened.
+- Tests: `workflow-runner.test.ts`'s `agent.close()` block is the old `agents.stop` block on the ref
+  (pane kept or closed per `keepPane`, socket revoked, key not reopened, caller handed back,
+  concurrent closes, retry); `deprecations.test.ts` shows a fork's `runtime` executes as the flat
+  form (headless, metered, effort), the two forms are one fork, both together and a `model` are
+  refused, and `fork-runtime` and `agents-stop` each log once; the typecheck fixture is
+  `packages/agentswf/src/workflow.typecheck.ts` (`me.set`, `me.compact`, `me.fork({ tools })`,
+  `runtime: { model }`, a `CallerRef` as an `AgentRef`).
+- Unverified, a live check to return to: that `close()` on a real TUI agent closes its Herdr pane,
+  and keeps it per `keepPane`, and that it hands a real `--here` session back. The code path is
+  `stop`'s unchanged, and the fake adapter's close is what the tests observe.
 
 ## Human review
 

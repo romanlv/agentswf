@@ -48,15 +48,15 @@ workflow, as above, or open an agent of your own instead.
 It is an agent like the others, with the differences that follow from it being your session:
 
 - **Its harness, model, directory and skills are yours.** `caller` takes only a key: no runtime,
-  no `instructions`. `set` rejects, `compact` ends `failed` and leaves the session as it was, and
+  no `instructions`. Its ref is a `CallerRef`, which has no `set` or `compact`, and its
   `execution.model` is `""`.
 - **A failed or timed-out turn doesn't close it,** as it would an opened agent; the next `run`
   still works. Interrupting a turn yourself, as you would any agent at the keyboard, settles it
   `cancelled`.
 - **One key.** Asking again with the same key gives the same agent; another key rejects.
 - **It gets one last message.** When the run ends, the session is told how and where the run's
-  record is, starting `[awf]`, and nothing in it needs an answer. `wf.agents.stop("author")`
-  hands it back early, while the rest of the run goes on.
+  record is, starting `[awf]`, and nothing in it needs an answer. `author.close()` hands it
+  back early, while the rest of the run goes on.
 
 The run itself is an ordinary run: it has an id, its record is in `.awf/runs`, and you
 [follow it](/guide/following-runs) with `awf runs` and `awf logs`. `--here` takes `awf run`'s
@@ -74,8 +74,8 @@ the command that started it:
 - **It runs on the model the session last ran,** at the harness's default effort unless you name
   one, in the session's directory, with awf's launch flags and your skills, not your harness
   settings or MCP servers.
-- **It takes the options a [fork](/guide/agents#compact-switch-fork) takes,** `placement`,
-  `effort`, `instructions`, `layout` and `keepPane`, but no `tools`.
+- **It takes the options a [fork](/guide/agents#compact-switch-fork) takes,** `runtime`
+  (`placement`, `metered`, `effort`), `instructions`, `layout` and `keepPane`, but no `tools`.
 - **`null`** means there is no session to fork, and the run's output says why: `awf run` wasn't
   started from an agent's shell, the session's files weren't written in the last 10 minutes, or
   the session is in its first turn and has nothing to copy.
@@ -146,7 +146,8 @@ skill.
   [`layout`](/guide/harnesses#where-panes-go) `beside` it falls back to a tab of its own.
   `{ workspace: "origin" }` puts a tab in the workspace you typed `awf run` in.
 - **A headless fork of a claude session is metered.** The fork runs on the session's harness, so
-  `placement: "headless"` on claude needs `metered: true`; in its TUI it runs on your subscription.
+  `runtime: { placement: "headless" }` on claude needs `metered: true`; in its TUI it runs on your
+  subscription.
   [Harnesses](/guide/harnesses#subscription-and-metered) says why.
 - **A killed run says nothing.** A run that ends, fails or stops tells the session; one whose
   process is killed doesn't, and the session sits waiting for a prompt. Type to it as usual.

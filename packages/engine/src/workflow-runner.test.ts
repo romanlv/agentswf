@@ -2442,7 +2442,7 @@ describe("runWorkflow", () => {
   });
 });
 
-describe("agents.stop", () => {
+describe("agent.close()", () => {
   test("ends an agent before the run does, and its key is not opened again", async () => {
     let endpoint = "";
     const adapter = createFakeAdapter({
@@ -2456,13 +2456,14 @@ describe("agents.stop", () => {
     const workflow = workflowOf("stop", async (context) => {
       const agent = await openReviewer(context);
       await agent.run({ id: "review", prompt: "Review.", schema: ANSWER_SCHEMA });
-      const stopped = await context.agents.stop("reviewer", "answered");
+      const stopped = await agent.close("answered");
       const socketClosed = await connect(endpoint).then(
         () => false,
         () => true,
       );
       const closedAtStop = [...adapter.closed];
-      const again = await context.agents.stop("reviewer");
+      const again = await agent.close();
+      // Deprecated: by key, which also answers for a key never opened.
       const unknown = await context.agents.stop("nobody");
       const reopened = await openReviewer(context).then(
         () => "opened",
@@ -2523,7 +2524,7 @@ describe("agents.stop", () => {
         });
         const turn = agent.run({ id: "wait", prompt: "Wait." });
         await started;
-        await context.agents.stop("lens", "no longer needed");
+        await agent.close("no longer needed");
         return (await turn).outcome.kind;
       });
 
@@ -2561,7 +2562,7 @@ describe("agents.stop", () => {
           keepPane: "on-failure",
         });
         await agent.run({ prompt: "Answer.", schema: ANSWER_SCHEMA });
-        await context.agents.stop("lens");
+        await agent.close();
         expect(keeps).toEqual([false]);
         return null;
       }),
@@ -2578,7 +2579,7 @@ describe("agents.stop", () => {
     const result = await runNew(
       workflowOf("stop-caller", async (context) => {
         const caller = (await context.agents.caller({ key: "author" }))!;
-        expect(await context.agents.stop("author", "finished editing")).toBe(true);
+        expect(await caller.close("finished editing")).toBe(true);
         expect(releases).toEqual(["finished editing"]);
         for (const lookup of [
           () => context.agents.caller({ key: "author" }),
@@ -2586,7 +2587,7 @@ describe("agents.stop", () => {
         ]) {
           await expect(lookup()).rejects.toThrow("agent author was stopped (finished editing)");
         }
-        expect(await context.agents.stop("author")).toBe(false);
+        expect(await caller.close()).toBe(false);
         await expect(caller.run({ prompt: "More." })).rejects.toThrow("logical agent is closed");
         return null;
       }),
@@ -2634,7 +2635,7 @@ describe("agents.stop", () => {
         const caller = (await context.agents.caller({ key: "author" }))!;
         const turn = caller.run({ prompt: "Wait." });
         await started;
-        expect(await context.agents.stop("author")).toBe(true);
+        expect(await caller.close()).toBe(true);
         expect(released).toBe(true);
         expect((await turn).outcome.kind).toBe("cancelled");
         return null;
@@ -2674,10 +2675,10 @@ describe("agents.stop", () => {
     await runNew(
       workflowOf("stop-concurrent", async (context) => {
         const agent = await openReviewer(context);
-        const first = context.agents.stop("reviewer");
+        const first = agent.close();
         await began;
         let secondDone = false;
-        const second = context.agents.stop("reviewer").then((value) => {
+        const second = agent.close().then((value) => {
           secondDone = true;
           return value;
         });
@@ -2690,7 +2691,7 @@ describe("agents.stop", () => {
         await expect(openReviewer(context)).rejects.toThrow(
           "agent reviewer was stopped (stopped by the workflow)",
         );
-        expect(await context.agents.stop("reviewer")).toBe(false);
+        expect(await agent.close()).toBe(false);
         return null;
       }),
       null,
@@ -2719,11 +2720,11 @@ describe("agents.stop", () => {
       workflowOf("stop-retry", async (context) => {
         const agent = await openReviewer(context);
         await agent.run({ prompt: "Answer.", schema: ANSWER_SCHEMA });
-        await expect(context.agents.stop("reviewer")).rejects.toThrow("close failed once");
+        await expect(agent.close()).rejects.toThrow("close failed once");
         await expect(connect(endpoint)).rejects.toBeDefined();
-        expect(await context.agents.stop("reviewer")).toBe(true);
+        expect(await agent.close()).toBe(true);
         expect(closes).toBe(2);
-        expect(await context.agents.stop("reviewer")).toBe(false);
+        expect(await agent.close()).toBe(false);
         return null;
       }),
       null,
@@ -2751,12 +2752,12 @@ describe("agents.stop", () => {
     }));
     const handle = await startNew(
       workflowOf("stop-stage", async (context) => {
-        await openReviewer(context);
-        await openReviewer(context, "other");
+        const reviewer = await openReviewer(context);
+        const other = await openReviewer(context, "other");
         await context.stage("cleanup", async () => {
           later = new Promise<string>((resolve) => {
             setTimeout(() => {
-              void context.agents.stop("other").then(
+              void other.close().then(
                 () => resolve("stopped"),
                 (error: Error) => resolve(error.message),
               );
@@ -2765,7 +2766,7 @@ describe("agents.stop", () => {
           setTimeout(() => {
             release();
           }, 20);
-          void context.agents.stop("reviewer");
+          void reviewer.close();
         });
         expect(fake.closed).toEqual(["reviewer"]);
         expect(await later).toBe("parallel execution scope is closed");
@@ -2792,13 +2793,13 @@ describe("agents.stop", () => {
     }));
     await runNew(
       workflowOf("stop-deadline", async (context) => {
-        await openReviewer(context);
+        const reviewer = await openReviewer(context);
         try {
           await expect(
             context.parallel(
               [0],
               async () => {
-                await context.agents.stop("reviewer");
+                await reviewer.close();
               },
               { deadline: future(20) },
             ),
@@ -2806,7 +2807,7 @@ describe("agents.stop", () => {
         } finally {
           release();
         }
-        expect(await context.agents.stop("reviewer")).toBe(true);
+        expect(await reviewer.close()).toBe(true);
         return null;
       }),
       null,
@@ -2821,9 +2822,9 @@ describe("agents.stop", () => {
     const logs: string[] = [];
     await runNew(
       workflowOf("stop-handback-failed", async (context) => {
-        await context.agents.caller({ key: "author" });
-        expect(await context.agents.stop("author")).toBe(true);
-        expect(await context.agents.stop("author")).toBe(false);
+        const caller = (await context.agents.caller({ key: "author" }))!;
+        expect(await caller.close()).toBe(true);
+        expect(await caller.close()).toBe(false);
         expect(logs).toEqual(["awf: the calling session was not handed back: handback failed"]);
         return null;
       }),
@@ -2862,7 +2863,7 @@ describe("agents.stop", () => {
         const running = agent.run({ prompt: "First." });
         await started;
         const queued = agent.run({ prompt: "Second." }).catch((error: Error) => error.message);
-        await context.agents.stop("reviewer");
+        await agent.close();
         expect((await running).outcome.kind).toBe("cancelled");
         expect(await queued).toBe("logical agent is closed");
         expect(fake.turns).toHaveLength(1);
@@ -2877,8 +2878,8 @@ describe("agents.stop", () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     await runNew(
       workflowOf("stop-beside", async (context) => {
-        await openReviewer(context, "lead");
-        await context.agents.stop("lead");
+        const lead = await openReviewer(context, "lead");
+        await lead.close();
         await context.agents.open({
           key: "next",
           runtime: "review",

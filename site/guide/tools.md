@@ -108,7 +108,7 @@ The agent waits while the handler runs, so keep it short.
 ## What a handler can't do
 
 - **Give work to the agent that called it.** That agent is in a turn, waiting for the handler, so
-  `run`, `compact`, `set`, `fork` and `wf.agents.stop` on it throw. Another agent can be run.
+  `run`, `compact`, `set`, `fork` and `close` on it throw. Another agent can be run.
 - **Wait for an event.** `wf.receive()`, `wf.race` and `wf.select` throw in a handler.
 
 ## Limits

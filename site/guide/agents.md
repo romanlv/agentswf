@@ -51,8 +51,8 @@ const agent = await wf.agents.open({ key: "scoper", runtime: "claude", instructi
   is where the agent works, the run's working directory by default.
 
 An agent stays open until the run ends, a turn of it fails or times out, or you stop it. When it
-has nothing more to do, `await wf.agents.stop("scoper")` closes it for good, so its pane doesn't
-sit idle; opening that key again rejects.
+has nothing more to do, `await scoper.close()` closes it for good, so its pane doesn't sit idle;
+opening that key again rejects.
 
 ## A typed answer
 
@@ -100,7 +100,7 @@ exception. `outcome.kind` is one of six:
 | `blocked` | It is showing a question only a person can answer, such as a permission prompt. | open | Stop, or let someone answer it in its pane. |
 | `timed-out` | The turn's deadline passed first. | closed | Stop, or open a new agent with more time. |
 | `failed` | Something broke: the harness crashed, the model errored, or there is no login. | closed | Stop. A missing login is below. |
-| `cancelled` | The run, an enclosing scope, or `wf.agents.stop` stopped it. | open after a scope's cancel; closed for good after `wf.agents.stop` | Nothing: your workflow or the run is already stopping it. |
+| `cancelled` | The run, an enclosing scope, or `agent.close()` stopped it. | open after a scope's cancel; closed for good after `close()` | Nothing: your workflow or the run is already stopping it. |
 
 Every kind but `answered` carries `outcome.reason`, a sentence for a person and the run's record,
 such as `agent settled without an accepted result`. Branch on `kind`, not on the reason's words.
@@ -157,7 +157,8 @@ on, neither sees the other's turns.
 <<< @/../examples/site/guide/agents.ts#fork
 
 A fork has its parent's harness, model, effort, working directory, sandbox and skills, and may
-name its own `instructions`, `effort` and `placement`. It has its parent's tools unless it names
+name its own `instructions`, and a `runtime` of `placement`, `metered` and `effort`, never a
+harness or model. It has its parent's tools unless it names
 its own `tools`, which replace them (`{}` gives none): [Tools](/guide/tools). It rejects before
 the parent's first turn.
 

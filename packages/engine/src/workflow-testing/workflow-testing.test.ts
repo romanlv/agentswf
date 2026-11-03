@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AgentRef,
   choice,
   defineWorkflow,
   type HarnessAllowance,
@@ -1193,7 +1194,8 @@ describe("testWorkflow with a calling session", () => {
   test("set is refused: its model and effort are the operator's", async () => {
     const workflow = workflowOf<null, string>(async (workflow) => {
       const caller = await workflow.agents.caller({ key: "author" });
-      return caller!.set({ effort: "low" }).then(
+      // A workflow is JavaScript at run time: the type has no set, the runner refuses it.
+      return (caller as unknown as AgentRef).set({ effort: "low" }).then(
         () => "set",
         (error: unknown) => String(error),
       );
@@ -1313,7 +1315,7 @@ describe("testWorkflow with a calling session", () => {
           .open({ key: "author", runtime: "codex" })
           .catch((error) => error.message);
         await caller!.run({ prompt: "Plan." });
-        const compacted = await caller!.compact({
+        const compacted = await (caller as unknown as AgentRef).compact({
           id: "c1",
           prompt: "keep the plan",
           deadline: { unixMilliseconds: Date.now() + 60_000 },

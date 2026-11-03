@@ -35,7 +35,7 @@ export type AccountedAgent = {
   sessions(): readonly string[];
   /** When its host first prompted it, where that waits on the agent first; see `window`. */
   promptedAt?(): number | undefined;
-  /** The caller handed back early by agents.stop. */
+  /** The caller handed back early by its close(). */
   releasedAt?(): number | undefined;
   /** When a fork's session was made: what it holds from before is its parent's (ADR 0009). */
   forkedAt?(): number | undefined;

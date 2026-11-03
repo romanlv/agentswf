@@ -51,6 +51,15 @@ export const DEPRECATIONS = {
     instead: (key: string) =>
       `${key === "" ? "use - in its place" : `name it ${key.replaceAll(":", "-")}`}: a colon is kept for awf's own event names`,
   },
+  "agents-stop": {
+    old: "wf.agents.stop(key)",
+    instead: "call close(reason?) on the agent's ref",
+  },
+  "fork-runtime": {
+    old: "a fork's own placement, metered or effort",
+    instead:
+      "give them in its runtime, as open does: fork({ key, runtime: { placement, metered, effort } })",
+  },
 } as const satisfies Record<
   string,
   { old: string; instead: string | ((subject: string) => string) }

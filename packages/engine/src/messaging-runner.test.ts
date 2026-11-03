@@ -548,7 +548,7 @@ describe("messaging through the runner", () => {
         await context.messages.allow({ from: asker, to: peer, purpose: "Ask." });
         const asked = asker.run({ prompt: "Ask.", schema: VERDICT });
         await new Promise((resolve) => setTimeout(resolve, 50));
-        await context.agents.stop("peer", "not needed");
+        await peer.close("not needed");
         return (await asked).outcome.kind;
       },
     );
@@ -849,7 +849,7 @@ describe("messaging through the runner", () => {
         const sender = await open(context, "sender");
         const gone = await open(context, "gone");
         await context.messages.allow({ from: sender, to: gone, purpose: "Talk." });
-        await context.agents.stop("gone", "finished early");
+        await gone.close("finished early");
         return (await sender.run({ prompt: "Send.", schema: VERDICT })).outcome.kind;
       },
     );

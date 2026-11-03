@@ -5,6 +5,7 @@ import {
   type AgentDirectory,
   type AgentOpenSpec,
   type AgentRef,
+  type CallerRef,
   defineExecutableWorkflow,
   defineWorkflow,
   type EventAgentDirectory,
@@ -72,6 +73,36 @@ export async function deprecated(): Promise<void> {
   const spec: EventAgentOpenSpec = { key: "k", runtime: "claude", keepAlive: {} };
   const agents: EventAgentDirectory = context.agents;
   void [agent satisfies AgentRef, spec satisfies AgentOpenSpec, agents satisfies AgentDirectory];
+}
+
+export async function deprecatedAgents(): Promise<void> {
+  const worker = await plain.agents.open({ key: "worker", runtime: "codex" });
+  await worker.fork({ key: "w2", placement: "headless", metered: true, effort: "low" });
+  await plain.agents.forkCaller({ key: "me2", placement: "headless" });
+  await plain.agents.stop("worker", "done");
+}
+
+export async function caller(): Promise<void> {
+  const me = await plain.agents.caller({ key: "me" });
+  if (!me) return;
+  // @ts-expect-error The calling session's model and effort are the operator's.
+  await me.set({ effort: "high" });
+  // @ts-expect-error The calling session is the operator's, and is not compacted.
+  await me.compact({ prompt: "Keep the plan." });
+  // @ts-expect-error A fork of the calling session takes no tools.
+  await me.fork({ key: "me3", tools: {} });
+  // @ts-expect-error A fork continues its parent's session on its harness and model.
+  await me.fork({ key: "me4", runtime: { model: "gpt-6-luna" } });
+  // @ts-expect-error The caller is not an agent the run opened.
+  const opened: AgentRef = me;
+  void opened;
+  const fork = await me.fork({ key: "me5", runtime: { placement: "headless", metered: true } });
+  const ref: CallerRef = fork;
+  await wf.messages.allow({ between: [me, fork], purpose: "Agree on the plan." });
+  const won = await wf.race("either", { mine: me, theirs: ref, quiet: "1h" });
+  if (won.mine && me.is({ name: "agent:ended", from: "me", data: won.mine })) void won.mine;
+  await fork.close("enough");
+  await me.close();
 }
 
 export const old = defineExecutableWorkflow({

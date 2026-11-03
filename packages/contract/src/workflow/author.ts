@@ -14,6 +14,8 @@ export type {
   AgentRunTextSpec,
   AgentStartSpec,
   AgentTools,
+  CallerForkSpec,
+  CallerRef,
   CallerSpec,
   CompactSpec,
   Effort,

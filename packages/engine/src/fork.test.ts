@@ -83,8 +83,8 @@ describe("fork", () => {
     await run(adapter, async (context) => {
       const parent = await open(context);
       await ask(parent, "Plan.");
-      await parent.fork({ key: "child" });
-      expect(await context.agents.stop("child", "done")).toBe(true);
+      const child = await parent.fork({ key: "child" });
+      expect(await child.close("done")).toBe(true);
       await expect(parent.fork({ key: "child" })).rejects.toThrow("agent child was stopped (done)");
       expect(adapter.forks).toHaveLength(1);
       return null;
@@ -97,7 +97,7 @@ describe("fork", () => {
       const parent = await open(context);
       await ask(parent, "Plan.");
       const child = await parent.fork({ key: "child" });
-      await context.agents.stop("worker");
+      await parent.close();
       await expect(parent.fork({ key: "another" })).rejects.toThrow("logical agent is closed");
       expect(await ask(child, "Continue.")).toBe("child");
       return null;

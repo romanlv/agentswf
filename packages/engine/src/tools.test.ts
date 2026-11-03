@@ -691,7 +691,7 @@ describe("the calling session's forks", () => {
         const caller = (await context.agents.caller({ key: "author" }))!;
         const refusals: string[] = [];
         for (const fork of [
-          () => caller.fork({ key: "by-ref", tools }),
+          () => caller.fork({ key: "by-ref", tools } as never),
           () => context.agents.forkCaller({ key: "by-fork-caller", tools } as never),
         ]) {
           await fork().then(
@@ -866,7 +866,7 @@ describe("ToolCalls", () => {
 });
 
 describe("more of a handler's limits", () => {
-  test("compact, set, fork and agents.stop on its own agent are refused, and so is run up the chain", async () => {
+  test("compact, set, fork, close and agents.stop on its own agent are refused, and so is run up the chain", async () => {
     const refused: string[] = [];
     const adapter = createFakeAdapter({
       script: (context) => ({
@@ -910,6 +910,7 @@ describe("more of a handler's limits", () => {
                 await caught("compact", () => a.compact({ prompt: "x" }));
                 await caught("set", () => a.set({ model: "other" }));
                 await caught("fork", () => a.fork({ key: "f" }));
+                await caught("close", () => a.close());
                 await caught("stop", () => context.agents.stop("a"));
                 await b.run({ prompt: "go", schema: TEXT, nudge: false });
               },
@@ -929,6 +930,7 @@ describe("more of a handler's limits", () => {
       "compact: agent-in-tool",
       "set: agent-in-tool",
       "fork: agent-in-tool",
+      "close: agent-in-tool",
       "stop: agent-in-tool",
       "run a from b's handler: agent-in-tool",
     ]);

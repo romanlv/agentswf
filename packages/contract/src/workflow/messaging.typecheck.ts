@@ -83,7 +83,7 @@ async function routeForOneStage(): Promise<{ steps: string[] }> {
     const { outcome } = await planner.run({ prompt: planPrompt(ticket), schema: PLAN });
     return outcome.answered ? outcome.value : wf.stop(outcome.reason);
   });
-  await wf.agents.stop("architect", "design questions are settled");
+  await architect.close("design questions are settled");
   return plan;
 }
 

@@ -57,7 +57,7 @@ shapes:
 - **Granted inside a [stage](/guide/how-it-works#the-words)**, a route closes when the stage
   ends. Granted outside any stage, it lasts the attempt. There is no call that closes a route, so
   a stage is the way to give a conversation an end while both agents go on.
-- **Stopping an agent** with `wf.agents.stop(key, reason)` closes its routes. A peer waiting on it
+- **Closing an agent** with `agent.close(reason)` closes its routes. A peer waiting on it
   gets a failure instead of an answer.
 
 `allow` rejects, and grants nothing, when a route would go from an agent to itself, when either end

@@ -414,11 +414,9 @@ describe("usage read when the run ends", () => {
         // The operator's turn that replied with the run's code, before any step reached it.
         files.log("s-caller", 20);
         await Bun.sleep(5);
-        await (await context.agents.caller({ key: "author" }))!.run({
-          prompt: "Go.",
-          schema: ANSWER,
-        });
-        await context.agents.stop("author");
+        const author = (await context.agents.caller({ key: "author" }))!;
+        await author.run({ prompt: "Go.", schema: ANSWER });
+        await author.close();
         await Bun.sleep(5);
         files.log("s-caller", 900);
         return null;

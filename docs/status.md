@@ -16,7 +16,7 @@ exists, the code is right, then this page.
   may place each TUI agent's pane with `layout`, in a tab of the run's workspace, a named one, a
   named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
   the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
-  other pane closes when its agent does, at the run's end or earlier with `agents.stop`, and a later run closes what a killed run left, in any session.
+  other pane closes when its agent does, at the run's end or earlier with `agent.close()`, and a later run closes what a killed run left, in any session.
 - `awf run` typed in an agent's tool call, or with `--here`, lets the workflow fork that session:
   `agents.forkCaller` opens an agent on a copy of it, on the model its files show, or answers `null`
   (story 027). The session waits on the run as on any command.
@@ -307,6 +307,10 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   a continue of a run with events redoes that stage and the ones after it, each later record
   moved to `replaced/` as the code reaches it, by this attempt or a later one; one that would park before reaching it stops. An agent's
   or participant's key with a colon is deprecated, and the examples use `-`.
+  Task 4 built: `caller()` returns a `CallerRef`, an agent without `compact` or `set` whose
+  fork takes no `tools`, which every `AgentRef` is; `fork` and `forkCaller` take `runtime: {
+  placement?, metered?, effort? }`, the flat fields deprecated and refused beside it; `agent.close()`
+  replaces `wf.agents.stop(key)`, which is deprecated, and on the caller hands the session back.
 
 ## Known gaps
 

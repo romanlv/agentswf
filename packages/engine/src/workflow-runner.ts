@@ -42,6 +42,7 @@ import {
   type AgentRunTextSpec,
   type AgentStartSpec,
   type Branches,
+  type CallerForkSpec,
   type CodeParticipantDirectory,
   type CodeParticipantRef,
   type CompactionId,
@@ -50,6 +51,7 @@ import {
   DeadlineExceededError,
   type Duration,
   type EmitOutcome,
+  type ForkRuntime,
   type HarnessAllowance,
   isEventWorkflow,
   isJsonValue,
@@ -254,7 +256,7 @@ export type RunWorkflowOptions = {
   deadline?: AbsoluteDeadline;
   cwd?: string;
   onLog?: (message: string, fields?: JsonObject) => void;
-  /** The operator hands the session back once agents.stop has released it. */
+  /** The operator hands the session back once close() has released it. */
   onCallerStopped?: (reason: string) => Promise<void>;
   signal?: AbortSignal;
   /** The sandbox providers agents may run in; without them, a sandboxed agent is refused. */
@@ -402,7 +404,7 @@ type AgentEntry = {
    * `undefined` when the channel never opened; the agent state carries the reason.
    */
   channel: Promise<ResultChannel | undefined>;
-  /** Why `agents.stop` ended it; its key is not opened again. */
+  /** Why `close()` ended it; its key is not opened again. */
   stopped?: string;
   stopping?: Promise<boolean>;
   stopComplete?: boolean;
@@ -428,7 +430,7 @@ type AgentIdentity = {
   instructions?: string;
   labels?: AgentOpenSpec["labels"];
   /** The agent it was forked from, and the spec it was forked with. */
-  forkedFrom?: { parent: AgentKey; spec: AgentForkSpec };
+  forkedFrom?: { parent: AgentKey; spec: CallerForkSpec };
   /** As written; a reopen compares them so, never where the pane ended up. */
   layout?: PaneLayout;
   keepPane?: KeepPane;
@@ -1049,8 +1051,9 @@ class WorkflowOwner {
           }
         },
         stop: (key, reason) => {
+          options.deprecations.used("agents-stop");
           try {
-            return this.stopAgent(key, reason);
+            return this.stopAgent(key, reason, "agents.stop");
           } catch (error) {
             return Promise.reject(error);
           }
@@ -1738,7 +1741,7 @@ class WorkflowOwner {
                     : "cancelled",
                 reason: "workflow closing",
               })
-              .then(() => state.close("workflow complete")),
+              .then(() => state.terminate("workflow complete")),
           () => undefined,
         ),
       );
@@ -2033,9 +2036,9 @@ class WorkflowOwner {
    * Ends an agent the workflow has no more use for, as an operation that fails ends it: what it
    * is running is cancelled, and its pane closed or, where `keepPane` says, kept and released.
    */
-  private stopAgent(key: string, reason?: string): Promise<boolean> {
+  private stopAgent(key: string, reason: string | undefined, what: string): Promise<boolean> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
-    const inTool = refusedInTool(key, "agents.stop");
+    const inTool = refusedInTool(key, what);
     if (inTool) throw inTool;
     const scope = scopes.getStore();
     scope?.assertAccepting();
@@ -2060,7 +2063,7 @@ class WorkflowOwner {
         }
         this.options.progress.agentStopped(key, entry.stopped!);
         try {
-          await state.close(entry.stopped);
+          await state.terminate(entry.stopped);
         } finally {
           await entry.channel.then((channel) => channel?.close());
         }
@@ -2167,7 +2170,7 @@ class WorkflowOwner {
    * it is that agent's own fork, taken in its queue; otherwise it is taken now, from a parent the
    * run never opened. `null`, and the reason logged, where there is none to fork.
    */
-  private forkCaller(spec: AgentForkSpec): Promise<AgentRef | null> {
+  private forkCaller(spec: CallerForkSpec): Promise<AgentRef | null> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
     scope?.assertAccepting();
@@ -2445,6 +2448,13 @@ class WorkflowOwner {
       livenessPolicy: this.options.livenessPolicy,
       ...(this.options.mailbox ? { turns: this.#turnsOf(key, this.options.mailbox) } : {}),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
+      close: (reason) => {
+        try {
+          return this.stopAgent(key, reason, "close()");
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      },
       deprecated: (name) => this.options.deprecations.used(name),
       reporting: (outcome) => this.#reporting(outcome),
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
@@ -2496,8 +2506,10 @@ class WorkflowOwner {
     }
     this.#assertFreeKey(spec.key, "an agent");
     // Out before the clone, which throws on a handler, and out of the spec a repeat is compared by.
-    const { tools, ...cloned } = spec;
-    const forkSpec = structuredClone(cloned);
+    const { tools, ...given } = spec;
+    const forkSpec = structuredClone(
+      forkSpecOf(given, () => this.options.deprecations.used("fork-runtime")),
+    );
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;
     assertDeadline(deadline);
@@ -2529,7 +2541,7 @@ class WorkflowOwner {
       sandboxed || opening.accounted.home !== undefined
         ? join(this.options.runDir, "forks", randomUUID())
         : undefined;
-    const execution = withKnownEffort(forkExecution(parentSettings, forkSpec));
+    const execution = withKnownEffort(forkExecution(parentSettings, forkSpec.runtime));
     // A fork of the calling session is an agent the run opened, on the model the session's files
     // show, which the fork reads: `""` until then (ADR 0010).
     const ofCaller = execution.caller === true;
@@ -2861,6 +2873,8 @@ class LogicalAgent implements AgentRef {
         take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
+      /** The workflow ends it: the run tears it down and its key is not opened again. */
+      close(reason: string | undefined): Promise<boolean>;
       deprecated(name: Deprecated): void;
       /** An outcome as the workflow is handed it, which a deprecated name it is given reports on. */
       reporting<T>(outcome: T): T;
@@ -3514,7 +3528,7 @@ class LogicalAgent implements AgentRef {
       ? scope?.add(async (stop) => {
           cancelled = stop.reason;
           this.#last = "cancelled";
-          await this.close(stop.reason);
+          await this.terminate(stop.reason);
         })
       : undefined;
     try {
@@ -3551,10 +3565,15 @@ class LogicalAgent implements AgentRef {
     if (this.options.execution.caller) return;
     // Before its outcome is recorded: whether its pane stays turns on how this one ended.
     this.#last = ended;
-    void this.close(reason).catch(() => undefined);
+    void this.terminate(reason).catch(() => undefined);
   }
 
-  close(reason?: string): Promise<void> {
+  close(reason?: string): Promise<boolean> {
+    return this.options.close(reason);
+  }
+
+  /** What `close()`, a failed operation and the run's end each come to. */
+  terminate(reason?: string): Promise<void> {
     const first = !this.#closed;
     this.#closed = true;
     if (first) {
@@ -4831,14 +4850,64 @@ function knownPlacement(choice: PlacementChoice): void {
  * The parent's harness, model and effort, in the placement and at the effort the fork names, else
  * its parent's.
  */
-function forkExecution(parent: AgentExecution, spec: AgentForkSpec): AgentExecution {
+function forkExecution(parent: AgentExecution, runtime: ForkRuntime = {}): AgentExecution {
   const { placement: _placement, metered: _metered, ...target } = parent;
-  const choice = spec.placement === undefined && spec.metered === undefined ? parent : spec;
+  const choice =
+    runtime.placement === undefined && runtime.metered === undefined ? parent : runtime;
   return {
     ...target,
-    ...(spec.effort === undefined ? {} : { effort: spec.effort }),
+    ...(runtime.effort === undefined ? {} : { effort: runtime.effort }),
     ...storedPlacement(choice),
   };
+}
+
+const FORK_RUNTIME_FIELDS = ["placement", "metered", "effort"] as const;
+
+/**
+ * A fork's spec with its runtime written one way, `runtime`, so a repeat in either form compares
+ * equal. The flat fields are deprecated, and refused beside `runtime` rather than merged with it.
+ */
+function forkSpecOf(spec: CallerForkSpec, deprecated: () => void): CallerForkSpec {
+  const { placement, metered, effort, runtime, ...rest } = spec;
+  const flat = definedFields({ placement, metered, effort });
+  if (Object.keys(flat).length > 0) {
+    if (runtime !== undefined) {
+      throw new Error(
+        `agent ${spec.key}: a fork's placement, metered and effort go in its runtime, not beside it`,
+      );
+    }
+    deprecated();
+    return { ...rest, runtime: flat };
+  }
+  if (runtime === undefined) return rest;
+  if (typeof runtime !== "object" || runtime === null || Array.isArray(runtime)) {
+    throw new Error(
+      `agent ${spec.key}: a fork's runtime is { placement?, metered?, effort? }, not ${JSON.stringify(runtime)}`,
+    );
+  }
+  // A workflow is untyped JavaScript at run time; a harness or model asked for must not be dropped.
+  const others = Object.keys(runtime).filter(
+    (field) =>
+      !(FORK_RUNTIME_FIELDS as readonly string[]).includes(field) &&
+      (runtime as Record<string, unknown>)[field] !== undefined,
+  );
+  if (others.length > 0) {
+    throw new Error(
+      `agent ${spec.key}: a fork continues its parent's session on its harness and model; its runtime takes placement, metered and effort, not ${others.join(", ")}`,
+    );
+  }
+  const given = definedFields({
+    placement: runtime.placement,
+    metered: runtime.metered,
+    effort: runtime.effort,
+  });
+  return Object.keys(given).length === 0 ? rest : { ...rest, runtime: given };
+}
+
+function definedFields<T extends object>(fields: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
 }
 
 function constrainExistingExecution(

@@ -33,11 +33,11 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`agent.run({ prompt, schema?, timeoutMs?, deadline?, label?, nudge? })`](#agent-run) | `{ outcome }`, in the agent's same session |
 | [`agent.compact({ prompt, timeoutMs?, deadline? })`](#agent-compact) | an outcome; the harness's own compaction |
 | [`agent.set({ model?, effort?, timeoutMs?, deadline? })`](#agent-set) | an outcome; later turns run at these |
-| [`agent.fork({ key, placement?, metered?, effort?, instructions?, layout?, keepPane?, tools? })`](#agent-fork) | a new agent on a copy of this one's session |
+| [`agent.fork({ key, runtime?, instructions?, layout?, keepPane?, tools? })`](#agent-fork) | a new agent on a copy of this one's session |
 | [`agent.execution`](#agent-execution) | the agent's harness, model, effort and placement now |
-| [`wf.agents.stop(key, reason?)`](#agents-stop) | `true` once closed; `false` if never opened or already stopped |
+| [`agent.close(reason?)`](#agent-close) | `true` once closed; `false` if an earlier `close()` closed it |
 | [`wf.agents.caller({ key })`](#agents-caller) | the session `awf run --here` was typed in, or `null` |
-| [`wf.agents.forkCaller({ key, placement?, metered?, effort?, instructions?, layout?, keepPane? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
+| [`wf.agents.forkCaller({ key, runtime?, instructions?, layout?, keepPane? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
 | [`tool({ description, input?, handler, timeoutMs? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
 
 **Composing work**
@@ -242,7 +242,7 @@ scope that has ended:
 | `blocked` | `reason`. The agent is showing a question only a person can answer, such as a permission prompt. |
 | `timed-out` | `reason`. The turn's deadline passed. |
 | `failed` | `reason`, `retryable` and `login?`. `retryable` is `false` for every turn that runs today; only a [started turn](#agent-start) whose attempt ended before it did is `true`. `login` is set when the harness has no login, or it was refused: `{ harness, provider?, run }`, with `run` saying what the operator should run. |
-| `cancelled` | `reason`. The run, an enclosing scope or [`wf.agents.stop`](#agents-stop) stopped it. |
+| `cancelled` | `reason`. The run, an enclosing scope or [`agent.close()`](#agent-close) stopped it. |
 
 Every outcome also has `answered`, `true` only for `answered`, and `usage`, the operation's
 record: its times, sessions and settings. Checking `answered` narrows `outcome.value` to the
@@ -271,7 +271,7 @@ what to drop; the next `run` goes on in the compacted session.
 - **Any other outcome** leaves the context as it was, so going on is usually right.
 - **Where:** claude, codex and pi, in their TUI or headless; cursor in its TUI only. pi only
   summarizes what is older than its last 20k tokens, so a short pi session fails "nothing to
-  compact". The calling session refuses it.
+  compact". The calling session's ref, a [`CallerRef`](#agents-caller), has none.
 - It runs after the agent's earlier turns.
 
 <a id="switching-model-or-effort-set"></a>
@@ -287,8 +287,8 @@ The session and its context stay.
   as for `run`.
 - **`answered`** means the switch is in force, and [`agent.execution`](#agent-execution) shows the
   new settings.
-- **It is refused** for an effort the harness doesn't list, for the calling session, and on a
-  cursor TUI agent. Another harness or placement is another agent.
+- **It is refused** for an effort the harness doesn't list and on a cursor TUI agent. The calling
+  session's ref has no `set`. Another harness or placement is another agent.
 - **A TUI agent whose switch fails or times out is closed**, as after a failed turn.
 - **Switching the model costs the cache**: the next turn reads the whole context at full price.
 
@@ -304,10 +304,11 @@ being told again, and reads that context from the provider's cache
 
 - **The copy is taken when `fork` is called**, after the agent's earlier operations. From then on
   neither sees the other's turns.
-- **A fork has its parent's** harness, model, effort, working directory, sandbox, skills and
-  tools. It may name its own `placement`, `metered`, `effort`, `instructions` and `tools`
-  (`{}` for none). It never inherits `layout` or `keepPane`: without them it gets a tab of
-  its own.
+- **A fork has its parent's** harness, model, effort, placement, working directory, sandbox,
+  skills and tools. It may name its own `instructions`, `tools` (`{}` for none) and `runtime`,
+  `{ placement?, metered?, effort? }`, as [`open`'s](#agents-open) fields: never a harness or
+  model, since it continues its parent's session on them. It never inherits `layout` or
+  `keepPane`: without them it gets a tab of its own.
 - **It rejects** before the parent's first turn, once the parent is closed, and after a `set`
   queued before it that didn't take. Every harness forks, in its TUI or headless, sandboxed too.
 - **The same key** with the same parent and spec returns the same agent.
@@ -341,13 +342,17 @@ places it elsewhere as it opens, or at its first turn in a workflow with events
   answered) or `"always"`, keeps the pane once the agent is done. Its harness is left running and
   released: what you type into it is yours. awf never closes a kept pane.
 
-### wf.agents.stop {#agents-stop}
+### agent.close {#agent-close}
 
-`wf.agents.stop(key, reason?)` closes an agent the workflow is done with, so it doesn't sit idle
-until the run ends. A turn it is running ends `cancelled`, its pane is closed or, as `keepPane`
-says, kept, and its key can't be opened again. It resolves `true` once the agent is closed, and
-`false` for a key never opened, not opened, or already stopped. Stopping the calling session
-hands it back to its operator then rather than at the end of the run.
+<a id="agents-stop"></a>
+
+<<< @/../examples/site/reference/workflow-api.ts#close
+
+`agent.close(reason?)` closes an agent the workflow is done with, so it doesn't sit idle until the
+run ends. A turn it is running ends `cancelled`, its pane is closed or, as `keepPane` says, kept,
+and its key can't be opened again. It resolves `true` once the agent is closed, a turn that failed and
+closed it included, and `false` if an earlier `close()` did. Closing the calling session hands it back to its operator then rather than at
+the end of the run.
 
 <a id="the-calling-session"></a>
 
@@ -362,8 +367,9 @@ The guide: [Calling session](/guide/calling-session).
 
 - **`null`** means there is no calling session: refuse, or open an agent of your own.
 - **The same key** returns the same agent; another key rejects.
-- **It is the operator's session**, so it takes no `instructions`, refuses `set`, ends `compact`
-  `failed` with the session as it was, and
+- **It is the operator's session**, so its ref is a `CallerRef`: an agent without `compact` or
+  `set`. Called anyway, from JavaScript, `set` is refused and `compact` ends `failed` with the
+  session as it was. It takes no `instructions`, and
   stays usable after a turn that fails, is cancelled or times out. The operator interrupting a turn
   settles it `cancelled`. Where the harness's interrupt can't be recognised, an unanswered turn
   isn't nudged by default. Its forks are [`forkCaller`](#agents-forkcaller)'s, and take no `tools`.
@@ -380,8 +386,8 @@ result as its output. The guide: [Calling session](/guide/calling-session).
 
 <<< @/../examples/site/reference/workflow-api.ts#forkcaller
 
-- **Fields:** those of [`fork`](#agent-fork) but `tools`: `key`, `placement`, `metered`,
-  `effort`, `instructions`, `layout` and `keepPane`. Root scope only.
+- **Fields:** those of [`fork`](#agent-fork) but `tools`: `key`, `runtime`, `instructions`,
+  `layout` and `keepPane`. Root scope only.
 - **`null`** means there is no session to fork, and the run's output says why.
 - **The copy** holds the session up to the command that started the run; with `--here`, after the
   run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
@@ -418,7 +424,7 @@ what it returns. Holding a tool is what lets the agent call it. The guide: [Tool
   after 10 s. An agent that calls again with the same input while the call runs gets its answer,
   once; a call after it ended runs it again, so a handler past 10 s should be safe to repeat.
 - **It can't give work to the agent that called it**, which is in a turn: `run`, `start`,
-  `compact`, `set`, `fork`, `agents.stop` and `cancel()` on its started turn throw, as they do on
+  `compact`, `set`, `fork`, `close` and `cancel()` on its started turn throw, as they do on
   an agent whose handler ran this one's, and so does `wf.receive()`. It may run another agent,
   except in the message turns a stage runs after its body, where no code can.
 - **Limits:** names match `^[a-z][a-z0-9_]{0,47}$`; at most 16 tools an agent, 1 KiB a
@@ -952,7 +958,8 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | Name | |
 | --- | --- |
 | `WorkflowContext<Events>` | `wf`, typed by the workflow's `events`. Bare, `WorkflowContext` is any workflow's, for a helper that takes whichever it is passed. |
-| `AgentRef` | An agent: `key`, `execution`, `run`, `compact`, `set`, `fork`, `start`, `turn` and `is`; a source. |
+| `AgentRef` | An agent the run opened or forked: a `CallerRef`, and `compact` and `set`. |
+| `CallerRef` | What [`caller`](#agents-caller) returns, and what every agent is: `key`, `execution`, `run`, `fork` (taking no `tools`), `start`, `turn`, `is` and `close`; a source, and a peer for [`allow`](#messages-allow). A helper for any agent, the calling session included, takes one. |
 | `EventSchemas` | What `events` is: each name's schema. |
 | `TurnOutcome<T>` | An [outcome](#outcomes), `T` the answer's type. |
 | `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: annotate a TypeBox schema with it, `const X: OutputSchema<Type.Static<typeof x>> = x`, and `run`, `stage` and `events` take its type. |
@@ -978,6 +985,8 @@ naming what replaces it.
 | `isAnswered(outcome)` | `outcome.answered`, which narrows the same way. |
 | `defineExecutableWorkflow({ definition: { meta, run }, prepare })` | `defineWorkflow({ meta, run, prepare })`. |
 | An agent's or participant's key with a colon, `review:security` | `-` in its place, `review-security`: a colon is kept for awf's own event names. The warning names each such key, and the key to use. |
+| `wf.agents.stop(key, reason?)` | [`agent.close(reason?)`](#agent-close) on the agent's ref. |
+| `placement`, `metered` and `effort` beside a fork's or `forkCaller`'s `key` | The same in its `runtime`: `fork({ key, runtime: { placement: "headless", metered: true } })`. Given beside `runtime`, they are refused. |
 | `EventWorkflowContext<Events>`, `EventAgentRef`, `EventAgentOpenSpec`, `EventAgentDirectory` | `WorkflowContext<Events>`, `AgentRef`, `AgentOpenSpec`, `AgentDirectory`: every workflow has one of each. Types log nothing. |
 
 A test's old forms, such as `reply.silent()` and `run.stopped`, are on

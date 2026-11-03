@@ -208,6 +208,109 @@ test("labels on forkCaller alone log", async () => {
   expect(said(run)).toEqual({ labels: 1 });
 });
 
+test("a fork's runtime runs as its flat fields did, which log once; both at once is refused", async () => {
+  const run = await plainRun("fork-runtime", async (wf) => {
+    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+    await agent.run({ prompt: "One." });
+    const given = await agent.fork({
+      key: "given",
+      runtime: { placement: "headless", metered: true, effort: "low" },
+    });
+    await agent.fork({ key: "flat", placement: "headless", metered: true, effort: "low" });
+    await agent.fork({ key: "flat-again", placement: "headless", metered: true });
+    // Either form of one spec is the same fork.
+    const same = await agent.fork({
+      key: "given",
+      placement: "headless",
+      metered: true,
+      effort: "low",
+    });
+    const both = await agent
+      .fork({ key: "both", placement: "headless", runtime: { metered: true } })
+      .then(
+        () => "forked",
+        (error: Error) => error.message,
+      );
+    const model = await agent
+      .fork({ key: "model", runtime: { model: "claude-opus-5-5" } as never })
+      .then(
+        () => "forked",
+        (error: Error) => error.message,
+      );
+    return [same === given, both, model];
+  });
+  expect(run.value).toEqual([
+    true,
+    "agent both: a fork's placement, metered and effort go in its runtime, not beside it",
+    "agent model: a fork continues its parent's session on its harness and model; its runtime takes placement, metered and effort, not model",
+  ]);
+  expect(run.agentOf("given").execution).toMatchObject({
+    placement: "headless",
+    metered: true,
+    effort: "low",
+  });
+  expect(run.agentOf("given").execution).toEqual(run.agentOf("flat").execution);
+  expect(said(run)).toEqual({ "fork-runtime": 1 });
+});
+
+test("a fork's runtime: either order of the two forms is one fork, an empty one is none, and what it leaves out is its parent's", async () => {
+  const run = await plainRun("fork-runtime-forms", async (wf) => {
+    const agent = await wf.agents.open({ key: "a", runtime: { alias: "claude", effort: "high" } });
+    await agent.run({ prompt: "One." });
+    const flat = await agent.fork({ key: "flat", placement: "headless", metered: true });
+    const given = await agent.fork({
+      key: "flat",
+      runtime: { placement: "headless", metered: true },
+    });
+    const bare = await agent.fork({ key: "bare" });
+    const empty = await agent.fork({ key: "bare", runtime: {} });
+    await agent.fork({ key: "tui", runtime: { metered: true } });
+    return [flat === given, bare === empty];
+  });
+  expect(run.value).toEqual([true, true]);
+  expect(run.agentOf("flat").execution).toMatchObject({
+    placement: "headless",
+    metered: true,
+    effort: "high",
+  });
+  expect(run.agentOf("bare").execution).toMatchObject({ effort: "high" });
+  expect(run.agentOf("bare").execution).not.toHaveProperty("placement");
+  // A TUI fork drops metered, where it means nothing.
+  expect(run.agentOf("tui").execution).not.toHaveProperty("metered");
+  expect(run.agentOf("tui").execution).not.toHaveProperty("placement");
+});
+
+test("flat fields refused beside runtime log nothing", async () => {
+  const run = await plainRun("fork-runtime-refused", async (wf) => {
+    const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+    await agent.run({ prompt: "One." });
+    return agent.fork({ key: "both", effort: "low", runtime: { placement: "headless" } }).then(
+      () => "forked",
+      (error: Error) => error.message,
+    );
+  });
+  expect(run.value).toBe(
+    "agent both: a fork's placement, metered and effort go in its runtime, not beside it",
+  );
+  expect(said(run)).toEqual({});
+});
+
+test("agents.stop ends an agent as close() does, and logs once", async () => {
+  const run = await plainRun("agents-stop", async (wf) => {
+    const a = await wf.agents.open({ key: "a", runtime: "claude" });
+    const b = await wf.agents.open({ key: "b", runtime: "claude" });
+    const stopped = [await wf.agents.stop("a", "done"), await wf.agents.stop("a")];
+    const closed = [await b.close("done"), await b.close()];
+    const ran = await a.run({ prompt: "More." }).then(
+      () => "ran",
+      (error: Error) => error.message,
+    );
+    return [...stopped, ...closed, ran];
+  });
+  expect(run.value).toEqual([true, false, true, false, "logical agent is closed"]);
+  expect(said(run)).toEqual({ "agents-stop": 1 });
+});
+
 test("a turn as a select's branch logs", async () => {
   const run = await testWorkflow(
     caseRun(async (wf) => {

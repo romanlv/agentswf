@@ -458,22 +458,41 @@ export interface CompactSpec {
   timeoutMs?: number;
 }
 
-export interface AgentForkSpec extends PlacementChoice {
+/**
+ * How a fork runs: always on its parent's harness and model, since it continues its parent's
+ * session, in the placement and at the effort it names, else its parent's.
+ */
+export type ForkRuntime = PlacementChoice & {
+  /** Absent, the fork takes its parent's effort when it is taken, as it takes its model. */
+  effort?: Effort;
+};
+
+/** What a fork of the calling session is given, and what every fork may be. */
+export interface CallerForkSpec {
   /** The new agent's key in this run. */
   key: AgentKey;
   /** Given with its first turn; it already knows what this agent was told. */
   instructions?: string;
   /** @deprecated Drop it: nothing reads an agent's labels. */
   labels?: JsonObject;
-  /** Absent, the fork takes its parent's effort when it is taken, as it takes its model. */
+  /** Absent, its parent's placement and effort. Refused beside any of the flat fields below. */
+  runtime?: ForkRuntime;
+  /** @deprecated Give it in `runtime`: `runtime: { placement }`. */
+  placement?: AgentPlacement;
+  /** @deprecated Give it in `runtime`: `runtime: { metered: true }`. */
+  metered?: true;
+  /** @deprecated Give it in `runtime`: `runtime: { effort }`. */
   effort?: Effort;
   /** Never its parent's: absent, a tab of its own. */
   layout?: PaneLayout;
   /** Never its parent's: absent, `never`. */
   keepPane?: KeepPane;
+}
+
+export interface AgentForkSpec extends CallerForkSpec {
   /**
    * Replaces the parent's tools; `{}` gives none. Absent, it has the parent's, with the handlers
-   * they had when it forked. Refused for a fork of the calling session.
+   * they had when it forked. A fork of the calling session takes none.
    */
   tools?: AgentTools;
 }
@@ -494,8 +513,12 @@ export interface SettingsSpec {
   timeoutMs?: number;
 }
 
-/** An agent of the run. As a source, a wait takes the end of the turn `start()` began. */
-export interface AgentRef extends PeerRef, Source<Taken<AgentEnded>> {
+/**
+ * What every agent of the run can do, the calling session included, which can do only this: its
+ * session is the operator's, so it is neither compacted nor switched, and its fork takes no tools.
+ * Every `AgentRef` is one. As a source, a wait takes the end of the turn `start()` began.
+ */
+export interface CallerRef extends PeerRef, Source<Taken<AgentEnded>> {
   readonly key: AgentKey;
   /**
    * The agent's settings now: as it was opened, then as the last answered `set` left them. Its
@@ -509,29 +532,15 @@ export interface AgentRef extends PeerRef, Source<Taken<AgentEnded>> {
   run(spec: AgentRunTextSpec): Promise<RunResult<string>>;
   run<T extends JsonValue>(spec: AgentRunStructuredSpec<T>): Promise<RunResult<T>>;
   /**
-   * Runs the harness's own compaction after earlier operations, idempotent by compaction id. An
-   * answer means it compacted, and is its summary where the harness exposes one, else `""`; any
-   * other outcome leaves the prior context available.
-   */
-  compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
-  /**
-   * Switches this session's model or effort for every operation after the earlier ones, idempotent
-   * by id; its context is kept. Answered once the switch is in force, with the settings then in
-   * force as the outcome's `usage.execution`. Refused before it runs where the harness can't switch,
-   * with why, and for an effort the harness doesn't list. One that fails or times out in a pane
-   * closes the agent, whose settings nobody then knows.
-   */
-  set(spec: SettingsSpec): Promise<TurnOutcome<null>>;
-  /**
    * Opens a new agent on a copy of this agent's session, taken after its earlier operations: it
    * starts knowing what this agent knew then, and from then on neither sees the other's turns. It
    * has this agent's harness, model, working directory, sandbox and skills, and this agent's
-   * placement and effort unless it names its own; model and effort are those after every `set`
-   * queued before it. Rejects before this agent's first turn, where the harness cannot fork, and
-   * where a `set` queued before it did not take. The same key with the same parent and spec returns
-   * the same agent (ADR 0009), its tools matched as `open` matches them.
+   * placement and effort unless its `runtime` names its own; model and effort are those after every
+   * `set` queued before it. Rejects before this agent's first turn, where the harness cannot fork,
+   * and where a `set` queued before it did not take. The same key with the same parent and spec
+   * returns the same agent (ADR 0009). The calling session's is `forkCaller`'s fork.
    */
-  fork(spec: AgentForkSpec): Promise<AgentRef>;
+  fork(spec: CallerForkSpec): Promise<AgentRef>;
   /**
    * The turn `start()` began, from then until a wait takes its end, restored on a continue for a
    * turn whose end no wait took; `null` otherwise. While it is set, the agent refuses `start()`,
@@ -552,6 +561,33 @@ export interface AgentRef extends PeerRef, Source<Taken<AgentEnded>> {
   is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
     event: EventLike,
   ): event is AgentEndedEvent<Meta, T> & Matched;
+  /**
+   * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
+   * where `keepPane` says, kept and released (ADR 0008); the calling session is handed back to the
+   * operator. Its key is not opened again. Resolves false once an earlier `close()` or
+   * `wf.agents.stop` has ended it, and true otherwise, for an agent a failed turn closed too.
+   */
+  close(reason?: string): Promise<boolean>;
+}
+
+/** An agent the run opened or forked. */
+export interface AgentRef extends CallerRef {
+  /**
+   * Runs the harness's own compaction after earlier operations, idempotent by compaction id. An
+   * answer means it compacted, and is its summary where the harness exposes one, else `""`; any
+   * other outcome leaves the prior context available.
+   */
+  compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
+  /**
+   * Switches this session's model or effort for every operation after the earlier ones, idempotent
+   * by id; its context is kept. Answered once the switch is in force, with the settings then in
+   * force as the outcome's `usage.execution`. Refused before it runs where the harness can't switch,
+   * with why, and for an effort the harness doesn't list. One that fails or times out in a pane
+   * closes the agent, whose settings nobody then knows.
+   */
+  set(spec: SettingsSpec): Promise<TurnOutcome<null>>;
+  /** As `CallerRef.fork`, and its fork may be given tools of its own. */
+  fork(spec: AgentForkSpec): Promise<AgentRef>;
 }
 
 export interface CallerSpec {
@@ -568,21 +604,21 @@ export interface AgentDirectory {
    */
   open(spec: AgentOpenSpec): Promise<AgentRef>;
   /**
-   * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
-   * where `keepPane` says, kept and released (ADR 0008). Its key is not opened again. Resolves
-   * false when the agent was never opened, did not open, or is already stopped.
+   * As `close()` on the agent's ref, and false too when the agent was never opened or did not open.
+   *
+   * @deprecated Call `close(reason?)` on the agent's ref.
    */
   stop(key: AgentKey, reason?: string): Promise<boolean>;
   /**
    * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the
    * run has none (ADR 0010). The same key returns the same ref and another key rejects. It is the
-   * operator's session, so it differs from an opened agent: `compact` fails; a turn that fails, is
-   * cancelled or times out leaves it usable rather than closed; the operator interrupting a turn
-   * settles it `cancelled`; where the harness's interrupt cannot be recognised, an unanswered turn
-   * is not nudged by default; and its `execution.model` is `""`. Its `fork` is `forkCaller`'s, and
-   * refuses `tools`.
+   * operator's session, so it differs from an opened agent: it has no `compact` or `set`; a turn
+   * that fails, is cancelled or times out leaves it usable rather than closed; the operator
+   * interrupting a turn settles it `cancelled`; where the harness's interrupt cannot be recognised,
+   * an unanswered turn is not nudged by default; `close()` hands it back to the operator; and its
+   * `execution.model` is `""`. Its `fork` is `forkCaller`'s.
    */
-  caller(spec: CallerSpec): Promise<AgentRef | null>;
+  caller(spec: CallerSpec): Promise<CallerRef | null>;
   /**
    * A new agent on a copy of the session `awf run` was started from: one waiting on the command,
    * or handed over with `--here`, whose copy is then taken after the run's turns to it. `null` when
@@ -590,7 +626,7 @@ export interface AgentDirectory {
    * files show it last ran, in its directory, as an agent of the run; what it copied stays the
    * session's spend. Root scope only (story 027).
    */
-  forkCaller(spec: Omit<AgentForkSpec, "tools">): Promise<AgentRef | null>;
+  forkCaller(spec: CallerForkSpec): Promise<AgentRef | null>;
 }
 
 /** @deprecated Use `AgentRef`: every agent is one. */

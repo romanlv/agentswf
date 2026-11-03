@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunEvent, RunLogLine, TurnRecord } from "@agentswf/contract/records";
-import type { WorkflowContext } from "@agentswf/contract/workflow";
+import type { CallerRef } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter, createFakeCallingSession } from "@agentswf/harness/testing";
 import { createFakeDecisionProvider } from "./decisions/fake";
@@ -27,7 +27,7 @@ function forking() {
   });
 }
 
-async function ask(agent: Awaited<ReturnType<WorkflowContext["agents"]["open"]>>) {
+async function ask(agent: CallerRef) {
   const { outcome } = await agent.run({ prompt: "Do.", schema: DOC });
   return outcome.kind;
 }
