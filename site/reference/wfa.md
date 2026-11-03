@@ -43,7 +43,9 @@ usage: wfa result <call-id> --<name> '<value>' ...
   `reply`, a flag the command doesn't take. Nothing reached the run. The usage is printed to
   standard error. `result` and `tool` pass their flags to the run, which reads them by the schema:
   an unknown flag is refused `invalid-result` or `invalid-input`.
-- **A duration** is a positive whole number with `ms`, `s`, `m` or `h`: `90s`, `10m`.
+- **A duration** is a positive decimal and `s`, `m`, `h` or `d`: `90s`, `1.5m`, `10m`, as in a
+  workflow. A whole number of `ms` still works until 0.1.0, with a line on standard error naming
+  its replacement.
 - **`wfa` never sends a request twice.** When the answer to a request is lost, it says so, and
   says whether the request may have taken effect.
 - **While the agent owes a peer a reply or awaits one**, an answer leads with a line saying so,
@@ -57,7 +59,7 @@ Any command can also be refused with one of these codes:
 | Code | Meaning |
 | --- | --- |
 | `invalid-request` | The request was malformed: not one line of JSON, or a field of the wrong shape. |
-| `unsupported-version` | The launcher and the engine disagree on the protocol version. |
+| `unsupported-version` | This `wfa` and the run's engine are different versions of awf, as when awf is installed anew while a run is live; the error names both wire versions, and nothing was done. |
 | `unsupported-command` | The command isn't available here, such as `wfa waiting` on a turn that doesn't offer it. |
 | `request-too-large` | The request is over the run's size limit, about 2 MiB. |
 | `internal-error` | The run couldn't record or answer the request, or had 64 connections open; try again later. |
@@ -217,7 +219,8 @@ agent owes. `--json` prints the same as data:
 ```json
 {
   "peers": [
-    { "peer": "architect", "can": "send", "state": "idle", "queued": 0, "purpose": "Design questions about the retry change" }
+    { "peer": "architect", "can": "send", "kind": "agent", "state": "idle", "queued": 0, "purpose": "Design questions about the retry change" },
+    { "peer": "coordinator", "can": "both", "kind": "participant", "queued": 0, "purpose": "Ask before merging" }
   ],
   "owes": []
 }
@@ -226,8 +229,9 @@ agent owes. `--json` prints the same as data:
 | Field | Values |
 | --- | --- |
 | `can` | `send` on a route from this agent, `reply` on one only to it, `both` either way |
-| `state` | `not-started`, `working`, `idle`, `awaiting` (with `awaits`, whose reply), `stopped` (with `reason`), or `outside`, a [participant outside the run](/guide/people) |
-| `queued` | this agent's messages the peer hasn't read; always 0 for `outside` |
+| `kind` | `agent`, an agent of the run, or `participant`, a [participant outside the run](/guide/people), which has no `state` |
+| `state` | an agent's: `not-started`, `working`, `idle`, `awaiting-reply` (with `awaits`, whose reply), or `stopped` (with `reason`) |
+| `queued` | this agent's messages the peer hasn't read; always 0 for a participant |
 | `owes` | the peers this agent owes a reply |
 | `awaits` | the peer whose reply this agent awaits, and `until`, when the wait ends, if it does |
 
@@ -289,7 +293,7 @@ reached the run says to try again.
 | `peer-stopped` | The peer has stopped. |
 | `closed` | The route closed when its stage ended, or the stage or workflow is finishing. |
 | `too-large` | The message is over 16 KB; the agent writes a file and sends its path. |
-| `awaiting` | The agent already awaits a reply. |
+| `already-awaiting` | The agent already awaits a reply. |
 | `unsupported` | It can't await a reply where it runs. |
 | `cycle` | The peer already waits, directly or through others, on this agent. |
 | `limit` | The route has used its messages; or it has room for one more but not a question and its reply. |
@@ -320,7 +324,7 @@ Exits as `wfa send` does.
 | `expired` | The peer stopped waiting, or stopped. |
 | `closed` | The route closed, or with `--await-reply`, the stage or workflow is finishing. |
 | `too-large` | The reply is over 16 KB. |
-| `awaiting`, `unsupported`, `cycle` | As for `wfa send`, only with `--await-reply`. |
+| `already-awaiting`, `unsupported`, `cycle` | As for `wfa send`, only with `--await-reply`. |
 | `limit` | With `--await-reply`, the route has room for the reply but not a question back. |
 
 ## Message limits {#message-limits}

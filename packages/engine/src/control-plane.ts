@@ -321,16 +321,17 @@ type Handlers = {
   lifetime: (milliseconds: number | undefined) => void;
 };
 
-async function handleFrame(frame: string, handlers: Handlers): Promise<ControlResponse> {
+async function handleFrame(frame: string, handlers: Handlers): Promise<Answer> {
   const { messaging, agentId } = handlers;
   const response = await answerFrame(frame, handlers);
+  if (inOtherVersion(response)) return response;
   // Leads every response, so what is owed comes back after a compaction; not one that already
   // says it, about the wait it began or the answer it is refused for.
   const repeats =
     response.kind === "awaiting-reply" ||
     (response.kind === "sent" && response.until !== undefined) ||
     (response.kind === "rejected" &&
-      (response.code === "owes-reply" || response.code === "awaiting"));
+      (response.code === "owes-reply" || response.code === "already-awaiting"));
   const owing = repeats ? undefined : messaging?.owing(agentId);
   return owing ? { ...response, owing } : response;
 }
@@ -338,7 +339,7 @@ async function handleFrame(frame: string, handlers: Handlers): Promise<ControlRe
 async function answerFrame(
   frame: string,
   { slots, messaging, tools, agentId, onSession, lifetime }: Handlers,
-): Promise<ControlResponse> {
+): Promise<Answer> {
   if (!frame.endsWith("\n") || frame.slice(0, -1).includes("\n")) {
     return rejected("invalid-request", "expected exactly one newline-delimited JSON request");
   }
@@ -350,7 +351,10 @@ async function answerFrame(
     return rejected("invalid-request", "request is not valid JSON");
   }
   const decoded = decodeControlRequest(parsed);
-  if (!decoded.ok) return rejected(decoded.code, decoded.error);
+  if (!decoded.ok)
+    return decoded.code === "unsupported-version"
+      ? otherVersion((parsed as { version: number }).version)
+      : rejected(decoded.code, decoded.error);
   // Before the result is judged: a rejected submission still proves which session sent it.
   if (decoded.value.session) onSession?.(decoded.value.session);
 
@@ -447,7 +451,35 @@ function rejected(
   return { version: WIRE_VERSION, kind: "rejected", code, error };
 }
 
-function queueResponse(socket: Bun.Socket<ConnectionState>, response: ControlResponse): void {
+/** A refusal in another wire version than this engine's: the one answer not a `ControlResponse`. */
+type OtherVersion = {
+  version: number;
+  kind: "rejected";
+  code: "unsupported-version";
+  error: string;
+};
+type Answer = ControlResponse | OtherVersion;
+
+function inOtherVersion(answer: Answer): answer is OtherVersion {
+  return answer.version !== WIRE_VERSION;
+}
+
+/**
+ * Refused in the version the request gave: a `wfa` of version 4 or 5 decodes a rejection of that
+ * shape and prints its error, where it would refuse this engine's version unread. They meet when
+ * awf is installed anew in place while a run is live: a launcher runs the `wfa` on disk, which is
+ * no longer the one the engine in memory shipped with.
+ */
+function otherVersion(version: number): OtherVersion {
+  return {
+    version,
+    kind: "rejected",
+    code: "unsupported-version",
+    error: `this wfa speaks wire version ${version} and the workflow engine ${WIRE_VERSION}: awf was installed anew while the run was live. Nothing was done; the run must go on under one version of awf.`,
+  };
+}
+
+function queueResponse(socket: Bun.Socket<ConnectionState>, response: Answer): void {
   socket.data.outgoing = Buffer.from(`${JSON.stringify(response)}\n`);
   socket.data.written = 0;
   flushResponse(socket);

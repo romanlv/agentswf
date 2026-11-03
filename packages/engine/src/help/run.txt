@@ -12,7 +12,8 @@ value from --values, a JSON object by stage name, checked by its result; one tha
 nothing is passed. Without one the attempt stops, naming the stage and its schema.
 A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names another folder
 for .awf/runs.
-A run has no deadline unless --timeout gives it one, per attempt.
+A run has no deadline unless --timeout gives it one, per attempt: a duration, a decimal and s, m,
+h or d, such as 20m or 1d.
 A workflow that knows how to present its result prints that; --json prints the full result instead.
 Either way the full result is kept as output.json in the run's folder, beside report.md
 when the workflow writes one. A run that fails or is cancelled once its agents have started keeps

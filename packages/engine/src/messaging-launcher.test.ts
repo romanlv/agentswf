@@ -105,8 +105,8 @@ test("wfa peers, send and reply through the launcher an agent is told to run", a
     const peers = await sh(`${implementer} peers`);
     expect(peers.exitCode).toBe(0);
     expect(peers.stdout.split("\n")).toEqual([
-      "peer      you can  state         queued  purpose",
-      "reviewer  both     awaiting you          “Review until both agree.”",
+      "peer      you can  state                    queued  purpose",
+      "reviewer  both     awaiting-reply from you          “Review until both agree.”",
       "You owe reviewer a reply.",
     ]);
     expect(JSON.parse((await sh(`${implementer} peers --json`)).stdout)).toEqual({
@@ -114,7 +114,8 @@ test("wfa peers, send and reply through the launcher an agent is told to run", a
         {
           peer: "reviewer",
           can: "both",
-          state: "awaiting",
+          kind: "agent",
+          state: "awaiting-reply",
           awaits: "implementer",
           queued: 0,
           purpose: "Review until both agree.",
@@ -229,7 +230,7 @@ test("the design's acknowledgements and refusals, as an agent's launcher prints 
       [
         `${wfa("asker")} send --await-reply peer 'Again?'`,
         1,
-        "wfa: send refused (awaiting): you already await peer. End your turn, or send without --await-reply.",
+        "wfa: send refused (already-awaiting): you already await peer. End your turn, or send without --await-reply.",
       ],
     ];
     for (const [script, exitCode, line] of rows) {

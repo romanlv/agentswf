@@ -139,7 +139,7 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
       },
     ),
   ).toBe(1);
-  expect(JSON.parse(refused[0]!)).toMatchObject({ v: 1, code: "no-participant" });
+  expect(JSON.parse(refused[0]!)).toMatchObject({ v: 2, code: "no-participant" });
   // Each send says once that it is deprecated, naming awf emit.
   expect(err).toEqual(Array(3).fill(deprecationLine("send-event-id")));
   expect(err[0]).toContain("awf emit {run} {key}:reply");

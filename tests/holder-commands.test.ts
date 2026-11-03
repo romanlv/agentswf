@@ -102,7 +102,7 @@ describe("awf reply and awf send", () => {
     const results = [first, second].map((each) => JSON.parse(each.stdout) as ParticipantResultJson);
     expect(results.map((each) => each.code).sort()).toEqual(["delivered", "expired"]);
     expect(results.find((each) => each.code === "delivered")).toEqual({
-      v: 1,
+      v: 2,
       code: "delivered",
       id: question.id,
     });
@@ -184,5 +184,18 @@ describe("awf reply and awf send", () => {
     expect(flagLike.code).toBe(1);
     expect(JSON.parse(flagLike.stdout)).toMatchObject({ code: "not-found" });
     expect((await awf(["send", "investigate/nope", "investigator", " "])).code).toBe(2);
+  });
+
+  test("a malformed --to, a blank --as or agent is a usage error, never sent to the run", async () => {
+    const { awf } = project();
+    const malformed = await awf(["reply", "investigate/nope", "investigator", "--to", "3", "ok"]);
+    expect(malformed.code).toBe(2);
+    expect(malformed.stderr).toStartWith(
+      "awf: --to takes a question's id as awf inbox prints it, such as 1.5, not 3",
+    );
+    const blank = await awf(["send", "investigate/nope", "investigator", "--as", "", "hi"]);
+    expect(blank.code).toBe(2);
+    expect(blank.stderr).toStartWith("awf: --as needs a participant's key");
+    expect((await awf(["send", "investigate/nope", " ", "hi"])).code).toBe(2);
   });
 });

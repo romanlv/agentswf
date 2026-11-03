@@ -74,7 +74,7 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 });
 
 test("validates the complete response across fragmented data", async () => {
-  await withServerResponse(['{"version":5,"kind":', '"accepted"}\n'], async (endpoint) => {
+  await withServerResponse(['{"version":6,"kind":', '"accepted"}\n'], async (endpoint) => {
     await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
       version: WIRE_VERSION,
       kind: "accepted",
@@ -82,10 +82,19 @@ test("validates the complete response across fragmented data", async () => {
   });
 });
 
+test("an engine of an older wire version is refused naming both versions", async () => {
+  const old = '{"version":5,"kind":"rejected","code":"unsupported-version","error":"x"}\n';
+  await withServerResponse([old], async (endpoint) => {
+    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow(
+      `the engine answered in wire version 5 and this client speaks ${WIRE_VERSION}`,
+    );
+  });
+});
+
 test("rejects malformed, extra-line, and oversized responses", async () => {
   for (const chunks of [
     ["not-json\n"],
-    ['{"version":5,"kind":"accepted"}\n', '{"version":5,"kind":"accepted"}\n'],
+    ['{"version":6,"kind":"accepted"}\n', '{"version":6,"kind":"accepted"}\n'],
     ["x".repeat(256 * 1024 + 1)],
   ]) {
     await withServerResponse(chunks, async (endpoint) => {

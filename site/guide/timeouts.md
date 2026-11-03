@@ -37,8 +37,8 @@ extend anything: the earlier one wins
 awf run --timeout 2h review.ts
 ```
 
-A run has no deadline unless `--timeout` gives it one, as a whole number with `ms`, `s`, `m` or
-`h`. It bounds one attempt: a `--continue` has no deadline unless you give `--timeout` again.
+A run has no deadline unless `--timeout` gives it one, as a [duration](/reference/awf#durations),
+such as `2h` or `1d`. It bounds one attempt: a `--continue` has no deadline unless you give `--timeout` again.
 When it passes, the turns running end `timed-out`, the workflow is cut off wherever it is, and
 the attempt ends `timed-out`. [Runs](/guide/runs#how-an-attempt-ends) has every ending, its exit
 code, and how to go on from it.

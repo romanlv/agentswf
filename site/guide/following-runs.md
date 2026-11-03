@@ -73,8 +73,8 @@ turns and last activity. Under it is what to run next.
 $ awf runs check-readme/20261101-0930-a1b2
 check-readme/20261101-0930-a1b2  running  stage review  14s
   stage review   running    12s
-    reviewer          working      turn 1  9s  last: tool Bash  grep -n "awf " README.md (09:30:09)
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90
+    reviewer          working         turn 1  9s  last: tool Bash  grep -n "awf " README.md (09:30:09)
+next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90s
 ```
 
 A running run ends with a `next:` line, the `awf logs` command that waits for what comes next.
@@ -94,7 +94,7 @@ check-readme/20261101-0930-a1b2  running  stage review
 @e4 09:30:05 review  reviewer  turn started
 @a1.4b1 09:30:06 review  reviewer  prompt  412 chars
 @a1.9e2 09:30:09 review  reviewer  tool Bash  grep -n "awf " README.md
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90
+next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90s
 ```
 
 `awf logs` merges two sources by time: the run's own events (stages, turns, messages, tool calls,
@@ -117,8 +117,8 @@ you would its session.
 
 Every answer ends with what to run next. While the run goes, that is a `next:` command that gets
 only what is new: `--after {cursor}` reads from where the last answer stopped, oldest first, and
-`--wait {seconds}`, up to 300, waits for the first new event when there is none yet, answering
-once it comes or the time is up. Once the run is over the last line says so: `run ended: …`, or
+`--wait {duration}`, such as `90s` and up to `5m`, waits for the first new event when there is
+none yet, answering once it comes or the time is up. Once the run is over the last line says so: `run ended: …`, or
 `run interrupted · continue: …`. `--follow` instead prints each event as it comes and returns when
 the run ends.
 
@@ -137,11 +137,11 @@ no tool beyond its shell:
    its `--wait`, so it never holds a tool call for the length of the run, as `--follow` would.
 4. **Read the result** from the finished `awf run`'s output, or with `awf runs {workflow}/{id}`.
 
-For a program, `--json` on `awf runs` and `awf logs` prints one document, versioned with `"v": 1`.
+For a program, `--json` on `awf runs` and `awf logs` prints one document, versioned with `"v"`.
 `awf logs --json` gives the events with their text, a `cursor`, and `next` as an argument list
-while there is more; `awf runs {run} --json` gives the status, attempts, stages and agents, and
-`continue` where a run can go on. `--follow` doesn't take `--json`; page with `--after` and
-`--wait`. [Runs](/guide/runs) has `awf run`'s exit codes.
+while there is more; `awf runs {run} --json`, `"v": 2`, gives the status, attempts, stages and
+agents, and `continue` where a run can go on; [awf runs](/reference/awf#runs) lists the states
+it uses. `--follow` doesn't take `--json`; page with `--after` and `--wait`. [Runs](/guide/runs) has `awf run`'s exit codes.
 
 To hand the session itself to the run, so that it becomes one of the run's agents, use
 `awf run --here`: [Calling session](/guide/calling-session).

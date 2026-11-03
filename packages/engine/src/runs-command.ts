@@ -162,13 +162,15 @@ function dayTime(at: number): string {
   return `${two(date.getMonth() + 1)}-${two(date.getDate())} ${clockTime(at).slice(0, 5)}`;
 }
 
-const busy = (agent: AgentView) => agent.state === "working" || agent.state === "was working";
+const inTurn = (agent: AgentView) =>
+  agent.state === "working" || agent.state === "waiting" || agent.state === "awaiting-reply";
+const busy = (agent: AgentView) => inTurn(agent) || agent.state === "interrupted";
 
 function agentLine(agent: AgentView, indent: string, now: number, width: number): string {
   const { live } = agent;
   const parts = [
     said(agent.key, 60).padEnd(width),
-    (live?.phase === "waiting" ? "waiting" : live ? "awaiting" : agent.state).padEnd(11),
+    agent.state.padEnd(14),
     busy(agent) ? `turn ${agent.turns + 1}` : `${agent.turns} turn${agent.turns === 1 ? "" : "s"}`,
     ...(live?.phase === "waiting"
       ? [
@@ -181,10 +183,10 @@ function agentLine(agent: AgentView, indent: string, now: number, width: number)
         ]
       : live
         ? [
-            `${said(live.peer, 60)}'s reply${live.until ? ` (until ${clockTime(live.until).slice(0, 5)})` : ""}`,
+            `from ${said(live.peer, 60)}${live.until ? ` (until ${clockTime(live.until).slice(0, 5)})` : ""}`,
           ]
         : []),
-    ...(agent.since && agent.state === "working" ? [formatDuration(now - agent.since)] : []),
+    ...(agent.since && inTurn(agent) ? [formatDuration(now - agent.since)] : []),
     ...(agent.last
       ? [`last: ${describeActivity(agent.last.activity)} (${clockTime(agent.last.at)})`]
       : []),
@@ -309,7 +311,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ? undefined
       : continueOf(status, view.lines, place);
   return {
-    v: 1,
+    v: 2,
     run: {
       ref: status.ref,
       state: status.state,

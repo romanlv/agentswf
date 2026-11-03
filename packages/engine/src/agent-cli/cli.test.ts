@@ -238,26 +238,25 @@ describe("wfa waiting", () => {
       ["--reason", "ok", "--reason", "again"],
       ["--unknown", "value"],
       ["--reason", "ok", "--timeout", "1s", "--timeout", "2s"],
-      ...["0s", "-1s", "1.5s", "Infinityh", "9007199254740991h", "1", "2d"].map((v) => [
-        "--reason",
-        "ok",
-        "--timeout",
-        v,
-      ]),
+      ...["0s", "-1s", "1e3s", "Infinityh", "9007199254740991h", "1", "2w", "0.0001s", "0ms"].map(
+        (v) => ["--reason", "ok", "--timeout", v],
+      ),
     ];
     for (const flags of badFlags)
       expect((await runCli(at("waiting", "op-1", ...flags), null, submit)).exitCode).toBe(2);
     expect(called).toBe(0);
   });
 
-  test("accepts every duration unit", async () => {
+  test("takes the one duration grammar, and ms deprecated", async () => {
     for (const [duration, milliseconds] of [
-      ["1ms", 1],
       ["2s", 2000],
+      ["1.5s", 1500],
       ["3m", 180000],
       ["4h", 14400000],
+      ["2d", 172800000],
+      ["1500ms", 1500],
     ] as const) {
-      await runCli(
+      const outcome = await runCli(
         at("waiting", "op-1", "--reason", "ok", "--timeout", duration),
         null,
         async (_endpoint, request) => {
@@ -265,7 +264,42 @@ describe("wfa waiting", () => {
           return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 };
         },
       );
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stderr).toBe(
+        duration === "1500ms"
+          ? "wfa: --timeout 1500ms is deprecated; give 1.5s: a duration is a decimal and s, m, h or d"
+          : "",
+      );
     }
+    // Not beside a usage error, where the form wasn't taken; and from the flag itself.
+    const reasoned = await runCli(
+      at("waiting", "op-1", "--reason", "--timeout", "--timeout", "1500ms"),
+      null,
+      async (_endpoint, request) => {
+        expect(request).toMatchObject({ reason: "--timeout", timeoutMs: 1500 });
+        return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000 };
+      },
+    );
+    expect(reasoned.exitCode).toBe(0);
+    expect(reasoned.stderr).toBe(
+      "wfa: --timeout 1500ms is deprecated; give 1.5s: a duration is a decimal and s, m, h or d",
+    );
+    const sent = await runCli(
+      ["--at", "/tmp/s", "send", "--await-reply", "--timeout", "500ms", "fixer", "hi"],
+      null,
+      async () => ({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "sent." }),
+    );
+    expect(sent).toMatchObject({ exitCode: 0, stdout: "wfa: sent." });
+    expect(sent.stderr).toBe(
+      "wfa: --timeout 500ms is deprecated; give 0.5s: a duration is a decimal and s, m, h or d",
+    );
+    const misplaced = await runCli(
+      ["--at", "/tmp/s", "send", "--timeout", "500ms", "fixer", "hi"],
+      null,
+      async () => ({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "sent." }),
+    );
+    expect(misplaced.exitCode).toBe(2);
+    expect(misplaced.stderr).not.toContain("deprecated");
   });
 
   test("lost acknowledgement reports uncertainty and does not retry", async () => {
@@ -421,7 +455,16 @@ describe("wfa peers, send and reply", () => {
     const peers: ControlResponse = {
       version: WIRE_VERSION,
       kind: "peers",
-      peers: [{ peer: "reviewer", can: "both", state: "idle", queued: 0, purpose: "Review." }],
+      peers: [
+        {
+          peer: "reviewer",
+          can: "both",
+          kind: "agent",
+          state: "idle",
+          queued: 0,
+          purpose: "Review.",
+        },
+      ],
       owes: [],
       text: "peer      you can  state  queued  purpose",
       owing: "you await reviewer's reply.",
@@ -432,7 +475,16 @@ describe("wfa peers, send and reply", () => {
       stderr: "",
     });
     expect(JSON.parse((await runCli(as("peers", "--json"), null, answer(peers))).stdout)).toEqual({
-      peers: [{ peer: "reviewer", can: "both", state: "idle", queued: 0, purpose: "Review." }],
+      peers: [
+        {
+          peer: "reviewer",
+          can: "both",
+          kind: "agent",
+          state: "idle",
+          queued: 0,
+          purpose: "Review.",
+        },
+      ],
       owes: [],
     });
     expect(await runCli(as("peers", "--all"), null, answer(peers))).toMatchObject({ exitCode: 2 });

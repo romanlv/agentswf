@@ -281,7 +281,7 @@ describe("admission", () => {
     expect(
       await messaging.send("reviewer", { peer: "implementer", text: "q2", awaitReply: true }),
     ).toMatchObject({
-      code: "awaiting",
+      code: "already-awaiting",
       error: "you already await implementer. End your turn, or send without --await-reply.",
     });
     expect(
@@ -850,7 +850,8 @@ describe("what an agent reads", () => {
         {
           peer: "implementer",
           can: "both",
-          state: "awaiting",
+          kind: "agent",
+          state: "awaiting-reply",
           awaits: "reviewer",
           queued: 0,
           purpose: PURPOSE,
@@ -858,6 +859,7 @@ describe("what an agent reads", () => {
         {
           peer: "architect",
           can: "reply",
+          kind: "agent",
           state: "idle",
           queued: 0,
           purpose: "Ask about the design.",
@@ -865,9 +867,9 @@ describe("what an agent reads", () => {
       ],
       owes: ["implementer"],
       text: [
-        "peer         you can  state         queued  purpose",
-        `implementer  both     awaiting you          “${PURPOSE}”`,
-        "architect    reply    idle                  “Ask about the design.”",
+        "peer         you can  state                    queued  purpose",
+        `implementer  both     awaiting-reply from you          “${PURPOSE}”`,
+        "architect    reply    idle                             “Ask about the design.”",
         "You owe implementer a reply.",
       ].join("\n"),
     });
@@ -985,7 +987,7 @@ describe("check order", () => {
     // Over size, over the limit and the inbox full: awaiting comes first.
     expect(
       await messaging.send("reviewer", { peer: "implementer", text: "q", awaitReply: true }),
-    ).toMatchObject({ code: "awaiting" });
+    ).toMatchObject({ code: "already-awaiting" });
     // Over the limit and the inbox full: the cycle is named first.
     expect(
       await messaging.send("implementer", { peer: "reviewer", text: "q", awaitReply: true }),
@@ -1140,6 +1142,7 @@ describe("pending, opening and failures", () => {
       {
         peer: "implementer",
         can: "both",
+        kind: "agent",
         state: "stopped",
         reason: "x",
         queued: 0,
@@ -1247,7 +1250,7 @@ describe("an outside participant", () => {
     expect(messaging.held("coordinator")).toBe(0);
     expect(messaging.busy(messaging.attempt)).toBe(false);
     expect(messaging.peers("investigator").peers).toEqual([
-      { peer: "coordinator", can: "both", state: "outside", queued: 0, purpose: ASK },
+      { peer: "coordinator", can: "both", kind: "participant", queued: 0, purpose: ASK },
     ]);
   });
 
@@ -1463,7 +1466,7 @@ describe("an outside participant", () => {
     expect(await send("investigator")).toMatchObject({ code: "limit" });
     run.states.set("investigator", { state: "stopped", reason: "done" });
     messaging.agentStopped("investigator", "done");
-    expect(await send("investigator")).toMatchObject({ code: "stopped" });
+    expect(await send("investigator")).toMatchObject({ code: "peer-stopped" });
     messaging.finishing(scope);
     expect(await send("investigator")).toMatchObject({ code: "ended" });
   });

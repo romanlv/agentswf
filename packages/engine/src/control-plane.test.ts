@@ -47,6 +47,25 @@ describe("result control plane", () => {
     }
   });
 
+  test("a wfa of version 5 is refused in its own version, naming both, and nothing is done", async () => {
+    const fixture = await setup();
+    try {
+      const response = await rawRequest(
+        fixture.channel.endpoint,
+        `${JSON.stringify({ ...request('{"count":3,"even":false}'), version: 5 })}\n`,
+      );
+      expect(response as unknown).toEqual({
+        version: 5,
+        kind: "rejected",
+        code: "unsupported-version",
+        error: `this wfa speaks wire version 5 and the workflow engine ${WIRE_VERSION}: awf was installed anew while the run was live. Nothing was done; the run must go on under one version of awf.`,
+      });
+      expect(await readAccepted(fixture.runDir, "op-1")).toBeNull();
+    } finally {
+      await fixture.control.close();
+    }
+  });
+
   test("refuses messaging until it is built, still learning the session", async () => {
     const control = await startResultControlPlane({
       slots: createResultSlotRegistry({ runDir: tempRunDir() }),

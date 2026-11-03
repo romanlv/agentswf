@@ -96,7 +96,7 @@ and [Events](/reference/workflow-api#events) in the workflow API has the rules.
 ```sh
 awf inbox investigate/r1                          # one run: what was said, both ways
 awf inbox investigate/r1 --open                   # the questions still waiting for an answer
-awf inbox --json --after {cursor} --wait 100      # every run here, for an app or a session
+awf inbox --json --after {cursor} --wait 100s     # every run here, for an app or a session
 awf reply investigate/r1 investigator --to 1.5 'Keep two, and link them.'
 awf send investigate/r1 investigator 'Also check the 09:12 deploy.'
 ```
@@ -109,7 +109,7 @@ one participant.
 - **`awf inbox`** reads the run's record, so a holder that starts late, or after the run ended,
   still sees everything. Without a run, it reads every run in the folder that connected a
   participant. `--wait` waits when nothing is new; a coding agent's shell tool usually stops a
-  command after 120 seconds, so a session passes 100.
+  command after 120 seconds, so a session passes 100s.
 - **`awf reply`** answers a question. `--to` names it, and may be left out when the agent has only
   one open. A `--to` naming anything but an open question from that agent is refused `expired`, so
   a late answer never lands on a newer question. Anyone may answer, and the first answer wins.
@@ -163,7 +163,7 @@ refused, with the names it does.
 A chat app such as a Slack bot is its own program, built on these three commands; awf has no chat
 code of its own. A sketch of one, run in each folder where runs start:
 
-1. **Read.** Loop on `awf inbox --json --after {cursor} --wait 300`, the first time with no cursor.
+1. **Read.** Loop on `awf inbox --json --after {cursor} --wait 5m`, the first time with no cursor.
 2. **A route opens.** Start a thread for it in the channel the participant's `labels` name, and
    remember which thread is which run, participant and agent.
 3. **A message.** Post it in its thread. A question (`asks`) shows its `id` and, with `until`, when

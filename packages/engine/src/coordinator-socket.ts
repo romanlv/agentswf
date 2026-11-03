@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { ParticipantResultJson } from "@agentswf/contract/records";
-import { decodeHolderRequest, type NudgeWireResult } from "@agentswf/contract/wire";
+import { decodeHolderRequest, type NudgeWireResult, WIRE_VERSION } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import { realPath } from "./files";
 import type { MessagingEventBody } from "./messaging/messaging";
@@ -83,7 +83,10 @@ export function coordinatorSocket(options: {
   let closed = false;
   const id = (n: number) => `${options.attempt}.${n}`;
 
-  /** Undefined for a request no `awf` command makes: the connection closes unanswered. */
+  /**
+   * Undefined for a request no `awf` command makes: the connection closes unanswered. One of
+   * another wire version is refused naming both, which an older `awf send` or `awf reply` prints.
+   */
   const answer = async (
     frame: string,
   ): Promise<ParticipantResultJson | NudgeWireResult | undefined> => {
@@ -94,7 +97,13 @@ export function coordinatorSocket(options: {
       return undefined;
     }
     const decoded = decodeHolderRequest(parsed);
-    if (!decoded.ok) return undefined;
+    if (!decoded.ok)
+      return decoded.code === "unsupported-version"
+        ? refused(
+            "unsupported-version",
+            `this awf speaks wire version ${(parsed as { version: number }).version} and the run's engine ${WIRE_VERSION}: awf was installed anew while the run was live. Reach it with the awf it started with, or let it end and continue it under this one.`,
+          )
+        : undefined;
     const request = decoded.value;
     if (request.command === "nudge") {
       if (!options.nudged) return undefined;
@@ -119,9 +128,9 @@ export function coordinatorSocket(options: {
     const result =
       request.command === "reply" ? await holder.reply(asked) : await holder.send(asked);
     return result.code === "delivered"
-      ? { v: 1, code: "delivered", id: id(result.message) }
+      ? { v: 2, code: "delivered", id: id(result.message) }
       : {
-          v: 1,
+          v: 2,
           code: result.code,
           error: result.error,
           ...(result.choices ? { choices: result.choices } : {}),
@@ -214,7 +223,7 @@ function refused(
   code: Exclude<ParticipantResultJson["code"], "delivered">,
   error: string,
 ): ParticipantResultJson {
-  return { v: 1, code, error };
+  return { v: 2, code, error };
 }
 
 /**

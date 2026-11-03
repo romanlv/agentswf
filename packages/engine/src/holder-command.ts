@@ -72,7 +72,7 @@ export async function holderCommand(
       );
     return result.code === "delivered" ? 0 : 1;
   };
-  const refused = (code: ParticipantCode, error: string) => say({ v: 1, code, error }, "");
+  const refused = (code: ParticipantCode, error: string) => say({ v: 2, code, error }, "");
   const usage = (problem: string) => {
     io.stderr(`awf: ${problem}\n\n${replyUsage}`);
     return 2;
@@ -123,7 +123,7 @@ export async function holderCommand(
     }
     if (!answer)
       throw new Error(
-        `${status.ref} did not answer the request; it may run another version of awf`,
+        `${status.ref} did not answer, most likely as it runs an older awf than this one, which speaks wire version ${WIRE_VERSION}: reach it with the awf it started with, or let it end and continue it under this one.`,
       );
     const result = JSON.parse(answer) as ParticipantResultJson;
     if (result.code !== "delivered") return say(result, "");
@@ -179,11 +179,12 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     let agent: string | undefined;
     [ref, agent, text, ...extra] = words;
     if (author !== undefined) throw new Error("--author goes with --event-id");
-    if (!ref || !agent)
+    if (!ref || !agent?.trim())
       throw new Error(`${command} needs a run, <workflow>/<id> or <id>, and an agent`);
     target = { agent, ...(as === undefined ? {} : { as }) };
   }
   if (extra.length > 0) throw new Error("the text is one argument: quote it, or pipe it in");
+  if (as !== undefined && as.trim() === "") throw new Error("--as needs a participant's key");
   if (to !== undefined && !/^\d+\.\d+$/.test(to))
     throw new Error(`--to takes a question's id as awf inbox prints it, such as 1.5, not ${to}`);
   return {

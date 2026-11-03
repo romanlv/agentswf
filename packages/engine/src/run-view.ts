@@ -1,11 +1,13 @@
 import { join } from "node:path";
 import type {
   Activity,
+  AgentStateJson,
   AttemptRecord,
   OperationLivenessRecord,
   RunLogLine,
+  StageStateJson,
 } from "@agentswf/contract/records";
-import type { AgentKey, HarnessKind, StageOutcome } from "@agentswf/contract/workflow";
+import type { AgentKey, HarnessKind } from "@agentswf/contract/workflow";
 import { readLines } from "./jsonl";
 import { currentStage, estimateOf } from "./run-commands";
 import { type Cursor, type FileCache, readRun, timeOf } from "./run-read";
@@ -14,7 +16,7 @@ import type { RunStatus } from "./run-state";
 /** A stage of the attempt shown: running, reused or given from an earlier one, or how it ended. */
 export type StageView = {
   stage: string;
-  state: "running" | "interrupted" | "reused" | "provided" | StageOutcome;
+  state: StageStateJson;
   startedAt?: number;
   endedAt?: number;
 };
@@ -29,7 +31,7 @@ export type AgentView = {
   caller: boolean;
   /** The stage its last operation ran in. */
   stage?: string;
-  state: string;
+  state: AgentStateJson;
   turns: number;
   /** When its current operation, or its last, started. */
   since?: number;
@@ -137,7 +139,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
   const stage = currentStage(status, read.log.lines);
   // A run whose process is gone left what it was doing undone.
   if (status.state === "interrupted") {
-    for (const each of agents.values()) if (each.state === "working") each.state = "was working";
+    for (const each of agents.values()) if (each.state === "working") each.state = "interrupted";
     for (const each of stages) if (each.state === "running") each.state = "interrupted";
   }
   if (status.state === "running") {
@@ -153,6 +155,9 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
       } else if (phase?.kind === "awaiting-reply" && phase.peer !== undefined) {
         agent(key).live = { phase: "awaiting-reply", peer: phase.peer, ...until };
       }
+      // One word with `wfa peers`: the phase is the state; `live` keeps its detail.
+      const { live } = agent(key);
+      if (live && agent(key).state === "working") agent(key).state = live.phase;
     }
   }
   const since = attempt ? Date.parse(attempt.started) : Number.NEGATIVE_INFINITY;

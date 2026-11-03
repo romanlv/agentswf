@@ -337,6 +337,16 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   each logged; a workflow that declares some reply or end refuses an undeclared `to: "code"` or
   `start()`. The mailbox keeps its record names. The examples with a participant routed to the code
   and the Datadog sketch use the declared form.
+  Task 8 built, awaiting review: `--timeout` (`awf run`, `awf test`, `wfa`) and `--wait` (`awf
+  logs`, `awf inbox`) take the one duration grammar, `1d` and `90s` included; a whole number of
+  `ms`, and a bare `--wait` number of seconds, still work, each said once on stderr. Wire version 6:
+  `wfa peers` gives each peer a `kind`, `agent` or `participant`, and an agent awaiting a reply is
+  `awaiting-reply`; a send refused while the sender awaits one is `already-awaiting`. JSON `v` 2 for
+  `awf reply`/`awf send --json`, whose refusal `stopped` is `peer-stopped`, and for
+  `awf runs {run} --json`, whose agent and stage `state` are fixed sets (`awaiting-reply` as `wfa`
+  says it, `interrupted`, not `was working`). A `wfa` and an engine of different wire versions, as
+  after installing awf anew while a run is live, are refused with an error naming both, either way round; so is an `awf send` or
+  `awf reply` of another version by a run's engine.
 
 ## Known gaps
 

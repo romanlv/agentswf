@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  AGENT_STATES,
   type AttemptRecord,
   MAILBOX_RECORD_VERSION,
   type RunJson,
@@ -130,7 +131,7 @@ describe("awf runs", () => {
         new Date(T(13)).toTimeString().slice(0, 5),
       ),
     );
-    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90$/);
+    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90s$/);
   });
 
   test("a failed run says why, where its records are, and where to look", async () => {
@@ -187,8 +188,11 @@ describe("awf runs", () => {
     expect(lines[0]).toMatch(
       /^review\/r3 {2}interrupted {2}stage fix {2}last event \d\d:\d\d:\d\d$/,
     );
-    expect(lines.some((line) => /fixer +was working +turn 1/.test(line))).toBe(true);
+    expect(lines.some((line) => /fixer +interrupted +turn 1/.test(line))).toBe(true);
     expect(lines.at(-1)).toBe("continue: awf run review.ts --id r3 --continue");
+    const json = JSON.parse((await awfRuns(cwd, "review/r3", "--json")).stdout) as RunJson;
+    expect(json.agents.map((agent) => agent.state)).toEqual(["interrupted"]);
+    expect(AGENT_STATES).toContain(json.agents[0]!.state);
   });
 
   test("--json keeps durable fields apart from best-effort ones, and names next", async () => {
@@ -205,7 +209,7 @@ describe("awf runs", () => {
     );
     const json = JSON.parse((await awfRuns(cwd, "review/r4", "--json")).stdout);
     expect(json).toMatchObject({
-      v: 1,
+      v: 2,
       run: { ref: "review/r4", state: "running", checked: true },
       agents: [
         {
@@ -270,6 +274,7 @@ describe("awf runs", () => {
       new RegExp(`^ {4}fixer +waiting +turn 1 {2}"CI runs" \\(check-in due ${due}\\)`),
     );
     const json = JSON.parse((await awfRuns(cwd, "review/w1", "--json")).stdout);
+    expect(json.agents[0].state).toBe("waiting");
     expect(json.agents[0].live).toEqual({
       phase: "waiting",
       reason: "CI runs",
@@ -296,9 +301,10 @@ describe("awf runs", () => {
     const due = new Date(until).toTimeString().slice(0, 5);
     const { stdout } = await awfRuns(cwd, "review/a1");
     expect(stdout.split("\n")[1]).toMatch(
-      new RegExp(`^ {4}fixer +awaiting +turn 1 {2}reviewer's reply \\(until ${due}\\)`),
+      new RegExp(`^ {4}fixer +awaiting-reply +turn 1 {2}from reviewer \\(until ${due}\\)`),
     );
     const json = JSON.parse((await awfRuns(cwd, "review/a1", "--json")).stdout);
+    expect(json.agents[0].state).toBe("awaiting-reply");
     expect(json.agents[0].live).toEqual({
       phase: "awaiting-reply",
       peer: "reviewer",

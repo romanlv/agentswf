@@ -263,7 +263,7 @@ describe("awf logs", () => {
       "@a1.0 hh:mm:ss fix  fixer  tool Bash  bun test",
       expect.stringMatching(/^@a1\.[0-9a-f]+ hh:mm:ss fix {2}fixer {2}message {2}9 chars$/),
     ]);
-    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90$/);
+    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90s$/);
   });
 
   test("--after gives only what is new; --wait returns when it comes, or says nothing came", async () => {
@@ -271,9 +271,19 @@ describe("awf logs", () => {
     const first = await awfLogs(f, ["--json"]);
     const cursor = JSON.parse(first.stdout).cursor;
 
-    const quiet = await awfLogs(f, ["--after", cursor, "--wait", "90"]);
+    const quiet = await awfLogs(f, ["--after", cursor, "--wait", "90s"]);
     expect(quiet.stdout.split("\n").at(-1)).toMatch(
-      /^nothing new in 90s · running, stage fix · next: awf logs review\/r1 --after c1\.\S+ --wait 90$/,
+      /^nothing new in 90s · running, stage fix · next: awf logs review\/r1 --after c1\.\S+ --wait 90s$/,
+    );
+    expect(quiet.stderr).toBe("");
+    // A bare number is still seconds until 0.1.0, said once.
+    const bare = await awfLogs(f, ["--after", cursor, "--wait", "90"]);
+    expect(bare.stdout).toBe(quiet.stdout);
+    expect(bare.stderr).toBe(
+      "awf: a bare number for --wait, 90, is deprecated; give a duration, --wait 90s",
+    );
+    expect((await awfLogs(f, ["--after", cursor, "--wait", "1.5m"])).stdout).toContain(
+      "nothing new in 90s",
     );
 
     let added = false;
@@ -283,7 +293,7 @@ describe("awf logs", () => {
       addActivity(f, T(4), [{ type: "text", text: "Done." }]);
       addLines(f, turnEnded(5));
     });
-    const woke = await awfLogs(f, ["--after", cursor, "--wait", "90", "--json"], clock);
+    const woke = await awfLogs(f, ["--after", cursor, "--wait", "90s", "--json"], clock);
     const page = JSON.parse(woke.stdout);
     expect(page.events.map((event: { kind: string }) => event.kind)).toEqual(["activity", "turn"]);
     expect(page.events[1]).toMatchObject({
@@ -322,7 +332,7 @@ describe("awf logs", () => {
       seen.push(...page.events.map((event: { handle: string }) => event.handle));
       cursor = page.cursor;
       if (!page.more.newer) {
-        expect(page.next.at(-1)).toBe("90");
+        expect(page.next.at(-1)).toBe("90s");
         break;
       }
       expect(page.next.at(-2)).not.toBe("--wait");
@@ -507,7 +517,7 @@ describe("awf logs", () => {
     });
     const waited = await awfLogs(
       f,
-      ["--agent", "nobody", "--after", cursor, "--wait", "90"],
+      ["--agent", "nobody", "--after", cursor, "--wait", "90s"],
       clock,
     );
     expect(slept).toBe(1);
@@ -545,7 +555,7 @@ describe("awf logs", () => {
       if (slept === 2) addActivity(f, T(4), [{ type: "text", text: "Here." }]);
     });
     const page = JSON.parse(
-      (await awfLogs(f, ["--after", cursor, "--wait", "90", "--json"], clock)).stdout,
+      (await awfLogs(f, ["--after", cursor, "--wait", "90s", "--json"], clock)).stdout,
     );
     expect(page.events.map((event: { kind: string }) => event.kind)).toEqual(["activity"]);
   });
@@ -558,15 +568,15 @@ describe("awf logs", () => {
       if (slept === 2) addLines(f, { kind: "stage-started", at: T(4), stage: "review" });
     });
     const page = JSON.parse(
-      (await awfLogs(f, ["--stage", "review", "--wait", "90", "--json"], clock)).stdout,
+      (await awfLogs(f, ["--stage", "review", "--wait", "90s", "--json"], clock)).stdout,
     );
     expect(page.events.map((event: { kind: string }) => event.kind)).toEqual(["stage-started"]);
     expect(slept).toBe(3);
     // With something to show, it answers at once.
     slept = 0;
-    await awfLogs(f, ["--wait", "90"], clock);
+    await awfLogs(f, ["--wait", "90s"], clock);
     expect(slept).toBe(0);
-    expect((await awfLogs(f, ["@e1", "--wait", "5"])).exitCode).toBe(2);
+    expect((await awfLogs(f, ["@e1", "--wait", "5s"])).exitCode).toBe(2);
   });
 
   test("the log's own text is masked and kept to one line, as is what --json publishes", async () => {
@@ -789,7 +799,7 @@ describe("awf logs", () => {
     symlinkSync(f.cwd, spaced);
     const read = await awfLogs(f, ["--cwd", spaced]);
     expect(read.stdout.split("\n").at(-1)).toMatch(
-      new RegExp(`^next: awf logs review/r1 --cwd '${spaced}' --after c1\\.\\S+ --wait 90$`),
+      new RegExp(`^next: awf logs review/r1 --cwd '${spaced}' --after c1\\.\\S+ --wait 90s$`),
     );
   });
 
@@ -805,7 +815,8 @@ describe("awf logs", () => {
     });
     expect((await awfLogs(f, ["review/r1", "@a9.ff"])).exitCode).toBe(1);
     expect((await awfLogs(f, ["--follow", "--json"])).exitCode).toBe(2);
-    expect((await awfLogs(f, ["--wait", "301"])).exitCode).toBe(2);
+    for (const wait of ["301", "301s", "6m", "-1s", "90x", "1e2"])
+      expect((await awfLogs(f, ["--wait", wait])).exitCode).toBe(2);
     expect((await awfLogs(f, ["--full"])).exitCode).toBe(2);
   });
 });

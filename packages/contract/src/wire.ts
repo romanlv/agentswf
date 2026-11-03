@@ -1,12 +1,14 @@
 import { isRecord } from "./schema";
 
 /**
- * Version 5 adds `tool`, a call of one of the agent's tools, and a result given as flags, `args`.
- * Version 4 added messaging: `peers`, `send` and `reply`, which name no call id, and the line every
- * response leads with about what the agent's open operation owes or awaits. The per-agent
- * connection remains the authority.
+ * Version 6 gives each state one word: a peer has a `kind`, `agent` or `participant`, an agent
+ * awaiting a reply is `awaiting-reply`, and a send or reply refused while the sender awaits one is
+ * `already-awaiting`. Version 5 added `tool`, a call of one of the agent's tools, and a result
+ * given as flags, `args`. Version 4 added messaging: `peers`, `send` and `reply`, which name no
+ * call id, and the line every response leads with about what the agent's open operation owes or
+ * awaits. The per-agent connection remains the authority.
  */
-export const WIRE_VERSION = 5 as const;
+export const WIRE_VERSION = 6 as const;
 
 /**
  * An input as `wfa` was given it, which it sends without knowing the schema: `raw`, JSON from standard
@@ -115,7 +117,7 @@ export const SEND_CODES = [
   "peer-stopped",
   "closed",
   "too-large",
-  "awaiting",
+  "already-awaiting",
   "unsupported",
   "cycle",
   "limit",
@@ -129,7 +131,7 @@ export const REPLY_CODES = [
   "expired",
   "closed",
   "too-large",
-  "awaiting",
+  "already-awaiting",
   "unsupported",
   "cycle",
   "limit",
@@ -150,9 +152,11 @@ export const TOOL_CODES = [
  * Why `awf reply` or `awf send` was refused, in the order checked; the first that applies is
  * returned. `expired` is a reply's `--to` naming anything but an open question from that agent to
  * this participant, `--as` included, or no `--to` with none open; like `wfa reply`'s, it comes
- * before the route's state.
+ * before the route's state. `unsupported-version`: the run's engine is another version of awf than
+ * the command's.
  */
 export const PARTICIPANT_CODES = [
+  "unsupported-version",
   "not-found",
   "ended",
   "no-participant",
@@ -160,7 +164,7 @@ export const PARTICIPANT_CODES = [
   "ambiguous",
   "expired",
   "no-route",
-  "stopped",
+  "peer-stopped",
   "closed",
   "too-large",
   "limit",
@@ -220,21 +224,32 @@ export type WaitingResponse =
     } & Owing)
   | Rejection<ResultSubmitCode>;
 
-/** A peer as `wfa peers --json` prints it. */
+/** An agent peer's state in `wfa peers`. */
+export const PEER_STATES = ["not-started", "working", "idle", "awaiting-reply", "stopped"] as const;
+export type PeerState = (typeof PEER_STATES)[number];
+
+/**
+ * A peer as `wfa peers --json` prints it: an agent of the run, or a participant outside it, such
+ * as a coordinator, which has no state, is never busy and has `queued` 0.
+ */
 export type PeerView = {
   peer: string;
   /** `send` on a route from this agent, `reply` on one only to it, `both` either way. */
   can: "send" | "reply" | "both";
-  /** `outside` is a participant outside the run, such as a coordinator: never busy, `queued` 0. */
-  state: "not-started" | "working" | "idle" | "awaiting" | "stopped" | "outside";
-  /** Whose answer it awaits, when `awaiting`. */
-  awaits?: string;
-  /** Why it stopped, when `stopped`. */
-  reason?: string;
   /** This agent's messages it has not been shown yet. */
   queued: number;
   purpose: string;
-};
+} & (
+  | {
+      kind: "agent";
+      state: PeerState;
+      /** Whose answer it awaits, when `awaiting-reply`. */
+      awaits?: string;
+      /** Why it stopped, when `stopped`. */
+      reason?: string;
+    }
+  | { kind: "participant" }
+);
 
 export type PeersResponse =
   | ({
@@ -339,7 +354,10 @@ function checkEnvelope(value: unknown, label: string): WireDecodeResult<Record<s
     return {
       ok: false,
       code: "unsupported-version",
-      error: `unsupported wire version; expected ${WIRE_VERSION}`,
+      error:
+        label === "request"
+          ? `the request is wire version ${value.version} and this end speaks ${WIRE_VERSION}: they are different versions of awf`
+          : `the engine answered in wire version ${value.version} and this client speaks ${WIRE_VERSION}: they are different versions of awf`,
     };
   }
   return { ok: true, value };
@@ -391,8 +409,8 @@ function decodeGivenInput(request: Record<string, unknown>): WireDecodeResult<Gi
  * A holder's request on a run's coordinator socket, as `awf reply` and `awf send` make it: speaking
  * as `participant` (`--as`), to the agent at its peer address, answering question `to`
  * (`{attempt}.{n}`) for a reply. Internal: holders run the commands, which ship with the engine
- * that answers them; one this engine cannot decode is closed unanswered. The response is a
- * `ParticipantResultJson`.
+ * that answers them; one of another version is refused `unsupported-version`, naming both, and any
+ * other this engine cannot decode is closed unanswered. The response is a `ParticipantResultJson`.
  * @internal
  */
 export type HolderWireRequest = {
@@ -708,7 +726,7 @@ export function decodeControlResponse(value: unknown): WireDecodeResult<ControlR
   }
 }
 
-const PEER_STATES = new Set(["not-started", "working", "idle", "awaiting", "stopped", "outside"]);
+const PEER_STATE_SET = new Set<string>(PEER_STATES);
 const PEER_ABILITIES = new Set(["send", "reply", "both"]);
 
 function decodePeersResponse(
@@ -734,29 +752,9 @@ function decodePeersResponse(
   if (!Array.isArray(peers)) return invalid("response.peers must be a list");
   const views: PeerView[] = [];
   for (const each of peers) {
-    if (
-      !isRecord(each) ||
-      extraFields(each, ["peer", "can", "state", "awaits", "reason", "queued", "purpose"]) ||
-      !nonEmpty(each.peer) ||
-      !PEER_ABILITIES.has(each.can as string) ||
-      !PEER_STATES.has(each.state as string) ||
-      !optionalNonEmpty(each.awaits) ||
-      !optionalNonEmpty(each.reason) ||
-      typeof each.queued !== "number" ||
-      !Number.isSafeInteger(each.queued) ||
-      each.queued < 0 ||
-      typeof each.purpose !== "string"
-    )
-      return invalid("response.peers holds a malformed peer");
-    views.push({
-      peer: each.peer,
-      can: each.can as PeerView["can"],
-      state: each.state as PeerView["state"],
-      ...(each.awaits === undefined ? {} : { awaits: each.awaits }),
-      ...(each.reason === undefined ? {} : { reason: each.reason }),
-      queued: each.queued,
-      purpose: each.purpose,
-    });
+    const view = decodePeer(each);
+    if (!view) return invalid("response.peers holds a malformed peer");
+    views.push(view);
   }
   return {
     ok: true,
@@ -776,6 +774,44 @@ function decodePeersResponse(
       text,
       ...owing,
     },
+  };
+}
+
+function decodePeer(each: unknown): PeerView | undefined {
+  if (
+    !isRecord(each) ||
+    !nonEmpty(each.peer) ||
+    !PEER_ABILITIES.has(each.can as string) ||
+    typeof each.queued !== "number" ||
+    !Number.isSafeInteger(each.queued) ||
+    each.queued < 0 ||
+    typeof each.purpose !== "string"
+  )
+    return undefined;
+  const common = {
+    peer: each.peer,
+    can: each.can as PeerView["can"],
+    queued: each.queued,
+    purpose: each.purpose,
+  };
+  if (each.kind === "participant")
+    return extraFields(each, ["peer", "can", "kind", "queued", "purpose"])
+      ? undefined
+      : { ...common, kind: "participant" };
+  if (
+    each.kind !== "agent" ||
+    extraFields(each, ["peer", "can", "kind", "state", "awaits", "reason", "queued", "purpose"]) ||
+    !PEER_STATE_SET.has(each.state as string) ||
+    !optionalNonEmpty(each.awaits) ||
+    !optionalNonEmpty(each.reason)
+  )
+    return undefined;
+  return {
+    ...common,
+    kind: "agent",
+    state: each.state as PeerState,
+    ...(each.awaits === undefined ? {} : { awaits: each.awaits }),
+    ...(each.reason === undefined ? {} : { reason: each.reason }),
   };
 }
 

@@ -6,6 +6,8 @@ import {
   decodeResultSubmitRequest,
   decodeResultSubmitResponse,
   ENVELOPE_CODES,
+  PARTICIPANT_CODES,
+  PEER_STATES,
   REPLY_CODES,
   RESULT_CODES,
   SEND_CODES,
@@ -324,7 +326,8 @@ describe("messaging wire", () => {
           {
             peer: "reviewer",
             can: "both",
-            state: "awaiting",
+            kind: "agent",
+            state: "awaiting-reply",
             awaits: "implementer",
             queued: 0,
             purpose: "Review it.",
@@ -332,6 +335,7 @@ describe("messaging wire", () => {
           {
             peer: "architect",
             can: "send",
+            kind: "agent",
             state: "stopped",
             reason: "design settled",
             queued: 1,
@@ -343,13 +347,15 @@ describe("messaging wire", () => {
         text: "peer  you can  state",
       },
     ];
-    // A wait on an outside participant may have no limit, and it shows in `wfa peers` as `outside`.
+    // A wait on an outside participant may have no limit, and it shows in `wfa peers` by its kind.
     const outside: object[] = [
       { version: WIRE_VERSION, kind: "awaiting-reply", peer: "coordinator", notice: "waiting." },
       {
         version: WIRE_VERSION,
         kind: "peers",
-        peers: [{ peer: "coordinator", can: "both", state: "outside", queued: 0, purpose: "Ask." }],
+        peers: [
+          { peer: "coordinator", can: "both", kind: "participant", queued: 0, purpose: "Ask." },
+        ],
         owes: [],
         awaits: { peer: "coordinator" },
         text: "peer  you can  state",
@@ -367,15 +373,67 @@ describe("messaging wire", () => {
       { ...responses[4], awaits: { peer: "x", until: -1 } },
       {
         ...responses[4],
-        peers: [{ peer: "x", can: "all", state: "idle", queued: 0, purpose: "" }],
+        peers: [{ peer: "x", can: "all", kind: "agent", state: "idle", queued: 0, purpose: "" }],
       },
       {
         ...responses[4],
-        peers: [{ peer: "x", can: "send", state: "idle", queued: -1, purpose: "" }],
+        peers: [{ peer: "x", can: "send", kind: "agent", state: "idle", queued: -1, purpose: "" }],
       },
     ]) {
       expect(decodeControlResponse(broken)).toMatchObject({ ok: false });
     }
+  });
+
+  // The design's §7 table: one word per state, the old words refused.
+  test("each state has one word: awaiting-reply, peer-stopped, already-awaiting, a participant's kind", () => {
+    const peers = (each: object) => ({
+      version: WIRE_VERSION,
+      kind: "peers",
+      peers: [{ peer: "x", can: "both", queued: 0, purpose: "", ...each }],
+      owes: [],
+      text: "",
+    });
+    for (const state of PEER_STATES)
+      expect(decodeControlResponse(peers({ kind: "agent", state }))).toMatchObject({ ok: true });
+    expect(decodeControlResponse(peers({ kind: "participant" }))).toMatchObject({ ok: true });
+    for (const old of [
+      { state: "awaiting" },
+      { state: "outside" },
+      { kind: "agent", state: "awaiting" },
+      { kind: "agent", state: "outside" },
+      { kind: "participant", state: "idle" },
+      { kind: "agent" },
+    ])
+      expect(decodeControlResponse(peers(old))).toMatchObject({ ok: false });
+
+    expect(SEND_CODES).toContain("peer-stopped");
+    expect(PARTICIPANT_CODES).toContain("peer-stopped");
+    expect(PARTICIPANT_CODES).not.toContain("stopped" as never);
+    for (const codes of [SEND_CODES, REPLY_CODES]) {
+      expect(codes).toContain("already-awaiting");
+      expect(codes).not.toContain("awaiting" as never);
+    }
+    const rejected = { version: WIRE_VERSION, kind: "rejected", error: "x" } as const;
+    for (const code of ["peer-stopped", "already-awaiting"])
+      expect(decodeResponseFor("send", { ...rejected, code })).toMatchObject({ ok: true });
+    expect(decodeResponseFor("reply", { ...rejected, code: "already-awaiting" })).toMatchObject({
+      ok: true,
+    });
+    expect(decodeResponseFor("send", { ...rejected, code: "awaiting" })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  test("a version-5 request or response is refused naming both versions", () => {
+    const request = decodeControlRequest({ version: 5, command: "peers" });
+    expect(request).toMatchObject({ ok: false, code: "unsupported-version" });
+    expect(!request.ok && request.error).toBe(
+      `the request is wire version 5 and this end speaks ${WIRE_VERSION}: they are different versions of awf`,
+    );
+    const response = decodeControlResponse({ version: 5, kind: "accepted" });
+    expect(!response.ok && response.error).toBe(
+      `the engine answered in wire version 5 and this client speaks ${WIRE_VERSION}: they are different versions of awf`,
+    );
   });
 });
 

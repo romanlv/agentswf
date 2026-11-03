@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
-import { formatDuration } from "./duration";
+import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/logs.txt" with { type: "text" };
 import {
@@ -85,7 +85,7 @@ export async function logsCommand(
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseLogs(parsed.rest);
+    options = parseLogs(parsed.rest, (line) => out.stderr(line));
     if (options.follow && json) throw new Error("--follow is for reading; --json takes --wait");
   } catch (error) {
     out.stderr(`awf: ${messageOf(error)}\n\n${logsUsage}`);
@@ -122,7 +122,7 @@ export async function logsCommand(
   }
 }
 
-function parseLogs(rest: readonly string[]): LogsOptions {
+function parseLogs(rest: readonly string[], deprecated: (line: string) => void): LogsOptions {
   const options: LogsOptions = {
     limit: DEFAULT_LIMIT,
     waitSeconds: 0,
@@ -147,11 +147,7 @@ function parseLogs(rest: readonly string[]): LogsOptions {
         throw new Error("--limit needs a whole number");
       options.limit = limit;
     } else if (arg === "--wait") {
-      const seconds = Number(value());
-      if (!Number.isFinite(seconds) || seconds < 0 || seconds > MAX_WAIT_SECONDS) {
-        throw new Error(`--wait needs seconds from 0 to ${MAX_WAIT_SECONDS}`);
-      }
-      options.waitSeconds = seconds;
+      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS, deprecated);
       waitGiven = true;
     } else if (arg === "--follow") options.follow = true;
     else if (arg === "--full") options.full = true;

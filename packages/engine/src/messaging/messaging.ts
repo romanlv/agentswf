@@ -504,7 +504,7 @@ export class Messaging {
       return holderRefusal("no-route", `the workflow allows no route from ${from} to ${agent}.`);
     if (view.state === "stopped")
       return holderRefusal(
-        "stopped",
+        "peer-stopped",
         `${agent} has stopped${view.reason ? ` (${JSON.stringify(view.reason)})` : ""}.`,
       );
     const route = initiating.find((each) => each.open);
@@ -940,18 +940,20 @@ export class Messaging {
     return { kind: "ok", operation, owed: latest, bytes };
   }
 
-  /** `awaiting`, `unsupported` and `cycle`, checked for any question. */
+  /** `already-awaiting`, `unsupported` and `cycle`, checked for any question. */
   #checkAsk(
     from: AgentKey,
     peer: AgentKey,
     operation: Operation,
     /** The question a reply answers, which counts as answered here. */
     answering?: Obligation,
-  ): { kind: "refused"; code: "awaiting" | "unsupported" | "cycle"; error: string } | undefined {
+  ):
+    | { kind: "refused"; code: "already-awaiting" | "unsupported" | "cycle"; error: string }
+    | undefined {
     const wfa = this.#host.launcher(from);
     if (operation.awaits?.state === "open") {
       return refuse(
-        "awaiting",
+        "already-awaiting",
         `you already await ${operation.awaits.owedBy}. End your turn, or send without --await-reply.`,
       );
     }
@@ -1373,7 +1375,7 @@ export class Messaging {
         return {
           peer,
           can: this.#can(route, agent),
-          state: "outside",
+          kind: "participant",
           queued: 0,
           purpose: route.purpose,
         };
@@ -1386,8 +1388,13 @@ export class Messaging {
       return {
         peer,
         can: this.#can(route, agent),
+        kind: "agent",
         state:
-          view?.state === "stopped" ? "stopped" : awaiting ? "awaiting" : (view?.state ?? "idle"),
+          view?.state === "stopped"
+            ? "stopped"
+            : awaiting
+              ? "awaiting-reply"
+              : (view?.state ?? "idle"),
         ...(awaiting && view?.state !== "stopped" ? { awaits: awaiting } : {}),
         ...(view?.state === "stopped" && view.reason ? { reason: view.reason } : {}),
         queued,

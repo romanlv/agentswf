@@ -44,7 +44,12 @@ export type RunCommand = {
 };
 
 /** `awf run`'s options and workflow; `"help"` for a `-h` or `--help` anywhere before `--`. */
-export function parseCommand(argv: readonly string[], cwd: string): RunCommand | "help" {
+export function parseCommand(
+  argv: readonly string[],
+  cwd: string,
+  /** Told each deprecated form given, once. */
+  deprecated: (line: string) => void = () => {},
+): RunCommand | "help" {
   if (argv[0] !== "run") throw new Error("expected the run command");
   const end = argv.indexOf("--");
   const own = end < 0 ? argv : argv.slice(0, end);
@@ -91,8 +96,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
     }
     const value = argv[index + 1];
     if (option === "--timeout") {
-      if (!value) throw new Error("--timeout needs a duration such as 30m");
-      timeoutMilliseconds = parseDuration(value);
+      if (!value) throw new Error("--timeout needs a duration such as 30m or 1d");
+      timeoutMilliseconds = parseDuration(value, "--timeout", deprecated);
       timeout = value;
     } else if (option === "--run-root") {
       if (!value) throw new Error("--run-root needs a directory");

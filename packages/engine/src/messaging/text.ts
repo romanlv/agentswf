@@ -228,11 +228,13 @@ export function peersTable(
   const rows = peers.map((peer) => [
     peer.peer,
     peer.can,
-    peer.state === "awaiting"
-      ? `awaiting ${peer.awaits === viewer ? "you" : peer.awaits}`
-      : peer.state === "stopped" && peer.reason
-        ? `stopped (${peer.reason})`
-        : peer.state,
+    peer.kind === "participant"
+      ? "participant"
+      : peer.state === "awaiting-reply"
+        ? `awaiting-reply from ${peer.awaits === viewer ? "you" : peer.awaits}`
+        : peer.state === "stopped" && peer.reason
+          ? `stopped (${peer.reason})`
+          : peer.state,
     peer.queued > 0 ? String(peer.queued) : "",
     quoted(peer.purpose),
   ]);

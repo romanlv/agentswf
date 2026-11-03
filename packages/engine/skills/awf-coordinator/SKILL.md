@@ -15,11 +15,11 @@ can from the purpose and what the agents say; ask the user when a question needs
 Read everything first, then from where you left off:
 
 ```sh
-awf inbox --json --wait 100
-awf inbox --json --wait 100 --after {cursor}
+awf inbox --json --wait 100s
+awf inbox --json --wait 100s --after {cursor}
 ```
 
-`--wait 100` keeps under the shell tool's 120 s limit. Each line is one JSON item; keep the last
+`--wait 100s` keeps under the shell tool's 120 s limit. Each line is one JSON item; keep the last
 one's `cursor` and pass it next time. `awf inbox {workflow}/{id}` reads one run instead of all.
 Nothing new after the wait prints nothing: run it again.
 

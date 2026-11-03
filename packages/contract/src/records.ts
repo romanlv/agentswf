@@ -860,9 +860,50 @@ export type RunsJson = {
   more?: { older?: true };
 };
 
-/** `awf runs {ref} --json`: durable fields, and best effort under each agent's `live`. */
+/**
+ * An agent's state in `awf runs {ref} --json`, from the run's log: `idle` before its first
+ * operation, `working` on one, `waiting` in it after `wfa waiting`, `awaiting-reply` in it on a
+ * peer's answer, then how its last ended, a `TurnOutcome`'s kind (`failed` too for an operation
+ * that failed outside a turn); `stopped` when it stopped while working, and `interrupted` when the
+ * run's process went while it worked.
+ */
+export const AGENT_STATES = [
+  "idle",
+  "working",
+  "waiting",
+  "awaiting-reply",
+  "answered",
+  "unanswered",
+  "blocked",
+  "timed-out",
+  "failed",
+  "cancelled",
+  "stopped",
+  "interrupted",
+] as const;
+export type AgentStateJson = (typeof AGENT_STATES)[number];
+
+/**
+ * A stage's state in `awf runs {ref} --json`: `running`, `interrupted` when the run's process went
+ * while it ran, `reused` or `provided` from an earlier attempt or `--values`, or how it ended.
+ */
+export const STAGE_STATES = [
+  "running",
+  "interrupted",
+  "reused",
+  "provided",
+  "succeeded",
+  "stopped",
+  "failed",
+] as const;
+export type StageStateJson = (typeof STAGE_STATES)[number];
+
+/**
+ * `awf runs {ref} --json`: durable fields, and best effort under each agent's `live`. Version 2
+ * made an agent's `state` one of `AGENT_STATES`, and a stage's one of `STAGE_STATES`.
+ */
 export type RunJson = {
-  v: 1;
+  v: 2;
   run: RunHeadJson & { estimate?: number; dir: string };
   attempts: {
     attempt: number;
@@ -872,13 +913,13 @@ export type RunJson = {
     stage?: string;
     reason?: string;
   }[];
-  stages: { stage: string; state: string; started?: string; ended?: string }[];
+  stages: { stage: string; state: StageStateJson; started?: string; ended?: string }[];
   agents: {
     key: AgentKey;
     harness?: HarnessKind;
     caller?: true;
     stage?: string;
-    state: string;
+    state: AgentStateJson;
     turns: number;
     sessions: { harness: HarnessKind; id: string; files: string[] }[];
     live: {
@@ -997,11 +1038,12 @@ export type InboxItemJson = {
 /**
  * `awf reply --json` and `awf send --json`. `delivered`'s `id` is what an `awf inbox` item names:
  * for a reply, the question answered, as its `answered` item has it; for a send, the new message.
+ * Version 2 renamed the refusal `stopped` to `peer-stopped`, as `wfa` has it.
  */
 export type ParticipantResultJson =
-  | { v: 1; code: "delivered"; id: string }
+  | { v: 2; code: "delivered"; id: string }
   | {
-      v: 1;
+      v: 2;
       code: ParticipantCode;
       /** The refusal as the command prints it, naming what to do instead. */
       error: string;

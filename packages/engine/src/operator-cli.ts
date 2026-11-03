@@ -285,7 +285,7 @@ async function runCommand(
   const { stdout, stderr, notice, terminal, now } = output;
   let parsed: RunCommand | "help";
   try {
-    parsed = parseCommand(argv, environment.cwd ?? process.cwd());
+    parsed = parseCommand(argv, environment.cwd ?? process.cwd(), stderr);
   } catch (error) {
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;

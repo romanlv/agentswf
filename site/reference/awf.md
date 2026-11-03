@@ -26,6 +26,20 @@ awf --version
 An unknown command exits 2 and names the commands it is closest to; a workflow file given as a
 command gets the `awf run` line it meant.
 
+## JSON {#json}
+
+A command's `--json` carries `"v"`, which changes when a field is renamed or removed. It is 1 for
+every command but two at 2: `awf runs {run} --json`, whose agent and stage states are
+[a fixed set](#runs), and `awf send --json` and `awf reply --json`, whose refusal `stopped` is
+[`peer-stopped`](#reply).
+
+## Durations {#durations}
+
+`--timeout` and `--wait` take a duration, as a workflow does: a decimal and `s`, `m`, `h` or `d`,
+such as `90s`, `1.5h` or `1d`. Until 0.1.0 two older forms still work, each with a line on
+standard error naming its replacement: a whole number of `ms`, `--timeout 500ms`, and a bare
+number of seconds for `--wait`, `--wait 90`.
+
 ## Run a workflow
 
 ### awf run {#run}
@@ -90,6 +104,21 @@ and what to run next. [Following runs](/guide/following-runs) teaches it.
 <!--@include: @/../packages/engine/src/help/runs.txt-->
 ```
 
+In `awf runs {run}`, and its `--json`, an agent's state is one word, the one `wfa peers` uses:
+
+| State | The agent |
+| --- | --- |
+| `idle` | has had no turn yet |
+| `working` | is in a turn |
+| `waiting` | is in a turn, after `wfa waiting`; `live` has its reason and check-in |
+| `awaiting-reply` | is in a turn, awaiting a peer's reply; `live` names the peer and until when |
+| `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, `cancelled` | ended its last turn so |
+| `stopped` | was stopped while in a turn |
+| `interrupted` | was in a turn when the run's process went (version 1 said `was working`) |
+
+A stage's state is `running`, `interrupted`, `reused`, `provided`, or how it ended: `succeeded`,
+`stopped` or `failed`.
+
 ### awf logs {#logs}
 
 What a run did and is doing, its events and its agents' sessions merged by time, read once or
@@ -123,6 +152,13 @@ share one help.
 ```text
 <!--@include: @/../packages/engine/src/help/reply.txt-->
 ```
+
+With `--json`, each prints one line, `{"v": 2, "code": "delivered", "id": …}`, or a refusal with
+its `code` and `error`: `not-found`, `ended`, `no-participant`, `unknown-agent`, `ambiguous`
+(with `choices`), `expired`, `no-route`, `peer-stopped`, `closed`, `too-large`, `limit`,
+`inbox-full`, or `unsupported-version`, when the run's engine is another version of awf than the
+command's, as after installing awf anew while the run is live. Version 1 named `peer-stopped`
+`stopped`.
 
 ## This machine
 

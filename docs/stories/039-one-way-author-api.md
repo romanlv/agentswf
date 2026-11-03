@@ -202,7 +202,7 @@ Betas from the design's §8 in brackets.
 - [x] 5. One duration and `timeout` in the API (B)
 - [x] 6. One `testWorkflow` signature (B)
 - [x] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
-- [ ] 8. Durations and one word per state on the CLI and the wire (D)
+- [x] 8. Durations and one word per state on the CLI and the wire (D)
 - [ ] 9. Pane workspace and keeping panes move to the operator (E)
 - [ ] 10. What tasks 1–9 deprecated is removed (F)
 
@@ -469,11 +469,11 @@ same grammar.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -731,6 +731,23 @@ A targeted re-review found:
 
 Not run: the live check of a participant routed to the code (one cheap model turn). Its commands
 are in the task 7 notes.
+
+### Task 8
+
+Architecture and scope review: nothing blocking.
+- `awf runs {run} --json` still said `working` for an agent that `wfa peers` and the human line
+  called `awaiting-reply`. With `v` 2 unpublished, the state is now one word everywhere, `waiting`
+  and `awaiting-reply` included.
+- The agent states are tied to `TurnOutcome` both ways, and stage states got a closed type too.
+- A missing answer is "most likely" an older awf, not certainly.
+
+Correctness and proof review: durations were checked against HEAD's parser on edge inputs; nothing
+that worked changes meaning, and the forms that only worked by accident (`1e2`, `.5`, `''`) are
+usage errors. A blank `--as` or agent now fails as a usage error rather than reaching the socket.
+`wfa` prints the `ms` deprecation only when it accepted the value. A version-5 decoder taken from
+git history accepts the engine's refusal.
+
+Not run: a real harness's `wfa` in a pane across a reinstall mid-run.
 
 ## Readiness
 
@@ -1256,6 +1273,79 @@ As built:
   awf emit approval/doc-1 approvals:reply '{"text":"approved","author":"dana"}' --event-id m1
   awf runs approval/doc-1   # completed, { ended: "approved", by: "dana" }
   ```
+
+### Task 8
+
+- **Durations on the CLI.** `parseDuration(value, flag, deprecated)` (`engine/src/duration.ts`)
+  reads contract's grammar through `positiveDurationMilliseconds`, for `awf run --timeout` and
+  `awf test --timeout`. Before, `--timeout` took a whole number with `ms`, `s`, `m` or `h`; the
+  grammar drops `ms`, so a whole number of `ms` is still read until 0.1.0, logged `duration-ms`
+  on stderr with its replacement (`500ms` → `0.5s`). `parseWait(value, max, deprecated)` reads
+  `--wait` for `awf logs` and `awf inbox` (`awf inbox --wait` took bare seconds too, so it moved
+  with `logs`): a duration up to `5m`, `0s` allowed; a bare decimal is still seconds, logged
+  `wait-seconds` (`--wait 90` → `--wait 90s`). A form `Number()` read and the grammar doesn't,
+  such as `1e2` or `" 5"`, is now a usage error. The `next:` commands print `--wait 90s`; the
+  coordinator skill passes `--wait 100s`. Both CLI deprecations are said once per invocation, as
+  `send-event-id` is. `run.json`'s `flags.timeout` keeps the text as given.
+- **`wfa`'s parser** uses contract's `durationMilliseconds` (rule 3 allows contract), and keeps a
+  whole number of `ms`, with its own deprecation line on stderr: it can't import the engine's
+  list. So `--timeout 1.5s` and `2d` now work in `wfa waiting` and `wfa send --await-reply`.
+- **The state table (wire 6).** `PEER_STATES` is exported from `wire.ts` with `PeerState`;
+  `PeerView` is `{ peer, can, queued, purpose }` and either `{ kind: "agent", state, awaits?,
+  reason? }` or `{ kind: "participant" }`, with no `state`. `awaiting` became `awaiting-reply`;
+  `SEND_CODES` and `REPLY_CODES` say `already-awaiting`; `PARTICIPANT_CODES` say `peer-stopped`.
+  The `wfa peers` table prints `awaiting-reply from you` and `participant`. The messaging gate's
+  internal `kind: "awaiting"` (not on the wire) is unchanged.
+- **Agent states in `awf runs {run} --json`.** `AGENT_STATES` and `AgentStateJson` in
+  `records.ts`, from what `run-view.ts` produces: `idle`, `working`, `waiting` and
+  `awaiting-reply` (a running turn's liveness phase, which becomes the state, as `wfa peers` and
+  the human line say it; `live` keeps the reason, peer and times), a `TurnOutcome`'s kind
+  (`answered`, `unanswered`, `blocked`, `timed-out`, `failed`, `cancelled`), `failed` for an
+  `operation-failed`, `stopped`, and `interrupted`, which replaces `was working` (the word a stage
+  already used for the same case). `records.typecheck.ts` pins the set both ways to the outcome
+  kinds plus those lifecycle words. `stages[].state` is `STAGE_STATES` / `StageStateJson`
+  (`running`, `interrupted`, `reused`, `provided` and the `StageOutcome`s), pinned the same way.
+  The human `awf runs` line prints the state; one awaiting a reply adds `from {peer}`.
+- **Holder refusals before the socket.** `awf reply`/`awf send` refuse a `--to` that isn't
+  `{attempt}.{n}`, a blank `--as` and a blank agent as usage errors, so a request this awf makes
+  is one the run decodes; the no-answer message says the run is *most likely* an older awf, since a
+  closed socket has other causes.
+- **`wfa`'s `ms` notice** is said only when the legacy form was taken (never beside a usage
+  error), and comes from the flag the parser read, not the first `--timeout` in the arguments.
+- **JSON `v` 2, minimal:** `ParticipantResultJson` (`awf reply --json`, `awf send --json`, and
+  what the coordinator socket answers), for `peer-stopped` and the new `unsupported-version`; and
+  `RunJson` (`awf runs {run} --json`), for its agent and stage states. Unchanged at 1: `awf runs --json`
+  (the list has no agent states), `awf logs --json` (its `next` now says `90s`, a command, not a
+  word for a state), `awf inbox --json`, `awf emit`, `awf tick` and `awf allowance`. `wfa peers
+  --json` has no `v`: the wire version is its version. No record format changed.
+- **How an old `wfa` meets a new engine.** Same machine, two processes: a headless or TUI agent's
+  launcher runs `bun {engine}/agent-cli/cli.ts` from disk, and a sandboxed agent's `wfa.js` is
+  bundled from that file when the agent opens, while the run's engine is the code it loaded when
+  the attempt started. They differ only when awf is installed anew in place while a run is live:
+  an upgrade gives a new `wfa` and an old engine, a downgrade the reverse. Both are now clear:
+  - An old `wfa` (4 or 5) to this engine: the engine answers `unsupported-version` *in the
+    request's version*, `{ version: 5, kind: "rejected", … }`, which a version 4 or 5 decoder
+    accepts (its rejected shape is unchanged since 4, checked in git), so it prints `this wfa
+    speaks wire version 5 and the workflow engine 6: … Nothing was done`. No `owing` is added.
+  - This `wfa` to an older engine: the old engine answers in its version; the decoder's error
+    now names both, `the engine answered in wire version 5 and this client speaks 6`.
+  - The holder wire (`awf reply`, `awf send`, the nudge) is the same `WIRE_VERSION`. An older
+    `awf` to this run is answered `unsupported-version` naming both, which an older `awf send`
+    prints as any refusal; this `awf` to an older run is closed unanswered, as before, and now says
+    the run is an older awf and names this one's wire version (it can't know the run's).
+- Proof: `wire.test.ts` (every peer state and the participant kind decode, the old words and a
+  participant with a state are refused, the renamed codes, both version messages);
+  `control-plane.test.ts` (a version-5 result is refused in version 5, naming both, nothing
+  accepted); `client.test.ts` (a version-5 engine refused naming both); `coordinator-socket.test.ts`
+  (a version-5 holder request); `runs-command.test.ts` (`interrupted` in the JSON, one of
+  `AGENT_STATES`); `logs-command.test.ts` and `inbox-command.test.ts` (`--wait 90s`, `1.5m`, `90`
+  with its line, out-of-range and malformed refused); `operator-cli.test.ts` (`--timeout 1d`,
+  `1.5h`, `90s`; `0s`, `2w`, `0ms` refused; `500ms` ends the run with its deprecation line);
+  `cli.test.ts` (`wfa` takes `1.5s`, `2d`, and `1500ms` with its line).
+- Unverified: that a real version-5 `wfa` prints the refusal (proved against its decoder's code,
+  not run); a real harness's `wfa` in a pane against a mid-run reinstall (a live check, not run);
+  the path where this `awf send` meets an older run's socket has no test (it needs an engine that
+  closes unanswered).
 
 ## Human review
 

@@ -740,7 +740,9 @@ describe("ToolCalls", () => {
     });
     calls.give("a", { list: tool({ description: "List.", handler: () => "x" }) });
     calls.opened(operation);
-    expect(await calls.call("a", { version: 5, command: "tool", tool: "list" }, () => {})).toEqual({
+    expect(
+      await calls.call("a", { version: WIRE_VERSION, command: "tool", tool: "list" }, () => {}),
+    ).toEqual({
       kind: "refused",
       code: "internal-error",
       error: expect.stringContaining("its end couldn't be recorded; check what it did"),
@@ -769,7 +771,9 @@ describe("ToolCalls", () => {
       additionalProperties: true,
     });
     expect(calls.taught("a")).toEqual([{ name: "ping", description: "Ping." }]);
-    expect(await calls.call("a", { version: 5, command: "tool", tool: "ping" }, () => {})).toEqual({
+    expect(
+      await calls.call("a", { version: WIRE_VERSION, command: "tool", tool: "ping" }, () => {}),
+    ).toEqual({
       kind: "tool-result",
       output: "pong",
     });
@@ -790,7 +794,9 @@ describe("ToolCalls", () => {
       }),
     });
     calls.opened({ ...operation, deadline: () => Date.now() - 1 });
-    expect(await calls.call("a", { version: 5, command: "tool", tool: "late" }, () => {})).toEqual({
+    expect(
+      await calls.call("a", { version: WIRE_VERSION, command: "tool", tool: "late" }, () => {}),
+    ).toEqual({
       kind: "tool-failed",
       outcome: "timed-out",
       error: "late wasn't run: its time was up first",
@@ -813,7 +819,7 @@ describe("ToolCalls", () => {
     });
     calls.opened(operation);
     expect(
-      await calls.call("a", { version: 5, command: "tool", tool: "far" }, (ms) =>
+      await calls.call("a", { version: WIRE_VERSION, command: "tool", tool: "far" }, (ms) =>
         lifetimes.push(ms),
       ),
     ).toEqual({ kind: "tool-result", output: "in time" });
@@ -837,7 +843,7 @@ describe("ToolCalls", () => {
     calls.opened(operation);
     calls.abort("op-1", "cancelled");
     expect(
-      await calls.call("a", { version: 5, command: "tool", tool: "list" }, () => {}),
+      await calls.call("a", { version: WIRE_VERSION, command: "tool", tool: "list" }, () => {}),
     ).toMatchObject({
       kind: "refused",
       code: "no-operation",
@@ -856,7 +862,11 @@ describe("ToolCalls", () => {
     });
     calls.give("a", spec);
     calls.opened(operation);
-    const answer = calls.call("a", { version: 5, command: "tool", tool: "slow" }, () => {});
+    const answer = calls.call(
+      "a",
+      { version: WIRE_VERSION, command: "tool", tool: "slow" },
+      () => {},
+    );
     await Bun.sleep(10);
     expect(calls.running("a")).toEqual({ tool: "slow" });
     await calls.ended("op-1");

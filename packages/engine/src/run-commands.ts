@@ -137,7 +137,7 @@ export function nextLogs(
     ...filters,
     "--after",
     encodeCursor(cursor),
-    ...(wait ? ["--wait", "90"] : []),
+    ...(wait ? ["--wait", "90s"] : []),
   ];
 }
 

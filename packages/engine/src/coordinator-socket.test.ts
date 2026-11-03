@@ -57,13 +57,13 @@ describe("the coordinator socket", () => {
       );
     expect(
       await request({ command: "reply", agent: "investigator", to: "2.4", text: "Keep two." }),
-    ).toEqual({ v: 1, code: "delivered", id: "2.4" });
+    ).toEqual({ v: 2, code: "delivered", id: "2.4" });
     // Another attempt's question is never open in this one.
     expect(
       await request({ command: "reply", agent: "investigator", to: "1.4", text: "Keep two." }),
-    ).toMatchObject({ v: 1, code: "expired" });
+    ).toMatchObject({ v: 2, code: "expired" });
     expect(await request({ command: "send", agent: "investigator", text: "Also…" })).toEqual({
-      v: 1,
+      v: 2,
       code: "delivered",
       id: "2.9",
     });
@@ -71,6 +71,18 @@ describe("the coordinator socket", () => {
       [4, "command"],
       [0, "command"],
     ]);
+    // An awf of another wire version is told both, which an older awf send prints as it is.
+    expect(
+      await exchange(
+        path,
+        `${JSON.stringify({ version: 5, command: "send", agent: "investigator", text: "Hi" })}\n`,
+      ).then((line) => JSON.parse(line) as unknown),
+    ).toEqual({
+      v: 2,
+      code: "unsupported-version",
+      error: `this awf speaks wire version 5 and the run's engine ${WIRE_VERSION}: awf was installed anew while the run was live. Reach it with the awf it started with, or let it end and continue it under this one.`,
+    });
+    expect(asked).toHaveLength(2);
     await socket.close();
     expect(await Bun.file(path).exists()).toBe(false);
   });

@@ -334,10 +334,17 @@ describe("awf inbox", () => {
       "--after",
       first.items[0].cursor,
       "--wait",
-      "3",
+      "3s",
     );
     expect(waited.items).toEqual([]);
     expect(waited.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(2_900);
+    expect(waited.stderr).toBe("");
+    // A bare number is still seconds until 0.1.0, said once.
+    const bare = await inbox(root, ref, "--json", "--after", first.items[0].cursor, "--wait", "3");
+    expect(bare.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(2_900);
+    expect(bare.stderr).toBe(
+      "awf: a bare number for --wait, 3, is deprecated; give a duration, --wait 3s",
+    );
   });
 
   test("a parked attempt's end carries its last wait's label", async () => {
@@ -376,7 +383,7 @@ describe("awf inbox", () => {
     const stop = new AbortController();
     const sleeps: number[] = [];
     const code = await inboxCommand(
-      [ref, "--json", "--after", first.items[0].cursor, "--wait", "300", "--run-root", root],
+      [ref, "--json", "--after", first.items[0].cursor, "--wait", "5m", "--run-root", root],
       root,
       { stdout: () => {}, stderr: () => {} },
       {
@@ -478,7 +485,7 @@ describe("awf inbox --wait reads only what changed", () => {
         ref,
         "--json",
         "--wait",
-        "30",
+        "30s",
         ...(cursor ? ["--after", cursor] : []),
       );
       expect(next.code).toBe(0);
@@ -543,7 +550,7 @@ describe("awf inbox --wait reads only what changed", () => {
         },
         "--json",
         "--wait",
-        "30",
+        "30s",
         "--after",
         first.items.at(-1).cursor,
       );
@@ -583,7 +590,7 @@ describe("awf inbox --wait reads only what changed", () => {
       },
       "--json",
       "--wait",
-      "30",
+      "30s",
     );
     expect(read.items.map((item: InboxItemJson) => [item.ref, item.kind])).toEqual([
       ["triage/late", "route"],
@@ -612,7 +619,7 @@ describe("awf inbox --wait reads only what changed", () => {
       },
       "--json",
       "--wait",
-      "30",
+      "30s",
       "--after",
       first.items.at(-1).cursor,
     );

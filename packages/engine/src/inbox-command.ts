@@ -11,7 +11,7 @@ import type {
 import type { InboxCode } from "@agentswf/contract/wire";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { maskCredentials } from "@agentswf/harness";
-import { formatDuration } from "./duration";
+import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
@@ -100,7 +100,7 @@ export async function inboxCommand(
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseInbox(parsed.rest);
+    options = parseInbox(parsed.rest, (line) => out.stderr(line));
   } catch (error) {
     out.stderr(`awf: ${messageOf(error)}\n\n${inboxUsage}`);
     return 2;
@@ -198,7 +198,7 @@ export async function inboxCommand(
   }
 }
 
-function parseInbox(rest: readonly string[]): Options {
+function parseInbox(rest: readonly string[], deprecated: (line: string) => void): Options {
   const options: Options = { all: false, open: false, waitSeconds: 0 };
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
@@ -212,12 +212,9 @@ function parseInbox(rest: readonly string[]): Options {
     else if (arg === "--workflow") options.workflow = value();
     else if (arg === "--as") options.as = value();
     else if (arg === "--after") options.after = value();
-    else if (arg === "--wait") {
-      const seconds = Number(value());
-      if (!Number.isFinite(seconds) || seconds < 0 || seconds > MAX_WAIT_SECONDS)
-        throw new Error(`--wait needs seconds from 0 to ${MAX_WAIT_SECONDS}`);
-      options.waitSeconds = seconds;
-    } else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
+    else if (arg === "--wait")
+      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS, deprecated);
+    else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
     else if (options.ref === undefined) options.ref = arg;
     else throw new Error(`one run at a time: ${options.ref} and ${arg}`);
   }

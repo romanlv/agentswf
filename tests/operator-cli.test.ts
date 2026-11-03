@@ -109,6 +109,19 @@ describe("awf help", () => {
       workflowFile: "x.ts",
       workflowArgs: ["-h"],
     });
+    for (const [timeout, milliseconds] of [
+      ["1d", 86_400_000],
+      ["1.5h", 5_400_000],
+      ["90s", 90_000],
+    ] as const)
+      expect(parseCommand(["run", "--timeout", timeout, "x.ts"], ROOT)).toMatchObject({
+        timeout,
+        timeoutMilliseconds: milliseconds,
+      });
+    for (const timeout of ["0s", "2w", "-1h", "0ms"])
+      expect(() => parseCommand(["run", "--timeout", timeout, "x.ts"], ROOT)).toThrow(
+        "--timeout is a positive duration",
+      );
     const refused = await said("run", "--bogus");
     expect(refused.exitCode).toBe(2);
     expect(refused.stderr).toStartWith("awf: unknown option: --bogus");
@@ -494,7 +507,7 @@ describe("awf run", () => {
     const cases = [
       {
         argv: ["run", "--timeout", "forever", "examples/minimum-review/review-loop.ts"],
-        text: "invalid duration",
+        text: "--timeout is a positive duration",
       },
       {
         argv: ["run", "examples/minimum-review/review-loop.ts", "target"],
@@ -1152,7 +1165,7 @@ describe("awf run", () => {
     };
 
     test("the body waits past the run's deadline", async () => {
-      const ended = await endedBy(never, "500ms");
+      const ended = await endedBy(never, "0.5s");
       expect(ended.exitCode).toBe(1);
       expect(ended.saved).toMatchObject({
         version: OUTPUT_RECORD_VERSION,
@@ -1173,6 +1186,10 @@ describe("awf run", () => {
       expect(ended.exitCode).toBe(1);
       expect(ended.saved.outcome).toBe("timed-out");
       expect(ended.stderr).toMatch(/^✗ timed out: .*\n {2}fixture /m);
+      // The CLI's old ms still works until 0.1.0, said once.
+      expect(ended.stderr).toStartWith(
+        "awf: a duration in ms, 500ms, is deprecated; give 0.5s: a duration is a decimal and s, m, h or d\n",
+      );
     });
 
     test("a stage deadline the workflow set and let escape is failed", async () => {
