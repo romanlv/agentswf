@@ -37,6 +37,37 @@ during a fork run. Herdr itself stayed fast, 0.2 s or less a call.
 The first three are a starved terminal; the last two are the provider, and grow with sessions on
 the account rather than with load on the machine.
 
+## Measured
+
+On 2026-11-03, the same versions, cursor-agent 2026.10.22 and pi 1.5.0, each harness's TUI in a
+Herdr pane, against its session file and hooks. The raw runs were scratch and are gone; the numbers
+are here.
+
+- **CPU alone is not the ceiling.** One codex pane at load average 23–32 from 40 busy loops: Herdr
+  saw `working` and `done` 0.3–0.4 s after the session file's `task_started` and `task_complete`,
+  as at rest, and no prompt stalled.
+- **Many agents at once are.** Twelve codex panes prompted together, load average 25–28, twice; the
+  second polled Herdr once a second, so the probe was not the load:
+  - the session file had every turn's start and end, all 24;
+  - Herdr never showed the turn in 7 of 12 and 6 of 12: the pane stayed `idle` or `done`, and its
+    `prompt --wait` returned after about 5.4 s, 1–3 s before the turn ended;
+  - where it did, `done` came 22–43 s after `task_complete`, past story 021's 30 s release;
+  - 3 of 12 prompts began 16–19 s after they were sent, which only the session file shows.
+- **Each harness records its own turn**, interrupted ones included:
+
+| Harness | Start and end | On Escape | awf can add it to its own sessions |
+| --- | --- | --- | --- |
+| claude | transcript: the prompt, then `system` `turn_duration`; hooks `UserPromptSubmit` and `Stop` | transcript `[Request interrupted by user]`; `Stop` does not run, as its hooks reference says, and no hook does | hooks through `--settings`, which fired in the pane |
+| codex | session file `task_started`, `task_complete` | `turn_aborted` | the file needs nothing; hooks given by `-c` open a "Hooks need review" dialog that blocks the pane until trusted, a trust written to `~/.codex/config.toml` or skipped by `--dangerously-bypass-hook-trust` |
+| cursor | hooks `beforeSubmitPrompt`, `stop` | `stop` with `aborted`, then again with `error` | only from `~/.cursor/hooks.json` or the project's `.cursor/hooks.json`, which ran with no trust prompt; its chat store not checked |
+| pi | extension `agent_start`, `agent_settled` | yes | `-e`; Herdr's own pi integration reports its state this way, and pi had no delivery failure |
+
+- **A blocking dialog shows only on the screen.** cursor's shell allowlist prompt left Herdr
+  `blocked` with no hook; claude's auto-mode offer was the same.
+- **The operator's own hooks run in awf's agents.** A codex agent on the operator's home ran its
+  `Stop` hook, a review tool with a four-day timeout; whether it slowed a turn's end was not
+  measured. It has since been removed.
+
 ## To measure (E4)
 
 [`experiments/e4-concurrency/`](../../../experiments/e4-concurrency/) already holds the question.
@@ -44,6 +75,7 @@ Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
 
 - M1. Which ceiling comes first, per harness and placement: CPU, the harness's terminal, or the
   provider. Delivery failures, late screens and release times against load and provider errors.
+  For codex panes, CPU is not it (Measured); claude, cursor, pi and headless agents are open.
 - M2. Whether the failures come from agents starting at once or from agents running at once:
   the same 16 started in batches of 4.
 - M3. Model latency after an answer, per harness: how long an answered turn takes to end, to
@@ -73,11 +105,19 @@ Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
 Reading a turn off the screen fails under load whatever the limit, which
 [[herdr-pane-settlement]] already says: screen and quiet signals are diagnostics, not authority.
 
-- A turn's start and end come from the harness's own records. claude's transcript already confirms
-  delivery by the marker; codex's session file has `task_started` and `task_complete` for every
-  turn. That is the turn-scoped completion [[herdr-pane-settlement]] found no provider reported.
+- A turn's start and end come from the harness's own records: claude's transcript, which already
+  confirms delivery by the marker, and codex's session file, which need nothing added and hold an
+  interrupted turn too. That is the turn-scoped completion [[herdr-pane-settlement]] found no
+  provider reported. Where there is no file, a hook: pi's through an awf extension, cursor's in a
+  sandbox, whose home awf writes; outside one, cursor's hooks are the operator's or the project's
+  files.
+- Herdr stays the pane's host, its keys and the only sign of a blocking dialog; its state is a
+  diagnostic.
 - claude's dropped Enter is pressed again only when its receipt shows the prompt never arrived and
-  its input box still holds the marked prompt.
+  its input box still holds the marked prompt. A record of the turn finds the drop; it does not
+  prevent it.
+- The transcript and session file are not published formats, unlike claude's hooks: a fixture per
+  harness version catches a change.
 
 Notes: [[021-turn-liveness-and-limits]] holds the release design; [[herdr-pane-settlement]] the
 stall design and what Story 001 settled; foundation §12 schedules E4. A screen-based late-turn wait for codex and the claude Enter
