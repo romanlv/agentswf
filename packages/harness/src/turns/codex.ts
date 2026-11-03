@@ -93,20 +93,33 @@ export function codexTurnPlace(
   };
 }
 
-/** codex's own compaction, read from its rollout: a `compacted` row, then its task's end. */
+/**
+ * codex's own compaction, read from its rollout: a task begun after the focus it was sent, with no
+ * prompt of its own in it, that wrote a `compacted` row, then ended. A compaction codex ran itself
+ * inside a turn is that turn's, not this.
+ */
 export function createCodexCompactionReducer() {
+  let begun = false;
+  let prompted = false;
   let compacted = false;
   let ended: TurnReading["ended"];
   return {
     push(value: unknown): TurnReading {
       const row = record(value);
-      const type = record(row?.payload)?.type;
+      const payload = record(row?.payload);
+      const type = payload?.type;
       if (row && !ended) {
-        if (row.type === "compacted") compacted = true;
-        else if (compacted && (type === "task_complete" || type === "turn_aborted"))
-          ended = "completed";
+        if (type === "task_started") {
+          begun = true;
+          prompted = false;
+          compacted = false;
+        } else if (promptText(payload) !== undefined) prompted = true;
+        else if (row.type === "compacted" && !prompted) compacted = true;
+        else if (type === "task_complete" || type === "turn_aborted") {
+          if (compacted) ended = "completed";
+        }
       }
-      return { accepted: compacted, received: compacted, ...(ended ? { ended } : {}) };
+      return { accepted: begun, received: compacted, ...(ended ? { ended } : {}) };
     },
   };
 }

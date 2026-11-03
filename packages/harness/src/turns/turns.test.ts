@@ -230,6 +230,27 @@ test("codex's compaction ends at the end of the task that compacted", () => {
   const reducer = createCodexCompactionReducer();
   const end = { type: "event_msg", payload: { type: "task_complete" } };
   expect(reducer.push(end).ended).toBeUndefined();
+  expect(reducer.push({ type: "event_msg", payload: { type: "task_started" } }).accepted).toBe(
+    true,
+  );
   reducer.push({ type: "compacted", payload: {} });
   expect(reducer.push(end).ended).toBe("completed");
+});
+
+test("a compaction codex ran itself inside a prompted turn is not the one asked for", () => {
+  const reducer = createCodexCompactionReducer();
+  reducer.push({ type: "event_msg", payload: { type: "task_started" } });
+  reducer.push({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: "go" },
+  });
+  reducer.push({ type: "compacted", payload: {} });
+  const end = { type: "event_msg", payload: { type: "task_complete" } };
+  expect(reducer.push(end).ended).toBeUndefined();
+});
+
+test("claude's compaction has begun at the /compact it writes at once", () => {
+  const reducer = createClaudeCompactionReducer();
+  const typed = { type: "user", message: { content: "/compact Keep the path." } };
+  expect(reducer.push(typed)).toEqual({ accepted: true, received: false });
 });

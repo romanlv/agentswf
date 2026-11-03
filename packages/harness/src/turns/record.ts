@@ -151,6 +151,11 @@ export async function prepareTurnRecord(
   };
   // A batch at a time: a codex home's days can hold hundreds of rollouts, all read before a prompt.
   let batch: Promise<void>[] = [];
+  let failure: { error: unknown } | undefined;
+  const settled = (pending: Promise<void>) =>
+    pending.catch((error: unknown) => {
+      failure ??= { error };
+    });
   for await (const name of fileNames()) {
     options.signal?.throwIfAborted();
     discoveryNameBytes += Buffer.byteLength(name);
@@ -158,13 +163,15 @@ export async function prepareTurnRecord(
       throw new Error("turn record discovery baseline exceeds its bound");
     baseline.set(name, undefined);
     if (known && name !== known) continue;
-    batch.push(where(name));
+    batch.push(settled(where(name)));
     if (batch.length >= SCAN_BATCH) {
       await Promise.all(batch);
       batch = [];
     }
+    if (failure) throw failure.error;
   }
   await Promise.all(batch);
+  if (failure) throw failure.error;
   /** Cuts the watch's current pause short, so it reads at once. */
   let wake: (() => void) | undefined;
   /** A `readNow` while it was reading, which its next pause honours. */

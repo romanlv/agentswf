@@ -112,20 +112,27 @@ export async function claudeTurnPlace(
 }
 
 /**
- * claude's own compaction, read from its transcript: `compact_boundary`, then the summary it
- * continues from. A sidechain's is a subagent's.
+ * claude's own compaction, read from its transcript: begun at the `/compact` it was typed, which
+ * claude writes at once, and over at the summary after its `compact_boundary`, written once the
+ * summary is made. A sidechain's is a subagent's.
  */
 export function createClaudeCompactionReducer() {
+  let begun = false;
   let boundary = false;
   let ended: TurnReading["ended"];
   return {
     push(value: unknown): TurnReading {
       const row = record(value);
       if (row && row.isSidechain !== true && !ended) {
-        if (row.type === "system" && row.subtype === "compact_boundary") boundary = true;
-        else if (boundary && row.isCompactSummary === true) ended = "completed";
+        const typed = said(record(row.message)?.content);
+        if (row.type === "user" && /^(\/compact\b|<command-name>\/compact<)/.test(typed))
+          begun = true;
+        if (row.type === "system" && row.subtype === "compact_boundary") {
+          begun = true;
+          boundary = true;
+        } else if (boundary && row.isCompactSummary === true) ended = "completed";
       }
-      return { accepted: boundary, received: boundary, ...(ended ? { ended } : {}) };
+      return { accepted: begun, received: boundary, ...(ended ? { ended } : {}) };
     },
   };
 }
