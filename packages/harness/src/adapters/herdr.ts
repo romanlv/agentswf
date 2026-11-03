@@ -1036,7 +1036,6 @@ export function createHerdrRunHostFactory(
            */
           const untilEnded = async (
             recorded: RecordedTurn,
-            agentName: string,
             deadline: number,
             signal: AbortSignal,
             untaken?: () => Promise<NativeTurnOutcome | undefined>,
@@ -1304,7 +1303,7 @@ export function createHerdrRunHostFactory(
               if (!busy) herdrBehind = false;
               return busy;
             }
-            const ended = await untilEnded(turn, agentName, deadline.unixMilliseconds, signal);
+            const ended = await untilEnded(turn, deadline.unixMilliseconds, signal);
             if ("outcome" in ended) return ended.outcome;
             // A dialog can follow the turn's end, as claude's setup offers did.
             const got = await herdr(["agent", "get", agentName], undefined, signal);
@@ -1674,7 +1673,6 @@ export function createHerdrRunHostFactory(
                       if (recordSpeaks(recorded)) {
                         const ended = await untilEnded(
                           recorded,
-                          placement.agentName,
                           deadline.unixMilliseconds,
                           observing.signal,
                         );
@@ -2010,7 +2008,6 @@ export function createHerdrRunHostFactory(
                   };
                   const ended = await untilEnded(
                     recorded,
-                    placement.agentName,
                     operation.deadline.unixMilliseconds,
                     controller.signal,
                     untaken,
