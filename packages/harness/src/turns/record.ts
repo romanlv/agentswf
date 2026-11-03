@@ -51,6 +51,8 @@ type Cursor = {
   protected: boolean;
   partial: Buffer;
   reducer?: TurnReducer;
+  /** Past its receipt, a row too long to hold is being skipped to its newline. */
+  skipping?: boolean;
 };
 
 function* markerRows(cursor: Cursor, data: Buffer, start: number, marker: Buffer) {
@@ -178,6 +180,8 @@ export async function prepareTurnRecord(
       const dirty = new Set(cursors.keys());
       const enqueue = (name: string) => {
         if (!name.endsWith(".jsonl") || !relevant(name) || dirty.has(name)) return;
+        // Once a file holds the turn, the others are never read again.
+        if (reportedAcceptance && !protectedFile(name)) return;
         if (dirty.size >= MAX_FILES) {
           rescanRequested = true;
           const discard = [...dirty].find((candidate) => !protectedFile(candidate));
@@ -196,11 +200,20 @@ export async function prepareTurnRecord(
         }
         cursors.set(name, cursor);
       };
-      const protectedRows = (name: string, cursor: Cursor, data: Buffer): boolean => {
+      const protectedRows = (name: string, cursor: Cursor, chunk: Buffer): boolean => {
+        let data = chunk;
         // Past its answer a turn may write far more, read only for its end, a chunk at a time.
         if (!reportedReceipt && cursor.bytes + data.length > MAX_BYTES)
           throw new Error("turn record read exceeds its bound");
         cursor.bytes += data.length;
+        // Past its answer, a row too long to hold, an image's, is skipped to its end: an end row
+        // is short.
+        if (cursor.skipping) {
+          const newline = data.indexOf(10);
+          if (newline < 0) return false;
+          cursor.skipping = false;
+          data = data.subarray(newline + 1);
+        }
         cursor.partial = Buffer.concat([cursor.partial, data]);
         let newline = cursor.partial.indexOf(10);
         while (newline >= 0) {
@@ -223,6 +236,10 @@ export async function prepareTurnRecord(
           newline = cursor.partial.indexOf(10);
         }
         cursor.partial = Buffer.from(cursor.partial);
+        if (reportedReceipt && cursor.partial.length > MAX_BYTES) {
+          cursor.partial = Buffer.alloc(0);
+          cursor.skipping = true;
+        }
         if ([...cursors.values()].reduce((sum, entry) => sum + entry.partial.length, 0) > MAX_BYTES)
           throw new Error("turn record buffered data exceeds its bound");
         return false;
@@ -250,7 +267,7 @@ export async function prepareTurnRecord(
             }
           }
           if (watcherFailure) throw watcherFailure;
-          if (!scan && rescanRequested && dirty.size < SCAN_BATCH) {
+          if (!scan && rescanRequested && !reportedAcceptance && dirty.size < SCAN_BATCH) {
             scan = fileNames();
             rescanRequested = false;
           }

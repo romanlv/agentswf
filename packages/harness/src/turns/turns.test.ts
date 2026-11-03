@@ -174,3 +174,37 @@ test("claude's transcript names its session by its file", () => {
     "0d258b2b-ba3d-4009-9eaf-01e74b6e4844",
   );
 });
+
+test("past its answer, a row too long to hold is skipped, and the turn's end still read", async () => {
+  const home = mkdtempSync(join(tmpdir(), "awf-turn-long-"));
+  try {
+    const record = HARNESSES.claude.turnRecord!;
+    const place = await record.place("/probe", Date.now(), home, "s1");
+    mkdirSync(place.root, { recursive: true });
+    const file = join(place.root, "s1.jsonl");
+    writeFileSync(file, "");
+    const watching = await prepareTurnRecord(place, MARKER, () => record.reducer(MARKER, LEAD));
+    let ended: string | undefined;
+    const done = watching.watch(AbortSignal.timeout(10_000), {
+      accepted: () => {},
+      received: () => {},
+      ended: (how) => {
+        ended = how;
+      },
+    });
+    const head = rows("claude-2.1.317-turn.jsonl").slice(0, -1);
+    appendFileSync(file, head.map((row) => `${JSON.stringify(row)}\n`).join(""));
+    await Bun.sleep(300);
+    // An image read into the transcript: one row of 9 MiB.
+    const image = {
+      type: "user",
+      message: { content: [{ type: "image", data: "x".repeat(9 << 20) }] },
+    };
+    appendFileSync(file, `${JSON.stringify(image)}\n`);
+    appendFileSync(file, `${JSON.stringify({ type: "system", subtype: "turn_duration" })}\n`);
+    await done;
+    expect(ended).toBe("completed");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

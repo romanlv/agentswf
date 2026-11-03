@@ -22,6 +22,11 @@ beforeAll(() => {
 beforeEach(() => homes.fresh());
 afterAll(() => homes.restore());
 
+/** Herdr's settle wait, as distinct from the wait for a dialog a recorded turn holds open. */
+function settleWait(input: ProcessInput): boolean {
+  return verb(input) === "agent wait" && !input.argv.includes("--until");
+}
+
 /** The prompt text an `agent prompt` call carries, and whether it carries a delivery marker. */
 function promptOf(input: ProcessInput): string | undefined {
   const text = input.argv[6];
@@ -1690,6 +1695,7 @@ describe("createHerdrRunHostFactory", () => {
       // The turn before settles by its record, and by Herdr too, whose wait the compaction's
       // prompts go through; its focus by Herdr alone: no record ends it.
       const order = calls
+        .filter((call) => verb(call) !== "agent wait" || settleWait(call))
         .map(verb)
         .filter((v) => v === "agent prompt" || v === "agent wait" || v === "agent get");
       expect(order).toEqual([
@@ -2373,7 +2379,7 @@ describe("createHerdrRunHostFactory", () => {
       // A recorded turn is blocked once Herdr shows a dialog, its record still open; Herdr's
       // `unknown` settles only a turn with no record, as pi's.
       const run: RunProcess = async (input) => {
-        if (verb(input) === "agent get" && terminalState === "blocked") {
+        if (verb(input) === "agent wait" && terminalState === "blocked") {
           return commandResult({
             agent: { agent_status: terminalState, agent_status_text: "stuck" },
           });
@@ -2675,7 +2681,7 @@ describe("createHerdrRunHostFactory", () => {
         expect(Date.now() - startedAt).toBeGreaterThanOrEqual(300);
         const prompt = base.calls.find((call) => verb(call) === "agent prompt")!;
         expect(prompt.argv).not.toContain("--wait");
-        expect(base.calls.filter((call) => verb(call) === "agent wait")).toHaveLength(0);
+        expect(base.calls.filter(settleWait)).toHaveLength(0);
         await host.close();
       });
     }
@@ -2768,7 +2774,7 @@ describe("createHerdrRunHostFactory", () => {
           recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
           return commandResult({ agent: { agent_status: "working" } });
         }
-        if (verb(input) === "agent get") {
+        if (verb(input) === "agent wait") {
           return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
         }
         return base.run(input);
@@ -2786,13 +2792,65 @@ describe("createHerdrRunHostFactory", () => {
           recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
           return commandResult({ agent: { agent_status: "working" } });
         }
-        if (verb(input) === "agent get") return errorResult("agent_not_found");
+        if (verb(input) === "agent wait") return errorResult("agent_not_found");
         return base.run(input);
       };
       const { host, turn } = await recordedAgent(run, "codex");
       await expect(turn.settled).resolves.toMatchObject({
         state: "failed",
         detail: "its harness exited during the turn",
+      });
+      await host.close();
+    });
+
+    test("an agent Herdr loses once, under load, is not taken to have exited", async () => {
+      const base = hostStub();
+      let end: ((interrupted?: boolean) => void) | undefined;
+      let waits = 0;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent wait" && ++waits === 1) return errorResult("agent_not_found");
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await Bun.sleep(500);
+      end!();
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      await host.close();
+    });
+
+    test("a prompt its record never shows fails once Herdr shows its harness not working", async () => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          return commandResult({ agent: { agent_status: "idle" } });
+        }
+        if (verb(input) === "agent get") return commandResult({ agent: { agent_status: "idle" } });
+        return base.run(input);
+      };
+      const host = await createHerdrRunHostFactory({ ...FAST, unrecordedMs: 400 }, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "reviewer",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "codex", model: "m" },
+      });
+      const turn = await session.start(
+        { id: "one", prompt: "review", deadline: deadline() },
+        binding("op-1"),
+      );
+      await expect(turn.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringContaining("record never showed the prompt"),
       });
       await host.close();
     });
@@ -2839,7 +2897,7 @@ describe("createHerdrRunHostFactory", () => {
         awaitCompletion: true,
       });
       expect(release.kind).toBe("released");
-      expect(base.calls.filter((call) => verb(call) === "agent wait")).toHaveLength(0);
+      expect(base.calls.filter(settleWait)).toHaveLength(0);
       await host.close();
     });
   });

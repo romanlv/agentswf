@@ -197,9 +197,14 @@ export async function settleAgent(
     }
     return herdrFailure(waited, deadline - Date.now());
   }
-  const status = settledOutcome(reportedAgent(waited.result));
-  return status.state === "blocked"
-    ? { ...status, resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
+  return blockedBy(waited);
+}
+
+/** The outcome a dialog Herdr shows ends a turn with, where it shows one. */
+export function blockedBy(result: HerdrResult): NativeTurnOutcome | undefined {
+  const agent = result.ok ? reportedAgent(result.result) : undefined;
+  return agent && settledState(agent) === "blocked"
+    ? { ...settledOutcome(agent), resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
     : undefined;
 }
 
