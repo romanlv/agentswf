@@ -48,7 +48,8 @@ Starts a run of a workflow file, or continues one with `--id` and `--continue`.
 [Quick start](/guide/quick-start) runs one for the first time; [Runs](/guide/runs) covers ids,
 attempts, stages, `--continue`, `--from-stage` and `--values`, and owns the exit codes of an
 attempt. `--timeout` is on [Timeouts](/guide/timeouts), `--sandbox` on
-[Sandboxes](/guide/sandboxes), and `--here` on [Calling session](/guide/calling-session).
+[Sandboxes](/guide/sandboxes), `--here` on [Calling session](/guide/calling-session), and
+`--workspace` and `--keep-panes` on [Harnesses](/guide/harnesses#where-panes-go).
 
 ```text
 <!--@include: @/../packages/engine/src/help/run.txt-->

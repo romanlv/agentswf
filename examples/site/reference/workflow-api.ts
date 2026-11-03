@@ -91,12 +91,11 @@ export const agents = defineWorkflow({
     const lead = await wf.agents.open({
       key: "lead",
       runtime: "claude",
-      layout: { workspace: "origin", tab: "review" }, // a tab where `awf run` was typed
-      keepPane: "on-failure",
+      pane: { tab: "review", front: true }, // a tab of its own, brought to the front
     });
     await lead.run({ prompt: "Read the change and plan the review." });
-    const lensA = await lead.fork({ key: "lens-a", layout: { beside: "lead", side: "right" } });
-    const lensB = await lead.fork({ key: "lens-b", layout: { beside: "lens-a", side: "below" } });
+    const lensA = await lead.fork({ key: "lens-a", pane: { beside: "lead", side: "right" } });
+    const lensB = await lead.fork({ key: "lens-b", pane: { beside: "lens-a", side: "below" } });
     // #endregion layout
 
     // #region caller
@@ -107,7 +106,7 @@ export const agents = defineWorkflow({
 
     // #region forkcaller
     const fixer =
-      (await wf.agents.forkCaller({ key: "fixer", layout: { workspace: "origin" } })) ??
+      (await wf.agents.forkCaller({ key: "fixer", pane: { front: true } })) ??
       (await wf.agents.open({ key: "fixer", runtime: "claude" }));
     // #endregion forkcaller
 

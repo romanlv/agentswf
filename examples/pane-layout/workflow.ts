@@ -1,9 +1,4 @@
-import {
-  defineWorkflow,
-  type ExecutionConfig,
-  type PaneWorkspace,
-  type WorkflowInvocation,
-} from "agentswf/workflow";
+import { defineWorkflow, type ExecutionConfig } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -12,21 +7,21 @@ const RUNTIME: ExecutionConfig = { harness: "codex", model: "gpt-6-luna" };
 
 const NAMED = outputSchema(Type.Object({ name: Type.String() }, { additionalProperties: false }));
 
-export type PaneLayoutArgs = { workspace: PaneWorkspace };
-
 export type PaneLayoutResult = { answered: string[] };
 
 /**
- * The design's picture (docs/design/pane-layout.md): a lead in a tab of its own, two reviewers
- * stacked right of it, each forked from the lead. The lead's pane is kept once the run ends.
+ * The design's picture (docs/design/pane-layout.md): a lead in a tab of its own, brought to the
+ * front, and two reviewers stacked right of it, each forked from the lead. Where the tab opens and
+ * whether the panes stay are the operator's: `awf run examples/pane-layout/workflow.ts --workspace
+ * origin --keep-panes always`.
  */
-export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
+export const paneLayout = defineWorkflow<null, PaneLayoutResult>({
   meta: {
     name: "pane-layout",
     description:
-      "Place a lead and two reviewers in one tab, two columns with the right one stacked, and keep the lead's pane.",
+      "Place a lead and two reviewers in one tab, two columns with the right one stacked, the lead in front.",
   },
-  async run(wf, args) {
+  async run(wf) {
     const steps = { timeout: "5m" } as const;
     const ask = {
       prompt: "Reply with your name: one word you make up. Do not run any code.",
@@ -36,18 +31,17 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
     const lead = await wf.agents.open({
       key: "lead",
       runtime: RUNTIME,
-      layout: { workspace: args.workspace, tab: "review" },
-      keepPane: "always",
+      pane: { tab: "review", front: true },
     });
     const first = await lead.run(ask);
     if (!first.outcome.answered) throw new Error(`the lead did not answer: ${first.outcome.kind}`);
     const security = await lead.fork({
       key: "security",
-      layout: { beside: "lead", side: "right" },
+      pane: { beside: "lead", side: "right" },
     });
     const style = await lead.fork({
       key: "style",
-      layout: { beside: "security", side: "below" },
+      pane: { beside: "security", side: "below" },
     });
     const answers = await wf.parallel([security, style], (agent) => agent.run(ask));
     return {
@@ -56,15 +50,6 @@ export const paneLayout = defineWorkflow<PaneLayoutArgs, PaneLayoutResult>({
       ),
     };
   },
-  prepare: parseArgs,
 });
-
-function parseArgs(invocation: WorkflowInvocation): PaneLayoutArgs {
-  const [where, ...rest] = invocation.argv;
-  if (rest.length > 0) throw new Error("the only argument is where the lead's tab opens");
-  if (where === undefined || where === "origin") return { workspace: "origin" };
-  if (where === "run") return { workspace: "run" };
-  return { workspace: { name: where } };
-}
 
 export default paneLayout;

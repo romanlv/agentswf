@@ -15,6 +15,7 @@ import type {
   NativeSessionRef,
   OperationRecord,
   PaneLayout,
+  PaneSpec,
   PaneWorkspace,
   SkillSource,
   TurnId,
@@ -253,10 +254,14 @@ export type PanePlacement = {
   notKept?: string;
 };
 
-/** Where a TUI agent's pane went: its layout as the workflow wrote it, and where it was placed. */
+/**
+ * Where a TUI agent's pane went: its `pane`, or deprecated `layout` and `keepPane`, as the workflow
+ * wrote them, and where it was placed, the run's `--workspace` and `--keep-panes` applied.
+ */
 export type AgentPaneRecord = {
   callPath: string[];
   agent: string;
+  pane?: PaneSpec;
   layout?: PaneLayout;
   keepPane?: KeepPane;
   placed: PanePlacement;
@@ -314,7 +319,16 @@ export type RunRecord = {
   env?: { PATH: string };
   /** With `events`: the file it was first started from; later, its last attempt's `file` says. */
   file?: string;
+  /** `awf run --workspace` and `--keep-panes`, which every attempt keeps; absent, neither was given. */
+  panes?: RunPanes;
 };
+
+/**
+ * The operator's choices for a run's TUI agents on the host: the workspace their new tabs open in,
+ * and whether a pane stays once its agent is done. Each wins over a deprecated `layout` or
+ * `keepPane`; absent, those apply, else the run's workspace and `never`.
+ */
+export type RunPanes = { workspace?: PaneWorkspace; keep?: KeepPane };
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 

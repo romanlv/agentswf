@@ -65,8 +65,9 @@ sandbox with the reason; awf never moves it to the other. What each needs on you
 TUI agents work under both. An srt agent's pane opens in the run's Herdr as usual. A docker sandbox runs
 its own Herdr inside the container. The run adds a tab to its workspace showing that Herdr's panes,
 and prints the command that opens them; `awf run --no-watch` leaves the tab out, and the command
-still works. Either way, a sandboxed agent can't take `layout` or `keepPane`, which place a pane in
-the run's Herdr; the agent is refused if it names one, under `awf run --sandbox` too.
+still works. Either way, a sandboxed agent can't take `pane`, which places a pane in the run's
+Herdr; the agent is refused if it names one, under `awf run --sandbox` too. `--workspace` and
+`--keep-panes` don't reach it.
 
 ## Shared or private
 

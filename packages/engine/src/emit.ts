@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { isAbsolute, join } from "node:path";
-import { type EmitResultJson, MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
+import {
+  type EmitResultJson,
+  MAILBOX_RECORD_VERSION,
+  type RunPanes,
+} from "@agentswf/contract/records";
 import { parseJsonSchema, validate } from "@agentswf/contract/schema";
 import {
   AWF_ID_PREFIX,
@@ -18,7 +22,7 @@ import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
 import { prepareArgs } from "./run-prepare";
 import type { RunStatus } from "./run-state";
-import { createRun, idProblem, openRun, type Run, readAttempts } from "./runs";
+import { createRun, idProblem, openRun, panesChanged, type Run, readAttempts } from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
 import { type EventWorkflow, loadWorkflowFile } from "./workflow-loader";
 
@@ -203,6 +207,7 @@ async function createEventRun(
   file: string | undefined,
   context: Pick<WakeContext, "home" | "environment">,
   argv: readonly string[] = [],
+  panes?: RunPanes,
 ): Promise<Run> {
   const run = await createRun(runRoot, {
     id,
@@ -213,6 +218,7 @@ async function createEventRun(
     events: true,
     env: { PATH: context.environment.PATH ?? "" },
     ...(file ? { file } : {}),
+    ...(panes ? { panes } : {}),
   });
   await recordProject(context.home, project);
   return run;
@@ -224,13 +230,15 @@ export type Opened = { run: string; created: boolean } & Woken;
 /**
  * `awf run --id` for a workflow with events: creates the run with no event, under its lock, and
  * starts it, so it runs to its first wait and parks there. One already there is only woken, as
- * `awf tick` would; one that returned is refused, as its events are.
+ * `awf tick` would; one that returned is refused, as its events are. `panes`, the operator's
+ * `--workspace` and `--keep-panes`, are recorded with a new run, and may not change one there.
  */
 export async function openEventRun(
   target: EventWorkflow,
   id: string,
   argv: readonly string[],
   context: Omit<WakeContext, "file">,
+  panes?: RunPanes,
 ): Promise<Opened> {
   const workflow = target.meta.name;
   const problem = idProblem(id);
@@ -251,6 +259,8 @@ export async function openEventRun(
         throw new EmitError(
           `${ref} is there already, started with ${run.record.argv.length > 0 ? "arguments of its own" : "none"}; awf run --id ${id} with none wakes it`,
         );
+      const changed = panesChanged(run.record, panes);
+      if (changed) throw new EmitError(changed);
       return { run: ref, created: false, ...(await wake(run, woken)) };
     }
     try {
@@ -258,7 +268,7 @@ export async function openEventRun(
     } catch (error) {
       throw new EmitError(`prepare: ${messageOf(error)}`);
     }
-    const run = await createEventRun(runRoot, workflow, id, project, file, context, argv);
+    const run = await createEventRun(runRoot, workflow, id, project, file, context, argv, panes);
     return { run: ref, created: true, ...(await wake(run, woken)) };
   });
 }

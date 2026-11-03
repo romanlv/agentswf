@@ -128,9 +128,18 @@ export interface AgentOpenSpec {
    * for a private one. Absent, the agent runs unsandboxed.
    */
   sandbox?: SandboxRef | InlineSandboxSpec;
-  /** Where its pane appears; absent, a tab of its own in the run's workspace. TUI agents only. */
+  /**
+   * Where its pane goes among the run's, and whether it is the one the operator should see;
+   * absent, a tab of its own. Which workspace, and whether panes stay, are the operator's:
+   * `awf run --workspace` and `--keep-panes`. TUI agents only.
+   */
+  pane?: PaneSpec;
+  /**
+   * @deprecated Give `pane: { tab }` or `pane: { beside, side }`; the workspace is the operator's,
+   * `awf run --workspace`, and the session `AWF_HERDR_SESSION`.
+   */
   layout?: PaneLayout;
-  /** Whether its pane stays once it is done; absent, `never`. TUI agents only. */
+  /** @deprecated Keeping panes is the operator's: `awf run --keep-panes`. */
   keepPane?: KeepPane;
   /**
    * What the agent can ask the workflow's code to do mid-turn, by name: holding a tool is what lets
@@ -239,9 +248,42 @@ export const TOOL_LIMITS = {
 
 /**
  * Where a TUI agent's pane is placed, once, as it opens, or in a run of a workflow with `events` at
- * its first turn: a new tab, or beside the pane of an agent
- * already open, which it splits. Where it can't be used, the agent gets a tab of its own instead,
- * and the run says why; it never fails the agent. See `docs/design/pane-layout.md`.
+ * its first turn: a new tab, or beside the pane of an agent already open, which it splits. Where it
+ * can't be used, the agent gets a tab of its own instead, and the run says why; it never fails the
+ * agent. Which workspace a new tab opens in is the operator's, `awf run --workspace`. See
+ * `docs/design/pane-layout.md`.
+ */
+export type PaneSpec =
+  | {
+      /** The new tab's label; absent, the agent's key. Every `tab` is a new tab. */
+      tab?: string;
+      /**
+       * The pane the operator should see: its tab is brought to the front as it is placed, in the
+       * operator's own workspace (`awf run --workspace origin`) only.
+       */
+      front?: boolean;
+      beside?: never;
+      side?: never;
+      share?: never;
+    }
+  | {
+      /** Another agent of this run, whose pane this one splits. */
+      beside: AgentKey;
+      /** The side of that pane the new one goes on. */
+      side: "right" | "below";
+      /** The new pane's part of the space it splits, 0.2 to 0.8; absent, 0.5. */
+      share?: number;
+      /**
+       * The pane the operator should see: its tab is brought to the front as it is placed, in the
+       * operator's own workspace (`awf run --workspace origin`) only.
+       */
+      front?: boolean;
+      tab?: never;
+    };
+
+/**
+ * A pane's place as the deprecated `layout` gives it, and as the engine asks a harness for it: the
+ * workflow's `pane`, in the workspace the operator's `--workspace` or the layout names.
  */
 export type PaneLayout =
   | {
@@ -274,9 +316,9 @@ export type PaneLayout =
 export type PaneWorkspace = "run" | "origin" | { name: string };
 
 /**
- * Whether a pane stays once its agent is done; `on-failure`, when its last operation was not
- * answered. A kept pane keeps its harness running, released from the run: its result channel is
- * closed, and it is the operator's from then on.
+ * Whether a pane stays once its agent is done, as `awf run --keep-panes` gives it; `on-failure`,
+ * when its last operation was not answered. A kept pane keeps its harness running, released from
+ * the run: its result channel is closed, and it is the operator's from then on.
  */
 export type KeepPane = "never" | "on-failure" | "always";
 
@@ -497,8 +539,13 @@ export interface CallerForkSpec {
   /** @deprecated Give it in `runtime`: `runtime: { effort }`. */
   effort?: Effort;
   /** Never its parent's: absent, a tab of its own. */
+  pane?: PaneSpec;
+  /**
+   * @deprecated Give `pane: { tab }` or `pane: { beside, side }`; the workspace is the operator's,
+   * `awf run --workspace`, and the session `AWF_HERDR_SESSION`.
+   */
   layout?: PaneLayout;
-  /** Never its parent's: absent, `never`. */
+  /** @deprecated Keeping panes is the operator's: `awf run --keep-panes`. */
   keepPane?: KeepPane;
 }
 

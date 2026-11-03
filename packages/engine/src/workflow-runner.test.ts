@@ -2940,6 +2940,36 @@ describe("pane records", () => {
     ]);
   });
 
+  test("a pane reaches the host as its tab and front, and the run records it as written", async () => {
+    const fake = createFakeAdapter({ script: () => ({}) });
+    const adapter = adapterWith(fake, () => ({
+      pane: () => ({ session: "awf", workspace: "run" as const, tab: "review" }),
+    }));
+    const workflow = workflowOf("pane", async (context) => {
+      await context.agents.open({
+        key: "lens",
+        runtime: "review",
+        pane: { tab: "review", front: true },
+      });
+      return null;
+    });
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      runtime: runtime(adapter),
+      deadline: future(),
+    });
+    expect(fake.activations[0]).toMatchObject({ layout: { tab: "review" }, front: true });
+    expect(fake.activations[0]).not.toHaveProperty("keepPane");
+    expect(result.panes).toEqual([
+      {
+        callPath: [],
+        agent: "lens",
+        pane: { tab: "review", front: true },
+        placed: { session: "awf", workspace: "run", tab: "review" },
+      },
+    ]);
+  });
+
   test("the run records where each TUI agent's pane went, with its layout as written", async () => {
     const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
       pane: () => ({

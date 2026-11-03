@@ -13,6 +13,7 @@ import type {
   AgentPaneRecord,
   AgentSkillsRecord,
   RunAccounting,
+  RunPanes,
   SandboxRecord,
   SettledDecision,
   SettledOperation,
@@ -66,6 +67,7 @@ import {
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
+  type PaneSpec,
   type ParticipantDirectory,
   type ParticipantRef,
   type ParticipantSpec,
@@ -175,7 +177,14 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
-import { besideOf, checkPaneOptions, keepsPane, storedLayout } from "./pane-layout";
+import {
+  besideOf,
+  checkPaneOptions,
+  keepsPane,
+  type PaneAsked,
+  paneAsked,
+  storedLayout,
+} from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { RunEventLog } from "./run-event-log";
 import {
@@ -245,6 +254,8 @@ export type RunWorkflowOptions = {
     fromStage?: string;
     /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
     values?: ReadonlyMap<string, JsonValue>;
+    /** `--workspace` and `--keep-panes`, as the run's record keeps them for every attempt. */
+    panes?: RunPanes;
     /** A run of a workflow with `events`. */
     events?: true;
     /** With `events`: runs `work` holding the run's lock, as every append to the mailbox is made. */
@@ -447,8 +458,11 @@ type AgentIdentity = {
   /** The agent it was forked from, and the spec it was forked with. */
   forkedFrom?: { parent: AgentKey; spec: CallerForkSpec };
   /** As written; a reopen compares them so, never where the pane ended up. */
+  pane?: PaneSpec;
   layout?: PaneLayout;
   keepPane?: KeepPane;
+  /** What its host is asked for its pane: these, with the operator's flags applied. */
+  asked?: PaneAsked;
 };
 
 const CLEANUP_GRACE_MILLISECONDS = 5_000;
@@ -692,6 +706,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     emit: options.emit ?? machineEmitter,
     workflow: definition.meta.name,
     declared: new Set(withEvents ? Object.keys(definition.events) : []),
+    ...(options.run.panes ? { panes: options.run.panes } : {}),
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -997,6 +1012,8 @@ class WorkflowOwner {
       workflow: string;
       /** The names its `events` declares, which `signal` takes. */
       declared: ReadonlySet<string>;
+      /** The operator's choices for every TUI agent's pane on the host. */
+      panes?: RunPanes;
     },
   ) {
     this.#restored = new Map(options.restoredTurns ?? []);
@@ -1968,6 +1985,21 @@ class WorkflowOwner {
     }
   }
 
+  /** An agent's pane options as written, which a reopen is compared by; a deprecated one logged. */
+  private writtenPane(spec: {
+    pane?: PaneSpec;
+    layout?: PaneLayout;
+    keepPane?: KeepPane;
+  }): Pick<AgentIdentity, "pane" | "layout" | "keepPane"> {
+    if (spec.layout !== undefined) this.options.deprecations.used("pane-layout");
+    if (spec.keepPane !== undefined) this.options.deprecations.used("keep-pane");
+    return {
+      ...(spec.pane === undefined ? {} : { pane: storedLayout(spec.pane) }),
+      ...(spec.layout === undefined ? {} : { layout: storedLayout(spec.layout) }),
+      ...(spec.keepPane === undefined ? {} : { keepPane: spec.keepPane }),
+    };
+  }
+
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     if (spec.labels !== undefined) this.options.deprecations.used("labels");
@@ -1995,11 +2027,13 @@ class WorkflowOwner {
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
-    checkPaneOptions(spec.key, spec, {
+    const paneless = {
       headless: placementOf(execution) === "headless",
       sandboxed:
         spec.sandbox !== undefined || existing?.identity.sandbox !== undefined || inRunSandbox,
-    });
+    };
+    checkPaneOptions(spec.key, spec, paneless);
+    const written = this.writtenPane(spec);
     const identity: AgentIdentity = {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
@@ -2007,8 +2041,8 @@ class WorkflowOwner {
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
       ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
       ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
-      ...(spec.layout === undefined ? {} : { layout: storedLayout(spec.layout) }),
-      ...(spec.keepPane === undefined ? {} : { keepPane: spec.keepPane }),
+      ...written,
+      asked: paneAsked(written, this.options.panes, !paneless.headless && !paneless.sandboxed),
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
@@ -2078,9 +2112,9 @@ class WorkflowOwner {
         ...(seated?.webSearch ? { webSearch: true } : {}),
         ...(skills ? { skills } : {}),
         ...(home ? { home } : {}),
-        ...paneOptions(identity),
+        ...identity.asked,
       }),
-      layoutFallback: this.besideFallback(identity.layout, effectiveDeadline)(),
+      layoutFallback: this.besideFallback(identity.asked?.layout, effectiveDeadline)(),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -2535,7 +2569,7 @@ class WorkflowOwner {
       },
       deprecated: (name, subject) => this.options.deprecations.used(name, subject),
       reporting: (outcome) => this.#reporting(outcome),
-      keepPane: () => this.#agents.get(key)?.identity.keepPane,
+      keepPane: () => this.#agents.get(key)?.identity.asked?.keepPane,
       keepAlive: () => this.#agents.get(key)?.keepAlive,
       defaultWindowMs: this.options.defaultWindowMs ?? DEFAULT_WINDOW_MS,
       now: this.options.now,
@@ -2593,6 +2627,7 @@ class WorkflowOwner {
       forkSpecOf(given, () => this.options.deprecations.used("fork-runtime")),
     );
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
+    if (forkSpec.pane !== undefined) forkSpec.pane = storedLayout(forkSpec.pane);
     const deadline = boundedDeadline(
       { timeout },
       scope?.deadline ?? this.options.deadline,
@@ -2633,10 +2668,9 @@ class WorkflowOwner {
     // show, which the fork reads: `""` until then (ADR 0010).
     const ofCaller = execution.caller === true;
     delete execution.caller;
-    checkPaneOptions(spec.key, forkSpec, {
-      headless: placementOf(execution) === "headless",
-      sandboxed,
-    });
+    const headless = placementOf(execution) === "headless";
+    checkPaneOptions(spec.key, forkSpec, { headless, sandboxed });
+    const written = this.writtenPane(forkSpec);
     const identity: AgentIdentity = {
       execution,
       cwd: parent.identity.cwd,
@@ -2645,8 +2679,8 @@ class WorkflowOwner {
       ...(parent.identity.skills ? { skills: parent.identity.skills } : {}),
       ...(parent.identity.sandbox === undefined ? {} : { sandbox: parent.identity.sandbox }),
       forkedFrom: { parent: from, spec: forkSpec },
-      ...(forkSpec.layout === undefined ? {} : { layout: forkSpec.layout }),
-      ...(forkSpec.keepPane === undefined ? {} : { keepPane: forkSpec.keepPane }),
+      ...written,
+      asked: paneAsked(written, this.options.panes, !headless && !sandboxed),
     };
 
     this.options.progress.agentOpened(spec.key, scope?.group);
@@ -2660,7 +2694,7 @@ class WorkflowOwner {
       sessions: () => reportedSessions(sessions),
       forkedAt: () => forkedAt,
     };
-    const besideAtFork = this.besideFallback(identity.layout, deadline);
+    const besideAtFork = this.besideFallback(identity.asked?.layout, deadline);
     let continues: NativeFork | undefined;
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
@@ -2717,7 +2751,7 @@ class WorkflowOwner {
         ...(given ? { skills: given } : {}),
         ...(home ? { home } : {}),
         ...(continues ? { continues } : {}),
-        ...paneOptions(identity),
+        ...identity.asked,
       }),
       // The target as it stands when `fork` is called, waited for once the fork is made.
       layoutFallback: forked.then(besideAtFork, () => undefined),
@@ -2843,11 +2877,12 @@ class WorkflowOwner {
     return [...this.#agents].flatMap(([agent, entry]) => {
       const placed = entry.opening?.sessions.harness?.pane?.();
       if (!placed) return [];
-      const { layout, keepPane } = entry.identity;
+      const { pane, layout, keepPane } = entry.identity;
       return [
         {
           callPath: [],
           agent,
+          ...(pane === undefined ? {} : { pane }),
           ...(layout === undefined ? {} : { layout }),
           ...(keepPane === undefined ? {} : { keepPane }),
           placed,
@@ -5067,21 +5102,11 @@ function assertCompatibleAgent(
   if (spec.skills !== undefined && !isDeepStrictEqual(existing.skills, requested.skills)) {
     conflict(key, "skills");
   }
-  for (const field of ["instructions", "labels", "layout", "keepPane"] as const) {
+  for (const field of ["instructions", "labels", "pane", "layout", "keepPane"] as const) {
     if (spec[field] !== undefined && !isDeepStrictEqual(existing[field], requested[field])) {
       conflict(key, field);
     }
   }
-}
-
-function paneOptions({
-  layout,
-  keepPane,
-}: AgentIdentity): Pick<HarnessActivation, "layout" | "keepPane"> {
-  return {
-    ...(layout === undefined ? {} : { layout }),
-    ...(keepPane === undefined ? {} : { keepPane }),
-  };
 }
 
 function conflict(key: string, field: string): never {

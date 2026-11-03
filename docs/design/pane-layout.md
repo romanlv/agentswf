@@ -7,8 +7,16 @@ story: "[[026-pane-layout]]"
 # Pane layout
 
 Where a workflow's TUI agents appear on screen, and whether a pane stays open after its agent is
-done. The workflow says it per agent, with two options: `layout` (a new tab, or beside another
-agent's pane) and `keepPane`.
+done. The workflow says which agents share a tab and which one the operator should see, per agent,
+with `pane` (a new tab, or beside another agent's pane, and `front`). The operator says which
+workspace the tabs open in and whether panes stay, per run, with `awf run --workspace` and
+`--keep-panes` ([[039-one-way-author-api|story 039]] task 9).
+
+> **Since story 039.** This design was written with both halves on the workflow: `layout`, whose
+> `session` and `workspace` are now the operator's, and `keepPane`. Both still work, deprecated,
+> until 0.1.0; where the operator gives a flag, it wins. Read `layout: { workspace, tab }` below as
+> `pane: { tab }` with `--workspace`, and `keepPane` as `--keep-panes`. The rules (placement,
+> fallbacks, a pane's life, keeping, sessions and workspaces, marks) are unchanged.
 
 Read in order: the picture, the author API, when a pane is placed, the rules, then a pane's life,
 keeping, sessions and workspaces, marks, and what stays out.
@@ -54,7 +62,26 @@ goes.
 
 ## The author API
 
-Two options on `agents.open` and on `fork` (`AgentForkSpec` gains them):
+Today: `pane` on `agents.open`, `fork` and `forkCaller`, and two `awf run` flags, recorded in
+`run.json` so every attempt, a woken one too, keeps them:
+
+```ts
+type PaneSpec =
+  | { tab?: string; front?: boolean }
+  | { beside: AgentKey; side: "right" | "below"; share?: number; front?: boolean };
+```
+
+```sh
+awf run review.ts --workspace {run|origin|name} --keep-panes {never|on-failure|always}
+```
+
+`front: true` makes the pane's tab the active tab of the workspace it lands in, as it is placed,
+when that is `"origin"`, the operator's own: the one exception to "awf never takes focus" below,
+asked for by the workflow. Elsewhere it does nothing, since whether a focus in another workspace
+moves an attached client's view is not measured. A `beside` pane goes
+where its target is, whatever `--workspace` says.
+
+As first designed, two options on `agents.open` and on `fork` (`AgentForkSpec` gains them):
 
 The `?: never` fields only make the two shapes exclusive: a layout is a new tab or a pane beside
 another, never both.

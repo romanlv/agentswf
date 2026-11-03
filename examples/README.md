@@ -56,7 +56,7 @@ write one.
 | `compaction/` | one agent per harness compacted with a focus, then asked what it kept (`-- claude pi`) | [Agents](../site/guide/agents.md) |
 | `fork/` | a worker forked per harness, compacted or not, and each asked what it knows | [Agents](../site/guide/agents.md) |
 | `effort/` | one agent per harness switched to another effort, then another model | [Agents](../site/guide/agents.md) |
-| `pane-layout/` | a lead in a tab of your workspace and two forked reviewers stacked beside it; run it from a Herdr pane | [Harnesses](../site/guide/harnesses.md) |
+| `pane-layout/` | a lead in a tab of its own, in front, and two forked reviewers stacked beside it; run it from a Herdr pane with `--workspace origin --keep-panes always` | [Harnesses](../site/guide/harnesses.md) |
 | `calling-session/` | the run takes over the agent session it was started from: `awf run --here`, from claude, codex, pi or cursor in a Herdr pane | [Calling session](../site/guide/calling-session.md) |
 | `fork-caller/` | forks the session that started the run and asks the fork what it was working on | [Calling session](../site/guide/calling-session.md) |
 | `tools/` | an agent closes backlog items through the workflow's own tools | [Tools](../site/guide/tools.md) |

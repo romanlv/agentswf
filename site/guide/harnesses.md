@@ -116,7 +116,9 @@ cost, and what is left of each plan, are on [Cost](/guide/cost).
 ## Where panes go
 
 Each TUI agent gets a tab of its own, named by its key, in the run's Herdr workspace, and the pane
-closes once the agent is done. `layout` puts it elsewhere as it opens, and `keepPane` keeps it:
+closes once the agent is done. The workflow says which agents share a tab with `pane`, and which
+one you should look at with `front`, which brings its tab forward when it opens in your own
+workspace (`--workspace origin`), and nowhere else:
 
 <<< @/../examples/site/guide/harnesses.ts#layout
 
@@ -126,12 +128,24 @@ closes once the agent is done. `layout` puts it elsewhere as it opens, and `keep
   <div>style</div>
 </div>
 
-`keepPane` is `"never"`, the default, `"on-failure"` or `"always"`. A kept pane is left with its
-harness running, released from the run: what you type into it is yours, and awf never closes it.
-A layout that can't be used, such as `beside` an agent with no pane, never fails the agent: it gets
-a tab of its own, and the run's closing lines say why. `layout` or `keepPane`, either, on a headless
-or [sandboxed](/guide/sandboxes) agent rejects the open. Every option and rule is in
-[Where panes go](/reference/workflow-api#where-panes-go-layout-and-keeppane).
+Where the tabs open and whether panes stay are yours, as you start the run:
+
+```sh
+awf run review.ts --workspace origin --keep-panes on-failure
+```
+
+`--workspace` is `run`, the run's own workspace and the default; `origin`, the one you typed
+`awf run` in; or any other word, the workspace with that label, found or made. `--keep-panes` is
+`never`, the default, `on-failure`, when the agent's last turn wasn't answered, or `always`. A kept
+pane is left with its harness running, released from the run: what you type into it is yours, and
+awf never closes it. The run keeps both for every attempt, so a run that parks and wakes later
+places and keeps its panes as it was started to. A run an event starts, with `awf emit`, takes the
+defaults: the flags are yours to give when you start a run.
+
+A `pane` that can't be used, such as `beside` an agent with no pane, never fails the agent: it gets
+a tab of its own, and the run's closing lines say why. `pane` on a headless or
+[sandboxed](/guide/sandboxes) agent rejects the open. Every option and rule is in
+[Where panes go](/reference/workflow-api#where-panes-go).
 
 awf starts Herdr headless, in a session named `awf`, and says where to look as the first TUI agent
 opens:

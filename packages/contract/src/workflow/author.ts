@@ -29,6 +29,7 @@ export type {
   NudgeOptions,
   OperationRecord,
   PaneLayout,
+  PaneSpec,
   PaneWorkspace,
   PlacementChoice,
   RunResult,

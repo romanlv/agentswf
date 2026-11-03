@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PaneLayout } from "@agentswf/contract/workflow";
+import type { PaneLayout, PaneWorkspace } from "@agentswf/contract/workflow";
 import type { AgentRunHost } from "../adapter";
 import { createFakeHerdr, type FakeHerdr } from "../testing/herdr-cli";
 import { createHerdrRunHostFactory, type HerdrConfig } from "./herdr";
@@ -43,7 +43,7 @@ function open(
   host: AgentRunHost,
   key: string,
   layout?: PaneLayout,
-  extra: { layoutFallback?: string } = {},
+  extra: { layoutFallback?: string; front?: true; fallbackWorkspace?: PaneWorkspace } = {},
 ) {
   return host.openAgent({
     key,
@@ -498,6 +498,70 @@ describe("sessions and workspaces", () => {
     await host.close();
     expect(operator.openWorkspaces()).toEqual(["w1"]);
     expect(calls(operator, "workspace close")).toHaveLength(0);
+  });
+
+  test("front brings a tab forward in the operator's own workspace, a beside pane's included, and nowhere else", async () => {
+    const { fakes, run } = sessions("awf", "default");
+    const operator = fakes.default!;
+    await operator.run({
+      argv: ["herdr", "--session", "default", "workspace", "create", "--label", "mine"],
+      timeoutMs: 1,
+    });
+    const host = await createHerdrRunHostFactory(
+      { ...CONFIG, origin: async () => ({ session: "default", workspaceId: "w1" }) },
+      run,
+    ).openRun({ runId: "r1", label: "awf review r1", cwd: "/repo", deadline: deadline() });
+    await open(host, "lead", { workspace: "origin", tab: "review" });
+    await open(host, "other", { workspace: "origin", tab: "other" }, { front: true });
+    await open(host, "side", { beside: "lead", side: "right" }, { front: true });
+    await open(host, "away", { tab: "away" }, { front: true });
+    await open(host, "named", { workspace: { name: "review" } }, { front: true });
+    const tabOf = (label: string) => paneOf(operator, label)![1].tab;
+    expect(calls(operator, "tab focus").map((call) => call.argv[5])).toEqual([
+      tabOf("other"),
+      tabOf("lead"),
+    ]);
+    expect(calls(fakes.awf!, "tab focus")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("beside a target with no pane falls back to the operator's workspace, not the run's", async () => {
+    const { fakes, run } = sessions("awf");
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "r1",
+      label: "awf review r1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const named = { name: "review" };
+    const never = await open(
+      host,
+      "never",
+      { beside: "nobody", side: "right" },
+      { fallbackWorkspace: named },
+    );
+    const headless = await open(
+      host,
+      "known",
+      { beside: "quiet", side: "below" },
+      { fallbackWorkspace: named, layoutFallback: "quiet is headless" },
+    );
+    const plain = await open(host, "plain", { beside: "nobody", side: "right" });
+    expect(never.pane?.()).toEqual({
+      session: "awf",
+      workspace: named,
+      tab: "never · r1",
+      fallback: "nobody has no pane",
+    });
+    expect(headless.pane?.()).toEqual({
+      session: "awf",
+      workspace: named,
+      tab: "known · r1",
+      fallback: "quiet is headless",
+    });
+    expect(plain.pane?.()?.workspace).toBe("run");
+    expect(labelOf(fakes.awf!, "workspace create")).toContain("review");
+    await host.close();
   });
 
   test("an \"origin\" that can't be used falls back to the run's workspace, saying why", async () => {

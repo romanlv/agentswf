@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   ATTEMPT_RECORD_VERSION,
   type AttemptRecord,
@@ -8,6 +9,7 @@ import {
   type Candidate,
   RUN_RECORD_VERSION,
   type RunLogLine,
+  type RunPanes,
   type RunRecord,
   runLogLine,
   STAGE_RECORD_VERSION,
@@ -190,13 +192,15 @@ export async function openRun(root: string, workflow: string, id: string): Promi
 
 /**
  * What a continue may be given: nothing that changes the run. argv is the run's, and its working
- * directory and sandbox are those it was started with.
+ * directory, sandbox and panes are those it was started with.
  */
 export function checkContinue(
   run: Run,
-  given: { argv: readonly string[]; cwd?: string; sandbox?: unknown },
+  given: { argv: readonly string[]; cwd?: string; sandbox?: unknown; panes?: RunPanes },
 ): void {
   const { id, cwd, sandbox } = run.record;
+  const panes = panesChanged(run.record, given.panes);
+  if (panes) throw new RunRefused(panes);
   if (given.argv.length > 0) {
     throw new RunRefused(
       `${id} keeps the arguments it was started with; a run with others is a new run (--id)`,
@@ -208,6 +212,27 @@ export function checkContinue(
   if (given.sandbox !== undefined && JSON.stringify(given.sandbox) !== JSON.stringify(sandbox)) {
     throw new RunRefused(`${id} runs in the sandbox it was started with; leave --sandbox out`);
   }
+}
+
+/**
+ * Why `given` would change the panes `record`'s run was started with; a flag given again with its
+ * value changes nothing.
+ */
+export function panesChanged(record: RunRecord, given: RunPanes | undefined): string | undefined {
+  const flags = [
+    ["--workspace", "workspace"],
+    ["--keep-panes", "keep"],
+  ] as const;
+  for (const [flag, field] of flags) {
+    const value = given?.[field];
+    const recorded = record.panes?.[field];
+    if (value === undefined || isDeepStrictEqual(value, recorded)) continue;
+    // A run an event or an older awf started has none, and keeps the defaults.
+    return recorded === undefined
+      ? `${record.id} was started without ${flag}; leave it out`
+      : `${record.id} keeps the ${flag} it was started with; leave ${flag} out`;
+  }
+  return undefined;
 }
 
 /**

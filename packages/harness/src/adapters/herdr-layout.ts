@@ -30,6 +30,10 @@ export type PaneRequest = {
   layout?: PaneLayout;
   /** Why the engine already knows `layout` can't be used. */
   fallback?: string;
+  /** Its tab is brought to the front once it is placed, in the operator's own workspace only. */
+  front?: true;
+  /** Where a `beside` pane whose target has no pane opens its own tab; absent, the run's workspace. */
+  fallbackWorkspace?: PaneWorkspace;
   cwd: string;
   /** Set for the agent's process: a host codex's own home, say. */
   env?: Readonly<Record<string, string>>;
@@ -310,6 +314,13 @@ export function createPaneScreen(options: {
       () => undefined,
     );
 
+  /** Makes a tab the active one in its workspace, for the pane the operator should see. Best effort. */
+  const front = (tabId: string, deadlineUnixMs: number) =>
+    herdr(["tab", "focus", tabId], timeout(deadlineUnixMs)).then(
+      () => undefined,
+      () => undefined,
+    );
+
   /** Closes a pane this run made; one already gone is closed. Throws where Herdr refuses. */
   const closePane = async (paneId: string): Promise<void> => {
     const result = await herdr(["pane", "close", paneId]);
@@ -444,6 +455,7 @@ export function createPaneScreen(options: {
     newTab,
     split,
     name,
+    front,
     closePane,
     replace,
     keep,
@@ -575,10 +587,15 @@ export function createPaneLayout(options: {
     if (!placed) {
       const tab = besideKey === undefined && layout && "tab" in layout ? layout.tab : undefined;
       const base = tab ?? key;
+      // A pane beside a target with no pane of its own falls back where the run's new tabs go.
       const resolved =
-        besideFallback !== undefined || request.fallback !== undefined
-          ? { to: besideFallback ?? { screen: run, workspace: "run" as const } }
-          : await destination(layout);
+        besideFallback !== undefined
+          ? { to: besideFallback }
+          : await destination(
+              besideKey === undefined && request.fallback === undefined
+                ? layout
+                : request.fallbackWorkspace && { workspace: request.fallbackWorkspace },
+            );
       fallback ??= resolved.fallback;
       let to = resolved.to;
       let made: Made;
@@ -607,6 +624,11 @@ export function createPaneLayout(options: {
     panes.set(key, pane);
     closed.delete(key);
     await placed.screen.name(pane.paneId, key, request.deadlineUnixMs);
+    // Only in the operator's own workspace: whether a focus elsewhere moves an attached client's
+    // view is unmeasured, and `front` must never take the operator somewhere else.
+    if (request.front && pane.tabId && pane.report.workspace === "origin") {
+      await placed.screen.front(pane.tabId, request.deadlineUnixMs);
+    }
     return pane;
   };
 

@@ -29,15 +29,15 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 
 | Call | Returns |
 | --- | --- |
-| [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools?, timeout? })`](#agents-open) | an agent |
+| [`wf.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, pane?, tools?, timeout? })`](#agents-open) | an agent |
 | [`agent.run({ prompt, schema?, timeout?, label?, nudge? })`](#agent-run) | `{ outcome }`, in the agent's same session |
 | [`agent.compact({ prompt, timeout? })`](#agent-compact) | an outcome; the harness's own compaction |
 | [`agent.set({ model?, effort?, timeout? })`](#agent-set) | an outcome; later turns run at these |
-| [`agent.fork({ key, runtime?, instructions?, layout?, keepPane?, tools?, timeout? })`](#agent-fork) | a new agent on a copy of this one's session |
+| [`agent.fork({ key, runtime?, instructions?, pane?, tools?, timeout? })`](#agent-fork) | a new agent on a copy of this one's session |
 | [`agent.execution`](#agent-execution) | the agent's harness, model, effort and placement now |
 | [`agent.close(reason?)`](#agent-close) | `true` once closed; `false` if an earlier `close()` closed it |
 | [`wf.agents.caller({ key })`](#agents-caller) | the session `awf run --here` was typed in, or `null` |
-| [`wf.agents.forkCaller({ key, runtime?, instructions?, layout?, keepPane?, timeout? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
+| [`wf.agents.forkCaller({ key, runtime?, instructions?, pane?, timeout? })`](#agents-forkcaller) | a new agent on a copy of the session `awf run` was started from, or `null` |
 | [`tool({ description, input?, handler, timeout? })`](#tool) | a tool, for `open`'s and `fork`'s `tools` |
 
 **Composing work**
@@ -183,7 +183,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
 | `sandbox` | A sandbox from [`wf.sandboxes.open`](#sandboxes-open), or an inline spec for a private one. Left out, the agent is unsandboxed. |
 | `cwd` | Where the agent works; `wf.cwd` by default, which `awf run --cwd` sets. |
-| `layout`, `keepPane` | Where its pane appears, and whether it stays once the agent is done: [Where panes go](#where-panes-go-layout-and-keeppane). |
+| `pane` | Where its pane goes among the run's, and whether it is the one to look at: [Where panes go](#where-panes-go). |
 | `tools` | What it can ask your code to do mid-turn: [`tool`](#tool). |
 | `timeout` | Bounds the open, as for [`run`](#agent-run); the enclosing scope's by default. |
 
@@ -306,8 +306,8 @@ being told again, and reads that context from the provider's cache
 - **A fork has its parent's** harness, model, effort, placement, working directory, sandbox,
   skills and tools. It may name its own `instructions`, `tools` (`{}` for none) and `runtime`,
   `{ placement?, metered?, effort? }`, as [`open`'s](#agents-open) fields: never a harness or
-  model, since it continues its parent's session on them. It never inherits `layout` or
-  `keepPane`: without them it gets a tab of its own. `timeout`, as for [`run`](#agent-run), bounds
+  model, since it continues its parent's session on them. It never inherits `pane`: without
+  one it gets a tab of its own. `timeout`, as for [`run`](#agent-run), bounds
   taking the copy and opening the fork.
 - **It rejects** before the parent's first turn, once the parent is closed, and after a `set`
   queued before it that didn't take. Every harness forks, in its TUI or headless, sandboxed too.
@@ -319,28 +319,34 @@ The agent's settings now: `harness`, `model`, `effort?`, `placement?`, `metered?
 it was opened through one, and `caller: true` for the calling session, whose `model` is `""`. As it
 was opened, then as the last answered `set` left them.
 
-### Where panes go: layout and keepPane {#where-panes-go-layout-and-keeppane}
+### Where panes go {#where-panes-go}
 
-Each TUI agent gets a tab of its own in the run's Herdr workspace, closed once it is done. `layout`
+<a id="where-panes-go-layout-and-keeppane"></a>
+
+Each TUI agent gets a tab of its own in the run's Herdr workspace, closed once it is done. `pane`
 places it elsewhere as it opens, or at its first turn in a workflow with events
 ([Where panes go](/guide/harnesses#where-panes-go)):
 
 <<< @/../examples/site/reference/workflow-api.ts#layout
 
-- **A new tab**: `{ session?, workspace?, tab? }`. `session` is the terminal session, the run's by
-  default. `workspace` is `"run"` (the default), `"origin"`, where `awf run` was typed, or
-  `{ name }`, found or made. `tab` defaults to the key.
-- **Beside another agent**: `{ beside: key, side: "right" | "below", share? }` splits that agent's
-  pane; `share`, 0.2 to 0.8, is the new pane's part, 0.5 by default.
-- **Refused at `open`:** `layout` or `keepPane` on a headless or sandboxed agent, and a malformed
-  value (an unknown field, a `side` other than `right` or `below`, a `share` out of range, an agent
-  `beside` itself).
-- **A well-formed layout that can't be placed**, such as beside an agent with no pane, falls back
+- **A new tab**: `{ tab?, front? }`. `tab` is its label, the key by default; every `tab` is a new
+  tab.
+- **Beside another agent**: `{ beside: key, side: "right" | "below", share?, front? }` splits that
+  agent's pane; `share`, 0.2 to 0.8, is the new pane's part, 0.5 by default.
+- **`front: true`** marks the pane to look at: as it is placed in your own workspace
+  (`awf run --workspace origin`), its tab becomes the active one there. Anywhere else it does
+  nothing: awf never moves your view to another workspace. Where several are in front, the last
+  placed wins.
+- **Which workspace, and whether panes stay, are yours**, not the workflow's:
+  [`awf run --workspace` and `--keep-panes`](/reference/awf#run), which the run keeps for
+  every attempt. A `beside` pane goes where its target is; one whose target has no pane gets a tab
+  of its own in that workspace. A run an event started, with `awf emit`, has neither flag and
+  takes the defaults.
+- **Refused at `open`:** `pane` on a headless or sandboxed agent, and a malformed value (an unknown
+  field, a `side` other than `right` or `below`, a `share` out of range, an agent `beside` itself).
+- **A well-formed `pane` that can't be placed**, such as beside an agent with no pane, falls back
   to a tab of its own and never fails the agent. The run's closing lines say which agent fell back
   and why.
-- **`keepPane`**, `"never"` (the default), `"on-failure"` (when its last operation wasn't
-  answered) or `"always"`, keeps the pane once the agent is done. Its harness is left running and
-  released: what you type into it is yours. awf never closes a kept pane.
 
 ### agent.close {#agent-close}
 
@@ -349,7 +355,7 @@ places it elsewhere as it opens, or at its first turn in a workflow with events
 <<< @/../examples/site/reference/workflow-api.ts#close
 
 `agent.close(reason?)` closes an agent the workflow is done with, so it doesn't sit idle until the
-run ends. A turn it is running ends `cancelled`, its pane is closed or, as `keepPane` says, kept,
+run ends. A turn it is running ends `cancelled`, its pane is closed or, as `--keep-panes` says, kept,
 and its key can't be opened again. It resolves `true` once the agent is closed, a turn that failed and
 closed it included, and `false` if an earlier `close()` did. Closing the calling session hands it back to its operator then rather than at
 the end of the run.
@@ -387,7 +393,7 @@ result as its output. The guide: [Calling session](/guide/calling-session).
 <<< @/../examples/site/reference/workflow-api.ts#forkcaller
 
 - **Fields:** those of [`fork`](#agent-fork) but `tools`: `key`, `runtime`, `instructions`,
-  `layout`, `keepPane` and `timeout`. Root scope only.
+  `pane` and `timeout`. Root scope only.
 - **`null`** means there is no session to fork, and the run's output says why.
 - **The copy** holds the session up to the command that started the run; with `--here`, after the
   run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
@@ -1010,6 +1016,8 @@ naming what replaces it. An old bound given with its replacement, `timeoutMs` or
 | `defineExecutableWorkflow({ definition: { meta, run }, prepare })` | `defineWorkflow({ meta, run, prepare })`. |
 | An agent's or participant's key with a colon, `review:security` | `-` in its place, `review-security`: a colon is kept for awf's own event names. The warning names each such key, and the key to use. |
 | `wf.agents.stop(key, reason?)` | [`agent.close(reason?)`](#agent-close) on the agent's ref. |
+| `layout` on `open`, `fork` and `forkCaller` | `pane: { tab }` or `pane: { beside, side, share? }`, with `front` to bring it forward. Its `workspace` is `awf run --workspace` and its `session` the run session, `AWF_HERDR_SESSION`. Given, the flag wins over the layout. `pane` beside `layout` is refused. |
+| `keepPane` on `open`, `fork` and `forkCaller` | `awf run --keep-panes`, which wins over it when given. |
 | `placement`, `metered` and `effort` beside a fork's or `forkCaller`'s `key` | The same in its `runtime`: `fork({ key, runtime: { placement: "headless", metered: true } })`. Given beside `runtime`, they are refused. |
 | `timeoutMs` on `open`, `run`, `start`, `compact`, `set`, a [tool](#tool) or a [route](#messages-allow) | `timeout`, a [duration](#waiting-on-time): `timeout: "10m"`. |
 | `deadline: { unixMilliseconds }` on `open`, `run`, `start`, `compact`, `set`, `parallel` or `decide` | `timeout`, a `Date`: `timeout: new Date(ms)`. |

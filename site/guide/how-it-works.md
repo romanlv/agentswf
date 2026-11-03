@@ -61,8 +61,8 @@ are built in ([Harnesses](/guide/harnesses)).
 
 **TUI.** How an agent runs by default: the harness's own terminal interface, kept between turns,
 in a pane of [Herdr](https://herdr.dev), a terminal multiplexer, where you can watch it work and
-type into it. Each TUI agent gets a tab in the run's Herdr workspace unless the workflow places it
-elsewhere. The other placement is `headless`: the harness runs as a plain process, one per turn,
+type into it. Each TUI agent gets a tab in the run's Herdr workspace unless the workflow groups it
+with another, or you start the run in another workspace. The other placement is `headless`: the harness runs as a plain process, one per turn,
 with nothing to watch ([Where panes go](/guide/harnesses#where-panes-go)).
 
 **Stage.** A named step the run records when it ends: `wf.stage(name, { result }, work)`. With
@@ -97,7 +97,7 @@ types `wfa`; an agent does, in its own session. The operator's command is `awf`
    doesn't answer, the turn ends `unanswered`. A deadline that passes ends it
    `timed-out`, and a question only a person can answer, such as a permission prompt, ends it
    `blocked`.
-7. **Ends the run.** It closes every agent, except a pane the workflow keeps (`keepPane`), and
+7. **Ends the run.** It closes every agent, except a pane you keep (`awf run --keep-panes`), and
    every sandbox, keeps the record, and prints the
    workflow's result, or why it stopped or failed.
 

@@ -6,9 +6,8 @@ import { paneLayout } from "./workflow";
 const NAMED = Type.Object({ name: Type.String() }, { additionalProperties: false });
 
 describe("pane-layout", () => {
-  test("a lead's tab where awf run was typed, two reviewers stacked right of it, the lead kept", async () => {
+  test("a lead's tab in front, two reviewers stacked right of it", async () => {
     const run = await testWorkflow(paneLayout, {
-      args: { workspace: "origin" },
       agents: {
         lead: [answer(NAMED, { name: "Ada" })],
         security: [answer(NAMED, { name: "Sec" })],
@@ -16,13 +15,9 @@ describe("pane-layout", () => {
       },
     });
     expect(run.value.answered).toEqual(["Ada", "Sec", "Sty"]);
-    expect(run.agentOf("lead")).toMatchObject({
-      layout: { workspace: "origin", tab: "review" },
-      keepPane: "always",
-      keptPane: true,
-    });
-    expect(run.agentOf("security").layout).toEqual({ beside: "lead", side: "right" });
-    expect(run.agentOf("style").layout).toEqual({ beside: "security", side: "below" });
-    expect(run.agentOf("style")).not.toHaveProperty("keptPane");
+    expect(run.agentOf("lead").pane).toEqual({ tab: "review", front: true });
+    expect(run.agentOf("security").pane).toEqual({ beside: "lead", side: "right" });
+    expect(run.agentOf("style").pane).toEqual({ beside: "security", side: "below" });
+    expect(run.agents.some((agent) => agent.keptPane)).toBe(false);
   });
 });

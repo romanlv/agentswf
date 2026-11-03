@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
+import { type AttemptRecord, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
@@ -41,6 +41,14 @@ export type PreparedRun = {
   continued?: { run: Run; attempts: AttemptRecord[]; warnings: string[] };
 };
 
+/** `awf run --id` of a workflow with events, which starts the run detached, or wakes it. */
+export type OpensEventRun = {
+  loaded: LoadedWorkflow;
+  id: string;
+  argv: readonly string[];
+  panes?: RunPanes;
+};
+
 /**
  * The command's workflow loaded and its run prepared, or why not, as awf says it: in the shell that
  * typed the command, before anything starts.
@@ -52,7 +60,7 @@ export async function loadAndPrepare(
 ): Promise<
   | { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand }
   | { refused: string }
-  | { opens: { loaded: LoadedWorkflow; id: string; argv: readonly string[] } }
+  | { opens: OpensEventRun }
 > {
   let loaded: LoadedWorkflow;
   try {
@@ -86,7 +94,14 @@ export async function loadAndPrepare(
           return {
             refused: `a run of ${loaded.file}, which starts on events, is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
           };
-        return { opens: { loaded, id, argv: command.workflowArgs } };
+        return {
+          opens: {
+            loaded,
+            id,
+            argv: command.workflowArgs,
+            ...(command.panes ? { panes: command.panes } : {}),
+          },
+        };
       } catch (error) {
         return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
       }
@@ -122,6 +137,7 @@ async function prepareRun(
     argv: command.workflowArgs,
     ...(command.cwdGiven ? { cwd: command.cwd } : {}),
     ...(command.sandbox === undefined ? {} : { sandbox: command.sandbox }),
+    ...(command.panes === undefined ? {} : { panes: command.panes }),
   });
   const { id, argv, cwd } = run.record;
   if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {

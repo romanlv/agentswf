@@ -17,6 +17,7 @@ import {
   type JsonObject,
   type KeepPane,
   type PaneLayout,
+  type PaneSpec,
   placementOf,
   positiveDurationMilliseconds,
 } from "@agentswf/contract/workflow";
@@ -102,9 +103,11 @@ export type OpenedAgent = {
    */
   forkedFrom?: { key: string; turns: number } | { caller: true; turns: number };
   /**
-   * Its pane's layout as the workflow wrote it; this host has no screen, so nothing says where a
-   * pane landed or whether a `beside` fell back.
+   * Its `pane` as the host was asked to place it: its `tab`, or `beside` another, and `front`. This
+   * host has no screen, so nothing says where a pane landed or whether a `beside` fell back.
    */
+  pane?: PaneSpec;
+  /** What the host was asked, a deprecated `layout`'s session and workspace included. */
   layout?: PaneLayout;
   /** Why the engine already knew `layout` could not be used: a `beside` an agent with no pane. */
   layoutFallback?: string;
@@ -763,6 +766,7 @@ export function createScriptedHost(
               ...(request.continues && forks.has(request.continues.sessionRef)
                 ? { forkedFrom: forks.get(request.continues.sessionRef)! }
                 : {}),
+              ...paneOf(request),
               ...(request.layout ? { layout: request.layout } : {}),
               ...(request.layoutFallback ? { layoutFallback: request.layoutFallback } : {}),
               ...(request.keepPane ? { keepPane: request.keepPane } : {}),
@@ -861,6 +865,24 @@ async function noMessages(): Promise<MessageOutcome> {
 
 async function noTools(): Promise<ToolOutcome> {
   throw new Error("a compaction calls no tools");
+}
+
+/** The workflow's part of what the host was asked for a pane, as `pane` writes it. */
+function paneOf({ layout, front }: HarnessActivation): { pane?: PaneSpec } {
+  if (layout?.beside !== undefined) {
+    const { beside, side, share } = layout;
+    return {
+      pane: {
+        beside,
+        side,
+        ...(share === undefined ? {} : { share }),
+        ...(front ? { front } : {}),
+      },
+    };
+  }
+  const tab = layout?.tab;
+  if (tab === undefined && !front) return {};
+  return { pane: { ...(tab === undefined ? {} : { tab }), ...(front ? { front } : {}) } };
 }
 
 /** What the pane host refuses before it opens a pane. */

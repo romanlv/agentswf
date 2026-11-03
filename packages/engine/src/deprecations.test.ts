@@ -317,6 +317,57 @@ test("flat fields refused beside runtime log nothing", async () => {
   expect(said(run)).toEqual({});
 });
 
+test("layout and keepPane on open, fork and forkCaller place and keep as before, each logged once", async () => {
+  const run = await plainRun(
+    "pane-options",
+    async (wf) => {
+      const a = await wf.agents.open({
+        key: "a",
+        runtime: "claude",
+        layout: { workspace: "origin", tab: "review" },
+        keepPane: "on-failure",
+      });
+      await a.run({ prompt: "One." });
+      await a.fork({ key: "b", layout: { beside: "a", side: "right" }, keepPane: "always" });
+      await wf.agents.forkCaller({ key: "c", keepPane: "always" });
+      await a.run({ prompt: "Two.", nudge: false });
+      return null;
+    },
+    {
+      agents: { a: [answer("yes"), noAnswer.failed()] },
+      caller: { harness: "claude", model: "claude-opus-5-5", here: false },
+    },
+  );
+  expect(said(run)).toEqual({ "pane-layout": 1, "keep-pane": 1 });
+  expect(run.agentOf("a")).toMatchObject({
+    layout: { workspace: "origin", tab: "review" },
+    keepPane: "on-failure",
+    keptPane: true,
+  });
+  expect(run.agentOf("b")).toMatchObject({
+    layout: { beside: "a", side: "right" },
+    keepPane: "always",
+  });
+  expect(run.agentOf("c").keepPane).toBe("always");
+  expect(run.logs.map((log) => log.message)).toContain(
+    "awf: an agent's keepPane is deprecated; drop it: keeping panes is the operator's, awf run --keep-panes",
+  );
+});
+
+test("pane logs nothing", async () => {
+  const run = await plainRun("pane", async (wf) => {
+    const a = await wf.agents.open({ key: "a", runtime: "claude", pane: { tab: "t" } });
+    await a.run({ prompt: "One." });
+    await a.fork({ key: "b", pane: { beside: "a", side: "below", front: true } });
+    return a.fork({ key: "c", pane: null as never }).then(
+      () => "forked",
+      (error: Error) => error.message,
+    );
+  });
+  expect(run.value).toBe("agent c: a pane is an object, not null");
+  expect(said(run)).toEqual({});
+});
+
 test("agents.stop ends an agent as close() does, and logs once", async () => {
   const run = await plainRun("agents-stop", async (wf) => {
     const a = await wf.agents.open({ key: "a", runtime: "claude" });

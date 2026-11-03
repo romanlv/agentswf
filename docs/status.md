@@ -13,9 +13,11 @@ exists, the code is right, then this page.
   as `claude -p` bills per token even on a subscription login. A TUI agent keeps its pane for all its turns (ADR 0008). TUI agents open in a headless Herdr session of
   their own, `awf` (`AWF_HERDR_SESSION` names another), which awf starts when down from a minimal
   environment and a quiet config, not in the operator's (story 024); `--cwd` sets the directory the workflow works in. A workflow
-  may place each TUI agent's pane with `layout`, in a tab of the run's workspace, a named one, a
-  named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
-  the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
+  places each TUI agent's pane with `pane`, in a tab of its own or beside another agent's pane, and
+  brings the one to look at to the front (`front`); the operator picks the workspace, the run's, a
+  named one or the one `awf run` was typed in, with `awf run --workspace`, and keeps panes once
+  their agents are done with `--keep-panes` (stories 026 and 039), both kept in `run.json` for
+  every attempt. A kept pane's harness is released from the run; every
   other pane closes when its agent does, at the run's end or earlier with `agent.close()`, and a later run closes what a killed run left, in any session.
 - `awf run` typed in an agent's tool call, or with `--here`, lets the workflow fork that session:
   `agents.forkCaller` opens an agent on a copy of it, on the model its files show, or answers `null`
@@ -347,6 +349,14 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   says it, `interrupted`, not `was working`). A `wfa` and an engine of different wire versions, as
   after installing awf anew while a run is live, are refused with an error naming both, either way round; so is an `awf send` or
   `awf reply` of another version by a run's engine.
+  Task 9 built, awaiting review: `pane: { tab?, front? }` or `{ beside, side, share?, front? }` on
+  `open`, `fork` and `forkCaller`; `awf run --workspace {run|origin|name}` and `--keep-panes
+  {never|on-failure|always}`, recorded in `run.json`'s `panes`, so a continue and a wake keep them,
+  and refused on a continue that would change them. `layout` and `keepPane` are deprecated, logged
+  once each, and still place and keep, unless the operator's flag is given, which wins. `front`
+  brings a tab forward only in the operator's own workspace. A run an event starts takes the
+  defaults. An older awf continuing a run with `panes` silently ignores the operator's choices.
+  Not yet checked live in Herdr: a pane in a named workspace and tab, and `front`.
 
 ## Known gaps
 

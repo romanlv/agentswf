@@ -203,7 +203,7 @@ Betas from the design's §8 in brackets.
 - [x] 6. One `testWorkflow` signature (B)
 - [x] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
 - [x] 8. Durations and one word per state on the CLI and the wire (D)
-- [ ] 9. Pane workspace and keeping panes move to the operator (E)
+- [x] 9. Pane workspace and keeping panes move to the operator (E)
 - [ ] 10. What tasks 1–9 deprecated is removed (F)
 
 ## Open questions
@@ -497,14 +497,14 @@ which agents share a tab and which one comes to the front.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -748,6 +748,26 @@ usage errors. A blank `--as` or agent now fails as a usage error rather than rea
 git history accepts the engine's refusal.
 
 Not run: a real harness's `wfa` in a pane across a reinstall mid-run.
+
+### Task 9
+
+Architecture and scope review: `run.json`'s optional `panes`, written once when the run is made,
+and the operator's flags winning over the deprecated per-agent settings, were upheld.
+- `front` focuses a tab with Herdr's `tab focus`. Whether that moves an attached client to another
+  workspace is unmeasured, and the docs promise awf never switches the operator's view. So `front`
+  applies only in the operator's own workspace (`origin`) until the live check says otherwise.
+- A run an event starts takes the default pane settings. A flag given to it later is refused, with
+  wording that says it was started without one.
+
+Correctness and proof review:
+- A `beside` pane whose target never had a pane fell back into the run's workspace, ignoring
+  `--workspace`; it now falls back into the operator's.
+- `pane: null` on a fork threw a `TypeError`; it is refused by name.
+- A blank `--workspace` is refused.
+- The e2e proof was checked by removing the line that hands the record's settings to an attempt;
+  both tests then fail.
+
+Not run: the Herdr live check (the command is in the task 9 notes), which would also settle `front`.
 
 ## Readiness
 
@@ -1346,6 +1366,132 @@ As built:
   not run); a real harness's `wfa` in a pane against a mid-run reinstall (a live check, not run);
   the path where this `awf send` meets an older run's socket has no test (it needs an engine that
   closes unanswered).
+
+### Task 9
+
+Plan, settled before coding.
+
+- **The workflow's part is `pane`**, on `open`, `fork` and `forkCaller`: `PaneSpec`, either
+  `{ tab?, front? }` or `{ beside, side, share?, front? }`. Sharing a tab keeps `beside`: grouping
+  is the workflow's, and `beside`, `side` and `share` are how it groups today. Rejected: agents
+  with the same `tab` sharing one tab, laid out by awf. That is the automatic layout
+  [[design/pane-layout|pane-layout]] turned down (it stopped being readable at five agents), and
+  it would need rules for which pane splits which. `tab` keeps its meaning: every `tab` is a new
+  tab. `pane` is refused beside `layout`, and wherever `layout` is today (headless, sandboxed).
+- **`front`** names the pane the operator should see: when it is placed, its tab becomes the
+  active tab of the workspace it landed in (Herdr's `tab focus`), wherever that is, after a
+  fallback too. awf takes focus for no other pane, and never switches the session. Where
+  several agents are `front`, the last placed is in front; a wake places its agents again, so a
+  woken `front` agent comes forward again at its first turn. Best effort: a refused focus fails
+  nothing. Whether Herdr's `tab focus` also moves a client watching another workspace is not
+  measured; the live check looks. (Narrowed after review, below: `origin` only.)
+- **The operator's part is two `awf run` flags**, `--workspace {run|origin|name}` and
+  `--keep-panes {never|on-failure|always}`. `run` and `origin` are the keywords they were in
+  `PaneWorkspace`; any other word is a workspace's label, so a workspace called `run` or
+  `origin` can't be named from the command line (accepted: the record keeps `{ name }`, so it
+  could be added). They apply to every TUI agent the run places on the host; a headless or
+  sandboxed agent has no pane of awf's to place, and ignores them. `--workspace` places new tabs
+  only: a `beside` pane goes beside its target, wherever that is.
+- **`run.json` gains `panes?: { workspace?: PaneWorkspace; keep?: KeepPane }`** (structural,
+  additive and optional; `RunRecord` stays version 1), written once when the run is made, from
+  the flags given: absent when neither was. Every attempt reads it from the record, so a
+  `--continue` and a wake, which passes no flags, keep it. A continue (or `awf run --id` of an
+  event run already there) may repeat a flag with the same value, and is refused with a
+  different one, as `--sandbox` is. An older awf continuing such a run ignores the field.
+  Rejected: an attempt flag in `attempts/{n}.json`, beside `timeout` (a wake would lose it, and
+  it would need a rule for which attempt's applies); and recording the flags in `argv` (which
+  holds the workflow's arguments, and an event run's is empty).
+- **Precedence: the operator's flag wins; absent, a deprecated per-agent value applies as before;
+  neither, the default** (`run`'s workspace, `never`). So a workflow written with `layout` and
+  `keepPane` runs as it did until the operator says otherwise, and the operator can always
+  override it. `--workspace` replaces a deprecated `layout`'s `session` too: where the tab goes
+  is one choice. Rejected: the deprecated per-agent value winning until removed (the operator
+  could not correct a workflow they did not write, which is the point of the move), and a
+  refusal when both are given (it would break a working workflow for adding a flag).
+- **`layout` and `keepPane` are deprecated**, each logged once per attempt (`pane-layout`,
+  `keep-pane`), and still place and keep as before. `layout.session`'s replacement is the run
+  session, `AWF_HERDR_SESSION`, with `--workspace`; the deprecation line says so. `PaneLayout`
+  stays the shape the engine hands a harness: the workflow's `pane` and the operator's workspace
+  combined. `KeepPane` and `PaneWorkspace` stay as the flags' values and the records'.
+- **Where it lives.** Combining the three is one pure function, `paneAsked` in
+  `engine/src/pane-layout.ts`, beside the checks; the runner calls it for each agent it opens or
+  forks, and passes its `layout`, `front` and `keepPane` to the harness, as it passes `layout`
+  and `keepPane` today. The harness adds `front` (`HarnessActivation`, `PaneRequest`) and focuses
+  the tab after placing. The runner takes the run's settings as `run.panes`; the operator CLI
+  reads them from `run.json`. A reopen compares `pane` as written, as it does `layout`.
+- **Records.** `output.json`'s `panes[]` (`AgentPaneRecord`) gains `pane` as written; where a pane
+  went and whether it was kept are in `placed`, as before. The testing host's `OpenedAgent` gains
+  `pane` (the workflow's part, as the host was asked for it) and keeps `layout` and `keepPane`;
+  `testWorkflow` takes no operator settings: a workflow's test has no operator.
+- **Proof.** Engine, in process, through `runOperatorCli` with an injected runtime and a launch
+  that runs the wake in process: an event run started with `--keep-panes on-failure
+  --workspace review` parks, is woken with no flags, and its second attempt's agent, whose turn
+  failed, is closed with its pane kept and was placed in workspace `review`; `run.json` holds
+  both. `--continue` with a different value is refused. Unit: `paneAsked`'s precedence table,
+  `pane` checks, the flags' parsing. Deprecations: `layout` and `keepPane` log once and still
+  reach the host as before. Harness: `front` focuses the placed tab, and nothing else does.
+
+Built:
+
+- **Contract.** `PaneSpec` (in `agentswf/workflow`) and `pane?` on `AgentOpenSpec` and
+  `CallerForkSpec`; `layout` and `keepPane` carry `@deprecated`. `RunRecord.panes?: RunPanes`,
+  `{ workspace?: PaneWorkspace; keep?: KeepPane }`; `AgentPaneRecord.pane?` in `output.json`.
+  No record version changes.
+- **Engine.** `pane-layout.ts`: `checkPaneOptions` checks `pane` too (and refuses it beside
+  `layout`, and a `workspace` or `session` in it, naming the flag); `paneAsked` combines;
+  `parseWorkspace` reads the flag. The runner keeps `pane`, `layout` and `keepPane` as written
+  (a reopen compares all three) and `asked`, what the host gets; `keepPane` at close reads
+  `asked`. `runs.ts`'s `panesChanged` is the one rule for a continue (`checkContinue`) and for
+  `awf run --id` of an event run already there (`openEventRun`). `operator-cli` writes the flags
+  into a new run's `run.json`, and passes `run.record.panes` to every attempt.
+- **Harness.** `HarnessActivation.front` and `PaneRequest.front`; `place` runs `tab focus` on the
+  placed pane's tab, after naming it, best effort, outside the topology queue, **only where the
+  pane landed in `"origin"`**, the operator's own workspace. Elsewhere `front` does nothing,
+  silently: whether a focus in another workspace or session moves an attached client's view is
+  unmeasured (Herdr's help doesn't say), and `front` must never take the operator elsewhere. The
+  live check may lift this. A pane that is the first of a named workspace made for it has no tab
+  id when Herdr's answer omits one, and `front` is skipped there too; under this rule it is never
+  `origin` anyway.
+- **A target-less `beside` falls back to the operator's workspace.** `PaneAsked` and
+  `HarnessActivation` carry `fallbackWorkspace`, the operator's `--workspace`, for a `beside` pane;
+  where its target never had a pane (not open, headless, sandboxed, the caller), its own tab opens
+  there, not in the run's workspace. A target whose pane closed or would not split still falls
+  back into the target's workspace, as before.
+- **Refusals.** A flag on a continue, or on `awf run --id` of an event run already there, that the
+  run was started without says `{run} was started without --workspace; leave it out` (or
+  `--keep-panes`): a run `awf emit` started, or one from before this change, has no `panes` and
+  takes the defaults, since `emit` is the sender's command, not the operator's. A different value
+  says `{run} keeps the --workspace it was started with`. A blank `--workspace` is refused. A
+  `pane` or `layout` that is not an object reaches the check, which names it, on a fork too.
+- **Testing host.** `OpenedAgent.pane` is the workflow's part of what the host was asked
+  (`tab` or `beside`, and `front`); `layout` and `keepPane` stay, as given to the host.
+- Proof: `run-panes.test.ts` (the event run parks and is woken twice through the exact argv a
+  detached wake runs, in process: both agents' hosts are asked `workspace: { name: "review" }`
+  and `on-failure`, and both failed agents' panes are kept, with attempts' `flags` empty; a plain
+  run and its `--continue` the same, with `front`; repeating a flag is accepted, changing one
+  refused, a bad value refused). Removing the line that passes `run.record.panes` to the attempt
+  fails the first test. `pane-layout.test.ts` (checks, precedence, the keywords),
+  `deprecations.test.ts` (`layout` and `keepPane` on open, fork and forkCaller, each logged once,
+  reach the host and keep a failed agent's pane; `pane` logs nothing), `workflow-runner.test.ts`
+  (`pane` reaches the host and `output.json`), `workflow-testing.test.ts` (`pane` recorded, not
+  inherited by a fork, compared on a reopen), `herdr-layout.test.ts` (`front` focuses the placed
+  tab in `origin`, a `beside` pane's included, and nowhere else; a target-less `beside` falls back
+  to the operator's workspace, one engine-known and one not). `run-panes.test.ts` also: a run an
+  event started has no `panes`, and a flag on it later is refused with the no-flag wording.
+- Unverified, a live check to return to (cost: three codex luna TUI agents, a few cents): from a
+  Herdr pane, `awf run examples/pane-layout/workflow.ts --workspace review --keep-panes always`.
+  Look for the tab `review · {run id}` in a workspace labelled `review`, the lead in front, the
+  two reviewers stacked right of it, and all three panes left open after the run; then with
+  `--workspace origin`, the lead's tab brought forward. Also whether Herdr's `tab focus` on a tab
+  in another workspace switches an attached client's view: if it doesn't, `front` can be lifted
+  from `origin` only to every workspace.
+- Not built: `testWorkflow` takes no `--workspace` or `--keep-panes`. **For task 10:** once
+  `keepPane` is removed, a workflow's test has no way to keep a pane (`keptPane` is only reachable
+  through it); decide whether `testWorkflow` takes the operator's settings or keeping leaves the
+  testing surface. `OpenedAgent.pane` is derived from what the host was given (so a deprecated
+  `layout`'s `tab` shows there); it can carry the written `pane` when `layout` goes.
+- An older awf continuing a run with `panes` ignores them silently (it reads `run.json` version 1
+  and doesn't know the field).
 
 ## Human review
 

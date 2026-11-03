@@ -813,6 +813,8 @@ export function createHerdrRunHostFactory(
             key: request.key,
             ...(request.layout ? { layout: request.layout } : {}),
             ...(request.layoutFallback ? { fallback: request.layoutFallback } : {}),
+            ...(request.front ? { front: true as const } : {}),
+            ...(request.fallbackWorkspace ? { fallbackWorkspace: request.fallbackWorkspace } : {}),
             cwd: request.cwd,
             ...(skills ? { env: skills.env } : {}),
             deadlineUnixMs: deadline.unixMilliseconds,

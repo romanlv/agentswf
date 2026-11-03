@@ -2,11 +2,13 @@ usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]
        awf run [options] <workflow-file> --id <id> --continue
 run options: --id <id>, --continue, --from-stage <stage>, --values <file>,
              --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,
+             --workspace <run|origin|name>, --keep-panes <never|on-failure|always>,
              --json, --no-watch, --here
 
 Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or, with
---continue, the run --id names, with the arguments, --cwd and --sandbox it was started with. A continue reuses
-the stages that succeeded, up to the first with no record or to --from-stage, and runs the rest.
+--continue, the run --id names, with the arguments, --cwd, --sandbox, --workspace and
+--keep-panes it was started with. A continue reuses the stages that succeeded, up to the first
+with no record or to --from-stage, and runs the rest.
 A new run with --from-stage starts there. A stage before it with no record to reuse takes its
 value from --values, a JSON object by stage name, checked by its result; one that returns
 nothing is passed. Without one the attempt stops, naming the stage and its schema.
@@ -25,6 +27,13 @@ such as {"read": ["/data/request.md"], "srt": {}}, naming srt or docker, whose r
 from --cwd. A workflow that opens a sandbox of its own is refused.
 A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its
 panes; --no-watch leaves it out, and awf still prints the command that shows them.
+--workspace says where each TUI agent's tab opens: run, the run's own Herdr workspace (the
+default); origin, the one awf run was typed in; or any other word, the workspace with that label,
+found or made. --keep-panes says whether an agent's pane stays once it is done: never (the
+default), on-failure, when its last turn wasn't answered, or always. A kept pane's harness is left
+running, and yours. Both are kept with the run for every attempt, a woken one too, and win over a
+workflow's deprecated layout and keepPane. A run an event started has neither, and takes the
+defaults.
 --here, run by an agent in a Herdr pane, starts the run in a new tab and has it take that agent's
 session over as one of its agents, from its next turn until the run ends. It prints a line for
 the agent to end its turn with, which is how the run finds the session.
@@ -43,5 +52,6 @@ Examples:
   awf run --timeout 20m examples/minimum-review/review-loop.ts
   awf run examples/minimum-review/review-loop.ts -- packages/engine/src
   awf run examples/minimum-review/review-loop.ts --cwd ../other-repo
+  awf run examples/pane-layout/workflow.ts --workspace origin --keep-panes on-failure
 
 Workflow files are trusted code and run with your filesystem and process authority.

@@ -77,8 +77,8 @@ once they are a day old.
 
 ### run.json
 
-What the run is, fixed for its life. A continue takes its arguments, `--cwd` and `--sandbox` from
-here.
+What the run is, fixed for its life. A continue, and a wake, take its arguments, `--cwd`,
+`--sandbox`, `--workspace` and `--keep-panes` from here.
 
 | Field | Meaning |
 | --- | --- |
@@ -88,6 +88,7 @@ here.
 | `sandbox` | `--sandbox`'s spec as its file gave it, or `null` |
 | `created` | when the run was made |
 | `events`, `env.PATH`, `file` | a run of a workflow with `events` only: the `PATH` every attempt runs with, and the file it was first started from |
+| `panes` | `{ workspace?, keep? }`, `--workspace` and `--keep-panes` as given: `"run"`, `"origin"` or `{ "name": … }`, and `never`, `on-failure` or `always`. Absent when neither was, and for a run an event started |
 
 A run's status, current stage and last attempt are not stored: they are read off the other files,
 so they can't go stale.
@@ -196,7 +197,7 @@ earlier one.
 | `artifacts` | the run's folder |
 | `sandboxes` | each sandbox the run opened, with its spec, provider and the agents in it |
 | `skills` | the skills each agent was given, with their source, commit and digest |
-| `panes` | where each TUI agent's pane went in Herdr |
+| `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it (or a deprecated `layout` and `keepPane`), and in `placed` where it landed and whether it was kept |
 | `decisions` | every decision asked |
 
 A run that failed or was cancelled once its agents started keeps an `output.json` too, with what

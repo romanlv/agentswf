@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { checkPaneOptions, keepsPane } from "./pane-layout";
+import type { PaneSpec } from "@agentswf/contract/workflow";
+import {
+  checkPaneOptions,
+  keepsPane,
+  paneAsked,
+  parseWorkspace,
+  storedLayout,
+} from "./pane-layout";
 
 const pane = { headless: false, sandboxed: false };
-const refusal = (spec: { layout?: unknown; keepPane?: unknown }, agent = pane) => {
+const refusal = (spec: { pane?: unknown; layout?: unknown; keepPane?: unknown }, agent = pane) => {
   try {
     checkPaneOptions("lead", spec, agent);
     return undefined;
@@ -84,5 +91,110 @@ describe("keepsPane", () => {
       expect(keepsPane("on-failure", kind)).toBe(true);
     }
     expect(keepsPane("on-failure", undefined)).toBe(false);
+  });
+});
+
+describe("pane", () => {
+  test("takes a tab or a neighbour, and front", () => {
+    for (const pane of [
+      {},
+      { tab: "review" },
+      { front: true },
+      { tab: "review", front: false },
+      { beside: "other", side: "right", front: true },
+      { beside: "other", side: "below", share: 0.4 },
+    ]) {
+      expect(refusal({ pane })).toBeUndefined();
+    }
+  });
+
+  test("refuses the operator's choices, layout beside it, and what a layout refuses", () => {
+    expect(refusal({ pane: { workspace: "origin" } })).toContain(
+      "not workspace: the workspace is the operator's, awf run --workspace",
+    );
+    expect(refusal({ pane: { session: "work" } })).toContain("not session");
+    expect(refusal({ pane: { tab: "a" }, layout: { tab: "b" } })).toContain(
+      "give pane, not layout beside it",
+    );
+    expect(refusal({ pane: { front: "yes" } })).toContain("front is true or false");
+    expect(refusal({ pane: { beside: "lead", side: "right" } })).toContain("beside itself");
+    expect(refusal({ pane: { beside: "a", side: "right", tab: "x" } })).toContain("not tab");
+    expect(refusal({ pane: { tab: "" } })).toContain("tab is a label");
+    expect(refusal({ pane: "review" })).toContain("a pane is an object");
+    expect(refusal({ pane: { tab: "a" } }, { headless: true, sandboxed: false })).toContain(
+      "pane places a pane, and a headless agent has none",
+    );
+    expect(refusal({ pane: { tab: "a" } }, { headless: false, sandboxed: true })).toContain(
+      "pane is not yet for an agent in a sandbox",
+    );
+  });
+
+  test("is kept without what is absent, front: false included", () => {
+    expect(storedLayout<PaneSpec>({ tab: "a", front: false })).toEqual({ tab: "a" });
+    expect(storedLayout<PaneSpec>({ beside: "a", side: "right", share: undefined })).toEqual({
+      beside: "a",
+      side: "right",
+    });
+  });
+});
+
+describe("paneAsked", () => {
+  const named = { name: "review" };
+  test("the workflow's tab and front, in the operator's workspace, kept as the operator says", () => {
+    expect(paneAsked({ pane: { tab: "t", front: true } }, undefined, true)).toEqual({
+      layout: { tab: "t" },
+      front: true,
+    });
+    expect(
+      paneAsked({ pane: { tab: "t" } }, { workspace: named, keep: "on-failure" }, true),
+    ).toEqual({ layout: { workspace: named, tab: "t" }, keepPane: "on-failure" });
+    expect(paneAsked({}, { workspace: "origin" }, true)).toEqual({
+      layout: { workspace: "origin" },
+    });
+    expect(paneAsked({}, undefined, true)).toEqual({});
+  });
+
+  test("a neighbour goes beside its target; with no target pane, to the operator's workspace", () => {
+    expect(
+      paneAsked(
+        { pane: { beside: "lead", side: "below", share: 0.3, front: true } },
+        { workspace: named },
+        true,
+      ),
+    ).toEqual({
+      layout: { beside: "lead", side: "below", share: 0.3 },
+      front: true,
+      fallbackWorkspace: named,
+    });
+    expect(paneAsked({ pane: { beside: "lead", side: "right" } }, undefined, true)).toEqual({
+      layout: { beside: "lead", side: "right" },
+    });
+  });
+
+  test("the operator's flags win over a deprecated layout and keepPane, which apply without them", () => {
+    const layout = { session: "work", workspace: named, tab: "t" };
+    expect(paneAsked({ layout, keepPane: "always" }, undefined, true)).toEqual({
+      layout,
+      keepPane: "always",
+    });
+    expect(
+      paneAsked({ layout, keepPane: "always" }, { workspace: "origin", keep: "never" }, true),
+    ).toEqual({ layout: { workspace: "origin", tab: "t" }, keepPane: "never" });
+    expect(paneAsked({ keepPane: "on-failure" }, { workspace: "run" }, true)).toEqual({
+      layout: { workspace: "run" },
+      keepPane: "on-failure",
+    });
+  });
+
+  test("an agent with no pane of awf's is asked nothing", () => {
+    expect(
+      paneAsked({ pane: { tab: "t" } }, { workspace: "origin", keep: "always" }, false),
+    ).toEqual({});
+  });
+
+  test("--workspace: run and origin are keywords, any other word a workspace's name", () => {
+    expect(parseWorkspace("run")).toBe("run");
+    expect(parseWorkspace("origin")).toBe("origin");
+    expect(parseWorkspace("review")).toEqual({ name: "review" });
   });
 });

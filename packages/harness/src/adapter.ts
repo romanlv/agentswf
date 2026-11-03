@@ -15,6 +15,7 @@ import type {
   OperationCause,
   OutputSchema,
   PaneLayout,
+  PaneWorkspace,
   RuntimeAliases,
   TurnId,
   TurnLogin,
@@ -297,14 +298,30 @@ export interface HarnessActivation {
    * host. Absent, the operator's.
    */
   home?: string;
-  /** Where a TUI agent's pane goes, as the workflow wrote it; a host with no panes ignores it. */
+  /**
+   * Where a TUI agent's pane goes: the workflow's tab or neighbour, in the workspace the operator
+   * or a deprecated layout names. A host with no panes ignores it.
+   */
   layout?: PaneLayout;
+  /**
+   * The pane the operator should see: its tab is brought to the front as it is placed, where that
+   * is the operator's own workspace.
+   */
+  front?: true;
+  /**
+   * The operator's workspace, for a `beside` pane whose target has no pane: its own tab opens
+   * there rather than in the run's workspace.
+   */
+  fallbackWorkspace?: PaneWorkspace;
   /**
    * Why `layout` can't be used, where the engine already knows: a `beside` naming an agent with no
    * pane. The host then places the pane as if there were no layout, and says this.
    */
   layoutFallback?: string;
-  /** As the workflow wrote it, for a host that records it; never decided on: the engine decides at close. */
+  /**
+   * The operator's `--keep-panes`, else a deprecated `keepPane`, for a host that records it; never
+   * decided on: the engine decides at close.
+   */
   keepPane?: KeepPane;
   /**
    * Its pane is placed at its first turn, not as it opens: a run of a workflow with `events`

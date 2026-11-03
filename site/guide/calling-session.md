@@ -75,7 +75,7 @@ the command that started it:
   one, in the session's directory, with awf's launch flags and your skills, not your harness
   settings or MCP servers.
 - **It takes the options a [fork](/guide/agents#compact-switch-fork) takes,** `runtime`
-  (`placement`, `metered`, `effort`), `instructions`, `layout` and `keepPane`, but no `tools`.
+  (`placement`, `metered`, `effort`), `instructions` and `pane`, but no `tools`.
 - **`null`** means there is no session to fork, and the run's output says why: `awf run` wasn't
   started from an agent's shell, the session's files weren't written in the last 10 minutes, or
   the session is in its first turn and has nothing to copy.
@@ -143,8 +143,8 @@ skill.
   child, so the run and its agents are in whatever sandbox the session is, and TUI agents need it
   to let them reach Herdr's socket. A `--here` run starts in its own Herdr tab, outside it.
 - **No pane goes beside the calling session.** Its pane is yours: a
-  [`layout`](/guide/harnesses#where-panes-go) `beside` it falls back to a tab of its own.
-  `{ workspace: "origin" }` puts a tab in the workspace you typed `awf run` in.
+  [`pane`](/guide/harnesses#where-panes-go) `beside` it falls back to a tab of its own.
+  `awf run --workspace origin` puts the run's tabs in the workspace you typed `awf run` in.
 - **A headless fork of a claude session is metered.** The fork runs on the session's harness, so
   `runtime: { placement: "headless" }` on claude needs `metered: true`; in its TUI it runs on your
   subscription.

@@ -115,6 +115,15 @@ export const DEPRECATIONS = {
     instead:
       'use awf emit {run} {key}:reply \'{"text":…,"author":…}\' --event-id {id}, with {key}:reply declared in the workflow\'s events',
   },
+  "pane-layout": {
+    old: "an agent's layout",
+    instead:
+      "give pane: { tab, front } or pane: { beside, side, front }; the workspace is the operator's, awf run --workspace, and the session AWF_HERDR_SESSION",
+  },
+  "keep-pane": {
+    old: "an agent's keepPane",
+    instead: "drop it: keeping panes is the operator's, awf run --keep-panes",
+  },
   "duration-ms": {
     old: "a duration in ms",
     instead: (value: string) =>

@@ -1,10 +1,12 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { JsonValue } from "@agentswf/contract/workflow";
+import type { RunPanes } from "@agentswf/contract/records";
+import type { JsonValue, KeepPane } from "@agentswf/contract/workflow";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/run.txt" with { type: "text" };
 import { SESSION_CODE } from "./here";
+import { KEEP_PANES, parseWorkspace } from "./pane-layout";
 import { idProblem, runRootOf, stageNameProblem } from "./runs";
 
 export const usage = help.trimEnd();
@@ -37,6 +39,8 @@ export type RunCommand = {
   watch: boolean;
   /** The sandbox every agent runs in, as `--sandbox`'s file gave it. */
   sandbox?: unknown;
+  /** `--workspace` and `--keep-panes`, which the run records; absent, neither was given. */
+  panes?: RunPanes;
   /** Started from an agent's shell: start the run in a tab and take that session over. */
   here: boolean;
   /** The code the calling session replies with, which the run finds it by. */
@@ -68,6 +72,7 @@ export function parseCommand(
   let sandbox: unknown;
   let here = false;
   let session: string | undefined;
+  const panes: RunPanes = {};
   let workflowFile: string | undefined;
   // awf's own options may come before or after the workflow file; only `--` ends them.
   let index = 1;
@@ -127,6 +132,16 @@ export function parseCommand(
       if (!value || !SESSION_CODE.test(value))
         throw new Error("--session needs the code --here printed");
       session = value;
+    } else if (option === "--workspace") {
+      if (!value?.trim() || value.startsWith("-"))
+        throw new Error("--workspace needs run, origin or a workspace's name");
+      if (panes.workspace !== undefined) throw new Error("--workspace given twice");
+      panes.workspace = parseWorkspace(value);
+    } else if (option === "--keep-panes") {
+      if (!KEEP_PANES.includes(value as KeepPane))
+        throw new Error("--keep-panes needs never, on-failure or always");
+      if (panes.keep !== undefined) throw new Error("--keep-panes given twice");
+      panes.keep = value as KeepPane;
     } else if (option === "--sandbox") {
       if (!value) throw new Error("--sandbox needs a JSON file");
       if (sandbox !== undefined) throw new Error("--sandbox given twice");
@@ -165,6 +180,7 @@ export function parseCommand(
     here,
     ...(session === undefined ? {} : { session }),
     ...(sandbox === undefined ? {} : { sandbox }),
+    ...(Object.keys(panes).length === 0 ? {} : { panes }),
   };
 }
 

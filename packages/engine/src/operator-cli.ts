@@ -47,7 +47,13 @@ import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progre
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
-import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
+import {
+  claimNext,
+  loadAndPrepare,
+  type OpensEventRun,
+  type PreparedRun,
+  workspaceLabel,
+} from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
@@ -254,16 +260,22 @@ function help(
  * an event starts one, so it runs to its first wait and parks; one already there is only woken.
  */
 async function openRun(
-  { loaded, id, argv }: { loaded: LoadedWorkflow; id: string; argv: readonly string[] },
+  { loaded, id, argv, panes }: OpensEventRun,
   environment: OperatorEnvironment,
   { stdout, stderr }: Output,
 ): Promise<number> {
   try {
-    const opened = await openEventRun(loaded.workflow as EventWorkflow, id, argv, {
-      home: environment.home ?? homedir(),
-      environment: environment.environment ?? process.env,
-      ...(environment.launch ? { launch: environment.launch } : {}),
-    });
+    const opened = await openEventRun(
+      loaded.workflow as EventWorkflow,
+      id,
+      argv,
+      {
+        home: environment.home ?? homedir(),
+        environment: environment.environment ?? process.env,
+        ...(environment.launch ? { launch: environment.launch } : {}),
+      },
+      panes,
+    );
     const did = opened.did === "none" ? opened.why : opened.did;
     stdout(
       `${opened.run}${opened.created ? "" : " was there"}${did === undefined ? "" : `: ${did}`}`,
@@ -423,6 +435,7 @@ async function runAttempt(
         argv: command.workflowArgs,
         cwd: command.cwd,
         sandbox: (command.sandbox ?? null) as JsonValue,
+        ...(command.panes ? { panes: command.panes } : {}),
       }));
   } catch (error) {
     return refuse(
@@ -581,6 +594,7 @@ async function runAttempt(
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
         ...(command.values === undefined ? {} : { values: command.values.stages }),
+        ...(run.record.panes ? { panes: run.record.panes } : {}),
         ...(!events
           ? {}
           : {

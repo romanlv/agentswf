@@ -1393,6 +1393,34 @@ describe("testWorkflow layouts", () => {
     expect(run.agentOf("plain")).not.toHaveProperty("layout");
   });
 
+  test("each agent's pane is recorded as written, front included; a fork doesn't inherit it, and a reopen compares it", async () => {
+    const review = workflowOf<null, string>(async (workflow) => {
+      const lead = await workflow.agents.open({
+        key: "lead",
+        runtime: "claude",
+        pane: { tab: "review", front: true },
+      });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await lead.fork({ key: "security", pane: { beside: "lead", side: "right", front: false } });
+      await lead.fork({ key: "plain" });
+      await workflow.agents.open({ key: "lead", runtime: "claude" });
+      return workflow.agents.open({ key: "lead", runtime: "claude", pane: { tab: "other" } }).then(
+        () => "reopened",
+        (error: Error) => error.message,
+      );
+    });
+    const run = await runTest(review, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.value).toBe("agent lead is already open with different pane");
+    expect(run.agentOf("lead")).toMatchObject({
+      pane: { tab: "review", front: true },
+      layout: { tab: "review" },
+    });
+    expect(run.agentOf("security").pane).toEqual({ beside: "lead", side: "right" });
+    expect(run.agentOf("plain")).not.toHaveProperty("pane");
+  });
+
   test("a reopen compares them as written: omitted they don't constrain, different rejects", async () => {
     const reopening = workflowOf<null, string[]>(async (workflow) => {
       const open = (extra: object) =>

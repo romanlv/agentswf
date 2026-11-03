@@ -61,7 +61,7 @@ export default defineWorkflow({
     const planner = await wf.agents.open({
       key: "planner",
       runtime: { alias: "claude", effort: "high" }, // its TUI, on your Claude plan
-      keepPane: "on-failure",
+      pane: { front: true }, // the pane to watch
     });
     const lister = await wf.agents.open({
       key: "lister",
@@ -127,26 +127,25 @@ export const unlisted = defineWorkflow({
 export const reviewers = defineWorkflow({
   meta: {
     name: "reviewers",
-    description: "A lead and two reviewers in one tab where you typed awf run.",
+    description: "A lead and two reviewers in one tab, the lead in front.",
   },
   async run(wf) {
     // #region layout
     const lead = await wf.agents.open({
       key: "lead",
       runtime: "claude",
-      layout: { workspace: "origin", tab: "review" }, // a new tab where you typed `awf run`
-      keepPane: "on-failure",
+      pane: { tab: "review", front: true }, // a new tab, the one to look at
     });
     await lead.run({
       prompt: "Read the change on this branch and plan the review.",
     });
     const security = await lead.fork({
       key: "security",
-      layout: { beside: "lead", side: "right" },
+      pane: { beside: "lead", side: "right" },
     });
     const style = await lead.fork({
       key: "style",
-      layout: { beside: "security", side: "below" },
+      pane: { beside: "security", side: "below" },
     });
     // #endregion layout
     const notes = await wf.parallel([security, style], (agent) =>

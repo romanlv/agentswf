@@ -239,9 +239,10 @@ as story 002 did to check accounting against the session files.
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
   activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
   in its TUI (`-- pi pi-tui`), and in another shell follow it with the `awf logs` its first line
-  names, then `--after {cursor} --wait 90` as each page says. Pane layout, `keepPane` and the marks
-  that sweep a dead run's panes have no eval, as their result is what a person sees: run
-  `examples/pane-layout` from a Herdr pane and look (three codex luna agents, a few cents).
+  names, then `--after {cursor} --wait 90` as each page says. Pane layout, `--workspace`,
+  `--keep-panes` and the marks that sweep a dead run's panes have no eval, as their result is what a
+  person sees: run `awf run examples/pane-layout/workflow.ts --workspace origin --keep-panes always`
+  from a Herdr pane and look (three codex luna agents, a few cents).
 - **Level 4:** only when a story names it.
 
 ## Adding an eval

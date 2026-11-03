@@ -346,9 +346,12 @@ the sandbox evals check what a real provider enforces.
 - **`run.compactionsOf(key)`** and **`run.setsOf(key)`** are its compactions and model or effort
   switches; **`run.compactions`** and **`run.sets`** have everyone's.
 - **`run.agentOf(key)`** is what an agent was opened with: `key`, `execution`, `instructions`,
-  `labels` (deprecated), `skills`, `sandbox`, pane `layout` and `keepPane`, `layoutFallback` when its `layout`
-  couldn't be used, `keptPane` when its pane was kept, and `forkedFrom` for a fork. It throws for a
-  key never opened. **`run.agents`** lists them all.
+  `labels` (deprecated), `skills`, `sandbox`, `pane` (`tab` or `beside`, and `front`, read back
+  from what the host was given, so a deprecated `layout`'s `tab` shows there too), `layout` and
+  `keepPane` as the host was given them (the deprecated options' values included),
+  `layoutFallback` when its pane couldn't go where it asked, `keptPane` when its pane was kept, and
+  `forkedFrom` for a fork. A test has no operator: `--workspace` and `--keep-panes` don't apply.
+  It throws for a key never opened. **`run.agents`** lists them all.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
   with a `reason`.
