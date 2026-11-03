@@ -40,7 +40,7 @@ export function renderProgress(
     paint: Paint;
     /** Once the run is over: what each stage's agents cost, by stage. */
     figures?: ReadonlyMap<string, string>;
-    /** The Herdr session pane agents opened in, once one has. */
+    /** The Herdr session TUI agents opened in, once one has. */
     herdrSession?: string;
   },
 ): string[] {
@@ -412,20 +412,20 @@ export function messageLine(message: WorkflowRunSnapshot["messages"][number]): s
 }
 
 /**
- * Where to see a pane agent Herdr read as blocked on a prompt: its session plays no sound, so this
+ * Where to see a TUI agent Herdr read as blocked on a prompt: its session plays no sound, so this
  * is the one sign. Not the calling session's, which is the operator's own pane.
  */
 function whereBlocked(agent: Agent, herdrSession: string | undefined): string {
   return agent.turn?.outcome === "blocked" &&
     herdrSession !== undefined &&
-    placementOf(agent.execution) === "pane" &&
+    placementOf(agent.execution) === "tui" &&
     !agent.execution.caller
     ? ` · herdr session attach ${herdrSession}`
     : "";
 }
 
 /**
- * Where a run's pane agents are, said once as the first opens; the workspace closes with the run.
+ * Where a run's TUI agents are, said once as the first opens; the workspace closes with the run.
  * A client inside Herdr can't attach to another session, so from there it says where to.
  */
 export function describeRunSession(
@@ -519,7 +519,7 @@ export function watchProgress(
   let handle: WorkflowRunHandle<JsonValue> | undefined;
   let last: WorkflowRunSnapshot | undefined;
   let herdrSession: string | undefined;
-  // A pane agent's session can be ready after the run has ended, as a cancel lands while it starts:
+  // A TUI agent's session can be ready after the run has ended, as a cancel lands while it starts:
   // nothing is said under the closing block.
   let stopped = false;
   let drawn = 0;
@@ -594,7 +594,7 @@ export function watchProgress(
       if (under) clear();
       else tick();
     },
-    /** The Herdr session pane agents opened in, which a blocked one's line names. */
+    /** The Herdr session TUI agents opened in, which a blocked one's line names. */
     placedIn(session: string) {
       if (!stopped) herdrSession = session;
     },

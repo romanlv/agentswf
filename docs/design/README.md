@@ -58,8 +58,8 @@ state with an actual reported result.
 
 ### Session adapters, not a Herdr dependency
 
-`pane | headless` is an agent's `placement`, which a workflow chooses per agent (story 002): `pane`
-keeps an interactive terminal session, `headless` runs the harness as a process per turn. A pane
+`tui | headless` is an agent's `placement`, which a workflow chooses per agent (story 002): `tui`
+keeps the harness's own TUI, an interactive terminal session; `headless` runs the harness as a process per turn. A TUI
 agent's `layout` and `keepPane` say where its pane appears and whether it stays
 ([`pane-layout.md`](pane-layout.md), story 026), in the words every terminal multiplexer shares:
 session, workspace, tab, beside. Those are the only provider details a workflow sees. Which terminal

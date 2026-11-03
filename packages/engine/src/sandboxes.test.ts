@@ -273,7 +273,7 @@ describe("sandboxed agents", () => {
     expect(turns[1]!.argv).toContain("exec resume thread-2");
   });
 
-  test("a pane agent reaches its host with the sandbox's terminal", async () => {
+  test("a TUI agent reaches its host with the sandbox's terminal", async () => {
     const opened: { occupant?: HarnessActivation["occupant"] }[] = [];
     const host: AgentRunHostFactory = {
       openRun: async () => ({

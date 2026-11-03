@@ -8,7 +8,7 @@ import {
 // An implementer writes slugify() in a fresh folder; a reviewer who knows the house style it was
 // not told runs the code, asks for the fix by message, and checks again. Nothing to set up:
 //
-//   awf run examples/messaging/workflow.ts [-- codex | claude | pi | claude-pane]
+//   awf run examples/messaging/workflow.ts [-- codex | claude | pi | claude-tui]
 //
 // Both agents run the runtime named, codex when none is; each is one that can wait for a reply.
 
@@ -20,7 +20,7 @@ export const RUNTIMES = {
     placement: "headless",
   },
   claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
-  "claude-pane": { harness: "claude", model: "claude-sonnet-5-5" },
+  "claude-tui": { harness: "claude", model: "claude-sonnet-5-5" },
 } as const satisfies Record<string, ExecutionConfig>;
 export type RuntimeName = keyof typeof RUNTIMES;
 

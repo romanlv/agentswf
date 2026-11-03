@@ -21,9 +21,9 @@ included, is in git.
 
 An engine that runs **workflows made of coding agents**. A workflow is ordinary TypeScript: it
 opens agents, gives them work, waits for structured answers, and composes the results. The agents
-are real coding agents — claude, codex, pi, cursor — in a terminal pane or headless. Herdr is the
+are real coding agents — claude, codex, pi, cursor — in their own TUI in a terminal pane, or headless. Herdr is the
 first pane host; provider-specific launch and continuation stay behind that host. The workflow
-interface selects agent behavior and whether an agent runs in a pane or headless, not which
+interface selects agent behavior and whether an agent runs in its TUI or headless, not which
 terminal or process topology provides it.
 
 The distinguishing constraint is that the workers are **non-deterministic processes that bill money
@@ -209,7 +209,7 @@ terminal backend. Contains the launch table, `command.ts`, host and provider ada
 `testing/` (the pure conformance kit, run against the fake), and `usage/` — **extraction only**.
 Pricing and aggregation are policy and live elsewhere; see section 8.
 
-Placement is the agent's: `pane`, the default, or `headless`, part of the resolved agent identity
+Placement is the agent's: `tui`, the default, or `headless`, part of the resolved agent identity
 and every usage record. A workflow chooses it because it changes what an agent costs and how it can
 be continued: a headless claude is billed per token even on a subscription (E3), so it also needs
 `metered: true`. Runtime aliases name a harness, a model and an effort. Operator configuration
@@ -221,7 +221,7 @@ One run host owns one terminal group and its final cleanup. The pane of the sess
 started from with `awf run --here` is driven through the same host but is not in that group: the
 host never starts, closes or cleans it up
 ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)). Logical-agent handles own continuity;
-each distinct operation receives fresh result authority. A pane agent keeps one pane for all its
+each distinct operation receives fresh result authority. A TUI agent keeps one pane for all its
 operations, and each later one is prompted into it once the agent has settled
 ([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). Initial prompts and check-ins share
 one operation, slot and schema; on placements with measured receipt support, `wfa waiting` permits

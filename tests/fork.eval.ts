@@ -21,7 +21,7 @@ export const CASES = [
   "claude>headless",
   "claude-headless",
   "claude-headless:compact",
-  "claude-headless>pane",
+  "claude-headless>tui",
   "codex",
   "codex:compact",
   "codex-headless",
@@ -31,15 +31,15 @@ export const CASES = [
   "cursor",
   "cursor:compact",
   "cursor-headless",
-  "cursor-headless>pane",
+  "cursor-headless>tui",
 ];
 
-/** A pane's cursor prints no usage, so its fork's cache cannot be read (story 019). */
+/** A TUI cursor prints no usage, so its fork's cache cannot be read (story 019). */
 function unread(name: string): boolean {
-  const into = /[>](pane|headless)/.exec(name)?.[1];
+  const into = /[>](tui|headless)/.exec(name)?.[1];
   return (
     name.startsWith("cursor") &&
-    (into ?? (name.startsWith("cursor-headless") ? "headless" : "pane")) === "pane"
+    (into ?? (name.startsWith("cursor-headless") ? "headless" : "tui")) === "tui"
   );
 }
 

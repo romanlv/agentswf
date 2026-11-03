@@ -8,7 +8,7 @@ export default defineWorkflow({
       : undefined;
     const agent = await wf.agents.open({
       key: "waiter",
-      runtime: { harness: "claude", model: "claude-sonnet-5-5", placement: "pane" },
+      runtime: { harness: "claude", model: "claude-sonnet-5-5", placement: "tui" },
       skills: [],
       ...(sandbox ? { sandbox } : {}),
     });

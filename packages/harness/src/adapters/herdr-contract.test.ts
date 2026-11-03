@@ -174,7 +174,7 @@ describe("the run host against a Herdr that behaves like 0.8.2", () => {
 /** A prelude whose shell draws `awf-%-n1% `, as zsh draws the `PROMPT` it sets. */
 const PRELUDE = "exec /usr/bin/env -i PATH=/box/bin PROMPT='awf-%%-n1%# ' /bin/sh -c 'srt'";
 
-describe("a pane agent in a sandbox", () => {
+describe("a TUI agent in a sandbox", () => {
   const occupant = (terminal: { prelude: string; harness: string }) => ({
     launch: () => {
       throw new Error("a pane launches nothing itself");
@@ -278,7 +278,7 @@ describe("a pane agent in a sandbox", () => {
   });
 });
 
-describe("a pane agent in a sandbox's own Herdr", () => {
+describe("a TUI agent in a sandbox's own Herdr", () => {
   /** The host's Herdr and a box's, each a fake; the box's is reached through its commands. */
   const setup = (boxVersion = "0.9.1") => {
     const host = createFakeHerdr({ startupBlocks: [] });

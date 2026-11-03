@@ -123,7 +123,7 @@ scratchpad.
 - **M11 The plain-host refresh.** Whether a claude outside any sandbox, on macOS, moves a file
   login into the keychain on refresh. Assumed so, from the docs; not run, as it would strand the
   probe login.
-- **M13 A pane agent across a real 8-hour expiry**, rather than a forced one.
+- **M13 A TUI agent across a real 8-hour expiry**, rather than a forced one.
 - **M15 Token over file.** That an agent with both a `CLAUDE_CODE_OAUTH_TOKEN` and a
   `.credentials.json` runs on the token, as the docs say of the keychain.
 - **M14 claude versions.** The lock and re-read behavior on the oldest claude awf supports.

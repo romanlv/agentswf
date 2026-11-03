@@ -17,7 +17,7 @@ import { machinePaths } from "./machine";
 import { SESSION_NAME } from "./pane-layout";
 import type { ProcessProbe } from "./runs";
 
-/** Where a run's pane agents open when `AWF_HERDR_SESSION` names nowhere else. */
+/** Where a run's TUI agents open when `AWF_HERDR_SESSION` names nowhere else. */
 const DEFAULT_RUN_SESSION = "awf";
 
 /** What may start: the shared session is awf's by its name, since which run created it is not knowable. */
@@ -101,7 +101,7 @@ export function runSessionName(environment: Readonly<Record<string, string | und
 }
 
 /**
- * The Herdr session a run's pane agents open in, running and kept: started detached when down and
+ * The Herdr session a run's TUI agents open in, running and kept: started detached when down and
  * named `awf` or `awf-…`, from a minimal environment and a quiet config, so it outlives this run
  * for the next. Any other name that is down is refused: it may be an operator's stopped session,
  * and bringing it back headless is not awf's call. Then the workspaces of runs that ended are

@@ -231,7 +231,7 @@ export type SandboxRecord = {
   agents: { callPath: string[]; agent: string; home: string }[];
 };
 
-/** Where a pane agent's pane was placed, and why not where its layout said, for the record. */
+/** Where a TUI agent's pane was placed, and why not where its layout said, for the record. */
 export type PanePlacement = {
   /** The terminal session it is in. */
   session: string;
@@ -248,7 +248,7 @@ export type PanePlacement = {
   notKept?: string;
 };
 
-/** Where a pane agent's pane went: its layout as the workflow wrote it, and where it was placed. */
+/** Where a TUI agent's pane went: its layout as the workflow wrote it, and where it was placed. */
 export type AgentPaneRecord = {
   callPath: string[];
   agent: string;
@@ -1126,7 +1126,7 @@ export type OutputRecord = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills, once per agent, including one that never completed a turn. */
   skills?: AgentSkillsRecord[];
-  /** Where each pane agent's pane went, once per agent. Absent when the run placed none. */
+  /** Where each TUI agent's pane went, once per agent. Absent when the run placed none. */
   panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];

@@ -103,7 +103,7 @@ await wf.messages.allow({
 lens, and the fixer cannot start a conversation with a lens. Messages arrive at turn boundaries:
 when the fixer's turn ends without a result, the findings held for it continue its operation, and
 with none held it gets the check-in, where it runs `wfa waiting` until the next one arrives. That
-needs a claude pane, the one placement with `wfa waiting`; elsewhere an empty turn end is a nudge
+needs claude in its TUI, the one placement with `wfa waiting`; elsewhere an empty turn end is a nudge
 and then `unanswered`. A finding sent after the fixer's `wfa result` wakes a message operation, whose
 fix is not in `FIX_REPORT`. Folding each finding into the running turn is [[mid-turn-messages]].
 
@@ -302,11 +302,11 @@ waiting, not unanswered: no nudge, nothing runs, a pane stays open, a headless p
 reply or a failure then continues the same operation, with the same call id and result slot. Nothing
 has to be set to keep the sender open: its operation is open, the workflow's `run` on it has not
 settled, and that operation's `timeoutMs` bounds the wait, except a wait on an outside
-participant, which it does not ([[#Waiting for an outside participant]]). On a claude pane this uses `wfa waiting`'s
+participant, which it does not ([[#Waiting for an outside participant]]). On a claude TUI agent this uses `wfa waiting`'s
 waiting state ([[021-turn-liveness-and-limits|story 021]]), ended by a reply instead of a timer. A
 headless claude, codex or pi is new support, since `wfa waiting` is refused headless:
 its process exits, and the reply resumes its session with `resumeTurn` as a fresh working turn.
-Codex, pi and cursor panes refuse `--await-reply` until their receipt is proved, and cursor
+Codex, pi and cursor TUI agents refuse `--await-reply` until their receipt is proved, and cursor
 refuses it headless too: its turns ran past their deadline in M2 (Q11, under [[#Decisions]]).
 
 `--timeout` takes `wfa waiting`'s durations and only shortens the wait, which defaults to the
@@ -764,7 +764,7 @@ calls, which E8 showed claude does and `claude-receipt` can confirm, is later
 ([[mid-turn-messages]]); until then a one-way report reaches a busy agent only when its turn ends.
 
 A message is `offered` when it is typed or its resumed process starts, and `observed` when the
-harness's delivery evidence confirms the model read it: `claude-receipt` on a claude pane, the
+harness's delivery evidence confirms the model read it: `claude-receipt` on a claude TUI agent, the
 resumed turn's session record headless. Without that evidence it stays `unconfirmed`.
 
 When a workflow operation's turn ends without a result and messages are held for it, they continue
@@ -918,7 +918,7 @@ engine's ceiling. The route runs from the reviewer to the author: the author ans
 with `wfa reply`, and cannot reopen the review once it is approved, as its `Record` turn could on a
 route both ways (story 029's live run). Code cannot tell whether anything was revised, so an approval with no revision
 still takes the `Record` turn; that cost is accepted for a typed value. The reviewer has to be able
-to await: headless, as feature-delivery runs, or a claude pane that confirms delivery. Elsewhere its
+to await: headless, as feature-delivery runs, or a claude TUI agent that confirms delivery. Elsewhere its
 `--await-reply` is refused `unsupported`, it returns `changes-requested`, and the run stops saying
 so. The author's revisions are message operations, whose text code never reads, so the work's typed
 value after review comes from one more workflow turn, `Record {subject}`. Each review stage grants
@@ -1157,10 +1157,10 @@ Decided: `--await-reply`, matching "owe a reply", the `awaiting` state and `wfa 
 
 ### Q9. Where can a sender await a reply?
 
-Decided: on claude panes, as `wfa waiting`, and on headless claude, codex, pi and
+Decided: on claude TUI agents, as `wfa waiting`, and on headless claude, codex, pi and
 cursor, where the reply resumes the session. Headless is where codex and pi usually run; without it
-the review loop would be claude-pane-only. Codex, pi and cursor panes refuse until their receipt is
-proved, and so does a claude pane that cannot confirm delivery: a sandboxed one outside the run's
+the review loop would be claude-TUI-only. Codex, pi and cursor TUI agents refuse until their receipt is
+proved, and so does a claude TUI agent that cannot confirm delivery: a sandboxed one outside the run's
 own Herdr session or without a seeded home. Each harness and placement is also off until
 [[#To measure|M2]] passes on it: an engine allow-list keyed by harness and placement refuses
 `--await-reply` with `unsupported` where it is off, and the fake harness is always on.
@@ -1183,7 +1183,7 @@ before it was built, against a stand-in `wf` on headless pi ([[messaging-protoco
 agent waited and used its reply, and every obligation closed with `wfa reply`. What failed was
 wording, a request held into a `run` and a reply-only route, and once in 60 a forged operator
 line. So the gate is what makes waiting harmful on a harness. M2 ran on the built engine
-([[messaging-m2|R1–R7]]): it passed 80/80 on claude, headless and in a pane, and on headless codex
+([[messaging-m2|R1–R7]]): it passed 80/80 on claude, headless and in its TUI, and on headless codex
 and pi, which the list allows; cursor passed 11 of 20, its turns running past their deadline, so
 it stays off.
 

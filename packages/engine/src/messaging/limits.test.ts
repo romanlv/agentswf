@@ -15,8 +15,8 @@ test("--await-reply is on only where the list says, and a confirmed pane only wh
   expect(canAwaitReply({ harness: "fake", model: "m" }, false)).toBe(true);
 });
 
-test("no real harness's pane is listed without needing to confirm what it was sent", () => {
+test("no real harness's TUI is listed without needing to confirm what it was sent", () => {
   for (const [harness, placements] of Object.entries(AWAIT_REPLY)) {
-    if (harness !== "fake") expect(placements.pane).not.toBe(true);
+    if (harness !== "fake") expect(placements.tui).not.toBe(true);
   }
 });

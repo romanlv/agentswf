@@ -14,7 +14,7 @@ export default defineWorkflow({
   },
   async run(wf) {
     // #region open
-    // Headless codex can wait for a reply; a codex pane can't yet.
+    // Headless codex can wait for a reply; a codex TUI agent can't yet.
     const runtime = { alias: "codex", placement: "headless" } as const;
     const implementer = await wf.agents.open({ key: "implementer", runtime });
     const architect = await wf.agents.open({

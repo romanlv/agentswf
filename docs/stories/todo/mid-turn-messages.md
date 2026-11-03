@@ -10,7 +10,7 @@ depends_on: ["029"]
 
 # Fold a message into a running claude turn
 
-A message to a claude pane that is working reaches the model between tool calls, as E8 showed claude
+A message to a claude TUI agent that is working reaches the model between tool calls, as E8 showed claude
 does, instead of waiting for the turn to end.
 
 Why it matters: the one-way shape in [[messaging#Routes by shape]], lenses reporting to a fixer while

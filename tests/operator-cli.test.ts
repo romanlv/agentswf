@@ -337,7 +337,7 @@ describe("awf run", () => {
     expect(accounting[1]).toStartWith("  records  ");
   });
 
-  test("says once where its pane agents are, as the first opens", async () => {
+  test("says once where its TUI agents are, as the first opens", async () => {
     const adapter = createFakeAdapter({
       harnesses: ["pi"],
       script: (context) => ({
@@ -354,7 +354,7 @@ describe("awf run", () => {
         runDirs.tempRunDir(),
         "examples/quick-check/workflow.ts",
         "--",
-        "pi-pane",
+        "pi-tui",
       ],
       {
         cwd: ROOT,
@@ -369,7 +369,7 @@ describe("awf run", () => {
               host: {
                 ...config.host,
                 async openRun(spec) {
-                  // As the operator runtime does when the first pane agent's session is ready.
+                  // As the operator runtime does when the first TUI agent's session is ready.
                   options.onRunSession?.({ name: "awf", started: true, closed: [], unclaimed: [] });
                   return config.host.openRun(spec);
                 },
@@ -399,7 +399,7 @@ describe("awf run", () => {
     });
     expect(exitCode).toBe(2);
     expect(errors.join("\n")).toContain(
-      "unknown runtime aider; expected codex, pi, pi-pane, claude, cursor, cursor-pane",
+      "unknown runtime aider; expected codex, pi, pi-tui, claude, cursor, cursor-tui",
     );
   });
 

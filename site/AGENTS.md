@@ -19,7 +19,7 @@ bun run preview    # serves the build
 - Second person and present tense.
 - Code before prose.
 - One word per idea, the ones How it works defines: workflow, run, agent, turn, outcome, harness,
-  pane, stage. A run is never also a "job".
+  TUI, stage. A run is never also a "job".
 - `wf` is a workflow's context and `wfa` the agent's command.
 - Placeholders are `{name}` in prose, and `<name>` only inside CLI usage, in a code block. A bare
   `<name>` in prose is an HTML tag.
@@ -127,7 +127,7 @@ One page owns each of these; every other page says it in a clause at most and li
 
 | Fact | Owner |
 | --- | --- |
-| The words: workflow, run, agent, turn, outcome, harness, pane, stage, nudge, `wf`, `wfa` | `/guide/how-it-works` |
+| The words: workflow, run, agent, turn, outcome, harness, TUI, stage, nudge, `wf`, `wfa` | `/guide/how-it-works` |
 | What a run keeps (output.json, report.md), briefly | `/guide/how-it-works#the-record`; the full layout on `/reference/data` |
 | What `awf init` writes and never overwrites | `/guide/quick-start` |
 | Harness requirements (logins, binaries, Herdr, srt, docker) | `/guide/install` |
@@ -136,7 +136,7 @@ One page owns each of these; every other page says it in a clause at most and li
 | Outcome kinds and what each leaves of the agent; a failed or timed-out turn closes it; fields taught as flags; switching model costs the cache | `/guide/agents` |
 | The JSON Schema subset a typed answer may use | `/guide/agents` (the reference links it) |
 | `wf.stop` and what it means for a run | `/guide/workflows` |
-| Nudges: the default, custom, `nudge: false`, a claude pane's `wfa waiting` | `/guide/timeouts` |
+| Nudges: the default, custom, `nudge: false`, a claude TUI agent's `wfa waiting` | `/guide/timeouts` |
 | `parallel`'s deadline rejecting and dropping gathered results | `/guide/timeouts` |
 | Timers: a name's fixed time, moving one (cancel and rename, or `wf.at`), `wf.timers`, when a due timer fires | `/guide/timers` |
 | `testWorkflow` doesn't call `prepare`; deadlines are real time in tests | `/guide/testing` |

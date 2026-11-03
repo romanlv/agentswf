@@ -178,7 +178,7 @@ describe("the sandbox probe's checks", () => {
     expect(problems(evidence).join("\n")).toContain(problem);
   });
 
-  test("pane agents must have been refused the run's Herdr, and leave nothing behind", () => {
+  test("TUI agents must have been refused the run's Herdr, and leave nothing behind", () => {
     const evidence = passing();
     evidence.planted = { ...planted, plan: { ...planted.plan, panes: ["coder"] } };
     expect(problems(evidence)).toEqual(["srt: coder: did not try the run's Herdr"]);

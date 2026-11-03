@@ -371,7 +371,7 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
           agent: "investigator",
           turn: "t1",
           meta: null,
-          execution: { harness: "claude", model: "sonnet", placement: "pane" },
+          execution: { harness: "claude", model: "sonnet", placement: "tui" },
         },
       ],
       agents: { investigator: answer("looked") },

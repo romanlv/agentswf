@@ -60,7 +60,7 @@ export default defineWorkflow({
     // #region workflow
     const planner = await wf.agents.open({
       key: "planner",
-      runtime: { alias: "claude", effort: "high" }, // a pane, on your Claude plan
+      runtime: { alias: "claude", effort: "high" }, // its TUI, on your Claude plan
       keepPane: "on-failure",
     });
     const lister = await wf.agents.open({

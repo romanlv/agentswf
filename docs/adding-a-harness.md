@@ -51,7 +51,7 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   whether a slash command sent headless goes to the model instead (story 022).
 - **Fork and its cache.** A fork with no model call, and whether the fork reads its parent's cache:
   what keys the provider's cache (`docs/findings/fork-cache.md`).
-- **Compaction.** Headless and in a pane, with a focus, and what shows it ran
+- **Compaction.** Headless and in its TUI, with a focus, and what shows it ran
   (`docs/findings/native-compaction.md`).
 - **Effort and model.** Its levels (`effort`), the flag that launches at one, and whether it beats
   the harness's config and environment. Whether a headless resume runs at the model and effort it

@@ -35,7 +35,7 @@ export const agents = defineWorkflow({
     // #region open
     const reviewer = await wf.agents.open({
       key: "review:security",
-      runtime: { harness: "claude", model: "claude-sonnet-5-5" }, // placement defaults to "pane"
+      runtime: { harness: "claude", model: "claude-sonnet-5-5" }, // placement defaults to "tui"
       instructions: "You review code for security problems. Report; don't fix.",
     });
     // #endregion open

@@ -443,7 +443,7 @@ describe("awf runs", () => {
       "check:codex",
       "check:claude",
       "check:cursor",
-      "check:cursor-pane-long",
+      "check:cursor-tui-long",
     ];
     await makeRun(
       cwd,

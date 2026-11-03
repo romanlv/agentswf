@@ -129,7 +129,7 @@ headless claude is billed per token even on a subscription login; set metered: t
 ```
 
 A headless claude agent runs `claude -p`, which is metered on any login, so awf refuses to open
-it without your consent. Drop `placement: "headless"` to run it in a pane, the default, which
+it without your consent. Drop `placement: "headless"` to run it in its TUI, the default, which
 stays on your plan; or add `metered: true` to its runtime if per-token billing is what you want.
 `awf test` refuses it the same way. The refusal comes when that agent opens, which may be after
 other agents have done work: [Harnesses](/guide/harnesses#subscription-and-metered).
@@ -184,7 +184,7 @@ the message: [Effort](/guide/harnesses#effort).
 
 ## Herdr
 
-Pane agents, the default, run in [Herdr](https://herdr.dev). A headless agent needs none
+TUI agents, the default, run in [Herdr](https://herdr.dev). A headless agent needs none
 ([the words](/guide/how-it-works#the-words)).
 
 ### `herdr session list failed`
@@ -193,7 +193,7 @@ Pane agents, the default, run in [Herdr](https://herdr.dev). A headless agent ne
 herdr session list failed: {what herdr or the shell said}
 ```
 
-As its first pane agent opened, the run couldn't ask Herdr for its sessions, usually because
+As its first TUI agent opened, the run couldn't ask Herdr for its sessions, usually because
 `herdr` isn't installed or isn't on your PATH. Install Herdr 0.9.1, the version awf is built for:
 [Install](/guide/install#what-you-need).
 
@@ -272,9 +272,9 @@ See what it did with `awf logs {run} --agent {key}`: often it answered in prose 
 schema, or a nudge in your own words helps ([Nudges](/guide/timeouts#your-own-words)). To try
 again, run another turn on the same agent.
 
-### A pane agent waiting on a prompt
+### A TUI agent waiting on a prompt
 
-A pane agent that Herdr sees stuck on a question only a person can answer, such as a permission
+A TUI agent that Herdr sees stuck on a question only a person can answer, such as a permission
 prompt, ends its turn `blocked`. Its line in the run's progress ends with where to look:
 
 ```text
@@ -405,7 +405,7 @@ docker: the image lacks claude
 docker: the image lacks herdr or zsh for panes
 ```
 
-An image you name must hold the harness's command, `bun` and `node`, and for pane agents `herdr`
+An image you name must hold the harness's command, `bun` and `node`, and for TUI agents `herdr`
 and `zsh`. Install them in it, or leave `image` out to use awf's.
 
 ### `the sandbox's Herdr is {version}`

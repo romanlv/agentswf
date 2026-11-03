@@ -657,7 +657,7 @@ export function createScriptedHost(
       createFakeAdapter({
         harnesses: PLACEMENT_HARNESSES[placement],
         supportsWaiting: (activation) =>
-          placement === "pane" &&
+          placement === "tui" &&
           activation.execution.harness === "claude" &&
           !activation.execution.caller,
         placement,
@@ -690,7 +690,7 @@ export function createScriptedHost(
       }),
     );
   const placed = createPlacementHostFactory({
-    pane: side("pane"),
+    tui: side("tui"),
     headless: side("headless"),
     ...(caller && caller.here !== false
       ? {
@@ -701,7 +701,7 @@ export function createScriptedHost(
               createSingleSessionHostFactory(
                 createFakeAdapter({
                   harnesses: [caller.harness],
-                  placement: "pane",
+                  placement: "tui",
                   script: (context) => {
                     callerKey = context.activation.key;
                     return script(context);
@@ -821,7 +821,7 @@ function paneRefusal(activation: HarnessActivation): string | undefined {
   const { harness } = activation.execution;
   const spec = findHarness(harness);
   if (activation.continues && spec && !spec.interactiveResume) {
-    return `${harness} panes cannot continue a forked session: ${spec.absent.interactiveResume}`;
+    return `${harness} tui agents cannot continue a forked session: ${spec.absent.interactiveResume}`;
   }
   return undefined;
 }
@@ -839,7 +839,7 @@ function refusedCompaction(activation: HarnessActivation, hasRun: boolean): stri
   }
   const spec = findHarness(activation.execution.harness);
   const capability =
-    placementOf(activation.execution) === "pane" ? "compactPane" : "compactHeadless";
+    placementOf(activation.execution) === "tui" ? "compactPane" : "compactHeadless";
   if (spec && !spec[capability]) {
     return `${activation.execution.harness} has no compaction of its own: ${spec.absent[capability]}`;
   }

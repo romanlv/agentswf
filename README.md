@@ -24,7 +24,7 @@ cross-check what they found. Scripting that is easy right up until an agent goes
 in the wrong shape, or a run costs ten times what you expected and you can't tell why.
 
 agentswf keeps the workflow in code you own, and moves the unreliable parts into the engine. It
-drives the agent CLIs you already use, logged in as you already are: Claude Code in a pane runs on
+drives the agent CLIs you already use, logged in as you already are: Claude Code in its TUI runs on
 your Claude subscription, with no API key and no credits to buy.
 
 ## How it works
@@ -39,8 +39,8 @@ your Claude subscription, with no API key and no credits to buy.
 
 A workflow is a TypeScript module. `awf run ./workflow.ts` runs it, prints its result and keeps
 a record of the run in `.awf/runs`. Control flow is yours: `for`, `if`, `Promise.all`. Each agent
-runs in a **pane** of [Herdr](https://herdr.dev), a terminal multiplexer where you can watch it and
-type to it, or **headless** as a plain subprocess.
+runs in its **TUI**, in a pane of [Herdr](https://herdr.dev), a terminal multiplexer where you can watch it
+and type to it, or **headless** as a plain subprocess.
 
 ## What a workflow looks like
 
@@ -199,10 +199,10 @@ cost. The run's full record stays in `.awf/runs/hello/{id}`.
 
 ### Things to know
 
-- **Pane agents**, the default, need [Herdr](https://herdr.dev). Headless agents don't.
-- **Claude on a subscription works in panes only.** Headless claude (`claude -p`) is billed per
+- **TUI agents**, the default, need [Herdr](https://herdr.dev). Headless agents don't.
+- **Claude on a subscription works in its TUI only.** Headless claude (`claude -p`) is billed per
   token as API usage even when you're logged in with a subscription, so awf refuses it unless the
-  runtime also says `metered: true`. To stay on your plan, run claude agents in panes, the
+  runtime also says `metered: true`. To stay on your plan, run claude agents in their TUI, the
   default. Other harnesses need no such flag.
 - **Sandboxes** need `srt`, Anthropic's sandbox-runtime (with bubblewrap on Linux), or docker.
 - **A workflow file is trusted code.** It runs with your filesystem and process permissions.

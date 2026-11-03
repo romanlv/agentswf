@@ -22,7 +22,7 @@ release.
 - **git.**
 - **At least one coding agent CLI, logged in:** claude, codex, pi or cursor. awf drives the CLI
   you already use, on your own login; it has no account of its own.
-- **[Herdr](https://herdr.dev)**, for pane agents. A pane agent runs in a terminal pane you can
+- **[Herdr](https://herdr.dev)**, for TUI agents. A TUI agent runs its harness's own interface in a terminal pane you can
   watch and type into, and that is the default. A headless agent runs as a plain process and needs
   no Herdr. awf is built for Herdr 0.9.1, and requires exactly that version for a docker
   sandbox's own Herdr and for a Herdr session a layout names.
@@ -43,7 +43,7 @@ its first agent on it, so a run that uses only codex needs no claude login.
 | pi | `pi` | one per model provider: `pi`, then `/login` | yes | nothing |
 | cursor | `cursor-agent` | `cursor-agent login` | yes | `CURSOR_API_KEY`, from Cursor's dashboard |
 
-A claude pane runs on your plan, and headless claude is refused unless its runtime says
+A claude TUI agent runs on your plan, and headless claude is refused unless its runtime says
 `metered: true`; [Harnesses](/guide/harnesses#subscription-and-metered) says why, and what awf refuses
 in your environment.
 

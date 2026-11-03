@@ -107,9 +107,9 @@ A turn that awaits a peer's reply can still finish with `wfa result`; the wait i
 ## wfa waiting {#waiting}
 
 Says the agent is still on long work, such as a build, when it is nudged for its answer. It holds
-off the next nudge. It is offered only where the harness confirms what it was sent, a claude pane
-today, and not a sandboxed claude pane without a run-local home; elsewhere it is refused
-`unsupported-command`. [In a claude pane](/guide/timeouts#in-a-claude-pane) explains the nudge it answers.
+off the next nudge. It is offered only where the harness confirms what it was sent, a claude TUI agent
+today, and not a sandboxed one without a run-local home; elsewhere it is refused
+`unsupported-command`. [In a claude TUI](/guide/timeouts#in-a-claude-tui) explains the nudge it answers.
 
 ```sh
 wfa waiting <call-id> --reason 'Running the full test suite' --timeout 10m
@@ -268,9 +268,9 @@ one, or the `--timeout`, whichever is sooner. An agent that finds the answer its
 
 **Where `--await-reply` works:**
 
-| Harness | Headless | Pane |
+| Harness | Headless | TUI |
 | --- | --- | --- |
-| claude | yes | yes, where the pane confirms delivery; not a sandboxed claude pane without a run-local home |
+| claude | yes | yes, where the pane confirms delivery; not a sandboxed claude TUI agent without a run-local home |
 | codex | yes | no |
 | pi | yes | no |
 | cursor | no | no |

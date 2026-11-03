@@ -7,7 +7,7 @@ export default defineWorkflow({
   meta: { name: "hello", description: "Ask one agent a question with a known answer." },
   async run(wf) {
     // A headless agent needs neither Herdr nor a sandbox. Swap in any harness and model your
-    // account has: "claude" in a pane, the default placement, runs on a subscription.
+    // account has: "claude" in its TUI, the default placement, runs on a subscription.
     const agent = await wf.agents.open({
       key: "hello",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },

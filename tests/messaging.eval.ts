@@ -10,8 +10,8 @@ import { assertLiveOptIn, interruption } from "./live";
 /**
  * Story 029's delivery smoke, with `--await-reply` turned on for what it runs: a question wakes a
  * keeper that has never run, its answer resumes the asker's same call, and the record says what
- * confirmed each delivery. With no names, the four headless pairs; `claude-pane`, `codex-pane`,
- * `pi-pane` and `cursor-pane` run a pane's. Two agents each.
+ * confirmed each delivery. With no names, the four headless pairs; `claude-tui`, `codex-tui`,
+ * `pi-tui` and `cursor-tui` run a pane's. Two agents each.
  */
 const SMOKE = join(import.meta.dir, "fixtures/messaging-smoke.ts");
 
@@ -100,10 +100,10 @@ if (import.meta.main) {
       stdout: (text) => output.push(text),
       stderr: (text) => console.error(text),
       // The engine's list has what M2 passed; this smoke turns cursor on too, to show its delivery
-      // works, and checks every harness headless and a claude pane that confirms what it was sent.
+      // works, and checks every harness headless and a claude TUI that confirms what it was sent.
       awaitReply: (execution, confirms) =>
         canAwaitReply(execution, confirms, {
-          claude: { headless: true, pane: "confirmed" },
+          claude: { headless: true, tui: "confirmed" },
           codex: { headless: true },
           pi: { headless: true },
           cursor: { headless: true },

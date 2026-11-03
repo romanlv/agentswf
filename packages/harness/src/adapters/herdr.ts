@@ -79,7 +79,7 @@ export type HerdrConfig = {
   /** How long an agent is left alone after each startup block; see `answerStartupBlocks`. */
   trustSettleMs?: number;
   /**
-   * At a sandbox's first pane agent, open a tab in the run's workspace attached to the sandbox's
+   * At a sandbox's first TUI agent, open a tab in the run's workspace attached to the sandbox's
    * own Herdr, so its panes show beside the run's.
    */
   watchSandboxes?: boolean;
@@ -683,7 +683,7 @@ export function createHerdrRunHostFactory(
           return origin;
         },
       });
-      // A sandbox's own Herdr, by its key: opened at its first pane agent, closed with the run.
+      // A sandbox's own Herdr, by its key: opened at its first TUI agent, closed with the run.
       // A box's Herdr holds no host credential, so its panes need no variables emptied.
       const boxes = new Map<string, Promise<{ screen: PaneScreen; layout: PaneLayoutHost }>>();
       /** Tabs attached to a box's Herdr, finished before the run's workspace closes. */
@@ -740,8 +740,8 @@ export function createHerdrRunHostFactory(
       };
 
       const adapter = createSessionAdapter({
-        harnesses: PLACEMENT_HARNESSES.pane,
-        placement: "pane",
+        harnesses: PLACEMENT_HARNESSES.tui,
+        placement: "tui",
         launchesInSandbox: true,
         givesSkills: true,
         continues: true,
@@ -751,7 +751,7 @@ export function createHerdrRunHostFactory(
           const { continues } = request;
           if (continues && !spec.interactiveResume) {
             throw new Error(
-              `${harness} panes cannot continue a forked session: ${spec.absent.interactiveResume}`,
+              `${harness} tui agents cannot continue a forked session: ${spec.absent.interactiveResume}`,
             );
           }
           /** What its harness is launched at: as activated, then as the last `set` left it. */

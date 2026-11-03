@@ -105,7 +105,7 @@ awf run hello/workflow.ts
 
 This starts one codex agent and asks it the question. The workflow runs it headless on
 `gpt-6-luna`, a small model, because the question needs no more and that setup asks the least of
-you: no [Herdr](https://herdr.dev) for a pane, no sandbox, only a codex login. The run's closing
+you: no [Herdr](https://herdr.dev) for a TUI agent, no sandbox, only a codex login. The run's closing
 line gives its token count and an estimate at list prices.
 
 Before you run it:
@@ -113,9 +113,9 @@ Before you run it:
 - `awf run` fails before any agent opens while your shell holds an API key that would switch an
   agent to per-token billing, such as `OPENAI_API_KEY`, `OPENAI_BASE_URL` or `CODEX_API_KEY`;
   unset them first. [Configuration](/reference/configuration#refused) lists them all.
-- To use another harness, change `runtime`. An agent without `placement: "headless"` runs in a
-  pane, which needs Herdr ([Harnesses](/guide/harnesses)).
-- Headless claude is refused unless the runtime says `metered: true`; claude in a pane runs on
+- To use another harness, change `runtime`. An agent without `placement: "headless"` runs in its
+  TUI, which needs Herdr ([Harnesses](/guide/harnesses)).
+- Headless claude is refused unless the runtime says `metered: true`; claude in its TUI runs on
   your subscription ([why](/guide/harnesses#subscription-and-metered)).
 
 While the run goes, the terminal shows its agent and what it is doing. When it ends, awf prints a
@@ -190,7 +190,7 @@ The typecheck and `awf test` catch what the agent gets wrong about the API, with
 real agent. Before the first real run, read the workflow for what they can't:
 
 - **The runtimes.** Which harness and model each agent runs on decides what the run costs and
-  which login it uses. An agent without `placement: "headless"` opens in a pane, which needs
+  which login it uses. An agent without `placement: "headless"` opens in its TUI, which needs
   [Herdr](https://herdr.dev). A headless claude agent needs `metered: true`, your consent to
   per-token billing: check that the agent set it because you meant it.
 - **The loops.** Every loop needs a limit, and every turn's outcome needs handling: a turn can end
@@ -209,7 +209,7 @@ Then run it on your project: `awf run review/workflow.ts --cwd ../my-project`.
 - [How it works](/guide/how-it-works): the words these pages use, and what awf does between your
   workflow and its agents.
 - [Workflows](/guide/workflows) and [Harnesses](/guide/harnesses): a workflow's arguments and
-  result, and running agents on other harnesses, models and in panes.
+  result, and running agents on other harnesses and models, in their TUI or headless.
 - [Runs](/guide/runs): ids, stages, and going on after a stop.
 - [The workflow API](/reference/workflow-api) has every option and outcome, and
   [`awf`](/reference/awf) every command.

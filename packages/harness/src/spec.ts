@@ -40,11 +40,11 @@ export function findHarness(harness: string): HarnessSpec | undefined {
 export const HARNESS_NAMES = Object.keys(HARNESSES) as [Harness, ...Harness[]];
 
 /**
- * The harnesses each placement's run host runs: a pane, those whose startup screens are driven; a
+ * The harnesses each placement's run host runs: a TUI, those whose startup screens are driven; a
  * headless turn, any harness in the table.
  */
 export const PLACEMENT_HARNESSES = {
-  pane: HARNESS_NAMES.filter((harness) => !isAbsent(STARTUP_BLOCKS[harness])) as [
+  tui: HARNESS_NAMES.filter((harness) => !isAbsent(STARTUP_BLOCKS[harness])) as [
     Harness,
     ...Harness[],
   ],

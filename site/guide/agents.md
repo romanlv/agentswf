@@ -42,7 +42,7 @@ const agent = await wf.agents.open({ key: "scoper", runtime: "claude", instructi
   again returns the same agent; opening it with a different spec rejects.
 - **`runtime`** picks the harness and model: an alias, `"claude"` or `"codex"`, or spelled out,
   `{ harness: "codex", model: "gpt-6-luna", effort: "high" }`, or an alias with your own effort,
-  `{ alias: "codex", effort: "high" }`. Pane or headless, and which models
+  `{ alias: "codex", effort: "high" }`. TUI or headless, and which models
   and efforts each harness takes, are on [Harnesses](/guide/harnesses).
 - **`instructions`** are standing instructions. They go ahead of the agent's first prompt, so
   they stay in its session for every turn after.
@@ -170,7 +170,7 @@ do. The session and its context stay.
 the harness doesn't list, or where the harness can't switch. Switching the model costs the cache: the next
 turn reads the whole context again at full price.
 
-Which harness does each, in a pane or headless, is in the reference:
+Which harness does each, in its TUI or headless, is in the reference:
 [compact](/reference/workflow-api#compacting-keep-the-agent-shrink-its-context),
 [set](/reference/workflow-api#switching-model-or-effort-set),
 [fork](/reference/workflow-api#forking-new-agents-that-start-from-what-one-knows).
@@ -211,6 +211,6 @@ host, a cursor agent with `skills` is refused.
 
 - [The workflow API: Agents](/reference/workflow-api#agents): every option of `open`, `run`,
   `compact`, `set` and `fork`, with its default.
-- [Harnesses](/guide/harnesses): claude, codex, pi and cursor; models and effort; pane or
+- [Harnesses](/guide/harnesses): claude, codex, pi and cursor; models and effort; TUI or
   headless.
 - [The review loop](/patterns/review-loop): one agent implements, another reviews, until approved.

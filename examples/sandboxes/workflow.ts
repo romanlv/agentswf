@@ -8,7 +8,7 @@ import { outputSchema } from "../output-schema";
 
 /**
  * Two ways to sandbox agents. A team of codex agents shares one docker container, all at once, each
- * headed in a pane of the container's own Herdr: they can write the working directory and reach the
+ * in its TUI, in a pane of the container's own Herdr: they can write the working directory and reach the
  * npm registry. Then pi, headless under srt in a sandbox of its own, reads what they wrote, and can
  * write nothing and reach no domain beyond its model. Each agent runs a few shell commands and
  * reports what they printed, refusals included.

@@ -297,7 +297,7 @@ export interface HarnessActivation {
    * host. Absent, the operator's.
    */
   home?: string;
-  /** Where a pane agent's pane goes, as the workflow wrote it; a host with no panes ignores it. */
+  /** Where a TUI agent's pane goes, as the workflow wrote it; a host with no panes ignores it. */
   layout?: PaneLayout;
   /**
    * Why `layout` can't be used, where the engine already knows: a `beside` naming an agent with no

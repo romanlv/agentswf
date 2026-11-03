@@ -18,7 +18,7 @@ From a clone of the repository, after `bun install`:
 
 ```sh
 bun awf run examples/messaging/workflow.ts            # both agents on codex
-bun awf run examples/messaging/workflow.ts -- claude-pane
+bun awf run examples/messaging/workflow.ts -- claude-tui
 ```
 
 <!-- TODO(operator): record a run -->
@@ -63,7 +63,7 @@ for a typed verdict, and sends the findings back, up to a number of rounds.
 [Loops](/guide/parallel-and-loops#round-after-round) builds that one. Choose it when:
 
 - the reviewer's harness or placement can't wait for a reply (a reviewer here must be one that
-  can, which is why the example runs both agents headless or claude in a pane);
+  can, which is why the example runs both agents headless or claude in its TUI);
 - your code needs each round's findings, to log, gate or show them;
 - each round should be a fresh reviewer, or several reviewers in [`parallel`](/guide/parallel-and-loops).
   [`minimum-review`](https://github.com/romanlv/agentswf/tree/main/examples/minimum-review) is

@@ -16,7 +16,7 @@ logins each harness keeps, and one name in `.env`.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `AWF_HERDR_SESSION` | The Herdr session a run's pane agents open in. Lowercase letters, digits and `-`, up to 32, not starting with `-`. awf starts a session named `awf` or `awf-…` when it isn't running; any other name must be running already ([Harnesses](/guide/harnesses#where-panes-go)). | `awf` |
+| `AWF_HERDR_SESSION` | The Herdr session a run's TUI agents open in. Lowercase letters, digits and `-`, up to 32, not starting with `-`. awf starts a session named `awf` or `awf-…` when it isn't running; any other name must be running already ([Harnesses](/guide/harnesses#where-panes-go)). | `awf` |
 | `AWF_COORDINATOR_DIR` | Where live runs keep the socket that `awf reply`, `awf send` and events reach them through. An absolute path, outside the workflow's folder. Set it the same for the run and for the commands that answer it. | `~/.awf/coordinator` |
 
 ### Keys and tokens

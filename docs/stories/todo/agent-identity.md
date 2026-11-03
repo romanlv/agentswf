@@ -64,9 +64,9 @@ So two things are wrong:
 ## To check
 
 - pi with the extension: a native fork with its own id reads its parent's cache as F6's recipe does
-  (30,208 of 31,008), headless and in a pane, with an OpenAI and an Anthropic model. pi's login had
+  (30,208 of 31,008), headless and in its TUI, with an OpenAI and an Anthropic model. pi's login had
   expired on 2026-10-25, so it isn't measured.
-- Which source names a pane agent's session without the shell's variable, per harness, now that
+- Which source names a TUI agent's session without the shell's variable, per harness, now that
   Herdr's `agent_session` is unreliable under codex (E8).
 - Whether many forks under one cache key at once route to one place, and whether that limits them.
 
@@ -74,7 +74,7 @@ So two things are wrong:
 
 A fork's copied command reaching its parent's socket, and acting as the parent while the parent is
 in a turn, is accepted, for `wfa send`, `wfa reply` and `wfa tool` alike ([[035-workflow-tools|story
-035]], Q4). The guards weighed there: `AWF_AGENT` in the environment, which a codex pane's shell
+035]], Q4). The guards weighed there: `AWF_AGENT` in the environment, which a codex TUI agent's shell
 commands never see (commit `38dd03a`) and a sandboxed pane drops; the call id on every command; the
 parent's launcher replaced at each fork; a launcher per operation. Pick one up only if a run is seen
 to go wrong this way.

@@ -138,7 +138,7 @@ A `reply` ends a turn without an answer. It takes no schema.
 | `reply.hang()` | holds until the engine cancels it, for a deadline or a sibling's failure |
 | `reply.interrupted()` | ends `cancelled`, as when the operator stops the calling session's turn in its pane; never nudged. On any other agent the test fails |
 | `reply.needsLogin(provider?)` | fails with `login` set, as a missing login does, naming the agent's harness |
-| `reply.waiting(reason, timeoutMs?)` | reports `wfa waiting`, which only a claude pane the run opened may; elsewhere, the calling session included, the test fails |
+| `reply.waiting(reason, timeoutMs?)` | reports `wfa waiting`, which only a claude TUI agent the run opened may; elsewhere, the calling session included, the test fails |
 
 ### The turn {#the-turn}
 

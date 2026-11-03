@@ -80,7 +80,7 @@ and the question closes there.
 
 A question still open when the workflow returns keeps the run open until it is answered; set
 `timeoutMs` if the run shouldn't wait that long. While it waits, a headless agent has no process
-running, and an agent in a pane keeps its pane and process. Either way, awf bounds a turn by a week
+running, and a TUI agent keeps its pane and process. Either way, awf bounds a turn by a week
 when nothing else does, so ask from a headless agent when answers may take days, and treat a
 question open longer than a week as a run to stop and start again.
 

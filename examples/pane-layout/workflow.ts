@@ -7,7 +7,7 @@ import {
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
-/** Cheap, and in a pane, which is what is being placed. */
+/** Cheap, and in its TUI, whose pane is what is being placed. */
 const RUNTIME: ExecutionConfig = { harness: "codex", model: "gpt-6-luna" };
 
 const NAMED = outputSchema(Type.Object({ name: Type.String() }, { additionalProperties: false }));

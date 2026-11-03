@@ -42,25 +42,26 @@ export type RuntimeTarget = {
 };
 
 /**
- * Where an agent runs: a terminal pane it keeps between turns, or a headless process per turn.
- * Both answer through the same result channel, under the same deadlines and cleanup.
+ * How an agent runs: its harness's own TUI, kept between turns in a terminal awf opens for it, or a
+ * headless process per turn. Both answer through the same result channel, under the same deadlines
+ * and cleanup.
  */
-export type AgentPlacement = "pane" | "headless";
+export type AgentPlacement = "tui" | "headless";
 
 export type PlacementChoice = {
-  /** Defaults to `pane`. */
+  /** Defaults to `tui`. */
   placement?: AgentPlacement;
   /**
    * The author's consent to per-token billing, needed to run headless a harness that bills that
    * way even on a subscription login, as `claude -p` does (E3). The run host refuses such an agent
    * without it. It says nothing about how an agent was billed: see `Billing`. It is dropped from a
-   * pane agent, where it means nothing.
+   * TUI agent, where it means nothing.
    */
   metered?: true;
 };
 
 export function placementOf(choice: PlacementChoice): AgentPlacement {
-  return choice.placement ?? "pane";
+  return choice.placement ?? "tui";
 }
 
 export type ExecutionConfig = RuntimeTarget & PlacementChoice;
@@ -123,9 +124,9 @@ export interface AgentOpenSpec {
    * for a private one. Absent, the agent runs unsandboxed.
    */
   sandbox?: SandboxRef | InlineSandboxSpec;
-  /** Where its pane appears; absent, a tab of its own in the run's workspace. Pane agents only. */
+  /** Where its pane appears; absent, a tab of its own in the run's workspace. TUI agents only. */
   layout?: PaneLayout;
-  /** Whether its pane stays once it is done; absent, `never`. Pane agents only. */
+  /** Whether its pane stays once it is done; absent, `never`. TUI agents only. */
   keepPane?: KeepPane;
   /**
    * What the agent can ask the workflow's code to do mid-turn, by name: holding a tool is what lets
@@ -209,7 +210,7 @@ export const TOOL_LIMITS = {
 } as const;
 
 /**
- * Where a pane agent's pane is placed, once, as it opens, or in a run of a workflow with `events` at
+ * Where a TUI agent's pane is placed, once, as it opens, or in a run of a workflow with `events` at
  * its first turn: a new tab, or beside the pane of an agent
  * already open, which it splits. Where it can't be used, the agent gets a tab of its own instead,
  * and the run says why; it never fails the agent. See `docs/design/pane-layout.md`.

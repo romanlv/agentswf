@@ -984,7 +984,7 @@ describe("testWorkflow with effort and set", () => {
     const run = await testWorkflow(workflow, null);
     expect(run.value).toEqual([
       'Error: claude has no effort "ultracode"; its levels are low, medium, high, xhigh, max',
-      expect.stringContaining("cursor pane agents cannot switch model or effort: not measured"),
+      expect.stringContaining("cursor tui agents cannot switch model or effort: not measured"),
       expect.stringContaining("cursor takes no effort: cursor names a model's effort in its id"),
     ]);
     expect(run.turns).toEqual([]);
@@ -1219,7 +1219,7 @@ describe("testWorkflow with a calling session", () => {
 });
 
 /** Plans headless, then forks a tester that starts from the plan. */
-const forking = workflowOf<{ placement?: "pane" }, JsonValue>(async (workflow, args) => {
+const forking = workflowOf<{ placement?: "tui" }, JsonValue>(async (workflow, args) => {
   const worker = await workflow.agents.open({
     key: "worker",
     runtime: { alias: "claude", placement: "headless", metered: true },
@@ -1276,10 +1276,10 @@ describe("testWorkflow forks", () => {
     expect(run.agentOf("tests").forkedFrom).toEqual({ key: "worker", turns: 1 });
   });
 
-  test("a headless agent forks into a pane, which continues its copy", async () => {
+  test("a headless agent forks into a TUI, which continues its copy", async () => {
     const run = await testWorkflow(
       forking,
-      { placement: "pane" },
+      { placement: "tui" },
       {
         agents: {
           worker: [answer(PLAN, { steps: ["a"] })],

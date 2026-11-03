@@ -36,7 +36,7 @@ async function cli(argv: string[], cwd: string): Promise<{ code: number; out: st
     // On for what M2 measures, as the gate would turn it on.
     awaitReply: (execution, confirms) =>
       canAwaitReply(execution, confirms, {
-        claude: { headless: true, pane: "confirmed" },
+        claude: { headless: true, tui: "confirmed" },
         codex: { headless: true },
         pi: { headless: true },
         cursor: { headless: true },

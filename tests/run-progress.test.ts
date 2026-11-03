@@ -144,7 +144,7 @@ describe("run progress by stage", () => {
       "↺ implement                                 attempt 1",
       "✓ review       4m 00s   2 findings",
       expect.stringMatching(/^. qa {11}1m 00s$/),
-      expect.stringMatching(/^ {4}. worker {2}claude-opus-5-5 · pane {2}preview {2}50s$/),
+      expect.stringMatching(/^ {4}. worker {2}claude-opus-5-5 · tui {2}preview {2}50s$/),
       "    · tester  claude-opus-5-5 · headless  4s  waiting",
       "· mr",
     ]);
@@ -509,7 +509,7 @@ test("log progress records phase, renewed wait and reason changes without countd
   }
 });
 
-describe("where pane agents are", () => {
+describe("where TUI agents are", () => {
   const BLOCKED: WorkflowRunSnapshot = {
     state: "running",
     stages: [],
@@ -544,7 +544,7 @@ describe("where pane agents are", () => {
     ],
   };
 
-  test("a blocked pane agent names the session to attach to; a headless one, or one before any session, does not", () => {
+  test("a blocked TUI agent names the session to attach to; a headless one, or one before any session, does not", () => {
     const view = { name: "flow", startedAt: 0, now: 40_000, paint: PLAIN };
     const lines = renderProgress(BLOCKED, { ...view, herdrSession: "awf" });
     expect(lines.find((line) => line.includes("fixer"))).toEndWith(

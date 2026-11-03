@@ -11,7 +11,7 @@ export const WINDOW_MS = 90_000;
 export const FOCUS = "Keep every note's text exactly, in order; drop everything else.";
 
 /**
- * An agent kept alive between events (story 036): each `note` is a turn for the same claude pane
+ * An agent kept alive between events (story 036): each `note` is a turn for the same claude TUI agent
  * while its window is open; once the window passes, `onTimeout` compacts it and the run parks. The
  * next `note` wakes it on the compacted session.
  */

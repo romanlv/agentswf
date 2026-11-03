@@ -60,7 +60,7 @@ printed instead of run, a skill listed but not used), 2026-10-01.
 What they cover between them:
 
 - `turn-liveness` — story 021's cooperative `wfa waiting` path through `awf run`, repeated check-ins,
-  final answer and a dependent operation in one Claude pane. `bun run eval turn-liveness` runs
+  final answer and a dependent operation in one Claude TUI agent. `bun run eval turn-liveness` runs
   the host case. With explicit live opt-in, `AWF_LIVE_EVAL=1 bun tests/turn-liveness.eval.ts {mode}`
   selects `host`, `srt`, `silent`, `timeout`, `cancel` or `lost-route`. Each invocation has a five-minute outer
   deadline; initial cost guidance is under $1 list price per scenario, not a measured suite total.
@@ -75,15 +75,15 @@ What they cover between them:
   is unknown, and a pane's cursor prints no usage. 6 agents, ~40 s, ~$0.13.
 - `messaging` — story 029's delivery, with `--await-reply` turned on for what it tests: an asker
   asks a keeper that has never run for a codeword only it knows, the question wakes the keeper,
-  and its answer resumes the asker's same call. Headless on claude, codex, pi and cursor, and in a
-  pane: a claude asker waiting in its pane for a claude pane keeper, and a codex, pi or cursor pane
+  and its answer resumes the asker's same call. Headless on claude, codex, pi and cursor, and in their
+  TUI: a claude TUI asker waiting for a claude TUI keeper, and a codex, pi or cursor TUI
   keeper asked from headless. Every asker must return the codeword, every keeper be woken by the
   question, the asker run one operation, and each delivery be `observed` where evidence exists (a
-  headless session's record, a claude pane's receipt), `unconfirmed` where it cannot (cursor's
-  store, a codex, pi or cursor pane). `bun tests/messaging.eval.ts codex-pane` runs one; with no
+  headless session's record, a claude TUI agent's receipt), `unconfirmed` where it cannot (cursor's
+  store, a codex, pi or cursor TUI agent). `bun tests/messaging.eval.ts codex-tui` runs one; with no
   names, the four headless ones. 8 agents each way, ~25 s, ~$0.25.
-- `tools` — story 035's tools, from the lesson alone, on codex, pi and cursor headless and in a
-  pane, and claude in a pane: each agent lists the open items, a tool with no input, labels one, a
+- `tools` — story 035's tools, from the lesson alone, on codex, pi and cursor headless and in their
+  TUI, and claude in its TUI: each agent lists the open items, a tool with no input, labels one, a
   tool taught as JSON, and closes both with flags, one reason holding `'` and `$HOME`, which must
   arrive word for word; then answers with flags. It prints each agent's refused and failed calls
   and rejected results. `bun tests/tools.eval.ts slow` makes the no-input tool take 15 s on codex
@@ -95,18 +95,18 @@ What they cover between them:
   the same call. Claude and codex headless. `bun tests/coordinator.eval.ts --late` gives each
   operation 60 s and answers after 90 s, so it passes only if waiting doesn't count. ~$0.10 at
   list prices.
-- `compaction` — native compaction (stories 015, 019) on every harness in panes and headless: each
+- `compaction` — native compaction (stories 015, 019) on every harness in their TUI and headless: each
   compacts with a focus naming a codename it was never told, then must recall it and what it noted
   before. A headless cursor, which has none, must refuse, saying why. `bun
-  tests/compaction.eval.ts pi pi-pane` runs only those. 8 agents, ~60 s, ~$0.63 at list prices,
+  tests/compaction.eval.ts pi pi-tui` runs only those. 8 agents, ~60 s, ~$0.63 at list prices,
   the headless claude's share billed per token.
-- `fork` — forks (story 016) on every harness, in panes and headless, across a placement change
+- `fork` — forks (story 016) on every harness, in their TUI and headless, across a placement change
   and after a compaction: each worker notes a codename, is forked, then notes a release. Each fork
   must answer the codename through its own channel and not know the release, and its first turn
-  must read at least half its prompt from the cache, except a pane's cursor, which prints no
+  must read at least half its prompt from the cache, except a TUI cursor, which prints no
   usage. `bun tests/fork.eval.ts codex claude>headless` runs only those cases. 32 agents, ~2 min,
   ~$1.40 at list prices, the headless claude's share billed per token.
-- `effort` — effort and `set` (story 020) on claude, codex and pi, in panes and headless: each
+- `effort` — effort and `set` (story 020) on claude, codex and pi, in their TUI and headless: each
   agent opens at `low`, is set to `high`, then to another model, a turn between each. Its record
   must say so, and so must what the harness itself logged it ran at: claude's transcript, codex's
   rollout, pi's shell; its last turn must still know the word its first was told. 6 agents, ~1 min,
@@ -148,9 +148,9 @@ What they cover between them:
 - `sandbox-panes-srt` — the same probe with codex, claude and pi in terminal panes of the run's
   Herdr, typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving
   no secret or process behind; processes are found by their environment, where a pane's carry the
-  run's path. 3 agents, ~50 s, ~$0.12; claude in a pane is on its subscription.
+  run's path. 3 agents, ~50 s, ~$0.12; claude in its TUI is on its subscription.
 - `skills` — agents given one of two probe skills and using it (story 007): codex, pi and a
-  claude pane on the host, codex and pi sharing one srt sandbox with different probes, and cursor
+  claude TUI agent on the host, codex and pi sharing one srt sandbox with different probes, and cursor
   in one of its own, as co-tenants read each other's homes. The
   prompt never mentions skills; it asks for a build's release stamp and audit seal, each claimed by
   one probe's description and made only by a script inside it, from a secret no `SKILL.md` holds.
@@ -238,7 +238,7 @@ as story 002 did to check accounting against the session files.
   lesson, flags on `wfa tool` or `wfa result`, or a harness's shell limits; `calling-session` for
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
   activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
-  in a pane (`-- pi pi-pane`), and in another shell follow it with the `awf logs` its first line
+  in its TUI (`-- pi pi-tui`), and in another shell follow it with the `awf logs` its first line
   names, then `--after {cursor} --wait 90` as each page says. Pane layout, `keepPane` and the marks
   that sweep a dead run's panes have no eval, as their result is what a person sees: run
   `examples/pane-layout` from a Herdr pane and look (three codex luna agents, a few cents).

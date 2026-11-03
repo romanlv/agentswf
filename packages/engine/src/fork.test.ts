@@ -305,7 +305,7 @@ describe("fork", () => {
     expect(result.value).toEqual([
       "an agent cannot be forked before its first turn",
       "forked",
-      "agent plain cannot be forked: fake pane agents have no fork yet",
+      "agent plain cannot be forked: fake tui agents have no fork yet",
       "logical agent is closed",
     ]);
   });

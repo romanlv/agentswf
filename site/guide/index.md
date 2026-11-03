@@ -42,7 +42,7 @@ order, who checks whom. agents.wf keeps that in your code, so it outlives any on
   code.
 - **You mix vendors.** A codex reviewer checks a claude implementer, each on its own login. A
   harness awf doesn't drive yet can be [asked for](https://github.com/romanlv/agentswf/issues).
-- **You use the limits you already pay for.** Agents run on your own logins: Claude Code in a pane
+- **You use the limits you already pay for.** Agents run on your own logins: Claude Code in its TUI
   runs on your Claude subscription, with no API key and no credits to buy
   ([Harnesses](/guide/harnesses#subscription-and-metered)).
 - **You measure it.** Each run records the time, tokens and an estimated cost per agent and model
@@ -70,10 +70,10 @@ lacks shows up on later ones:
 - **Nothing is left to read, and a stop starts over.** A run keeps
   [a record](/guide/how-it-works#the-record) of its turns, and a stopped run can be continued,
   reusing the stages that finished ([Durability](/guide/durability)).
-- **You can't watch it or test it.** An agent in a pane runs in [Herdr](https://herdr.dev), where
+- **You can't watch it or test it.** A TUI agent runs in [Herdr](https://herdr.dev), where
   you see it work and can type to it. [`awf test`](/guide/testing) runs a workflow on scripted
   answers, with no agent started and nothing to pay.
-- **Headless claude is metered,** even on a subscription login. A claude agent in a pane runs on
+- **Headless claude is metered,** even on a subscription login. A claude agent in its TUI runs on
   your plan.
 
 **An agent's own subagents** are good when the agent should decide the plan: it splits the work as

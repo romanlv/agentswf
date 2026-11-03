@@ -105,7 +105,7 @@ export function createPlacementHostFactory(
 function placedAccounting(
   hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>> & { caller?: AgentRunHostFactory },
 ): SessionAccounting | undefined {
-  const paced = hosts.pane.accounting ?? hosts.headless.accounting;
+  const paced = hosts.tui.accounting ?? hosts.headless.accounting;
   if (!paced) return undefined;
   const of = (execution: AgentExecution) => hosts[sideOf(execution)]?.accounting;
   return {

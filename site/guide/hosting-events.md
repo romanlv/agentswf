@@ -162,11 +162,11 @@ first try couldn't. The exit code tells a handler what to answer:
 | 1 | the run's process didn't start, and the event is kept for the next event or `awf tick`; or the target file couldn't be loaded | answers a server error, so the source retries: with the same `--event-id` a retry is a `duplicate` that wakes the run |
 | 2 | the event or the command is wrong: a usage error; a target that declares no events, sits directly in your home directory, or whose `prepare` refuses a run with no arguments; an event name, data or id the target doesn't take | answers a client error |
 
-## Agents in panes
+## TUI agents
 
-A run woken by cron, launchd or a webhook has no terminal, and it doesn't need one. Its pane agents
+A run woken by cron, launchd or a webhook has no terminal, and it doesn't need one. Its TUI agents
 open as they always do, in the Herdr session named `awf`, which awf starts headless when it isn't
-running. So the sample's codex agent keeps its default pane, and you can watch a woken run's agents
+running. So the sample's codex agent keeps its default placement, a TUI in a Herdr pane, and you can watch a woken run's agents
 from any terminal:
 
 ```sh

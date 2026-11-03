@@ -19,7 +19,7 @@ standing, so the host's response to it is to spend the whole operation deadline 
 
 What Story 001 settled, and what it left here: Task 4 removed every place an ambiguous Herdr
 observation decided something. `agent_prompt_stalled` no longer settles or resends. Story 015
-brought continuation back without release: a pane agent keeps its pane, and each later operation
+brought continuation back without release: a TUI agent keeps its pane, and each later operation
 is prompted into it once the agent has settled
 ([ADR 0008](../../adr/0008-a-pane-agent-continues-in-its-pane.md)). What is left here is for
 anything that reopens or moves a session.
@@ -69,7 +69,7 @@ measurement as verified release.
 On a stalled prompt the host waits out the operation deadline without looking at the pane, so it
 sees no decisive native failure: a wedged or dead agent costs the whole deadline and reports a bare
 timeout. A single `agent read --source detection` before returning would give a diagnostic. Usage
-no longer depends on it: story 002 reads a pane agent's session files when the run ends, as it does
+no longer depends on it: story 002 reads a TUI agent's session files when the run ends, as it does
 a headless agent's.
 
 Two constraints on whatever lands here: do not add a retry until delivery is provably absent, and

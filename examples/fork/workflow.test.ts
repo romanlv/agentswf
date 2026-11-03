@@ -50,7 +50,7 @@ describe("fork", () => {
         ...args,
         cases: [
           { runtime: "claude", compact: false, into: "headless" },
-          { runtime: "codex-headless", compact: false, into: "pane" },
+          { runtime: "codex-headless", compact: false, into: "tui" },
         ],
       },
       {
@@ -65,6 +65,6 @@ describe("fork", () => {
       placement: "headless",
       metered: true,
     });
-    expect(run.agentOf("fork:codex-headless>pane").execution).not.toHaveProperty("placement");
+    expect(run.agentOf("fork:codex-headless>tui").execution).not.toHaveProperty("placement");
   });
 });

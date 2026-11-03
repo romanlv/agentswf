@@ -37,7 +37,7 @@ export function settingsRefusal(execution: AgentExecution): string | undefined {
   const spec = findHarness(execution.harness);
   if (!spec) return undefined;
   const placement = placementOf(execution);
-  const capability = placement === "pane" ? "setPane" : "setHeadless";
+  const capability = placement === "tui" ? "setPane" : "setHeadless";
   if (spec[capability]) return undefined;
   return `${execution.harness} ${placement} agents cannot switch model or effort: ${absence(execution.harness as Harness, capability)}`;
 }

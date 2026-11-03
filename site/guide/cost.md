@@ -137,7 +137,7 @@ A runtime for a small job:
   cache, which costs a tenth of fresh input or less. A [fork](/guide/agents#compact-switch-fork)
   starts from its parent's cache too. Switching an agent's model loses it. A session grown long
   can be compacted.
-- **claude in a pane**, the default, stays on your plan; headless claude is per token
+- **claude in its TUI**, the default, stays on your plan; headless claude is per token
   ([why](/guide/harnesses#subscription-and-metered)).
 - **A decision instead of an agent.** A closed question about some text, such as which team owns
   a ticket, is a [decision](/guide/decisions): no agent starts, and it answers in about 200 ms.
@@ -163,4 +163,4 @@ A runtime for a small job:
 - [Logging and usage](/reference/workflow-api#logging-and-usage) and
   [Plan allowance](/reference/workflow-api#plan-allowance) in the workflow API.
 - [`awf allowance`](/reference/awf#allowance): its options and exit codes.
-- [Harnesses](/guide/harnesses): models, effort, pane or headless, subscription and metered.
+- [Harnesses](/guide/harnesses): models, effort, TUI or headless, subscription and metered.

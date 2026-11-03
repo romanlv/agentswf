@@ -61,7 +61,7 @@ An agent outside a sandbox gets your environment, less these names:
   `awf` from inside one: an agent never sees your session's markers as its own.
 - `AWF_CALLER_SESSIONS`, which `awf run --here` passes on, and `CLAUDE_CODE_EFFORT_LEVEL`, so a
   claude agent runs at the effort its workflow set.
-- In a pane, `HERDR_CONFIG_PATH` too, so a `herdr` started there reads your config, not the run
+- For a TUI agent, `HERDR_CONFIG_PATH` too, so a `herdr` started there reads your config, not the run
   session's.
 
 Everything else reaches it: cloud credentials, a `GITHUB_TOKEN`, your SSH agent's socket. An agent
@@ -76,8 +76,8 @@ has no per-tool permission rules yet, and each harness starts so that it works u
 | Harness | Outside a sandbox | Inside a sandbox |
 | --- | --- | --- |
 | claude | `--allowed-tools Bash`: any shell command without asking; its other tools follow your permission settings, and headless, with no one to ask, are denied | permission prompts off |
-| codex | `--sandbox danger-full-access --ask-for-approval never` in a pane; `sandbox_mode="danger-full-access"` headless | the same, with its apps and plugins off |
-| cursor | `--force --trust` in a pane; `--force` headless | the same, with its own sandbox off |
+| codex | `--sandbox danger-full-access --ask-for-approval never` in its TUI; `sandbox_mode="danger-full-access"` headless | the same, with its apps and plugins off |
+| cursor | `--force --trust` in its TUI; `--force` headless | the same, with its own sandbox off |
 | pi | every tool; pi has no permission system | the same, with its extensions off |
 
 Inside a sandbox web search is off too, unless the spec asks for it

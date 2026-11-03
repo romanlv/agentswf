@@ -48,7 +48,7 @@ verdict as its `value`, and none of the progress.
 | `--json` | Standard output gets the run's whole record, its `output.json`, even when the workflow has `present`. A run that doesn't complete prints its record too, once its agents have started. Questions for [a person](/guide/people) are not asked at the terminal. |
 | `--no-watch` | Leaves out the tab a docker sandbox's panes get in the run's workspace ([Sandboxes](/guide/sandboxes)). |
 
-When an agent runs in a pane, `awf run` prints once, as the first one opens, a line starting
+When a run has TUI agents, `awf run` prints once, as the first one opens, a line starting
 `agents` with the Herdr session the agents are in and the `herdr session attach` command that
 shows them. Run it in another terminal to watch the agents work, or to type into one.
 [Harnesses](/guide/harnesses) covers panes.

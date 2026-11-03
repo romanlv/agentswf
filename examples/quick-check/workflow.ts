@@ -10,7 +10,7 @@ import { outputSchema } from "../output-schema";
 
 /**
  * A cheap model for each, so a check costs cents. Codex, pi and cursor run headless, and pi and
- * cursor in a pane as well; claude stays in a pane, because headless it is billed per token even on
+ * cursor in their TUI as well; claude stays in its TUI, because headless it is billed per token even on
  * a subscription.
  */
 export const RUNTIMES = {
@@ -20,10 +20,10 @@ export const RUNTIMES = {
     model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
     placement: "headless",
   },
-  "pi-pane": { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
+  "pi-tui": { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
   claude: { harness: "claude", model: "claude-sonnet-5-5" },
   cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
-  "cursor-pane": { harness: "cursor", model: "composer-2.5" },
+  "cursor-tui": { harness: "cursor", model: "composer-2.5" },
 } as const satisfies Record<string, ExecutionConfig>;
 
 type RuntimeName = keyof typeof RUNTIMES;
@@ -33,7 +33,7 @@ const ANSWER_SCHEMA = outputSchema(
 );
 /**
  * The follow-up names no number, so only an agent that kept the first question's context can get it
- * right: a headless agent's resumed session, or a pane agent's same pane.
+ * right: a headless agent's resumed session, or a TUI agent's same pane.
  */
 const QUESTIONS = [
   {

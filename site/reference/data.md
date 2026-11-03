@@ -195,7 +195,7 @@ earlier one.
 | `artifacts` | the run's folder |
 | `sandboxes` | each sandbox the run opened, with its spec, provider and the agents in it |
 | `skills` | the skills each agent was given, with their source, commit and digest |
-| `panes` | where each pane agent's pane went in Herdr |
+| `panes` | where each TUI agent's pane went in Herdr |
 | `decisions` | every decision asked |
 
 A run that failed or was cancelled once its agents started keeps an `output.json` too, with what

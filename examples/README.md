@@ -11,7 +11,7 @@ From the repository's root, after `bun install`:
 
 ```sh
 bun awf run examples/messaging/workflow.ts                  # a workflow, with its defaults
-bun awf run examples/messaging/workflow.ts -- claude-pane   # its own arguments go after --
+bun awf run examples/messaging/workflow.ts -- claude-tui   # its own arguments go after --
 bun awf logs                                                # what the newest run did
 ```
 
@@ -35,7 +35,7 @@ write one.
 
 | Example | What it shows | Explained in |
 | --- | --- | --- |
-| `messaging/` | an implementer writes `slugify()`; a reviewer that knows a house style runs it, asks for each fix by message and checks again; `-- codex` (the default), `pi`, `claude` or `claude-pane` | [Review loop](../site/patterns/review-loop.md), [Messaging](../site/guide/messaging.md) |
+| `messaging/` | an implementer writes `slugify()`; a reviewer that knows a house style runs it, asks for each fix by message and checks again; `-- codex` (the default), `pi`, `claude` or `claude-tui` | [Review loop](../site/patterns/review-loop.md), [Messaging](../site/guide/messaging.md) |
 | `feature-delivery/` | a ticket from plan to approved change, each step a stage: `-- {ticket}`, `--revisions {n}`, `--reviewer {name}={runtime}`; give it a `--run-root` outside the repository | [Plan, implement, review](../site/patterns/plan-implement.md) |
 | `event-sketches/` | a run per merge request (`mr-review.ts`) and per Datadog case (`dd-case.ts`), each with the poller that sends it events; type-checked sketches, not runnable | [Review on event](../site/patterns/review-on-event.md), [Events](../site/guide/events.md) |
 

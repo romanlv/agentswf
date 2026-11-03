@@ -7,13 +7,13 @@ exists, the code is right, then this page.
 ## What runs today
 
 - `awf run {workflow.ts}` loads a trusted local workflow and runs it. Each agent's placement is set
-  in the workflow: a pane agent gets a tab in the run's Herdr workspace by default, and a headless agent
+  in the workflow, `tui` by default or `headless` (`pane` until 0.1.0-beta.5): a TUI agent gets a tab in the run's Herdr workspace by default, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude, codex and pi run in
-  panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
-  as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in a headless Herdr session of
+  their TUI (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
+  as `claude -p` bills per token even on a subscription login. A TUI agent keeps its pane for all its turns (ADR 0008). TUI agents open in a headless Herdr session of
   their own, `awf` (`AWF_HERDR_SESSION` names another), which awf starts when down from a minimal
   environment and a quiet config, not in the operator's (story 024); `--cwd` sets the directory the workflow works in. A workflow
-  may place each pane agent's pane with `layout`, in a tab of the run's workspace, a named one, a
+  may place each TUI agent's pane with `layout`, in a tab of the run's workspace, a named one, a
   named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
   the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
   other pane closes when its agent does, at the run's end or earlier with `agents.stop`, and a later run closes what a killed run left, in any session.
@@ -33,7 +33,7 @@ exists, the code is right, then this page.
   one event `--full`, and `--json`.
 - Each agent answers through `wfa result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema. Quiet agents receive
-  recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
+  recovery prompts; supported Claude TUI agents can declare waiting and take repeated check-ins within
   the same deadline.
 - A run has no deadline unless `awf run --timeout` gives it one; deadlines a workflow sets on an
   operation, stage or `parallel`, and turn liveness, bound the rest. Waiting on a coordinator's
@@ -55,8 +55,8 @@ exists, the code is right, then this page.
   test, `package.json`, `tsconfig.json`, `.gitignore` and `AGENTS.md`, never overwriting, then
   `bun install` for editor types.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
-  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in a
-  pane, and headless all but cursor, which refuses.
+  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in its
+  TUI, and headless all but cursor, which refuses.
   `examples/compaction` checks each live.
 - `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
   in a tab of its own, which drives that session as an agent through `agents.caller` and hands it
@@ -81,7 +81,7 @@ exists, the code is right, then this page.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
 - Agents message each other on routes a workflow grants with `wf.messages.allow` (story
   029): `wfa peers`, `wfa send` and `wfa reply`, and `wfa send --await-reply` to ask and wait, where M2
-  measured it: claude headless and in a pane that confirms delivery, headless codex and pi. A
+  measured it: claude headless and in a TUI that confirms delivery, headless codex and pi. A
   message reaches an agent between turns; one for an idle agent starts a message operation, whose
   `cause` is in `wf.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
   messages, waits and queues, and a workflow's tests script them for free.
@@ -95,7 +95,7 @@ exists, the code is right, then this page.
   035): `wfa tool {name}`, with flags for a simple input and JSON for any other, and the handler's
   answer printed back. Each call's budget is 30 s by default, its own, or none; calls settle before
   their turn ends, and `awf logs` shows each on one line. A simple result schema is taught as flags
-  on `wfa result` too. Live on codex, cursor and pi, headless and in panes, and claude in a pane.
+  on `wfa result` too. Live on codex, cursor and pi, headless and in their TUI, and claude in its TUI.
 - `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
   live on 2026-10-10, all five stages on a small ticket in a scratch repo, and a continue from
   `additional-review` reused the four before it. Its reviewers now own the revisions, asking the
@@ -121,12 +121,12 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [001 — minimum multi-agent review](stories/001-multi-agent-review.md): done, approved
   2026-09-24 after its live acceptance was re-run on current code.
 - [002 — cost and time accounting](stories/002-cost-and-time-accounting.md): done, approved
-  2026-09-24. It also added per-agent placement (pane or headless) and multi-turn headless
+  2026-09-24. It also added per-agent placement (TUI or headless) and multi-turn headless
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
 - [003 — failed-run accounting](stories/003-failed-run-accounting.md): done, approved
   2026-09-24. It also added `bun run eval` and moved the agents' launcher under `/tmp`.
 - [004 — sandboxed agents](stories/004-sandboxed-agents.md): done, approved 2026-09-26. A workflow
-  opens sandboxes and agents inside them, private or shared, headless or in panes, under srt or
+  opens sandboxes and agents inside them, private or shared, headless or in their TUI, under srt or
   docker
   ([findings](findings/sandbox-providers.md)). Credential rotation (X13) waits on the operator.
 - [005 — review fixtures](stories/005-review-fixtures.md): done, approved 2026-09-26. Tests with
@@ -191,17 +191,17 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)); its eval passes on claude, codex, pi
   and cursor.
 - [015 — native compaction](stories/015-native-compaction.md): done, approved 2026-10-01.
-  `agent.compact` runs each harness's own compaction with the workflow's focus, and a pane agent
+  `agent.compact` runs each harness's own compaction with the workflow's focus, and a TUI agent
   takes more than one operation, so one agent can carry a long task as an operator does with
   `/compact`. Measured on every harness
-  ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi panes
+  ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi TUI agents
   included. `compact({ prompt })` takes `run`'s id and deadline defaults (ADR 0007, amended).
 - [016 — fork](stories/016-fork.md): done, approved 2026-10-04 (ADR 0009).
   `agent.fork({ key })` opens a new agent on a copy of an agent's session, made with no model
-  call: claude, codex and pi in a pane or headless, into either, in a sandbox too, and cursor
-  headless (in a pane too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
+  call: claude, codex and pi in their TUI or headless, into either, in a sandbox too, and cursor
+  headless (in its TUI too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
   key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
-  session's total. A claude pane's prompt of several lines is pasted whole, after a short line
+  session's total. A claude TUI agent's prompt of several lines is pasted whole, after a short line
   typed before it: claude shows a paste alone as pasted text, and sonnet declined about one in
   eight such prompts (claude 2.1.296); typed in full, a long prompt lost its start.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
@@ -211,7 +211,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `design/runs-and-stages.md`, and ADR 0011 amends §10's plan.
 - [019 — cursor as a full harness](stories/019-cursor-harness.md): done, approved 2026-10-05. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
-  ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
+  ([adding a harness](adding-a-harness.md)). cursor runs in its TUI, compacts there, forks into
   either placement, records its tokens headless, and runs in srt and docker sandboxes with
   `CURSOR_API_KEY` and skills, live on 2026-10-04. srt reads macOS's `xcrun` cache, so git in a
   sandbox takes 0.1 s rather than 1.2 s, and a sandboxed pane waits until its harness has drawn.
@@ -255,7 +255,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
 - [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
-  awaiting human review. Live on every harness, headless and in panes, claude in a pane only.
+  awaiting human review. Live on every harness, headless and in their TUI, claude in its TUI only.
 - [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): tasks 1–2 built,
   task 3's code and a live check done; the watcher's case run in Slack waits for the operator.
   `keepAlive: { timeoutMs?, onTimeout? }` on an agent of a workflow with events keeps the run live

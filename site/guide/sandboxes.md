@@ -62,7 +62,7 @@ says which it was written for. A provider that isn't installed, or can't be set 
 sandbox with the reason; awf never moves it to the other. What each needs on your machine is in
 [Install](/guide/install#sandboxes).
 
-Panes work under both. An srt agent's pane opens in the run's Herdr as usual. A docker sandbox runs
+TUI agents work under both. An srt agent's pane opens in the run's Herdr as usual. A docker sandbox runs
 its own Herdr inside the container. The run adds a tab to its workspace showing that Herdr's panes,
 and prints the command that opens them; `awf run --no-watch` leaves the tab out, and the command
 still works. Either way, a sandboxed agent can't take `layout` or `keepPane`, which place a pane in
@@ -138,7 +138,7 @@ resolved, every domain reachable in the end, and each agent it held.
 
 - [Sandboxes in the workflow API](/reference/workflow-api#sandboxes)
 - [Install: sandboxes](/guide/install#sandboxes)
-- [Harnesses](/guide/harnesses), for panes and headless agents
+- [Harnesses](/guide/harnesses), for TUI and headless agents
 - [`examples/sandboxes`](https://github.com/romanlv/agentswf/tree/main/examples/sandboxes): a team of
   agents in one docker container, then a reader alone under srt, each reporting what its commands
   could do

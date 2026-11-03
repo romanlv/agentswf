@@ -17,7 +17,7 @@ import { assertLiveOptIn, interruption } from "./live";
 const COMPACTION = join(import.meta.dir, "../examples/compaction/workflow.ts");
 
 /** Where the harness shows its summary, it must carry the focus too. */
-const SHOWS_SUMMARY = new Set(["claude", "claude-headless", "pi", "pi-pane"]);
+const SHOWS_SUMMARY = new Set(["claude", "claude-headless", "pi", "pi-tui"]);
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
   if (exitCode !== 0 || record?.outcome !== "completed") {

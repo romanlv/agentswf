@@ -9,7 +9,7 @@ outline: [2, 3]
 Every call a workflow can make today, its options, defaults and refusals. A workflow imports them
 from `agentswf/workflow`. This page specifies; the guide teaches. Start at
 [How it works](/guide/how-it-works) for the words (workflow, run, agent, turn, outcome, harness,
-pane, stage, nudge), and follow each section's link to the guide page that explains the idea.
+TUI, stage, nudge), and follow each section's link to the guide page that explains the idea.
 
 The types, with every field documented, are in
 [`packages/contract/src/workflow`](https://github.com/romanlv/agentswf/tree/main/packages/contract/src/workflow),
@@ -191,11 +191,11 @@ The `runtime` fields:
 | `harness` | `"claude"`, `"codex"`, `"pi"` or `"cursor"`. |
 | `model` | The harness's own model name. |
 | `effort` | In the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, the harness uses its default. |
-| `placement` | `"pane"`, the default, a terminal pane in [Herdr](https://herdr.dev) you can watch and type into; or `"headless"`, a process per turn. |
+| `placement` | `"tui"`, the default: the harness's own TUI, kept between turns, in a terminal pane in [Herdr](https://herdr.dev) you can watch and type into; or `"headless"`, a process per turn. |
 | `metered` | `true`: required for headless claude. [Subscription and metered](/guide/harnesses#subscription-and-metered) says why. |
 
 The aliases `awf run` installs are `claude` (claude, `sonnet`) and `codex` (codex,
-`gpt-5.6-sol`). Both open a pane unless `placement` says otherwise.
+`gpt-5.6-sol`). Both open in their TUI unless `placement` says otherwise.
 
 <a id="giving-it-work"></a>
 
@@ -269,7 +269,7 @@ what to drop; the next `run` goes on in the compacted session.
 - **`answered`** means it compacted. `value` is the summary from claude and pi, `""` from codex,
   which keeps it encrypted, and `""` from cursor.
 - **Any other outcome** leaves the context as it was, so going on is usually right.
-- **Where:** claude, codex and pi, in a pane or headless; cursor in a pane only. pi only
+- **Where:** claude, codex and pi, in their TUI or headless; cursor in its TUI only. pi only
   summarizes what is older than its last 20k tokens, so a short pi session fails "nothing to
   compact". The calling session refuses it.
 - It runs after the agent's earlier turns.
@@ -287,9 +287,9 @@ The session and its context stay.
   `id`, as for `run`.
 - **`answered`** means the switch is in force, and [`agent.execution`](#agent-execution) shows the
   new settings.
-- **It is refused** for an effort the harness doesn't list, for the calling session, and in a
-  cursor pane. Another harness or placement is another agent.
-- **A pane whose switch fails or times out is closed**, as after a failed turn.
+- **It is refused** for an effort the harness doesn't list, for the calling session, and on a
+  cursor TUI agent. Another harness or placement is another agent.
+- **A TUI agent whose switch fails or times out is closed**, as after a failed turn.
 - **Switching the model costs the cache**: the next turn reads the whole context at full price.
 
 <a id="forking-new-agents-that-start-from-what-one-knows"></a>
@@ -309,7 +309,7 @@ being told again, and reads that context from the provider's cache
   `tools` (`{}` for none). It never inherits `layout` or `keepPane`: without them it gets a tab of
   its own.
 - **It rejects** before the parent's first turn, once the parent is closed, and after a `set`
-  queued before it that didn't take. Every harness forks, in a pane or headless, sandboxed too.
+  queued before it that didn't take. Every harness forks, in its TUI or headless, sandboxed too.
 - **The same key** with the same parent and spec returns the same agent.
 
 ### agent.execution {#agent-execution}
@@ -320,7 +320,7 @@ was opened, then as the last answered `set` left them.
 
 ### Where panes go: layout and keepPane {#where-panes-go-layout-and-keeppane}
 
-Each pane agent gets a tab of its own in the run's Herdr workspace, closed once it is done. `layout`
+Each TUI agent gets a tab of its own in the run's Herdr workspace, closed once it is done. `layout`
 places it elsewhere as it opens, or at its first turn in a workflow with events
 ([Where panes go](/guide/harnesses#where-panes-go)):
 
@@ -386,7 +386,7 @@ result as its output. The guide: [Calling session](/guide/calling-session).
 - **The copy** holds the session up to the command that started the run; with `--here`, after the
   run's turns to it. The fork runs on the model the session last ran, with awf's launch flags and
   the operator's skills, not their settings or MCP servers.
-- **Under codex's default sandbox**, the run is inside it and pane agents can't reach Herdr. The
+- **Under codex's default sandbox**, the run is inside it and TUI agents can't reach Herdr. The
   [`awf-run` skill](https://github.com/romanlv/agentswf/tree/main/packages/engine/skills/awf-run)
   says how each harness waits on a long run.
 
@@ -562,8 +562,8 @@ code grants the route and reads typed results; what the agents say is between th
 - **A message arrives between turns**, never into a running one. An idle agent gets a turn of its
   own for it; a busy one gets it with its next turn. An agent that is asked a question can't give
   its result until it replies.
-- **`--await-reply`** works on headless claude, codex and pi, and on a claude pane that confirms
-  what it is sent. Elsewhere it is refused `unsupported`, a codex pane included, and the agent
+- **`--await-reply`** works on headless claude, codex and pi, and on a claude TUI agent that
+  confirms what it is sent. Elsewhere it is refused `unsupported`, a codex TUI agent included, and the agent
   sends without waiting.
 - **Recorded:** `wf.usage()` marks each operation a message started, and `awf run`, `awf logs`
   and `awf runs` show the messages.
@@ -684,7 +684,7 @@ The fields `defineWorkflow` adds:
   stage) and nothing to take ends the attempt `parked`, and the process exits. Code running beside
   the wait, outside any awf call, is cut off. The next event the wait takes, or `awf tick` once
   its time is due, continues the run from the top.
-- **Agents on a wake** reopen on their kept sessions, without their instructions again, and a pane
+- **Agents on a wake** reopen on their kept sessions, without their instructions again, and a TUI
   agent's pane opens at its first turn. Before that turn, in an attempt, it can't be forked or
   compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a sandbox,
   whose home is made anew, starts a new session, as one whose harness changed does.

@@ -304,7 +304,7 @@ export type SettledRun = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills; absent when no agent opened. */
   skills?: AgentSkillsRecord[];
-  /** Where each pane agent's pane went; absent when the run placed none. */
+  /** Where each TUI agent's pane went; absent when the run placed none. */
   panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked; absent when it asked none. */
   decisions?: SettledDecision[];
@@ -2044,7 +2044,7 @@ class WorkflowOwner {
   /**
    * The session the run was started from, under the key the workflow names: `null` when there is
    * none. It is found, not opened: its harness, directory and skills are the operator's, and it
-   * answers through a launcher by path as any pane agent does (ADR 0010).
+   * answers through a launcher by path as any TUI agent does (ADR 0010).
    */
   private caller(key: string): Promise<AgentRef | null> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
@@ -2690,7 +2690,7 @@ class WorkflowOwner {
       );
   }
 
-  /** Where each pane agent's pane went, as its host reported it, in the order opened. */
+  /** Where each TUI agent's pane went, as its host reported it, in the order opened. */
   panes(): AgentPaneRecord[] {
     return [...this.#agents].flatMap(([agent, entry]) => {
       const placed = entry.opening?.sessions.harness?.pane?.();
@@ -3432,7 +3432,7 @@ class LogicalAgent implements AgentRef {
       };
     }
     const next: AgentExecution = { ...this.#execution, ...change };
-    const pane = placementOf(next) === "pane";
+    const pane = placementOf(next) === "tui";
     let cancelled: string | undefined;
     // A pane's switch waits on its screen; a scope cancelled meanwhile closes the agent, as a
     // half-made switch leaves it at settings nobody knows. A headless one takes no time.
@@ -4700,23 +4700,28 @@ function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
 }
 
 /**
- * A pane is the default and is left unsaid, and `metered` is kept only where it means something,
+ * A TUI is the default and is left unsaid, and `metered` is kept only where it means something,
  * so the same agent always has one identity.
  */
 function storedPlacement(choice: PlacementChoice): PlacementChoice {
-  // A workflow is untyped JavaScript at run time; a misspelt placement must not become a pane.
-  if (
-    choice.placement !== undefined &&
-    choice.placement !== "pane" &&
-    choice.placement !== "headless"
-  ) {
-    throw new Error(
-      `unknown placement ${JSON.stringify(choice.placement)}; expected pane or headless`,
-    );
-  }
+  knownPlacement(choice);
   return placementOf(choice) === "headless"
     ? { placement: "headless", ...(choice.metered === true ? { metered: true as const } : {}) }
     : {};
+}
+
+/** A workflow is untyped JavaScript at run time; a misspelt placement must not become a TUI. */
+function knownPlacement(choice: PlacementChoice): void {
+  if (
+    choice.placement !== undefined &&
+    choice.placement !== "tui" &&
+    choice.placement !== "headless"
+  ) {
+    const renamed = (choice.placement as string) === "pane" ? ` ("pane" is now "tui")` : "";
+    throw new Error(
+      `unknown placement ${JSON.stringify(choice.placement)}; expected tui or headless${renamed}`,
+    );
+  }
 }
 
 /**
@@ -4757,6 +4762,7 @@ function constrainExistingExecution(
   if (selection.effort !== undefined && selection.effort !== existing.effort) {
     throw new Error("existing agent was opened at a different effort");
   }
+  knownPlacement(selection);
   const placed = placementOf(existing);
   if (
     (selection.placement !== undefined && placementOf(selection) !== placed) ||

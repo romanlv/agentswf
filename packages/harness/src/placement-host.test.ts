@@ -17,8 +17,8 @@ function side(placement: AgentPlacement, options: { closeError?: string } = {}) 
     pollMs: 1_000,
     stalledMs: 10_000,
     statusMs: 10_000,
-    read: async () => ({ records: [], open: placement === "pane" }),
-    billing: async () => (placement === "pane" ? "subscription" : "metered"),
+    read: async () => ({ records: [], open: placement === "tui" }),
+    billing: async () => (placement === "tui" ? "subscription" : "metered"),
   };
   const inner = createSingleSessionHostFactory(adapter, accounting);
   const factory: AgentRunHostFactory = {
@@ -50,10 +50,10 @@ const open = (host: AgentRunHost, key: string, placement?: AgentPlacement) =>
 
 describe("createPlacementHostFactory", () => {
   test("sends each agent to its placement's host, opening a side only when first needed", async () => {
-    const pane = side("pane");
+    const pane = side("tui");
     const headless = side("headless");
     const host = await createPlacementHostFactory({
-      pane: pane.factory,
+      tui: pane.factory,
       headless: headless.factory,
     }).openRun(spec);
     expect(pane.opened).toHaveLength(0);
@@ -83,12 +83,12 @@ describe("createPlacementHostFactory", () => {
   });
 
   test("the calling session goes to the caller's host, and a run without one refuses it", async () => {
-    const pane = side("pane");
+    const pane = side("tui");
     const headless = side("headless");
-    const caller = side("pane");
+    const caller = side("tui");
     const callerExecution = { harness: "fake", model: "", caller: true as const };
     const placed = createPlacementHostFactory({
-      pane: pane.factory,
+      tui: pane.factory,
       headless: headless.factory,
       caller: { ...caller.factory, caller: { harness: "fake", cwd: "/repo" } },
     });
@@ -106,7 +106,7 @@ describe("createPlacementHostFactory", () => {
     await host.close("done");
     expect(caller.closed).toEqual(["done"]);
 
-    const without = createPlacementHostFactory({ pane: pane.factory, headless: headless.factory });
+    const without = createPlacementHostFactory({ tui: pane.factory, headless: headless.factory });
     expect(without.caller).toBeUndefined();
     const run = await without.openRun(spec);
     await expect(
@@ -120,10 +120,10 @@ describe("createPlacementHostFactory", () => {
   });
 
   test("a run with only headless agents never opens the pane host", async () => {
-    const pane = side("pane");
+    const pane = side("tui");
     const headless = side("headless");
     const host = await createPlacementHostFactory({
-      pane: pane.factory,
+      tui: pane.factory,
       headless: headless.factory,
     }).openRun(spec);
     await open(host, "a", "headless");
@@ -138,7 +138,7 @@ describe("createPlacementHostFactory", () => {
     const paneReady = new Promise<void>((resolve) => {
       letPaneOpen = resolve;
     });
-    const pane = side("pane");
+    const pane = side("tui");
     let paneOpens = 0;
     const heldPane: AgentRunHostFactory = {
       async openRun(request) {
@@ -148,7 +148,7 @@ describe("createPlacementHostFactory", () => {
       },
     };
     const host = await createPlacementHostFactory({
-      pane: heldPane,
+      tui: heldPane,
       headless: headless.factory,
     }).openRun(spec);
     const agent = open(host, "a");
@@ -159,9 +159,9 @@ describe("createPlacementHostFactory", () => {
     expect(pane.closed).toEqual(["done"]);
     expect(host.inspect().state).toBe("closed");
 
-    // An all-headless run that has closed must not open a workspace for a late pane agent.
+    // An all-headless run that has closed must not open a workspace for a late TUI agent.
     const late = await createPlacementHostFactory({
-      pane: heldPane,
+      tui: heldPane,
       headless: headless.factory,
     }).openRun(spec);
     await open(late, "b", "headless");
@@ -171,10 +171,10 @@ describe("createPlacementHostFactory", () => {
   });
 
   test("a failed close is reported and can be retried", async () => {
-    const pane = side("pane", { closeError: "workspace stuck" });
+    const pane = side("tui", { closeError: "workspace stuck" });
     const headless = side("headless");
     const host = await createPlacementHostFactory({
-      pane: pane.factory,
+      tui: pane.factory,
       headless: headless.factory,
     }).openRun(spec);
     await open(host, "a");
@@ -193,9 +193,10 @@ describe("createPlacementHostFactory", () => {
         throw new Error("herdr is not running");
       },
     };
-    const host = await createPlacementHostFactory({ pane, headless: headless.factory }).openRun(
-      spec,
-    );
+    const host = await createPlacementHostFactory({
+      tui: pane,
+      headless: headless.factory,
+    }).openRun(spec);
     await expect(open(host, "a")).rejects.toThrow("herdr is not running");
     await open(host, "b", "headless");
     await host.close();
@@ -203,10 +204,10 @@ describe("createPlacementHostFactory", () => {
   });
 
   test("usage is read and billed by the side that ran the agent", async () => {
-    const pane = side("pane");
+    const pane = side("tui");
     const headless = side("headless");
     const accounting = createPlacementHostFactory({
-      pane: pane.factory,
+      tui: pane.factory,
       headless: headless.factory,
     }).accounting!;
     const inPane = { harness: "fake", model: "m" };

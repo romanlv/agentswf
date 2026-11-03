@@ -139,16 +139,16 @@ skill.
 - **One run drives a session at a time.** A second `--here` from a session a run is driving is
   refused.
 - **Under codex's default sandbox,** the session can't reach Herdr's socket, which `--here` and a
-  pane agent need. `awf` says so, with what to change: start codex with
+  TUI agent need. `awf` says so, with what to change: start codex with
   `-c sandbox_workspace_write.network_access=true`, or approve running `awf` outside its sandbox.
 - **A fork's run is inside the session's sandbox.** Without `--here`, `awf run` is the session's
-  child, so the run and its agents are in whatever sandbox the session is, and pane agents need it
+  child, so the run and its agents are in whatever sandbox the session is, and TUI agents need it
   to let them reach Herdr's socket. A `--here` run starts in its own Herdr tab, outside it.
 - **No pane goes beside the calling session.** Its pane is yours: a
   [`layout`](/guide/harnesses#where-panes-go) `beside` it falls back to a tab of its own.
   `{ workspace: "origin" }` puts a tab in the workspace you typed `awf run` in.
 - **A headless fork of a claude session is metered.** The fork runs on the session's harness, so
-  `placement: "headless"` on claude needs `metered: true`; in a pane it runs on your subscription.
+  `placement: "headless"` on claude needs `metered: true`; in its TUI it runs on your subscription.
   [Harnesses](/guide/harnesses#subscription-and-metered) says why.
 - **A killed run says nothing.** A run that ends, fails or stops tells the session; one whose
   process is killed doesn't, and the session sits waiting for a prompt. Type to it as usual.

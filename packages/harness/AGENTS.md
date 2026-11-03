@@ -1,8 +1,8 @@
 # @agentswf/harness
 
 Drive one coding agent through a configured session adapter, prompt it, know when it settled, read
-its raw outcome and what it cost. Herdr currently provides pane sessions and a direct subprocess
-provides headless sessions. A workflow chooses an agent's placement, `pane` or `headless`; which
+its raw outcome and what it cost. Herdr currently provides TUI sessions, each in a pane, and a direct subprocess
+provides headless sessions. A workflow chooses an agent's placement, `tui` or `headless`; which
 provider serves each placement is operator configuration and not part of the workflow interface.
 
 This package knows nothing about workflows, run directories, or how a value gets reported. It
@@ -21,9 +21,9 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `command.ts` | subprocess execution with a timeout and a capture cap, a sandboxed command as its own group with exactly its environment, and `withholding` for credentials an agent must not get |
 | `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup |
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
-| `placement-host.ts` | one run host over a pane host and a headless one, routing each agent and its accounting by placement |
+| `placement-host.ts` | one run host over a TUI host and a headless one, routing each agent and its accounting by placement |
 | `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
-| `adapters/claude-receipt.ts` | bounded native queue and model-receipt observation for measured Claude pane placements; provider details remain inside harness |
+| `adapters/claude-receipt.ts` | bounded native queue and model-receipt observation for measured Claude TUI placements; provider details remain inside harness |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
 | `adapters/direct-process.ts` | the headless run host: one subprocess per headless operation |

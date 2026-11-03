@@ -96,9 +96,9 @@ the calling session, where awf can't always tell its operator's interrupt from t
 stopping: there it isn't nudged unless you pass `nudge`
 ([The calling session](/guide/calling-session)).
 
-### In a claude pane
+### In a claude TUI
 
-A claude pane gets more room, because awf can see its prompts arrive. The engine waits 30 seconds
+A claude TUI agent gets more room, because awf can see its prompts arrive. The engine waits 30 seconds
 of quiet before nudging, and the nudge says:
 
 ```text

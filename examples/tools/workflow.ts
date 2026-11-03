@@ -10,10 +10,10 @@ import Type from "typebox";
 import { outputSchema } from "../output-schema";
 import { RUNTIMES as QUICK } from "../quick-check/workflow";
 
-/** quick-check's cheap models, and a codex pane: every harness in a pane, and all but claude headless. */
+/** quick-check's cheap models, and a codex TUI agent: every harness in its TUI, and all but claude headless. */
 export const RUNTIMES = {
   ...QUICK,
-  "codex-pane": { harness: "codex", model: "gpt-6-luna" },
+  "codex-tui": { harness: "codex", model: "gpt-6-luna" },
 } as const satisfies Record<string, ExecutionConfig>;
 
 type RuntimeName = keyof typeof RUNTIMES;

@@ -462,7 +462,7 @@ describe("createHeadlessAdapter", () => {
           occupant: place,
           execution: { harness: "claude", model: "m" },
         }),
-      ).rejects.toThrow("pane agents cannot run in a sandbox yet");
+      ).rejects.toThrow("tui agents cannot run in a sandbox yet");
     });
   });
 
@@ -1470,7 +1470,7 @@ describe("createHeadlessAdapter", () => {
     };
     const { placement: _placement, ...pane } = activation.execution;
     await expect(headless(run, {}, { ...activation, execution: pane })).rejects.toThrow(
-      "adapter runs headless agents, not pane",
+      "adapter runs headless agents, not tui",
     );
     const { metered: _metered, ...unmetered } = activation.execution;
     await expect(headless(run, {}, { ...activation, execution: unmetered })).rejects.toThrow(

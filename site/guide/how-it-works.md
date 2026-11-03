@@ -25,7 +25,7 @@ awf run check-readme.ts
 ```
 
 Every word on this page is in those lines: a **workflow** that `awf run` starts as a **run**, one
-**stage** named `review`, one **agent** on the claude **harness** in a **pane**, one **turn**, and
+**stage** named `review`, one **agent** on the claude **harness** in its **TUI**, one **turn**, and
 its **outcome**.
 
 ## The words
@@ -59,11 +59,11 @@ the value. [Outcomes](/reference/workflow-api#outcomes) says what each kind mean
 spelled out, `{ harness: "codex", model: "gpt-6-luna" }`, or by an alias: `"claude"` and `"codex"`
 are built in ([Harnesses](/guide/harnesses)).
 
-**Pane.** A terminal pane in [Herdr](https://herdr.dev), a terminal multiplexer, where an agent
-runs by default; you can watch it work and type into it. Each pane agent gets a tab in the run's
-Herdr workspace unless the workflow places it elsewhere. The other placement is `headless`: the
-harness runs as a plain process, one per turn, with nothing to watch
-([Where panes go](/guide/harnesses#where-panes-go)).
+**TUI.** How an agent runs by default: the harness's own terminal interface, kept between turns,
+in a pane of [Herdr](https://herdr.dev), a terminal multiplexer, where you can watch it work and
+type into it. Each TUI agent gets a tab in the run's Herdr workspace unless the workflow places it
+elsewhere. The other placement is `headless`: the harness runs as a plain process, one per turn,
+with nothing to watch ([Where panes go](/guide/harnesses#where-panes-go)).
 
 **Stage.** A named step the run records when it ends: `wf.stage(name, { result }, work)`. With
 `{ result }` it returns a value the record keeps. When an attempt stops part-way, `--continue`
@@ -82,8 +82,8 @@ types `wfa`; an agent does, in its own session. The operator's command is `awf`
 
 1. **Loads the workflow.** It imports the file, turns the command line after `--` into `args`
    with the workflow's `prepare`, and opens the run's folder.
-2. **Opens each agent in its harness** when the workflow calls `wf.agents.open`: in a pane, or
-   headless, working in `--cwd` (the current directory by default), with the instructions,
+2. **Opens each agent in its harness** when the workflow calls `wf.agents.open`: in its TUI in a
+   Herdr pane, or headless, working in `--cwd` (the current directory by default), with the instructions,
    skills and sandbox the workflow gave it.
 3. **Gives each agent its own socket.** awf opens a socket for that agent alone, and gives the
    agent a `wfa` command that answers over it. The prompt names the command by its full path.
@@ -147,7 +147,7 @@ The others:
 
 | Command | What the agent uses it for |
 | --- | --- |
-| `wfa waiting` | To say it is still on long work, such as a build, when it gets a nudge. Offered to claude panes today. |
+| `wfa waiting` | To say it is still on long work, such as a build, when it gets a nudge. Offered to claude TUI agents today. |
 | `wfa tool` | To call one of the workflow's [tools](/guide/tools), code of yours, mid-turn. |
 | `wfa peers` | To list who it may [message](/guide/messaging). |
 | `wfa send` | To message a peer, or ask one a question. |

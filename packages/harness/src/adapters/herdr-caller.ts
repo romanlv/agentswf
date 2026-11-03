@@ -139,7 +139,7 @@ export function interruptedAfter(screen: string, operationId: string, marker: st
 
 /**
  * The run host for the calling session: every turn prompted into its pane once it has settled, as a
- * pane agent's is (ADR 0008), and none of the pane's lifecycle. The pane is never opened, closed or
+ * TUI agent's is (ADR 0008), and none of the pane's lifecycle. The pane is never opened, closed or
  * compacted here, and the run's cleanup leaves it as it is (ADR 0010).
  */
 export function createCallerHostFactory(
@@ -150,7 +150,7 @@ export function createCallerHostFactory(
 ): AgentRunHostFactory {
   const { herdr } = createHerdrCommands(config, run);
   // Forked once the pane has settled, so the copy holds the turn that ended last, and run as its
-  // pane agents are: without the emptied variables.
+  // TUI agents are: without the emptied variables.
   const calling =
     found &&
     callingSession(
@@ -164,7 +164,7 @@ export function createCallerHostFactory(
     );
   const adapter = createSessionAdapter({
     harnesses: [caller.harness],
-    placement: "pane",
+    placement: "tui",
     async activate(request) {
       if (!request.execution.caller) throw new Error("this host drives only the calling session");
       const spec = harnessSpec(caller.harness);

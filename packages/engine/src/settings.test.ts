@@ -217,7 +217,7 @@ describe("set", () => {
     ]);
     expect(adapter.sets).toHaveLength(0);
     expect(unswitchable.value).toBe(
-      "agent fake: fake pane agents cannot switch model or effort yet",
+      "agent fake: fake tui agents cannot switch model or effort yet",
     );
   });
 

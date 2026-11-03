@@ -21,7 +21,7 @@ Five [stages](/guide/runs), one after the other:
 | `additional-review` | one per `--reviewer` | more reviewers at once; the implementer fixes what they ask, and the reviewer checks again |
 
 It needs claude and codex logged in, and Herdr, since the planner and the
-implementer run in panes; [Install](/guide/install) has both. From a clone of the repository,
+implementer run in their TUIs; [Install](/guide/install) has both. From a clone of the repository,
 after `bun install`, with `--cwd` at the repository the ticket is for:
 
 ```sh
@@ -73,7 +73,7 @@ covers a full run, each kind of stop, and continues.
 - **The reviewer owns the revisions.** It messages the author each change it needs and reviews the
   revision it gets back, up to `--revisions` of them: the [review loop](/patterns/review-loop),
   inside a stage, so its route ends with the stage. The reviewer runs headless because a codex
-  in a pane can't wait for a reply.
+  TUI agent can't wait for a reply.
 - **After approval, the author reports the work once more.** Code can't read the revisions that
   happened in messages, so the stage's value comes from one more author turn, after review.
 - **Every way of not finishing stops the run with a reason.** No answer, an inconclusive review,

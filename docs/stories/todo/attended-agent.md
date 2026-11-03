@@ -19,7 +19,7 @@ goes on. The other agents (about eight reviewers) stay out of sight as today.
 |              | fixer (attended)   |
 ```
 
-Placing it is built: story 026's `layout` puts a pane agent in the workspace `awf run` was typed
+Placing it is built: story 026's `layout` puts a TUI agent in the workspace `awf run` was typed
 in (`workspace: "origin"`), beside another pane, and `keepPane` keeps it after the run. What is
 missing is the agent being the operator's to talk to while the run drives it.
 

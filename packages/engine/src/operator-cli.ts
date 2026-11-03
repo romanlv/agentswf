@@ -505,7 +505,7 @@ async function runAttempt(
     await handOver(toldOf(end, kept));
     return close(end, kept, cleanupAlso);
   };
-  // Relied on: the session is told only from a pane agent's `openRun`, inside `startWorkflow`, by
+  // Relied on: the session is told only from a TUI agent's `openRun`, inside `startWorkflow`, by
   // when `placed` says it on the progress.
   let placed: (session: RunSession) => void = () => undefined;
   let installed: OperatorRuntimeInstallation;

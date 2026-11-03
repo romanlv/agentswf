@@ -26,7 +26,7 @@ test("an idle agent in its window shows live until its end, on its row and once 
   const until = new Date(2026, 9, 28, 15, 5).getTime();
   const agent = (liveUntil?: number): WorkflowRunSnapshot["agents"][number] => ({
     key: "investigator",
-    execution: { harness: "claude", model: "sonnet", placement: "pane" },
+    execution: { harness: "claude", model: "sonnet", placement: "tui" },
     state: "idle",
     observedAt: now,
     turns: 1,

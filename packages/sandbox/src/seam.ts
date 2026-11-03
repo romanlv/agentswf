@@ -72,7 +72,7 @@ export interface OpenedSandbox {
   /** What only the provider knows about how it runs this sandbox: the record's `provided`. */
   readonly record?: JsonObject;
   /**
-   * It hosts pane agents: each occupant's `pane()` gives one its terminal. A sandbox-level fact,
+   * It hosts TUI agents: each occupant's `pane()` gives one its terminal. A sandbox-level fact,
    * so a pane in one that does not is refused before the agent's channel opens.
    */
   readonly panes?: true;
@@ -94,11 +94,11 @@ export interface Occupant {
   launch(root: SandboxProcess): SandboxedCommand;
   /** Stops this agent's processes and its route to the door. Never the engine's channel. */
   release(): Promise<void>;
-  /** The terminal a pane agent runs in; present where the sandbox has `panes`. */
+  /** The terminal a TUI agent runs in; present where the sandbox has `panes`. */
   pane?(): Promise<PaneTerminal>;
 }
 
-/** Where a pane agent runs, and what is typed to start it there (story 004, "Panes"). */
+/** Where a TUI agent runs, and what is typed to start it there (story 004, "Panes"). */
 export type PaneTerminal = {
   herdr: PaneHerdr;
   /**

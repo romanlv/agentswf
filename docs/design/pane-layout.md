@@ -6,7 +6,7 @@ story: "[[026-pane-layout]]"
 
 # Pane layout
 
-Where a workflow's pane agents appear on screen, and whether a pane stays open after its agent is
+Where a workflow's TUI agents appear on screen, and whether a pane stays open after its agent is
 done. The workflow says it per agent, with two options: `layout` (a new tab, or beside another
 agent's pane) and `keepPane`.
 
@@ -15,7 +15,7 @@ keeping, sessions and workspaces, marks, and what stays out.
 
 ## Why
 
-Today every pane agent gets a tab of its own in its run's workspace, in the headless `awf` Herdr
+Today every TUI agent gets a tab of its own in its run's workspace, in the headless `awf` Herdr
 session, and the tab closes when the agent is done. That is readable but fixed:
 
 - An agent the operator wants to watch can't be put where the operator is looking.
@@ -49,7 +49,7 @@ session    the run session, `awf` (default), or one named: session: "work"
 A pane is placed once, when its agent opens: either in a **new tab**, or **beside the pane of an
 agent already open**, which it splits. Nothing names a pane that does not exist yet.
 
-"Placement" keeps its meaning, `pane | headless`. Layout is only about where a pane agent's pane
+"Placement" keeps its meaning, `tui | headless`. Layout is only about where a TUI agent's pane
 goes.
 
 ## The author API
@@ -131,10 +131,10 @@ mistaken for the keywords.
 
 ## When a pane is placed
 
-**At open, for every pane agent.** `agents.open` and `fork` place the agent's pane before they
+**At open, for every TUI agent.** `agents.open` and `fork` place the agent's pane before they
 resolve, and the pane holds a shell until the agent's first operation starts its harness there.
 Today a pane opens at the first operation; moving it to open is what makes a layout follow the
-workflow's code, and doing it for every pane agent, not only those with a `layout`, is what lets any
+workflow's code, and doing it for every TUI agent, not only those with a `layout`, is what lets any
 agent be a `beside` target from the moment it is open (Q3).
 
 In order:
@@ -329,7 +329,7 @@ puts the agent one tab over.
 withholds in `awf`, the metered credentials, `OPENROUTER_API_KEY` and the calling session's own, on
 every tab and split it makes there (measured: `--env FOO=` on a split empties `FOO`). The rest is
 what the operator's Herdr server was started with, as for an agent they start there themselves, and
-as for every pane agent before story 024. The `awf` session's allowlist is not lost here: it keeps
+as for every TUI agent before story 024. The `awf` session's allowlist is not lost here: it keeps
 one run's shell from reaching every later run through a server that outlives them, and the operator's
 session is not one awf shares between runs. It was never a boundary for an unsandboxed agent, which
 runs as the operator and can read what the operator can.
@@ -368,14 +368,14 @@ its start too. For each mark whose run is no longer running:
 
 ## Sandboxes
 
-A pane agent in a sandbox runs in the sandbox's own Herdr; the run's workspace only shows a tab
+A TUI agent in a sandbox runs in the sandbox's own Herdr; the run's workspace only shows a tab
 attached to it. Splitting across two Herdr servers is not possible, and placing the attached tab is
 not yet wanted, so `layout` and `keepPane` are refused on a sandboxed agent, and `beside` one falls
 back. Placing the attached tab is cheap to add later.
 
 ## What the run records
 
-`output.json` gains `panes`, one entry per pane agent: its layout and `keepPane` as written, and
+`output.json` gains `panes`, one entry per TUI agent: its layout and `keepPane` as written, and
 where it was placed: the session, the workspace (`run`, `origin`, or its name), its tab label or
 the key it went beside, a fallback's reason, and whether it was kept, or why a pane asked to be kept
 was closed instead. The run's closing lines name each fallback, each pane closed instead of kept,
@@ -398,7 +398,7 @@ Each waits for a workflow that needs it:
 - **Q1.** A kept pane keeps its harness running, rather than stopping it. *Decided 2026-10-06.*
 - **Q2.** Agents in `"origin"` see the operator's environment less the withheld variables, as an
   unsandboxed agent effectively does anywhere; see `"origin"`. *Decided 2026-10-06.*
-- **Q3.** Every pane agent's pane opens at `open`, so an agent not yet run shows an idle shell.
+- **Q3.** Every TUI agent's pane opens at `open`, so an agent not yet run shows an idle shell.
   *Decided 2026-10-06.*
 - **Q4.** A workflow may name a Herdr session and a workspace, optionally; where it can't be used,
   the agent falls back. *Decided 2026-10-06.*

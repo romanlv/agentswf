@@ -75,12 +75,12 @@ export type OperatorRuntimeOptions = {
   shellCwd?: string;
   /** The operator's home. */
   home?: string;
-  /** Told once, when the first pane agent's session is ready. */
+  /** Told once, when the first TUI agent's session is ready. */
   onRunSession?: (session: RunSession) => void;
 };
 
 /**
- * One run host for every agent: a Herdr tab for a pane agent, a subprocess per turn for a
+ * One run host for every agent: a Herdr tab for a TUI agent, a subprocess per turn for a
  * headless one. `WITHHELD_ENVIRONMENT` is cleared from both.
  */
 export async function installOperatorRuntime(
@@ -98,7 +98,7 @@ export async function installOperatorRuntime(
   } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   refuseMeteredCredentials(environment);
-  // Checked now, before any stage spends anything; made ready only for the first pane agent.
+  // Checked now, before any stage spends anything; made ready only for the first TUI agent.
   const name = runSessionName(environment);
   const session = runSessionOnce(() => name, { run, environment, home }, onRunSession);
   const runConfig = (session: string): HerdrConfig => ({
@@ -119,9 +119,9 @@ export async function installOperatorRuntime(
   const host = loginChecked(
     unmetered,
     createPlacementHostFactory({
-      // The session is made ready when the first pane agent opens, so an all-headless run never
+      // The session is made ready when the first TUI agent opens, so an all-headless run never
       // calls Herdr.
-      pane: {
+      tui: {
         accounting: createSessionAccounting(unmetered),
         openRun: async (spec) => {
           const { name } = await session();

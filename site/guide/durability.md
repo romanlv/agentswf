@@ -104,7 +104,7 @@ stage.
 An attempt with no ending whose process is gone reads `interrupted` in `awf runs` and
 `awf logs`, and `awf logs` prints the command that goes on. The next attempt names each
 interrupted one and the Herdr workspace its panes were in, the one named
-`awf fix-issue 212 #1`. Those panes stay open until the next run that opens a pane agent, which
+`awf fix-issue 212 #1`. Those panes stay open until the next run that opens a TUI agent, which
 closes the workspaces of runs whose process is gone. The agents' turns up to the crash are in the
 run's event log; an interrupted attempt has no usage totals, since those are written when an
 attempt ends.

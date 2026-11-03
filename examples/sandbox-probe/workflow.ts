@@ -17,7 +17,7 @@ import { outputSchema } from "../output-schema";
  * nothing. The host writes each script; one tool call runs it, so the model only relays.
  */
 export const PROBES = {
-  // luna, codex's cheapest, declined the probe's commands headless and in a pane.
+  // luna, codex's cheapest, declined the probe's commands headless and in its TUI.
   coder: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
   tester: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   reviewer: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },

@@ -34,7 +34,7 @@ export const RUNTIMES = {
     },
     inventoryLines: 2_000,
   },
-  "pi-pane": {
+  "pi-tui": {
     execution: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
     inventoryLines: 2_000,
   },

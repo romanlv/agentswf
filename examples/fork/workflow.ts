@@ -9,10 +9,10 @@ import { outputSchema } from "../output-schema";
 
 /**
  * Each harness and placement that forks (story 016). A runtime named with `:compact` compacts its
- * worker before the fork, and one named with `>pane` or `>headless` forks into that placement
+ * worker before the fork, and one named with `>tui` or `>headless` forks into that placement
  * instead of its worker's; with `+sandbox` its worker runs in a private sandbox, its fork too. pi
  * summarizes only what is older than its last 20k tokens, so its worker skims an inventory before
- * compacting, as in `examples/compaction`. Cursor compacts in a pane only.
+ * compacting, as in `examples/compaction`. Cursor compacts in its TUI only.
  */
 export const RUNTIMES = {
   claude: { execution: { harness: "claude", model: "claude-sonnet-5-5" } },
@@ -36,7 +36,7 @@ export const RUNTIMES = {
     },
     inventoryLines: 2_000,
   },
-  "pi-pane": {
+  "pi-tui": {
     execution: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
     inventoryLines: 2_000,
   },
@@ -181,10 +181,10 @@ function caseName(item: ForkCase): string {
 function parseArgs(invocation: WorkflowInvocation): ForkArgs {
   const names = invocation.argv.length === 0 ? Object.keys(RUNTIMES) : invocation.argv;
   const cases = names.map((name): ForkCase => {
-    const match = /^([^:>+]+)(:compact)?(?:>(pane|headless))?(\+sandbox)?$/.exec(name);
+    const match = /^([^:>+]+)(:compact)?(?:>(tui|headless))?(\+sandbox)?$/.exec(name);
     if (!match || !Object.hasOwn(RUNTIMES, match[1]!)) {
       throw new Error(
-        `unknown case ${name}; expected a runtime, ${Object.keys(RUNTIMES).join(", ")}, with :compact, >pane or >headless, and +sandbox`,
+        `unknown case ${name}; expected a runtime, ${Object.keys(RUNTIMES).join(", ")}, with :compact, >tui or >headless, and +sandbox`,
       );
     }
     return {

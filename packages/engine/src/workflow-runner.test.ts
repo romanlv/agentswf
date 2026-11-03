@@ -477,7 +477,7 @@ describe("runWorkflow", () => {
     expect(fake.closed).toEqual(["reviewer"]);
   });
 
-  test("placement is the agent's: added to an alias, a pane left unsaid, and kept on reopening", async () => {
+  test("placement is the agent's: added to an alias, a TUI left unsaid, and kept on reopening", async () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     const workflow = workflowOf("placement", async (context) => {
       const open = (key: string, runtime: RuntimeSelection) =>
@@ -487,21 +487,23 @@ describe("runWorkflow", () => {
         );
       return [
         await open("a", { alias: "review", placement: "headless" }),
-        await open("b", { harness: "fake", model: "fake", placement: "pane", metered: true }),
+        await open("b", { harness: "fake", model: "fake", placement: "tui", metered: true }),
         await open("c", { harness: "fake", model: "fake", placement: "headless", metered: true }),
         await open("a", { alias: "review", placement: "headless" }),
         await open("a", "review"),
-        await open("a", { alias: "review", placement: "pane" }),
+        await open("a", { alias: "review", placement: "tui" }),
         await open("a", { alias: "review", metered: true }),
         await open("c", { harness: "fake", model: "fake", placement: "headless" }),
         await open("c", { harness: "fake", model: "fake" }),
-        await open("c", { harness: "fake", model: "fake", placement: "pane" }),
+        await open("c", { harness: "fake", model: "fake", placement: "tui" }),
         await open("d", { alias: "headlessAlias" }),
         await open("e", {
           harness: "fake",
           model: "fake",
           placement: "Headless" as AgentPlacement,
         }),
+        await open("f", { harness: "fake", model: "fake", placement: "pane" as AgentPlacement }),
+        await open("b", { harness: "fake", model: "fake", placement: "pane" as AgentPlacement }),
       ];
     });
 
@@ -529,7 +531,9 @@ describe("runWorkflow", () => {
       "opened",
       "Error: existing agent uses a different placement",
       "opened",
-      'Error: unknown placement "Headless"; expected pane or headless',
+      'Error: unknown placement "Headless"; expected tui or headless',
+      'Error: unknown placement "pane"; expected tui or headless ("pane" is now "tui")',
+      'Error: unknown placement "pane"; expected tui or headless ("pane" is now "tui")',
     ]);
     expect(adapter.activations.map((activation) => activation.execution)).toEqual([
       { harness: "fake", model: "fake", alias: "review", placement: "headless" },
@@ -2936,7 +2940,7 @@ describe("pane records", () => {
     ]);
   });
 
-  test("the run records where each pane agent's pane went, with its layout as written", async () => {
+  test("the run records where each TUI agent's pane went, with its layout as written", async () => {
     const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
       pane: () => ({
         session: "awf",

@@ -140,8 +140,8 @@ shifts an agent's scripted turns. [Testing](/guide/testing) covers the rest, and
 ## Catches
 
 - **Not every placement can wait for a reply.** `--await-reply` works on headless claude, codex
-  and pi, and on a claude pane, unless it is sandboxed without a run-local home
-  ([`wfa send`](/reference/wfa#send) has the detail). Anywhere else, such as a codex pane or cursor,
+  and pi, and on a claude TUI agent, unless it is sandboxed without a run-local home
+  ([`wfa send`](/reference/wfa#send) has the detail). Anywhere else, such as a codex TUI agent or cursor,
   the agent is refused and told to send without waiting and say where the answer should go, such as a
   file. That's why the sample opens its agents headless; [Harnesses](/guide/harnesses) covers
   placement.

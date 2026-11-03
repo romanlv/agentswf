@@ -27,10 +27,10 @@ export const RUNTIMES: Record<string, Pair> = {
   ...Object.fromEntries(
     Object.entries(HEADLESS).map(([name, execution]) => [name, { asker: execution, keeper: execution }]),
   ),
-  "claude-pane": { asker: pane(HEADLESS.claude), keeper: pane(HEADLESS.claude) },
-  "codex-pane": { asker: HEADLESS.codex, keeper: pane(HEADLESS.codex) },
-  "pi-pane": { asker: HEADLESS.pi, keeper: pane(HEADLESS.pi) },
-  "cursor-pane": { asker: HEADLESS.cursor, keeper: pane(HEADLESS.cursor) },
+  "claude-tui": { asker: pane(HEADLESS.claude), keeper: pane(HEADLESS.claude) },
+  "codex-tui": { asker: HEADLESS.codex, keeper: pane(HEADLESS.codex) },
+  "pi-tui": { asker: HEADLESS.pi, keeper: pane(HEADLESS.pi) },
+  "cursor-tui": { asker: HEADLESS.cursor, keeper: pane(HEADLESS.cursor) },
 };
 type RuntimeName = string;
 

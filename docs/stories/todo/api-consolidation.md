@@ -36,6 +36,15 @@ Candidates, worst first, from the [workflow API reference](https://agents.wf/ref
    `forkCaller`. Where a pane goes is the operator's choice; a flag or config may hold it.
    The word itself is unclear: `placement: "pane"` says where the agent is shown, not that it
    runs interactive in a terminal.
+   The word is done (2026-11-02, 0.1.0-beta.5): `placement: "tui" | "headless"`, `tui` staying
+   the default, and a workflow still saying `"pane"` is told the new name. The value
+   says what runs, the harness's own TUI, and nothing of Herdr, so tmux would still be `tui` and
+   ACP, having no TUI, one more way to be headless. Which multiplexer gives a `tui` agent its
+   terminal (Herdr, later tmux) is an operator setting, not the workflow's. "Pane" stays only
+   where it means a multiplexer's pane: `keepPane`, `layout`, `PanePlacement`. Rejected:
+   `terminal`, since a headless agent runs bash and reads as having one; `headed`, `interactive`.
+   Driving a TUI elsewhere than Herdr first needs awf to tell working from idle itself, which
+   Herdr's agent status does today ([[herdr-pane-settlement]]).
 6. **Model and effort are set in three places**: `open`'s runtime, `agent.set`, and
    `fork({ effort })`.
 7. **`testWorkflow`**: two signatures, and an options bag of about twenty fields, several for one

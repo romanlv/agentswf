@@ -158,7 +158,7 @@ describe("operator runtime", () => {
     const installed = await installOperatorRuntime(60_000, {
       home: HOME,
       run: subscriptionRunner(calls),
-      // Inside a Herdr pane, where a pane agent would look its session up.
+      // Inside a Herdr pane, where a TUI agent would look its session up.
       environment: { HERDR_SOCKET_PATH: "/h/herdr.sock" },
     });
     try {
@@ -280,7 +280,7 @@ describe("operator runtime", () => {
         { endpoint: "/private/engine.sock", operationId: "op-1" },
       );
       await turn.settled;
-      // A pane agent gets as far as its workspace, whose environment is where the key is emptied.
+      // A TUI agent gets as far as its workspace, whose environment is where the key is emptied.
       await host
         .openAgent({
           key: "pane",
@@ -470,7 +470,7 @@ describe("operator runtime", () => {
     expect(codexOnly.calls.filter((c) => c === "codex login status")).toHaveLength(1);
   });
 
-  test("the run session is made ready once for concurrent pane agents, and again after a failure", async () => {
+  test("the run session is made ready once for concurrent TUI agents, and again after a failure", async () => {
     const calls: ProcessInput[] = [];
     const authenticated = subscriptionRunner([]);
     let down = true;
@@ -618,7 +618,7 @@ describe("operator runtime", () => {
   test.each([
     [{ HERDR_SOCKET_PATH: "/h/herdr.sock" }, "awf"],
     [{ HERDR_SOCKET_PATH: "/h/herdr.sock", AWF_HERDR_SESSION: "wf-lab" }, "wf-lab"],
-  ])("pane agents open in the run session, not the caller's: %o", async (environment, session) => {
+  ])("TUI agents open in the run session, not the caller's: %o", async (environment, session) => {
     const calls: ProcessInput[] = [];
     const authenticated = subscriptionRunner([]);
     const run: RunProcess = async (input) => {
@@ -633,7 +633,7 @@ describe("operator runtime", () => {
     try {
       const deadline = { unixMilliseconds: Date.now() + 60_000 };
       const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
-      // The pane side opens with the first pane agent; this runner stops it after the workspace.
+      // The pane side opens with the first TUI agent; this runner stops it after the workspace.
       await host
         .openAgent({
           key: "pane",

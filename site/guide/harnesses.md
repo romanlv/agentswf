@@ -7,12 +7,12 @@ description: Picking each agent's harness, model and effort, which logins awf ru
 
 A harness is the coding agent CLI an agent runs in: claude (Claude Code), codex, pi or cursor. Each
 agent's `runtime` says which harness, which model, how hard it thinks, and whether it runs in a
-[pane or headless](/guide/how-it-works#the-words). One workflow can mix them, so a planner can
-think hard in a pane on your Claude plan while a cheap model lists files with nothing to watch.
+[TUI or headless](/guide/how-it-works#the-words). One workflow can mix them, so a planner can
+think hard in its TUI on your Claude plan while a cheap model lists files with nothing to watch.
 
 <<< @/../examples/site/guide/harnesses.ts#workflow
 
-The planner opens in a pane, the default, at claude's `high` effort, and its pane stays open if its
+The planner opens in its TUI, the default, at claude's `high` effort, and its pane stays open if its
 turn doesn't end `answered`. The lister runs codex headless. What each harness needs installed and
 logged in is on [Install](/guide/install#each-harness).
 
@@ -58,7 +58,7 @@ claude has no effort "ultra"; its levels are low, medium, high, xhigh, max
 Left out, awf passes none and the harness uses its own default. A listed level can still be one the
 model doesn't take: codex's levels cover all its models, and a model given one it lacks fails its
 turn. To change model or effort mid-session, see `set` in
-[Agents](/guide/agents#compact-switch-fork); a cursor pane can't switch.
+[Agents](/guide/agents#compact-switch-fork); a cursor TUI agent can't switch.
 
 ## Subscription and metered
 
@@ -91,7 +91,7 @@ login, so awf refuses a headless claude agent unless its runtime gives that cons
 
 <<< @/../examples/site/guide/harnesses.ts#unmetered
 
-To stay on your plan, run claude in a pane, the default. codex, pi and cursor need no such flag,
+To stay on your plan, run claude in its TUI, the default. codex, pi and cursor need no such flag,
 headless or not.
 
 ### What the record says
@@ -100,12 +100,12 @@ headless or not.
 
 | Harness | `subscription` | `metered` | `unknown` |
 | --- | --- | --- | --- |
-| claude | every pane | every headless agent | |
+| claude | every TUI agent | every headless agent | |
 | codex | every agent on OpenAI's models | | a provider other than OpenAI |
 | pi | the model's provider signed in with `/login` | the provider set up with an API key | neither could be told |
 | cursor | | | always: nothing cursor reports tells plan usage from on-demand usage |
 
-The login checks above are why a claude pane or a codex agent awf opens is never metered; a session
+The login checks above are why a claude TUI agent or a codex agent awf opens is never metered; a session
 you hand the run with `awf run --here` is read as it is logged in. The run's closing line gives one
 word for its agents, leaving the unknown ones out: `subscription`, `metered`, `mixed`, or `unknown`
 when none was known, then `billing known {n}/{m}` when some weren't.
@@ -115,7 +115,7 @@ cost, and what is left of each plan, are on [Cost](/guide/cost).
 
 ## Where panes go
 
-Each pane agent gets a tab of its own, named by its key, in the run's Herdr workspace, and the pane
+Each TUI agent gets a tab of its own, named by its key, in the run's Herdr workspace, and the pane
 closes once the agent is done. `layout` puts it elsewhere as it opens, and `keepPane` keeps it:
 
 <<< @/../examples/site/guide/harnesses.ts#layout
@@ -133,7 +133,7 @@ a tab of its own, and the run's closing lines say why. `layout` or `keepPane`, e
 or [sandboxed](/guide/sandboxes) agent rejects the open. Every option and rule is in
 [Where panes go](/reference/workflow-api#where-panes-go-layout-and-keeppane).
 
-awf starts Herdr headless, in a session named `awf`, and says where to look as the first pane
+awf starts Herdr headless, in a session named `awf`, and says where to look as the first TUI agent
 opens:
 
 ```sh
@@ -146,7 +146,7 @@ HERDR_DISABLE_SOUND=1 herdr session attach awf
   parameters, as your default in `~/.cursor/cli-config.json`, headless too. A bare cursor model id
   then runs at whichever variant was chosen last.
 - **pi's login is per provider**, so awf can't check it up front: [Install](/guide/install#each-harness).
-- **Nudges differ by harness**: a claude pane can say it is still on long work with
+- **Nudges differ by harness**: a claude TUI agent can say it is still on long work with
   `wfa waiting`. See [Nudges](/guide/timeouts#nudges).
 
 ## Next

@@ -84,7 +84,7 @@ The story's "What this reverses" says why each changed.
 
 ## Example
 
-A coder and a tester share a container; a reviewer gets a private reader; a lead works in a pane.
+A coder and a tester share a container; a reviewer gets a private reader; a lead works in its TUI.
 
 ```ts
 const headless = { placement: "headless" } as const;
@@ -105,7 +105,7 @@ const reviewer = await wf.agents.open({ key: "reviewer", runtime: codex, ...head
 
 // srt: the host's toolchain instead of an image. Only the environment key differs.
 const lint = await wf.sandboxes.open({ key: "lint", write: ["."], srt: {} });
-const lead = await wf.agents.open({ key: "lead", runtime: claude, placement: "pane", sandbox: lint });
+const lead = await wf.agents.open({ key: "lead", runtime: claude, placement: "tui", sandbox: lint });
 ```
 
 The types are `SandboxSpec`, `SandboxOpenSpec`, `SandboxRef` and `InlineSandboxSpec` in
@@ -255,13 +255,13 @@ sandboxes, or in a reader, must carry state through results and messages (open q
 
 **The session tool is not a door.** The Herdr socket is a control channel over every other pane;
 the study reads a denied private key through a neighbouring pane in one line. Under srt it lies
-under the denied `~`, so a pane agent cannot reach the run's Herdr. Under docker, panes are in a
+under the denied `~`, so a TUI agent cannot reach the run's Herdr. Under docker, panes are in a
 Herdr inside the box, which its agents may drive within the trust boundary, and which reaches
 nothing outside it.
 
 ### Panes
 
-A pane agent needs a terminal the operator can watch and Herdr can drive. Herdr detects an agent
+A TUI agent needs a terminal the operator can watch and Herdr can drive. Herdr detects an agent
 from the processes it can see, and `agent start` refuses a pane whose root process is not a shell
 (H1, H4). So a sandboxed harness is **typed, then adopted**: the pane's shell runs a prelude that
 execs a confined shell, the engine waits for a prompt only the confined shell can draw, types the
@@ -394,7 +394,7 @@ unit tests fix its profile or its `docker` arguments.
 
 ## Still to build
 
-Story 004 built the seam, the srt and docker providers, and pane agents in both. What is left, in
+Story 004 built the seam, the srt and docker providers, and TUI agents in both. What is left, in
 order of need:
 
 - **Credential rotation (X13):** whether a copy's refresh logs the operator out, and whether two
