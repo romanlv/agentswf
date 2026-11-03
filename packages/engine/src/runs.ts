@@ -1,5 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -430,9 +440,10 @@ export async function replaceStale(
 /**
  * Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`, or, for a stage by
  * content replaced again in the same attempt, `{stage}.{attempt}+{n}.json` from 2: no name has a
- * `+`, so neither reads as another stage's.
+ * `+`, so neither reads as another stage's. `copy` leaves it in `stages/` for the new record to
+ * overwrite, so an attempt that dies between the two leaves the old one, not none.
  */
-export async function replaceRecord(runDir: string, stage: string): Promise<void> {
+export async function replaceRecord(runDir: string, stage: string, copy = false): Promise<void> {
   const file = join(stagesDir(runDir), `${stage}.json`);
   const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
   const replaced = join(runDir, "replaced");
@@ -441,7 +452,7 @@ export async function replaceRecord(runDir: string, stage: string): Promise<void
   for (let n = 2; await exists(target); n++) {
     target = join(replaced, `${stage}.${record.attempt}+${n}.json`);
   }
-  await rename(file, target);
+  await (copy ? copyFile(file, target) : rename(file, target));
 }
 
 /** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */

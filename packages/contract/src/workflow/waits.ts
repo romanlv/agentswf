@@ -9,6 +9,8 @@ export type Duration = `${number}s` | `${number}m` | `${number}h` | `${number}d`
 
 const DURATION = /^(\d+(?:\.\d+)?)(s|m|h|d)$/;
 const UNIT_MILLISECONDS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+/** Far past any wait, and short enough that now and it is still a `Date`. */
+const LONGEST_DAYS = 100_000;
 
 /** A duration's length in milliseconds, rounded; throws, saying the grammar, for anything else. */
 export function durationMilliseconds(text: unknown): number {
@@ -19,7 +21,8 @@ export function durationMilliseconds(text: unknown): number {
     );
   const unit = matched[2] as keyof typeof UNIT_MILLISECONDS;
   const milliseconds = Math.round(Number(matched[1]) * UNIT_MILLISECONDS[unit]);
-  if (!Number.isSafeInteger(milliseconds)) throw new Error(`the duration ${text} is too long`);
+  if (milliseconds > LONGEST_DAYS * UNIT_MILLISECONDS.d)
+    throw new Error(`the duration ${text} is too long: at most ${LONGEST_DAYS}d`);
   return milliseconds;
 }
 

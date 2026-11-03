@@ -844,7 +844,7 @@ describe("messaging in progress", () => {
       paint: PLAIN,
     });
     expect(lines.slice(1).map((line) => line.replace(/^ {4}\S /, "    ~ "))).toEqual([
-      "    ~ reviewer  gpt-6-sol  5m 00s  awaiting implementer · 4m 00s of 20m 00s",
+      "    ~ reviewer  gpt-6-sol  5m 00s  awaiting-reply from implementer · 4m 00s of 20m 00s",
       "    ~ fixer     gpt-6-sol  5m 00s  2 queued",
       // Listed as any agent is, with nothing of messaging.
       "    ~ idle      gpt-6-sol     10s",
@@ -888,7 +888,7 @@ describe("messaging in progress", () => {
       ],
     };
     expect(progressEvents(working, awaiting, { startedAt: 0, now: 60_000 })).toContain(
-      "[1:00] … reviewer · awaiting implementer · until 20:00",
+      "[1:00] … reviewer · awaiting-reply from implementer · until 20:00",
     );
   });
 });

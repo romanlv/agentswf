@@ -541,14 +541,9 @@ export class StageLedger {
       });
       // By content, a failed record this one replaces is kept, as a redone stage's is.
       const replacing = this.options.byContent && this.#records.has(name);
-      ended = (
-        replacing
-          ? replaceRecord(this.options.runDir, name).then(() => {
-              // Moved: a write that fails now leaves nothing in `stages/` to move again.
-              this.#records.delete(name);
-            })
-          : Promise.resolve()
-      )
+      // Copied, then overwritten: dying between the two leaves the old record, as dying while the
+      // stage runs does, never a redo's stage without one and stale records after it.
+      ended = (replacing ? replaceRecord(this.options.runDir, name, true) : Promise.resolve())
         .then(() => writeStageRecord(this.options.runDir, record))
         .then(
           () => {

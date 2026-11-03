@@ -50,7 +50,7 @@ export default defineWorkflow<
       await wf.messages.allow({
         between: [investigator, coordinator],
         purpose: "Report what you find; ask the coordinator what only it knows.",
-        timeoutMs: 5 * 60_000,
+        timeout: "5m",
       });
       const { outcome } = await investigator.run({
         prompt: [
@@ -59,7 +59,7 @@ export default defineWorkflow<
           "Then ask it for the codeword, waiting for its reply, and return the codeword it gives you. Do not guess it.",
         ].join(" "),
         schema: ANSWER,
-        timeoutMs,
+        timeout: `${timeoutMs / 1000}s`,
       });
       return outcome.answered
         ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }

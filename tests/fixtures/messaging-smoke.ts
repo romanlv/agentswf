@@ -71,7 +71,7 @@ export default defineWorkflow<{ runtimes: RuntimeName[] }, SmokeResult>({
       const { outcome } = await asker.run({
         prompt: `Another agent, keeper:${runtime}, keeps a codeword you need. Ask it for the codeword, waiting for its reply, then return the codeword it gives you. Do not guess it.`,
         schema: ANSWER,
-        timeoutMs: 5 * 60_000,
+        timeout: "5m",
       });
       return outcome.answered
         ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }

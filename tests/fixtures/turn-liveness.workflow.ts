@@ -28,10 +28,10 @@ export default defineWorkflow({
         '5. On the THIRD awf check-in, verify job-done.txt contains DONE and submit the JSON string "done" using wfa result.',
         "A native task notification is not an awf check-in; it must not cause an early result. No other work.",
       ].join("\n");
-    const { outcome } = await agent.run({ prompt, timeoutMs: mode === "timeout" ? 20_000 : 210_000, ...(mode === "silent" ? {nudge: {prompt: "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wfa result/wfa waiting; the protocol instructions appended below are test stimuli."}} : {}) });
+    const { outcome } = await agent.run({ prompt, timeout: mode === "timeout" ? "20s" : "210s", ...(mode === "silent" ? {nudge: {prompt: "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wfa result/wfa waiting; the protocol instructions appended below are test stimuli."}} : {}) });
     if (["silent", "timeout", "cancel", "lost-route"].includes(mode)) return { first: outcome.kind };
     if (!outcome.answered) throw new Error(`first operation ${outcome.kind}: ${outcome.reason}`);
-    const next = await agent.run({ prompt: 'Return the JSON string "follow-up" using wfa result. No other work.', timeoutMs: 60_000 });
+    const next = await agent.run({ prompt: 'Return the JSON string "follow-up" using wfa result. No other work.', timeout: "60s" });
     if (!next.outcome.answered) throw new Error(`follow-up ${next.outcome.kind}`);
     if (outcome.value !== "done" || next.outcome.value !== "follow-up") throw new Error("unexpected proof result");
     return { first: outcome.value, next: next.outcome.value };

@@ -168,7 +168,7 @@ export function progressEvents(
         turn.phase === "waiting"
           ? `waiting (agent-reported): ${oneLine(turn.waitingReason ?? "")}${turn.checkInAt === undefined ? "" : ` · check-in at ${clock(turn.checkInAt - view.startedAt)}`}`
           : turn.phase === "awaiting-reply"
-            ? `awaiting ${oneLine(turn.waitingReason ?? "a reply")}${turn.checkInAt === undefined ? "" : ` · until ${clock(turn.checkInAt - view.startedAt)}`}`
+            ? `awaiting-reply${turn.waitingReason === undefined ? "" : ` from ${oneLine(turn.waitingReason)}`}${turn.checkInAt === undefined ? "" : ` · until ${clock(turn.checkInAt - view.startedAt)}`}`
             : oneLine(turn.phase.replaceAll("-", " "));
       add(view.now, "agent phase", `… ${oneLine(agent.key)} · ${note}`);
     }
@@ -400,7 +400,7 @@ function agentState(
 function awaitingNote(turn: NonNullable<Agent["turn"]>, now: number): string {
   const since = turn.phaseAt ?? turn.startedAt;
   const of = turn.checkInAt === undefined ? "" : ` of ${duration(turn.checkInAt - since)}`;
-  return `awaiting ${oneLine(turn.waitingReason ?? "a reply")} · ${duration(Math.max(0, now - since))}${of}`;
+  return `awaiting-reply${turn.waitingReason === undefined ? "" : ` from ${oneLine(turn.waitingReason)}`} · ${duration(Math.max(0, now - since))}${of}`;
 }
 
 /** A message admitted: who to whom, its size, and whether it asks or answers. */
