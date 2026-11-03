@@ -1027,7 +1027,7 @@ export function createHerdrRunHostFactory(
                   ["agent", "read", agentName, "--source", "detection"],
                   config.commandTimeoutMs,
                 );
-                if ((!turn || !turn.accepted) && again.ok && heldInInput(again.stdout, untaken))
+                if (!turn?.accepted && again.ok && heldInInput(again.stdout, untaken))
                   return "its prompt is still unsent in its input";
               }
             }
