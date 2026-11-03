@@ -1,9 +1,11 @@
 import {
+  AgentEnded,
   type AgentRef,
   choice,
   defineWorkflow,
   type JsonObject,
   type OutputSchema,
+  ParticipantReply,
   score,
   tool,
   yesNo,
@@ -272,7 +274,11 @@ export const CLOSED: OutputSchema<Type.Static<typeof Closed>> = Closed;
 export const ddCase = defineWorkflow({
   meta: { name: "dd-case", description: "Investigate one Datadog case." },
   file: import.meta.path, // where senders find it, and its runs live
-  events: { "dd.changes": CHANGES, "dd.closed": CLOSED }, // a schema per name; no colon
+  events: {
+    "dd.changes": CHANGES, // a schema per name
+    "dd.closed": CLOSED,
+    "investigator:ended": AgentEnded, // awf's: the end of a turn start() began
+  },
   starts: ["dd.changes"], // the events that may start one; absent, any
   async run(wf) {
     const kase = openCase(wf.runId); // state lives in files, not variables
@@ -301,7 +307,7 @@ declare function nudge(): Promise<void>;
 export const waits = defineWorkflow({
   meta: { name: "workflow-api-waits", description: "The workflow API page's waits." },
   file: import.meta.path,
-  events: { "dd.closed": CLOSED },
+  events: { "dd.closed": CLOSED, "approver:reply": ParticipantReply },
   async run(wf) {
     const kase = openCase(wf.runId);
     // #region keepalive
@@ -318,7 +324,8 @@ export const waits = defineWorkflow({
     // #endregion keepalive
 
     // #region code-participant
-    const approvals = await wf.participants.connect({ key: "approver", to: "code" });
+    // Its messages reach the code: "approver:reply" is declared in events.
+    const approvals = await wf.participants.connect({ key: "approver" });
     // #endregion code-participant
 
     // #region race
@@ -328,14 +335,14 @@ export const waits = defineWorkflow({
       const next = await wf.race(
         `approval-${round}`,
         {
-          reply: approvals, // a participant routed to the code
+          reply: wf.signal("approver:reply"), // a participant's message to the code
           remind: "2d", // a timer of the race's own
           expiry, // a timer the code made, shared by every round
         },
         { label: "awaiting approval" },
       );
       if (next.expiry) return "expired";
-      if (next.reply && isApproval(next.reply.text)) break;
+      if (next.reply && isApproval(next.reply.data.text)) break;
       if (next.remind) await wf.stage(`remind-${round}`, () => approvals.post(REMINDER));
     }
     // #endregion race
@@ -346,15 +353,16 @@ export const waits = defineWorkflow({
     // #endregion sleep
 
     // #region select
-    for await (const next of wf.select({ reply: approvals, closed: wf.signal("dd.closed") })) {
+    const replies = wf.signal("approver:reply");
+    for await (const next of wf.select({ reply: replies, closed: wf.signal("dd.closed") })) {
       if (next.closed) return kase.close(next.closed.data).then(() => "closed");
-      if (next.reply) await investigator.run({ prompt: next.reply.text });
+      if (next.reply) await investigator.run({ prompt: next.reply.data.text });
     }
     // #endregion select
 
     // #region at
     for await (const next of wf.select({
-      reply: approvals,
+      reply: replies,
       nudge: wf.at(() => ledger.nextNudge()), // Date | null, from the ledger's file
     })) {
       if (next.nudge) await nudge(); // which puts ledger's nextNudge off, or clears it

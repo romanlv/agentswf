@@ -39,9 +39,8 @@ test.todo("a reply during a turn gets the next turn", async () => {
     events: [
       {
         during: "investigator#1",
-        name: "participant:reply",
-        from: "thread",
-        data: { text: "is it the unique index?" },
+        name: "thread:reply",
+        data: { text: "is it the unique index?", author: "engineer" },
       },
     ],
   });
@@ -54,23 +53,23 @@ async function refused(): Promise<void> {
   await testWorkflow(caseRun, { id: "x", event: { name: "dd.opened", data: { case: "x" } } });
   // @ts-expect-error A close needs its status, why and by.
   await testWorkflow(caseRun, { id: "x", event: { name: "dd.closed", data: { case: "x" } } });
-  // @ts-expect-error A reply comes from a participant: `from` is required.
+  // @ts-expect-error A reply comes from a participant the case run declares: lead is none.
   await testWorkflow(caseRun, {
     id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
-    events: [{ during: "investigator#1", name: "participant:reply", data: { text: "hi" } }],
+    events: [{ during: "investigator#1", name: "lead:reply", data: { text: "hi" } }],
   });
-  // @ts-expect-error awf writes agent:ended; a test doesn't script one.
+  // @ts-expect-error awf writes investigator:ended; a test doesn't script one.
   await testWorkflow(caseRun, {
     id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
-    events: [{ during: "investigator#1", name: "agent:ended", from: "investigator", data: {} }],
+    events: [{ during: "investigator#1", name: "investigator:ended", data: {} }],
   });
   // @ts-expect-error A reply's data is its text.
   await testWorkflow(caseRun, {
     id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
-    events: [{ during: "investigator#1", name: "participant:reply", from: "thread", data: {} }],
+    events: [{ during: "investigator#1", name: "thread:reply", data: {} }],
   });
 }
 void refused;

@@ -77,7 +77,10 @@ describe("review on event", () => {
       agents: { reviewer: noAnswer.failed(), "reviewer#2": approved },
       events: [{ during: "reviewer#1", ...pushed }],
     });
-    expect(run.logs.map((log) => log.message)).toEqual(["review failed"]);
+    // A key the code makes, reviewer#2, has no {key}:ended to declare: its start() is deprecated.
+    expect(
+      run.logs.map((log) => log.message).filter((m) => !m.startsWith("awf:")),
+    ).toEqual(["review failed"]);
     expect(run.turnsOf("reviewer#2")[0]?.prompt).toContain("bbb2222");
     expect(run.stages.map(({ stage }) => stage)).toEqual(["review-bbb2222"]);
   });

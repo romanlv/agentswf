@@ -87,6 +87,34 @@ export const DEPRECATIONS = {
   },
   "test-recorded": { old: "a test's recorded", instead: "give it as earlier: { stages }" },
   "test-mailbox": { old: "a test's mailbox", instead: "give it as earlier: { mailbox }" },
+  "to-code": {
+    old: 'to: "code"',
+    instead: (key: string) =>
+      `declare "${key}:reply": ParticipantReply in events and connect it without to: the code takes its messages as ${key}:reply`,
+  },
+  "undeclared-ended": {
+    old: "start() for an agent whose end isn't declared",
+    instead: (key: string) => {
+      const named = key.replaceAll(":", "-");
+      const declare = `declare "${named}:ended": AgentEnded in events: its end then arrives as ${named}:ended, not agent:ended`;
+      return key.includes(":")
+        ? `rename the key ${named}, which can name its end, and ${declare}`
+        : declare;
+    },
+  },
+  "participant-is": {
+    old: "is(e) on a participant",
+    instead: 'read e.name === "{key}:reply", declared in events',
+  },
+  "test-participant-reply": {
+    old: 'a scripted { name: "participant:reply", from } in a test',
+    instead: 'name the declared event, { name: "{key}:reply", data }',
+  },
+  "send-event-id": {
+    old: "awf send --event-id",
+    instead:
+      'use awf emit {run} {key}:reply \'{"text":…,"author":…}\' --event-id {id}, with {key}:reply declared in the workflow\'s events',
+  },
 } as const satisfies Record<
   string,
   { old: string; instead: string | ((subject: string) => string) }

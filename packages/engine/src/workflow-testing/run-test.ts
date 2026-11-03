@@ -12,6 +12,7 @@ import {
 } from "@agentswf/contract/records";
 import {
   AWF_ID_PREFIX,
+  awfEventOf,
   type Duration,
   type Ending,
   type EventSchemas,
@@ -31,7 +32,7 @@ import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { decideEnding, type Finished } from "../attempt-ending";
 import { continueCommand } from "../attempt-view";
 import { type Deprecated, RunDeprecations } from "../deprecations";
-import { checkEvent, eventIdProblem } from "../emit";
+import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
 import { appendMailbox, foldMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
@@ -387,9 +388,17 @@ export type ScriptedEvent<Events extends EventSchemas> = (
   EventIds &
   (
     | {
-        [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> };
-      }[keyof Events & string]
-    /** A reply on a participant routed to the code; awf fills its author and id when absent. */
+        [Name in Exclude<keyof Events & string, `${string}:ended`>]: {
+          name: Name;
+          data: OutputOf<Events[Name]>;
+        };
+      }[Exclude<keyof Events & string, `${string}:ended`>]
+    /**
+     * A reply on a participant routed to the code with `to: "code"`; awf fills its author and id
+     * when absent.
+     *
+     * @deprecated Declare `{key}:reply: ParticipantReply` and script `{ name: "{key}:reply", data }`.
+     */
     | { name: "participant:reply"; from: string; data: ParticipantReply }
   );
 
@@ -998,24 +1007,29 @@ class ScriptedEvents {
           `a scripted event's ${after ? "after" : "during"} is "{agent}#{n}", an agent's nth turn, not ${at}`,
         );
       const id = idOf(eventIdOf(event, deprecated), `${AWF_ID_PREFIX}test.${index + 1}`);
-      let sent: { from: string; data: JsonValue } = { from: "operator", data: event.data };
+      // A participant's reply is recorded as `awf emit` records one, whatever name it is sent by.
+      const stamped = new Date().toISOString();
+      let sent = {
+        id,
+        name: event.name,
+        data: event.data as JsonValue,
+        from: "operator",
+        at: stamped,
+      };
+      const reply = awfEventOf(event.name);
       if (event.name === "participant:reply") {
-        const reply = event as { from: string; data: ParticipantReply };
-        sent = { from: reply.from, data: { author: "engineer", ...reply.data } };
+        deprecated("test-participant-reply");
+        const old = event as { from: string; data: ParticipantReply };
+        sent = replyRecord(old.from, id, { author: "engineer", ...old.data }, stamped);
+      } else if (reply?.kind === "reply") {
+        checkEvent(workflow, event, true);
+        sent = replyRecord(reply.key, id, event.data, stamped);
       } else checkEvent(workflow, event);
       return {
         at,
         after,
         name: event.name,
-        record: {
-          version: MAILBOX_RECORD_VERSION,
-          at: new Date().toISOString(),
-          kind: "event",
-          id,
-          name: event.name,
-          data: sent.data,
-          from: sent.from,
-        },
+        record: { version: MAILBOX_RECORD_VERSION, kind: "event", ...sent },
       };
     });
   }

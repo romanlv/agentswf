@@ -27,12 +27,7 @@ test("a reply during the first turn gets a second, then the run parks", async ()
     files: { cases: { "checkout-timeouts": { "case.md": "# checkout\n" } } }, // laid out first
     agents: { investigator: answer("case.md updated") },
     events: [
-      {
-        during: "investigator#1",
-        name: "participant:reply",
-        from: "thread",
-        data: { text: "is it the index?" },
-      },
+      { during: "investigator#1", name: "thread:reply", data: { text: "is it the index?" } },
     ],
   });
   expect(run.ending).toMatchObject({

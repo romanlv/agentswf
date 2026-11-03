@@ -1,4 +1,4 @@
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+import { defineWorkflow, type OutputSchema, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
 
 export const investigate = defineWorkflow({
@@ -29,20 +29,21 @@ export const caseRun = defineWorkflow({
     description: "Investigate a case, and again on each reply in its thread.",
   },
   file: import.meta.path,
-  events: { "case.changed": CHANGED },
+  events: { "case.changed": CHANGED, "thread:reply": ParticipantReply },
   starts: ["case.changed"],
   async run(wf) {
     const started = wf.started;
     if (started?.name !== "case.changed") return wf.stop("started by hand: send case.changed");
     const name = started.data.case;
     const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
-    const thread = await wf.participants.connect({ key: "thread", to: "code" });
+    await wf.participants.connect({ key: "thread" }); // its messages are thread:reply
     await investigator.run({ prompt: `Investigate cases/${name}/case.md and update it.` });
     for await (const next of wf.select(
-      { reply: thread },
+      { reply: wf.signal("thread:reply") },
       { label: `waiting on the thread about ${name}` },
     )) {
-      if (next.reply) await investigator.run({ prompt: `The thread replied: ${next.reply.text}` });
+      if (next.reply)
+        await investigator.run({ prompt: `The thread replied: ${next.reply.data.text}` });
     }
     return null;
   },

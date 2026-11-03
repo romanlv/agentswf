@@ -1,4 +1,4 @@
-import { type Duration, defineWorkflow } from "agentswf/workflow";
+import { type Duration, defineWorkflow, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -23,13 +23,13 @@ export default defineWorkflow({
     description: "Waits for a doc's approval, reminding, until it expires.",
   },
   file: import.meta.path,
-  events: { "doc.submitted": Submitted },
+  events: { "doc.submitted": Submitted, "approvals:reply": ParticipantReply },
   starts: ["doc.submitted"],
   async run(wf) {
     const submitted = wf.started;
     if (submitted?.name !== "doc.submitted") return wf.stop("started by hand: send doc.submitted");
     const { doc, remindEvery, expiresIn } = submitted.data;
-    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    const approvals = await wf.participants.connect({ key: "approvals" });
     await wf.stage("ask", () => approvals.post(`Please approve ${doc}.`));
     const writer = await wf.agents.open({
       key: "writer",
@@ -39,13 +39,13 @@ export default defineWorkflow({
     for (let round = 1; ; round++) {
       const next = await wf.race(
         `approval-${round}`,
-        { reply: approvals, remind: remindEvery as Duration, expiry },
+        { reply: wf.signal("approvals:reply"), remind: remindEvery as Duration, expiry },
         { label: `awaiting approval of ${doc}, round ${round}` },
       );
       if (next.expiry) return { doc, ended: "expired", round, by: null };
       // A stand-in for reading an approval: a reply that starts "approved".
-      if (next.reply && /^approved\b/i.test(next.reply.text.trim()))
-        return { doc, ended: "approved", round, by: next.reply.author ?? null };
+      if (next.reply && /^approved\b/i.test(next.reply.data.text.trim()))
+        return { doc, ended: "approved", round, by: next.reply.data.author ?? null };
       if (next.remind)
         await wf.stage(`remind-${round}`, async () => {
           const drafted = await writer.run({

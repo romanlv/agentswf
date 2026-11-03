@@ -1,4 +1,8 @@
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+import {
+  AgentEnded,
+  defineWorkflow,
+  type OutputSchema,
+} from "agentswf/workflow";
 import Type from "typebox";
 
 // #region schemas
@@ -97,7 +101,11 @@ export const ciFixByRace = defineWorkflow({
     description: "One fix, cut short if the pull request closes first.",
   },
   file: import.meta.path,
-  events: { "ci.failed": FAILED, "pr.closed": CLOSED },
+  events: {
+    "ci.failed": FAILED,
+    "pr.closed": CLOSED,
+    "fixer:ended": AgentEnded,
+  },
   starts: ["ci.failed"],
   async run(wf) {
     const failed = wf.started;

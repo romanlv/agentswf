@@ -8,12 +8,13 @@ import type {
   OutputOf,
   OwnEvent,
   OwnEventOf,
+  OwnNames,
   ReceivedEvent,
 } from "./events";
 import type { Workflow } from "./executable";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
-import type { CodeParticipantDirectory } from "./participants";
+import type { ParticipantDirectory } from "./participants";
 import type { SandboxDirectory } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 import type {
@@ -93,8 +94,8 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   readonly sandboxes: SandboxDirectory;
   /** Closed questions to a decision model: probabilities back in a few hundred milliseconds. */
   readonly decisions: DecisionDirectory;
-  /** Participants outside the run; one routed to the code needs a workflow with `events`. */
-  readonly participants: CodeParticipantDirectory;
+  /** Participants outside the run; one whose messages go to the code is declared, `{key}:reply`. */
+  readonly participants: ParticipantDirectory;
   readonly messages: Messaging;
   parallel<Item, Result>(
     items: readonly Item[],
@@ -139,7 +140,7 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
    * none and the event is one that starts one, and is woken if it has one. A name `target`
    * doesn't declare, or data its schema refuses, throws; the run's state is the outcome.
    */
-  emit<Target extends EventSchemas, Name extends keyof Target & string>(
+  emit<Target extends EventSchemas, Name extends OwnNames<Target>>(
     target: Workflow<JsonValue, JsonValue, Target>,
     run: string,
     name: Name,
@@ -219,11 +220,16 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
    */
   after(duration: Duration): Date;
 
-  /** One of the workflow's declared events, as a source. */
-  signal<Name extends keyof Events & string>(name: Name): Signal<OwnEventOf<Events, Name>>;
+  /**
+   * One of the workflow's declared events, as a source: its own, or a participant's messages,
+   * `signal("thread:reply")`. An agent's end is waited on by naming the agent, not its `{key}:ended`.
+   */
+  signal<Name extends Exclude<keyof Events & string, `${string}:ended`>>(
+    name: Name,
+  ): Signal<OwnEventOf<Events, Name>>;
 
   /** The event that started the run; absent for a run started by hand. Typed by `events`, not `starts`. */
-  readonly started?: OwnEvent<Events>;
+  readonly started?: Extract<OwnEvent<Events>, { readonly name: OwnNames<Events> }>;
 }
 
 /** @deprecated Use `WorkflowContext<Events>`: every workflow has one context. */

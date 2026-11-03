@@ -32,7 +32,7 @@ import {
 import {
   type AbsoluteDeadline,
   type AgentEnded,
-  type AgentEndedEvent,
+  type AgentEndOf,
   type AgentExecution,
   type AgentForkSpec,
   type AgentKey,
@@ -41,9 +41,9 @@ import {
   type AgentRunStructuredSpec,
   type AgentRunTextSpec,
   type AgentStartSpec,
+  awfEventOf,
   type Branches,
   type CallerForkSpec,
-  type CodeParticipantDirectory,
   type CodeParticipantRef,
   type CompactionId,
   type CompactSpec,
@@ -52,6 +52,7 @@ import {
   type Duration,
   durationMilliseconds,
   type EmitOutcome,
+  type EventLike,
   type ForkRuntime,
   type HarnessAllowance,
   isEventWorkflow,
@@ -59,13 +60,13 @@ import {
   type JsonObject,
   type JsonValue,
   type KeepPane,
-  type Matched,
   type MessageAccess,
   type Next,
   nameProblem,
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
+  type ParticipantDirectory,
   type ParticipantRef,
   type ParticipantSpec,
   type PlacementChoice,
@@ -200,7 +201,17 @@ import {
 } from "./sandboxes";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { asSource, branchOf, branchValue, matches, source, takeOf } from "./sources";
+import {
+  asSource,
+  branchOf,
+  branchValue,
+  isSignal,
+  matches,
+  presented,
+  signalOf,
+  source,
+  takeOf,
+} from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { lastRedo } from "./stage-plan";
 import { FromStageUnreached } from "./stopped";
@@ -1119,7 +1130,7 @@ class WorkflowOwner {
       },
       participants: {
         connect: (async (spec: ParticipantSpec) =>
-          this.connectParticipant(spec)) as CodeParticipantDirectory["connect"],
+          this.connectParticipant(spec)) as ParticipantDirectory["connect"],
       },
       messages: { allow: async (access) => this.allowRoute(access) },
       emit: async (target, run, name, data, emitOptions) => {
@@ -1275,7 +1286,8 @@ class WorkflowOwner {
         if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
         this.#logical.get(event.from)?.endTaken(turn);
       }
-      return taken;
+      // The mailbox keeps awf's record names; the code is handed the names it declares.
+      return taken.map((event) => presented(event, this.options.declared));
     } finally {
       removeFromScope?.();
       this.#waiting = false;
@@ -1343,12 +1355,14 @@ class WorkflowOwner {
       owned.set(branch, timer.name);
       return [branch, { name: "timer:due", from: timer.name }] as const;
     });
-    let won: { branch: string; event: WorkflowEvent<string, JsonValue> } | undefined;
+    let branch: string | undefined;
+    let event: WorkflowEvent<string, JsonValue>;
     try {
-      await this.#holdingWait(scope, async (signal) => {
-        won = await mailbox.race(name, pairs, owned, label, signal);
+      [event] = (await this.#holdingWait(scope, async (signal) => {
+        const won = await mailbox.race(name, pairs, owned, label, signal);
+        branch = won.branch;
         return [won.event];
-      });
+      })) as [WorkflowEvent<string, JsonValue>];
     } catch (error) {
       // Cut short, not parked: its own timers would fire into a later wait. A park's rerun races again.
       if (!(error instanceof RunParked))
@@ -1357,8 +1371,9 @@ class WorkflowOwner {
         );
       throw error;
     }
-    const { branch, event } = won as { branch: string; event: WorkflowEvent<string, JsonValue> };
-    return { key: branch, [branch]: branchValue(event) } as Next<RaceBranches>;
+    const key = branch as string;
+    const whole = isSignal(given.find(([each]) => each === key)?.[1]);
+    return { key, [key]: branchValue(event, whole) } as Next<RaceBranches>;
   }
 
   /** A loop over the events `branches` take, one at a time. */
@@ -1398,7 +1413,8 @@ class WorkflowOwner {
       ]);
       const taken = event as WorkflowEvent<string, JsonValue>;
       const branch = branchOf(pairs, taken) as string;
-      return { key: branch, [branch]: branchValue(taken) } as Next<Branches>;
+      const whole = isSignal(given.find(([each]) => each === branch)?.[1]);
+      return { key: branch, [branch]: branchValue(taken, whole) } as Next<Branches>;
     };
     return {
       [Symbol.asyncIterator]: () => ({
@@ -1449,6 +1465,18 @@ class WorkflowOwner {
     return {
       begin: (turn, meta, execution) => mailbox.beginTurn(key, turn, meta, execution),
       end: (turn, meta, outcome) => mailbox.endTurn(key, { turn, meta, outcome }),
+      checkDeclared: () => {
+        const { declared, deprecations } = this.options;
+        if (declared.has(`${key}:ended`)) return;
+        // A workflow that declares an end has moved to declaring them; one written before can't have.
+        if ([...declared].some((name) => awfEventOf(name)?.kind === "ended"))
+          throw new Error(
+            key.includes(":")
+              ? `agent ${key}: start()'s end arrives as {key}:ended, which a key with a colon can't name: rename it ${key.replaceAll(":", "-")} and declare "${key.replaceAll(":", "-")}:ended": AgentEnded in events`
+              : `agent ${key}: start()'s end arrives as ${key}:ended, which the workflow declares in events, "${key}:ended": AgentEnded, as it does its other agents' ends`,
+          );
+        deprecations.used("undeclared-ended", key);
+      },
       // Read when the agent opens: a wait before then may have taken the end.
       restored: () => this.#restored.get(key),
     };
@@ -1578,17 +1606,32 @@ class WorkflowOwner {
     const to = (spec as { to?: unknown }).to;
     if (to !== undefined && to !== "code")
       throw new Error(`a participant's messages go to agents, or to: "code"; not ${String(to)}`);
-    if (to === "code" && !this.options.mailbox)
-      throw new Error(
-        "a participant routed to the code needs a workflow with events, whose waits take its replies",
-      );
+    const { declared, deprecations } = this.options;
+    const replies = declared.has(`${key}:reply`);
+    if (to === "code") {
+      if (!this.options.mailbox)
+        throw new Error(
+          "a participant routed to the code needs a workflow with events, whose waits take its replies",
+        );
+      // A workflow that declares a reply has moved to declaring them; one written before can't have.
+      if (!replies && [...declared].some((name) => awfEventOf(name)?.kind === "reply"))
+        throw new Error(
+          `participant ${key}: its messages reach the code when "${key}:reply": ParticipantReply is declared in events, as this workflow's other replies are; to: "code" is deprecated`,
+        );
+      deprecations.used("to-code", key);
+    }
     this.#messaging.connect(
       key,
       labels === undefined ? undefined : structuredClone(labels),
-      to === "code" ? "code" : undefined,
+      to === "code" || replies ? "code" : undefined,
     );
     const ref: ParticipantRef = {
       ...participantRef(key),
+      post: async (text: string) => {
+        if (typeof text !== "string" || text.trim() === "")
+          throw new Error("post takes the text to write");
+        await this.#messaging.post(key, text);
+      },
       release: async (reason) => {
         if (reason !== undefined && typeof reason !== "string")
           throw new Error("a release's reason is a string");
@@ -1596,16 +1639,16 @@ class WorkflowOwner {
       },
     };
     if (to === "code") {
-      const routed = source(
-        {
+      const take = { name: "participant:reply", from: key };
+      const routed = asSource(
+        Object.freeze({
           ...ref,
-          post: async (text: string) => {
-            if (typeof text !== "string" || text.trim() === "")
-              throw new Error("post takes the text to write");
-            await this.#messaging.post(key, text);
+          is: (event: { name: string; from: string }) => {
+            deprecations.used("participant-is");
+            return matches(event, take);
           },
-        },
-        { name: "participant:reply", from: key },
+        }),
+        take,
       ) as unknown as CodeParticipantRef;
       this.#outsideRefs.set(key, routed);
       return routed;
@@ -1853,7 +1896,9 @@ class WorkflowOwner {
       // A stage around a wait returns the batch it took, which its record doesn't hold.
       const batch =
         entered.value === undefined && !options
-          ? await this.options.mailbox?.batchOf(name)
+          ? (await this.options.mailbox?.batchOf(name))?.map((event) =>
+              presented(event, this.options.declared),
+            )
           : undefined;
       if (batch) {
         this.options.deprecations.used("stage-receive");
@@ -3046,6 +3091,7 @@ class LogicalAgent implements AgentRef {
         `agent ${this.key}: start() is for a workflow with events, at whose waits its end arrives; run() waits for the end here`,
       );
     if (this.#closed) throw new Error("logical agent is closed");
+    turns.checkDeclared();
     const inTool = refusedInTool(this.key, "start()");
     if (inTool) throw inTool;
     const scope = scopes.getStore();
@@ -3145,11 +3191,12 @@ class LogicalAgent implements AgentRef {
       );
   }
 
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
-    readonly name: string;
-    readonly from: string;
-  }): event is AgentEndedEvent<Meta, T> & Matched {
-    return event.name === "agent:ended" && event.from === this.key;
+  is<
+    Meta extends JsonValue = JsonValue,
+    T extends JsonValue = JsonValue,
+    E extends EventLike = EventLike,
+  >(event: E): event is E & AgentEndOf<E, Meta, T> {
+    return matches(event, { name: "agent:ended", from: this.key });
   }
 
   run(spec: AgentRunTextSpec): Promise<RunResult<string>>;
@@ -4381,9 +4428,7 @@ function sourceTake(what: string, branch: string, source: unknown): WaitTake {
     throw new Error(
       `${what}'s ${branch} is wf.at(), a select's: a race answers once, so it takes a timer, wf.timer(name, date)`,
     );
-  throw new Error(
-    `${what}'s ${branch} is not a source: a timer, a signal, a participant routed to the code, an agent, or a started turn`,
-  );
+  throw new Error(`${what}'s ${branch} is not a source: a timer, a signal, or an agent`);
 }
 
 /** The sources only a run of a workflow with events hears. */
@@ -4391,15 +4436,24 @@ const HEARD_WITH_EVENTS: ReadonlySet<string> = new Set(["agent:ended", "particip
 
 /** One of the workflow's own events, by name, as a source. */
 function signalSource(name: string, declared: ReadonlySet<string>): unknown {
-  if (typeof name !== "string" || name.includes(":"))
-    throw new Error(`a signal is one of the workflow's own events, by name; not ${String(name)}`);
+  if (typeof name !== "string")
+    throw new Error(
+      `a signal is one of the workflow's declared events, by name; not ${String(name)}`,
+    );
   if (!declared.has(name))
     throw new Error(
       declared.size === 0
         ? `signal ${name}: the workflow declares no events`
         : `signal ${name}: the workflow declares no such event; its events are ${[...declared].join(", ")}`,
     );
-  return source({ name }, { name });
+  const awf = awfEventOf(name);
+  if (awf?.kind === "ended")
+    throw new Error(
+      `signal ${name}: an agent's end is waited on by naming the agent, { done: ${awf.key} }, not a signal`,
+    );
+  // The mailbox keeps a reply under its record name, from the participant's key.
+  const take = awf ? { name: "participant:reply", from: awf.key } : { name };
+  return signalOf({ name }, take);
 }
 
 /** Timer `name`'s source. */
@@ -5060,6 +5114,8 @@ type LogicalAgentTurns = {
   begin(turn: TurnId, meta: JsonValue, execution: AgentExecution): Promise<void>;
   end(turn: TurnId, meta: JsonValue, outcome: TurnOutcome<JsonValue>): Promise<void>;
   restored(): RestoredTurn | undefined;
+  /** Throws, or logs the deprecation, unless the workflow declares this agent's `{key}:ended`. */
+  checkDeclared(): void;
 };
 
 /**

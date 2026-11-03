@@ -1,4 +1,5 @@
 usage: awf emit --target <file> --id <id> <event> [<json>] [--event-id <id>] [--json]
+       awf emit <run> <key>:reply '{"text": …, "author": …}' [--event-id <id>] [--cwd <directory>] [--run-root <directory>] [--json]
 
 Sends an event to the run of a workflow with events that --id names. That run starts if it has
 none and the event is one that starts one, and is woken if it has one: told while it runs,
@@ -6,8 +7,15 @@ continued when it is parked or crashed. The run lives in the project of <file>, 
 directory above it holding .awf/, whoever sends. --event-id names the occurrence: the same id
 again is a duplicate.
 
+The second form sends a participant's message to the code of a run that is there, <workflow>/<id>
+or an <id> only one workflow has, here or in a project awf knows: <key>:reply, which the workflow
+declares, checked against the file the run's last attempt ran. "author" is optional. Its
+--event-id is the message's own id, so a resend is a duplicate. It never starts a run, and may
+arrive before the run connects the participant: it waits for the run's next wait. The first form
+takes only the workflow's own events.
+
 Prints what became of the event, and what was done to the run: accepted, duplicate or refused.
---json prints one document. Exits 0 for any of the three; 1 when <file> could not be loaded, and
-nothing is kept, or when the run's attempt could not be started (the event is kept, and the next
-event or awf tick tries again); 2 on a usage error, for a workflow with no events, or when the
-event is wrong for its target: its name, its data, or its id.
+--json prints one document. Exits 0 for any of the three; 1 when <file> could not be loaded, or
+the run isn't found, and nothing is kept, or when the run's attempt could not be started (the
+event is kept, and the next event or awf tick tries again); 2 on a usage error, for a workflow
+with no events, or when the event is wrong for its target: its name, its data, or its id.

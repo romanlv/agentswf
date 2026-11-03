@@ -1,17 +1,27 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
 import {
+  AgentEnded,
   defineExecutableWorkflow,
   defineWorkflow,
   isAnswered,
   type JsonValue,
+  ParticipantReply,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { DEPRECATIONS, type Deprecated, deprecationLine } from "./deprecations";
 import { appendMailbox } from "./mailbox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun } from "./runs";
-import { answering, caseRun, createTempRunDirs, DOC, future, startCase } from "./testing";
+import {
+  answering,
+  caseEvents,
+  caseRun,
+  createTempRunDirs,
+  DOC,
+  future,
+  startCase,
+} from "./testing";
 import { runWorkflow } from "./workflow-runner";
 import {
   answer,
@@ -96,6 +106,7 @@ test("a turn in a race, a turn's is(), a stage around receive and start's id eac
     "call-id": 1,
     "turn-source": 1,
     "turn-is": 1,
+    "undeclared-ended": 1,
     isAnswered: 1,
   });
 });
@@ -103,21 +114,27 @@ test("a turn in a race, a turn's is(), a stage around receive and start's id eac
 test("the new forms log nothing, and a wait's label may be a function", async () => {
   const labels: string[] = [];
   const run = await testWorkflow(
-    caseRun(async (wf) => {
-      await wf.receive({ label: () => "first" });
-      const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
-      await fixer.start({ prompt: "Fix it." });
-      const won = await wf.race(
-        "fix",
-        { fixed: fixer },
-        {
-          label: () => {
-            labels.push("asked");
-            return "fixing";
+    defineWorkflow({
+      meta: { name: "dd-case", description: "A case." },
+      file: import.meta.path,
+      events: { ...caseEvents, "fixer:ended": AgentEnded },
+      starts: ["dd.changes"],
+      async run(wf) {
+        await wf.receive({ label: () => "first" });
+        const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
+        await fixer.start({ prompt: "Fix it." });
+        const won = await wf.race(
+          "fix",
+          { fixed: fixer },
+          {
+            label: () => {
+              labels.push("asked");
+              return "fixing";
+            },
           },
-        },
-      );
-      return won.fixed ? won.fixed.outcome.answered : false;
+        );
+        return won.fixed ? won.fixed.outcome.answered : false;
+      },
     }),
     { ...startCase, agents: { fixer: answer("fixed") } },
   );
@@ -328,7 +345,7 @@ test("a turn as a select's branch logs", async () => {
     { ...startCase, agents: { fixer: answer("fixed") } },
   );
   expect(run.value).toBe("fixed");
-  expect(said(run)).toEqual({ "turn-source": 1 });
+  expect(said(run)).toEqual({ "turn-source": 1, "undeclared-ended": 1 });
 });
 
 test("a stage around receive replayed by a continue logs, as each attempt logs its own", async () => {
@@ -365,6 +382,45 @@ test("a stage around receive replayed by a continue logs, as each attempt logs i
   // The first takes the batch at its wait; the continue reuses the stage, and its batch, unwaited.
   expect(await attempt(1)).toEqual({ value: 1, logs: [line] });
   expect(await attempt(2)).toEqual({ value: 1, logs: [line] });
+});
+
+test("a stage around receive hands back a declared reply under its name, taken and reused", async () => {
+  const workflow = defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events: { ...caseEvents, "thread:reply": ParticipantReply },
+    async run(wf) {
+      return (await wf.stage("first", () => wf.receive())).map((e) => `${e.name} ${e.from}`);
+    },
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  await appendMailbox(run.dir, {
+    version: MAILBOX_RECORD_VERSION,
+    at: new Date().toISOString(),
+    kind: "event",
+    id: "m1",
+    name: "participant:reply",
+    data: { text: "hi" },
+    from: "thread",
+  });
+  const attempt = async (n: number) =>
+    (
+      await runWorkflow(workflow, null, {
+        runRoot,
+        run: { dir: run.dir, id: "k", attempt: n },
+        runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
+        deadline: future(),
+      })
+    ).value;
+  expect(await attempt(1)).toEqual(["thread:reply thread"]);
+  expect(await attempt(2)).toEqual(["thread:reply thread"]);
 });
 
 test("testing's reply.…, run.stopped and run.parked work as before, each logged once", async () => {
@@ -473,6 +529,82 @@ test("a test's recorded and mailbox work as earlier's stages and mailbox, each l
   );
   expect(run.value).toEqual({ plan: { path: "old.md" }, taken: ["e-1"] });
   expect(said(run)).toEqual({ "test-recorded": 1, "test-mailbox": 1 });
+});
+
+test('to: "code", is(e) on it and a scripted participant:reply work as before, each logged once', async () => {
+  const run = await testWorkflow(
+    caseRun(async (wf) => {
+      const thread = await wf.participants.connect({ key: "thread", to: "code" });
+      const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+      await wf.receive();
+      await agent.run({ prompt: "One." });
+      const seen: string[] = [];
+      for (const e of await wf.receive()) if (thread.is(e)) seen.push(`${e.name} ${e.data.text}`);
+      const next = await wf.race("again", { reply: thread, quiet: "1d" });
+      return [...seen, next.reply?.text ?? "none"];
+    }),
+    {
+      ...startCase,
+      agents: { a: answer("ok") },
+      events: [
+        { during: "a#1", name: "participant:reply", from: "thread", data: { text: "hi" } },
+        { during: "a#1", name: "participant:reply", from: "thread", data: { text: "again" } },
+      ],
+    },
+  );
+  // Received as before, the first of a batch, then by a race on the participant.
+  expect(run.value).toEqual(["participant:reply hi", "participant:reply again", "none"]);
+  expect(said(run)).toEqual({ "to-code": 1, "participant-is": 1, "test-participant-reply": 1 });
+  expect(run.logs.map((log) => log.message)).toContain(
+    'awf: to: "code", thread, is deprecated; declare "thread:reply": ParticipantReply in events and connect it without to: the code takes its messages as thread:reply',
+  );
+});
+
+test('to: "code" beside a declared {key}:reply logs, and its replies arrive under that name', async () => {
+  const run = await testWorkflow(
+    defineWorkflow({
+      meta: { name: "dd-case", description: "A case." },
+      file: import.meta.path,
+      events: { ...caseEvents, "thread:reply": ParticipantReply },
+      starts: ["dd.changes"],
+      async run(wf) {
+        await wf.participants.connect({ key: "thread", to: "code" });
+        const agent = await wf.agents.open({ key: "a", runtime: "claude" });
+        await wf.receive();
+        await agent.run({ prompt: "One." });
+        return (await wf.receive()).map((e) => e.name);
+      },
+    }),
+    {
+      ...startCase,
+      agents: { a: answer("ok") },
+      events: [{ during: "a#1", name: "thread:reply", data: { text: "hi" } }],
+    },
+  );
+  expect(run.value).toEqual(["thread:reply"]);
+  expect(said(run)).toEqual({ "to-code": 1 });
+});
+
+test("start() for an agent whose end isn't declared, in a workflow that declares none, works as before, logged once per key", async () => {
+  const run = await testWorkflow(
+    caseRun(async (wf) => {
+      await wf.receive();
+      const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
+      await fixer.start({ prompt: "Fix it." });
+      const names: string[] = [];
+      for (;;)
+        for (const e of await wf.receive()) {
+          names.push(e.name);
+          if (fixer.is(e)) {
+            if (names.length > 1) return names;
+            await fixer.start({ prompt: "Again." });
+          }
+        }
+    }),
+    { ...startCase, agents: { fixer: answer("fixed") } },
+  );
+  expect(run.value).toEqual(["agent:ended", "agent:ended"]);
+  expect(said(run)).toEqual({ "undeclared-ended": 1 });
 });
 
 test("testing's new forms log nothing", async () => {

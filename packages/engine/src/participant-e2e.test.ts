@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InboxItemJson } from "@agentswf/contract/records";
+import { deprecationLine } from "./deprecations";
 import { emitCommand } from "./emit-command";
 import { foldMailbox, readMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
@@ -35,7 +36,7 @@ export default defineWorkflow({
 });
 `;
 
-test("a reply on a participant routed to the code reaches the run, live or parked, once", async () => {
+test('awf send --event-id, deprecated, still delivers a to: "code" reply through awf emit, live or parked, once', async () => {
   const { root, file, home } = eventProject(dirs, "thread.ts", WORKFLOW);
   const environment = { ...process.env, HOME: home };
   const out: string[] = [];
@@ -139,7 +140,179 @@ test("a reply on a participant routed to the code reaches the run, live or parke
     ),
   ).toBe(1);
   expect(JSON.parse(refused[0]!)).toMatchObject({ v: 1, code: "no-participant" });
+  // Each send says once that it is deprecated, naming awf emit.
+  expect(err).toEqual(Array(3).fill(deprecationLine("send-event-id")));
+  expect(err[0]).toContain("awf emit {run} {key}:reply");
+}, 60_000);
+
+// The same case run, its thread's replies declared rather than routed: `lead` is connected but not
+// declared, so its messages are its agents', never the code's.
+const DECLARED = `import { appendFileSync } from "node:fs";
+import { defineWorkflow, ParticipantReply } from "agentswf/workflow";
+const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };
+export default defineWorkflow({
+  meta: { name: "e2e-declared", description: "Answers its thread." },
+  file: import.meta.path,
+  events: { "dd.changes": Changes, "thread:reply": ParticipantReply, "ghost:reply": ParticipantReply },
+  starts: ["dd.changes"],
+  async run(workflow) {
+    const thread = await workflow.participants.connect({ key: "thread" });
+    await workflow.participants.connect({ key: "lead" });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    for (;;)
+      for (const e of await workflow.receive({ label: "listening" }))
+        if (e.name === "thread:reply") {
+          appendFileSync(new URL("../replies.txt", import.meta.url).pathname, [e.name, e.from, e.id, e.data.text, e.data.author ?? ""].join(" ") + "\\n");
+          await workflow.stage("answer-" + e.id, () => thread.post("got: " + e.data.text));
+        }
+  },
+});
+`;
+
+test("a participant declared as thread:reply replies by awf emit, received under that name, live or parked, once", async () => {
+  const { root, file, home } = eventProject(dirs, "declared.ts", DECLARED);
+  const environment = { ...process.env, HOME: home };
+  const out: string[] = [];
+  const err: string[] = [];
+  const cli = (args: string[]) =>
+    runOperatorCli(["emit", ...args], {
+      // Found through ~/.awf/projects, from a directory with no runs.
+      cwd: dirs.tempRunDir(),
+      home,
+      environment,
+      stdout: (t) => out.push(t),
+      stderr: (t) => err.push(t),
+    });
+  expect(await cli(["--target", file, "--id", "k", "dd.changes", '{"case":"k"}'])).toBe(0);
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-declared", "k");
+  const reply = (id: string, data: object) =>
+    cli(["e2e-declared/k", "thread:reply", JSON.stringify(data), "--event-id", id]);
+  await until(async () =>
+    (
+      await Bun.file(join(run.dir, "turns.jsonl"))
+        .text()
+        .catch(() => "")
+    ).includes('"participant":"lead"'),
+  );
+  expect(await reply("1729.001", { text: "is it the index?", author: "engineer" })).toBe(0);
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
+  expect(await reply("1729.002", { text: "never mind" })).toBe(0);
+  await until(async () => (await readAttempts(run)).length === 2);
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
+  expect(await reply("1729.002", { text: "never mind" })).toBe(0);
+  expect(out).toEqual([
+    "accepted e2e-declared/k: started",
+    "accepted e2e-declared/k: nudged",
+    "accepted e2e-declared/k: continued",
+    "duplicate e2e-declared/k: nothing-due",
+  ]);
+  expect(await Bun.file(join(root, "replies.txt")).text()).toBe(
+    "thread:reply thread 1729.001 is it the index? engineer\nthread:reply thread 1729.002 never mind \n",
+  );
+  // The mailbox keeps awf's record name, from the participant's key.
+  const recorded = [...foldMailbox(await readMailbox(run.dir)).events.values()];
+  expect(recorded.filter((e) => e.name === "participant:reply").map((e) => [e.id, e.from])).toEqual(
+    [
+      ["1729.001", "thread"],
+      ["1729.002", "thread"],
+    ],
+  );
+  // Its replies go to the code; lead's, undeclared, to agents.
+  const connected = (await Bun.file(join(run.dir, "turns.jsonl")).text())
+    .split("\n")
+    .filter((line) => line.includes('"participant-connected"'))
+    .map((line) => JSON.parse(line) as { attempt: number; participant: string; to?: string });
+  expect(connected.map((line) => [line.attempt, line.participant, line.to])).toEqual([
+    [1, "thread", "code"],
+    [1, "lead", undefined],
+    [2, "thread", "code"],
+    [2, "lead", undefined],
+  ]);
   expect(err).toEqual([]);
+  // Refused, each a usage error naming why: an undeclared participant, data its schema refuses,
+  // and an end, which only awf sends.
+  const refusals: [string[], string][] = [
+    [
+      ["lead:reply", '{"text":"hi"}'],
+      "e2e-declared declares no event lead:reply; its events are dd.changes, thread:reply, ghost:reply",
+    ],
+    [["thread:reply", '{"body":"hi"}'], "thread:reply's data does not fit its schema"],
+    [["thread:ended", "{}"], "not thread:ended"],
+    [["dd.changes", '{"case":"k"}'], "the workflow's own events go by --target"],
+  ];
+  for (const [args, message] of refusals) {
+    err.length = 0;
+    expect(await cli(["e2e-declared/k", ...args, "--event-id", "1729.009"])).toBe(2);
+    expect(err.join("\n")).toContain(message);
+  }
+  // The --target form takes only the workflow's own events, and points to the run's ref.
+  err.length = 0;
+  expect(
+    await cli(["--target", file, "--id", "k", "thread:reply", '{"text":"hi"}', "--event-id", "x1"]),
+  ).toBe(2);
+  expect(err.join("\n")).toContain("awf emit e2e-declared/{id} thread:reply");
+  // A declared participant the run never connected: send refuses it, as it always has.
+  const refused: string[] = [];
+  expect(
+    await runOperatorCli(
+      ["send", "e2e-declared/k", "--as", "ghost", "--event-id", "x2", "--json", "boo"],
+      {
+        cwd: dirs.tempRunDir(),
+        home,
+        environment,
+        stdout: (t) => refused.push(t),
+        stderr: () => {},
+      },
+    ),
+  ).toBe(1);
+  expect(JSON.parse(refused[0]!)).toMatchObject({ code: "no-participant" });
+  expect(recorded.length, "nothing refused was appended").toBe(
+    foldMailbox(await readMailbox(run.dir)).events.size,
+  );
+  // Checked against the file the run's last attempt ran: one that no longer declares the reply
+  // refuses it (2); one that is gone can't be loaded (1).
+  // (Runs of their own, each recording a file this process hasn't imported.)
+  const runOf = async (id: string, recorded: string) =>
+    createRun(join(root, ".awf", "runs"), {
+      id,
+      workflow: "e2e-declared",
+      argv: [],
+      cwd: root,
+      sandbox: null,
+      events: true,
+      file: recorded,
+    });
+  const undeclaring = join(root, "flows", "undeclaring.ts");
+  writeFileSync(undeclaring, DECLARED.replace(', "thread:reply": ParticipantReply', ""));
+  await runOf("changed", undeclaring);
+  await runOf("moved", join(root, "flows", "gone.ts"));
+  for (const [id, code, message] of [
+    ["changed", 2, "declares no event thread:reply"],
+    ["moved", 1, "gone.ts"],
+  ] as const) {
+    err.length = 0;
+    expect(await cli([`e2e-declared/${id}`, "thread:reply", '{"text":"hi"}'])).toBe(code);
+    expect(err.join("\n")).toContain(message);
+  }
+  // send --event-id to a participant connected to agents is refused, as it always was, even when
+  // the file it would be checked against is gone: the moved run, given k's connections.
+  const moved = await openRun(join(root, ".awf", "runs"), "e2e-declared", "moved");
+  await Bun.write(join(moved.dir, "turns.jsonl"), Bun.file(join(run.dir, "turns.jsonl")));
+  const toLead: string[] = [];
+  expect(
+    await runOperatorCli(
+      ["send", "e2e-declared/moved", "--as", "lead", "--event-id", "x3", "--json", "hi"],
+      {
+        cwd: dirs.tempRunDir(),
+        home,
+        environment,
+        stdout: (t) => toLead.push(t),
+        stderr: () => {},
+      },
+    ),
+  ).toBe(1);
+  expect(JSON.parse(toLead[0]!)).toMatchObject({ code: "no-participant" });
+  expect(JSON.parse(toLead[0]!).error).toContain("gone.ts");
 }, 60_000);
 
 test.each([

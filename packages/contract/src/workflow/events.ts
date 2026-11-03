@@ -1,5 +1,5 @@
 import type { AgentKey, TurnId, TurnOutcome } from "./agents";
-import type { JsonValue, OutputSchema } from "./json";
+import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerKey } from "./participants";
 import type { TimerDueEvent } from "./waits";
 
@@ -21,13 +21,47 @@ export function nameProblem(name: string): string | undefined {
 /** A workflow's own events, by name, each the schema of its `data`; a name has no colon. */
 export type EventSchemas = Readonly<Record<string, OutputSchema<JsonValue>>>;
 
-/** `Events` with every name holding a colon made `never`: those are awf's, so `tsc` refuses them. */
-export type NoColonNames<Events extends EventSchemas> = {
-  [Name in keyof Events]: Name extends `${string}:${string}` ? never : Events[Name];
+/**
+ * `Events` as a workflow may declare them: its own names, without a colon, each with its schema;
+ * and awf's, `{key}:reply` with `ParticipantReply` and `{key}:ended` with `AgentEnded`, the key
+ * without a colon. Any other name with a colon, or an awf name with another schema, is `never`, so
+ * `tsc` refuses it.
+ */
+export type DeclaredEvents<Events extends EventSchemas> = {
+  [Name in keyof Events]: Name extends `${infer Key}:${infer Kind}`
+    ? Key extends ""
+      ? never
+      : Kind extends "reply"
+        ? ParticipantReplySchema
+        : Kind extends "ended"
+          ? AgentEndedSchema
+          : never
+    : Events[Name];
 };
 
-/** The value a schema accepts. */
-export type OutputOf<S> = S extends OutputSchema<infer T> ? T : JsonValue;
+/** The names a workflow declares that are its own: without a colon. */
+export type OwnNames<Events extends EventSchemas> = Exclude<
+  keyof Events & string,
+  `${string}:${string}`
+>;
+
+/** awf's name `name` is: `{key}:reply` or `{key}:ended`, split at its one colon. */
+export function awfEventOf(name: string): { key: string; kind: "reply" | "ended" } | undefined {
+  const colon = name.indexOf(":");
+  if (colon <= 0 || name.includes(":", colon + 1)) return undefined;
+  const kind = name.slice(colon + 1);
+  if (kind !== "reply" && kind !== "ended") return undefined;
+  return { key: name.slice(0, colon), kind };
+}
+
+/** The value a schema accepts; under awf's two, what awf sends. */
+export type OutputOf<S> = S extends ParticipantReplySchema
+  ? ParticipantReply
+  : S extends AgentEndedSchema
+    ? AgentEnded
+    : S extends OutputSchema<infer T>
+      ? T
+      : JsonValue;
 
 /**
  * Names one occurrence for good within its run, by the grammar of `nameProblem`. Ids starting
@@ -60,12 +94,52 @@ export type AgentEnded<Meta extends JsonValue = JsonValue, T extends JsonValue =
   outcome: TurnOutcome<T>;
 };
 
-/** A message on a participant routed to the code; its event's id is the message's own id. */
+/** A message on a participant, to the code; its event's id is the message's own id. */
 export type ParticipantReply = {
   text: string;
   /** Who wrote it, as the participant's host names them; absent when it doesn't. */
   author?: string;
 };
+
+/**
+ * awf's two schemas are known by their `$id`, which stays the same across versions, so a workflow
+ * whose installed `agentswf` differs from the awf loading it still declares them. awf checks the
+ * data against its own copy, never the workflow's.
+ */
+export const PARTICIPANT_REPLY_ID = "agentswf:ParticipantReply";
+export const AGENT_ENDED_ID = "agentswf:AgentEnded";
+export type ParticipantReplySchema = JsonObject & { readonly $id: typeof PARTICIPANT_REPLY_ID };
+export type AgentEndedSchema = JsonObject & { readonly $id: typeof AGENT_ENDED_ID };
+
+/**
+ * The schema of `{key}:reply`, a message on participant `key` to the code, which a workflow
+ * declares to have its messages: `events: { "thread:reply": ParticipantReply }`.
+ */
+export const ParticipantReply = {
+  $id: PARTICIPANT_REPLY_ID,
+  type: "object",
+  properties: { text: { type: "string" }, author: { type: "string" } },
+  required: ["text"],
+  additionalProperties: false,
+} as unknown as ParticipantReplySchema;
+
+/**
+ * The schema of `{key}:ended`, the end of a turn agent `key` began with `start()`, which a workflow
+ * declares to start one: `events: { "investigator:ended": AgentEnded }`. Only awf sends one.
+ */
+export const AgentEnded = {
+  $id: AGENT_ENDED_ID,
+  type: "object",
+  properties: {
+    turn: { type: "string" },
+    outcome: {
+      type: "object",
+      properties: { kind: { type: "string" }, answered: { type: "boolean" } },
+      required: ["kind", "answered"],
+    },
+  },
+  required: ["turn", "meta", "outcome"],
+} as unknown as AgentEndedSchema;
 
 /**
  * Type-only: marks an event as the one agent or participant whose guard matched it. Without it, a
@@ -75,11 +149,49 @@ export type ParticipantReply = {
 declare const MATCHED: unique symbol;
 export type Matched = { readonly [MATCHED]: true };
 
-/** awf's own events, a closed set: the key of the agent or participant is in `from`. */
+/**
+ * An agent's turn's end where the workflow doesn't declare its `{key}:ended`, the agent's key in
+ * `from`. A declared end is one of the workflow's own events.
+ *
+ * @deprecated Declare `{key}:ended: AgentEnded` in `events`, and read `e.name === "{key}:ended"`.
+ */
 export type AgentEndedEvent<
   Meta extends JsonValue = JsonValue,
   T extends JsonValue = JsonValue,
 > = WorkflowEvent<"agent:ended", AgentEnded<Meta, T>> & { readonly from: AgentKey };
+
+/** Whether an event of type `E` may be any name: one read loosely, not one of a run's events. */
+type Loose<E> = string extends (E extends { readonly name: infer N } ? N : string) ? true : false;
+
+/**
+ * What `agent.is(e)` narrows `e` to, intersected with its type. One of a run's events narrows to
+ * the agent's end under either name, a declared `{key}:ended` or `agent:ended`; one typed loosely,
+ * or given explicit type arguments, to `AgentEndedEvent` as before.
+ */
+export type AgentEndOf<E, Meta extends JsonValue, T extends JsonValue> = (Loose<E> extends true
+  ? AgentEndedEvent<Meta, T>
+  : {
+      readonly name: "agent:ended" | `${string}:ended`;
+      readonly data: AgentEnded<Meta, T>;
+      readonly from: AgentKey;
+    }) &
+  Matched;
+
+/** As `AgentEndOf`, for a participant's message: a declared `{key}:reply` or `participant:reply`. */
+export type ParticipantReplyOf<E> = (Loose<E> extends true
+  ? ParticipantReplyEvent
+  : {
+      readonly name: "participant:reply" | `${string}:reply`;
+      readonly data: ParticipantReply;
+      readonly from: PeerKey;
+    }) &
+  Matched;
+/**
+ * A message on a participant connected with the deprecated `to: "code"` and no `{key}:reply`
+ * declared, its key in `from`.
+ *
+ * @deprecated Declare `{key}:reply: ParticipantReply` in `events`, and read `e.name === "{key}:reply"`.
+ */
 export type ParticipantReplyEvent = WorkflowEvent<"participant:reply", ParticipantReply> & {
   readonly from: PeerKey;
 };

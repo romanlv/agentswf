@@ -131,7 +131,7 @@ a `cursor`:
 | `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the participant sent with `awf send` has `via` |
 | `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
 | `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
-| `post` | `participant`, `id` (`{attempt}.p{n}`), `text`, `labels`: the run's code wrote to a participant routed to it |
+| `post` | `participant`, `id` (`{attempt}.p{n}`), `text`, `labels`: the run's code wrote to the participant, `participant.post(text)` |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
 
 A reader ignores kinds and fields it doesn't know. **The cursor** reads on from just after its item,
@@ -139,20 +139,24 @@ across every run here, new and continued ones included: save it after handling a
 that crashed or slept loses nothing. An item may come twice, never zero times, so handle each one
 idempotently; a `post` that a crashed attempt made may come again under a new id.
 
-### A participant routed to the code
+<a id="a-participant-routed-to-the-code"></a>
 
-A participant connected with `to: "code"` sends its messages to the run's code instead of an agent,
-each a `participant:reply` event the workflow takes at a wait, and the code writes back with
-`participant.post(text)`. It needs a workflow that reacts to [events](/guide/events).
+### A participant's messages to the code {#to-the-code}
+
+A workflow that declares `"{key}:reply": ParticipantReply` in its `events` takes that
+participant's messages in its code instead of an agent, each a `{key}:reply` event it takes at a
+wait, and the code writes back with `participant.post(text)`. It needs a workflow that reacts to
+[events](/guide/events).
 [`examples/approval-reminders`](https://github.com/romanlv/agentswf/tree/main/examples/approval-reminders)
 waits days for an approval this way.
 
 ```sh
-awf send approval/doc-42 --as approvals --event-id 1730450000.123456 --author dana 'approved'
+awf emit approval/doc-42 approvals:reply '{"text":"approved","author":"dana"}' --event-id 1730450000.123456
 ```
 
-`--event-id` is the message's own id, so a resend is a duplicate, and `--author` names who wrote it.
-It reaches the run whether it is running or parked.
+`--event-id` is the message's own id, so a resend is a duplicate, and `author` names who wrote it.
+It reaches the run whether it is running or parked. A participant the workflow doesn't declare is
+refused, with the names it does.
 
 ## Connecting a chat app
 
@@ -166,8 +170,8 @@ code of its own. A sketch of one, run in each folder where runs start:
    it closes.
 4. **Someone replies in the thread.** Pipe the text to `awf reply {ref} {agent} --to {id}` when it
    answers an open question, or to `awf send {ref} {agent}` otherwise, and post the refusal back if
-   it isn't `delivered`. For a participant routed to the code, it is
-   `awf send {ref} --as {key} --event-id {message id} --author {name}`.
+   it isn't `delivered`. For a participant whose messages go to the code, it is
+   `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id}`.
 5. **Answered, expired, ended.** Mark the question answered elsewhere or closed, and say in the
    thread when the run's attempt ended.
 6. **Save the cursor** after each batch, so a restart reads on from there.

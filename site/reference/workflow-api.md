@@ -49,7 +49,7 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`wf.decisions.decide({ key, model, state, questions, timeout? })`](#decide) | `{ answers, record }` |
 | [`choice(…)`, `yesNo(…)`, `score(…)`](#decide) | a decision question |
 | [`wf.messages.allow({ from, to, purpose, maxMessages?, timeout? })`](#messages-allow) | routes granted; also `{ between: [a, b], … }` |
-| [`wf.participants.connect({ key, labels? })`](#participants-connect) | a participant outside the run; `.release(reason?)` |
+| [`wf.participants.connect({ key, labels? })`](#participants-connect) | a participant outside the run; `.post(text)`, `.release(reason?)` |
 
 **Stages and time**
 
@@ -72,16 +72,16 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`wf.at(() => date or null)`](#at) | a select's branch, due at a time the state holds |
 | [`wf.after("3h")`](#after) | `now()` plus a duration, as a `Date` |
 | [`wf.started`](#started) | the event that started the run |
-| [`agent.is(e)`, `participant.is(e)`, `timer.is(e)`, `signal.is(e)`](#is) | narrows an event |
+| [`agent.is(e)`, `timer.is(e)`, `signal.is(e)`](#is) | narrows an event |
 
 **A workflow with events**
 
 | Call | Returns |
 | --- | --- |
-| [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `agent:ended` |
+| [`agent.start({ prompt, schema?, meta?, … })`](#agent-start) | a turn not awaited; its end arrives as `{key}:ended`, declared |
 | [`agent.turn`, `turn.cancel(reason?)`](#agent-turn) | the started turn, until a wait takes its end |
 | [`wf.agents.open({ …, keepAlive: { window?, onTimeout? } })`](#keepalive) | the run stays live after the agent's turns |
-| [`wf.participants.connect({ key, labels?, to: "code" })`](#participant-to-code) | a participant whose replies come to the code; `.post(text)` |
+| [`events: { "{key}:reply": ParticipantReply }`](#participant-to-code) | a participant whose messages come to the code |
 | [`wf.emit(target, run, name, data, { eventId? })`](#emit) | `"accepted"`, `"duplicate"` or `"refused"`; any workflow emits |
 
 **The run**
@@ -556,7 +556,7 @@ code grants the route and reads typed results; what the agents say is between th
 | `between: [a, b]` | Both ways, sharing one count. Give this or `from` and `to`. |
 | `purpose` | Required. Shown with every message on the route. |
 | `maxMessages` | Lowers the ceiling of 40 messages a route an attempt, replies included. |
-| `timeout` | A [duration](#waiting-on-time), only on a route to a participant: a question closes unanswered after this long. Without it, a question waits until answered; an agent's `--timeout` can only shorten it. |
+| `timeout` | A [duration](#waiting-on-time): a question on the route, to an agent or a participant, closes unanswered after this long. Without it, a question waits until answered; an agent's `--timeout` can only shorten it. |
 
 - **Scope:** granted inside a stage, a route closes with the stage; otherwise with the attempt. A
   pair has one open route at a time; granting it again must match, or it rejects.
@@ -599,6 +599,9 @@ codex session, or an app. [Answering for a participant](/guide/people) is the ot
   open questions; it resolves `false` when already released.
 - **Run in a terminal**, `awf run` asks each question there. Otherwise the answer comes from
   `awf reply`, by a session or an app reading `awf inbox`.
+- **`participant.post(text)`** writes to it without a turn: an item in `awf inbox`.
+- **Its messages go to agents.** They reach the workflow's code only when it declares
+  `{key}:reply`: [a participant's messages to the code](#participant-to-code).
 
 ## Stages and time
 
@@ -669,8 +672,8 @@ The fields `defineWorkflow` adds:
 
 | Field | |
 | --- | --- |
-| `events` | Required. Each event's name and the schema of its data. A name with a colon fails `tsc`: `agent:ended`, `participant:reply` and `timer:due` are awf's own. |
-| `starts` | The events that may start a run with an id that has none; any other is refused then. Absent, any event starts one; an empty list is refused when the workflow loads. |
+| `events` | Required. Everything that can wake a run: each event's name and the schema of its data. The workflow's own names have no colon. awf's take its schemas: `"{key}:reply": ParticipantReply`, [a participant's messages to the code](#participant-to-code), and `"{key}:ended": AgentEnded`, [the end of a turn `start()` began](#agent-start), the key without a colon. Any other name with a colon, or another schema for one of awf's, fails `tsc`, and is refused when the workflow loads. |
+| `starts` | The workflow's own events that may start a run with an id that has none; any other is refused then. Absent, any of its own starts one; an empty list is refused when the workflow loads. |
 | `file` | `import.meta.path`, required with `starts`: where a sender holding the workflow, as `wf.emit` does, finds it, and so which project its runs live in, the nearest directory above it holding `.awf/`. Without it, `awf run` and `awf emit --target` find it by the path they are given, and `wf.emit` to it throws. |
 
 - **Ids.** The sender names the run: `awf emit --id`, or `wf.emit`'s second argument; `wf.runId`
@@ -705,7 +708,7 @@ The fields `defineWorkflow` adds:
 - **`return`** ends the run for good: later events for it are refused.
 - **Without `events`** a workflow waits as any does, with `receive`, `race`, `select`, `timer` and
   `sleep`, but never parks: it waits in its process. It declares no name, so `wf.signal` takes
-  none, and `agent.start`, `keepAlive` and a participant routed to the code throw, saying why.
+  none, and `agent.start` and `keepAlive` throw, saying why.
 
 ### wf.receive {#receive}
 
@@ -723,17 +726,20 @@ Each event has:
 | Field | |
 | --- | --- |
 | `id` | Its id: the sender's `eventId`, or one awf made, starting `awf.`. |
-| `name` | A declared name, or `agent:ended`, `participant:reply` or `timer:due`. |
-| `data` | Typed by its schema; for awf's own, as [`agent.start`](#agent-start), [a participant routed to the code](#participant-to-code) and [`wf.timer`](#timer) say. |
+| `name` | A declared name, `{key}:reply` and `{key}:ended` included, or `timer:due`. |
+| `data` | Typed by its schema; for awf's own, as [`agent.start`](#agent-start), [a participant's messages](#participant-to-code) and [`wf.timer`](#timer) say. |
 | `from` | An agent's or participant's key, a timer's name, the sending run's ref for `wf.emit`, or `operator` for `awf emit`. |
 | `at` | When it was appended, an ISO time; for `timer:due`, when the timer was due. |
 
 ### agent.start {#agent-start}
 
 `agent.start(spec)` takes what [`run`](#agent-run) takes, plus `meta`, any JSON, and returns once
-the turn is launched, at the run's root scope only. Its end arrives at a wait as `agent:ended`, from
-the agent's key, with `turn`, the `outcome`, checked against `schema` as `run`'s is, and `meta`
-(`null` when absent). A turn started before a park is started again by the wake's rerun.
+the turn is launched, at the run's root scope only. Its end arrives at a wait as `{key}:ended`,
+which the workflow declares, `"investigator:ended": AgentEnded`, from the agent's key, with
+`turn`, the `outcome`, checked against `schema` as `run`'s is, and `meta` (`null` when absent).
+`start()` for an agent whose end isn't declared is [deprecated](#deprecated): its end arrives as
+`agent:ended`, logged; in a workflow that declares other agents' ends, it throws. A turn started before a park is started
+again by the wake's rerun.
 
 ### agent.turn {#agent-turn}
 
@@ -747,10 +753,10 @@ started turn.
 
 ### is {#is}
 
-`agent.is<Meta, T>(e)` is `true` for that agent's `agent:ended` and narrows its `meta` and outcome.
-`participant.is(e)`, on a participant routed to the code,
-is `true` for its replies; `timer.is(e)` for its `timer:due`; `wf.signal(name).is(e)` for an event
-of that name.
+`agent.is<Meta, T>(e)` is `true` for that agent's `{key}:ended` and narrows its `meta` and outcome.
+`timer.is(e)` is `true` for its `timer:due`; `wf.signal(name).is(e)` for an event of that name.
+Any other event is told by its name: `e.name === "thread:reply"` narrows as `e.name ===
+"dd.closed"` does.
 
 ### keepAlive {#keepalive}
 
@@ -777,13 +783,22 @@ warm turn in the same pane, and its end opens a new window.
 The run's terminal shows "live until {time}" on the row of each idle agent whose window is open;
 `awf runs` shows the run live and waiting.
 
-### A participant routed to the code {#participant-to-code}
+### A participant's messages to the code {#participant-to-code}
 
-`wf.participants.connect({ key, labels?, to: "code" })` turns each message to the participant into
-`participant:reply` from its key, with `text` and `author?`, taken at a wait rather than by an
-agent. `awf send {ref} --as {key} --event-id {message id} {text}` delivers one, and continues a
-parked run. `participant.post(text)` writes to it without a turn: an item in `awf inbox`. A parked
-run keeps it connected.
+A workflow that declares `"{key}:reply": ParticipantReply` in `events` takes each message on
+participant `key` at a wait, as `{key}:reply` from its key, with `text` and `author?`, rather than
+having an agent take it. Connect the participant as any other, without `to`:
+
+<<< @/../examples/site/reference/workflow-api.ts#code-participant
+
+`awf emit {ref} {key}:reply '{"text":"approved","author":"dana"}' --event-id {message id}`
+delivers one, and continues a parked run: the id is the message's own, so a resend is a
+duplicate. An undeclared `{key}:reply`, or data that doesn't fit `ParticipantReply`, is refused. It
+is checked against the definition alone: one sent before the run connects the participant waits in
+the mailbox for the run's next wait. Only a run that is there takes one; `awf emit --target` refuses it.
+A race or select takes them as `wf.signal("{key}:reply")`, the whole event. A participant whose
+reply isn't declared still answers the agents that ask it; its messages never reach the code. A
+parked run keeps it connected.
 
 ### Waiting on time {#waiting-on-time}
 
@@ -795,7 +810,7 @@ checked with `duration(text)`, which returns it as a `Duration` and throws, sayi
 for anything else: `const every = duration(event.data.every)`. A timer is a time recorded once under a
 name; due, it fires into the mailbox as `timer:due`, from
 its name, at its due time. A **source** is something a wait can take: a timer, a declared event
-(`wf.signal(name)`), a participant routed to the code, or an agent (the end of the turn it
+(`wf.signal(name)`, `wf.signal("thread:reply")` for a participant's messages), or an agent (the end of the turn it
 started). Three waits take sources, beside `receive`:
 
 <<< @/../examples/site/reference/workflow-api.ts#race
@@ -866,7 +881,8 @@ The timer has `name`, `due` (an ISO time), `cancel()` and `is(e)`; its branch ha
 ### wf.signal {#signal}
 
 `wf.signal(name)` is one of the workflow's declared events, as a source; its branch hands back the
-event, typed by its schema. A name `events` doesn't declare fails `tsc`, and throws.
+event, typed by its schema. A name `events` doesn't declare fails `tsc`, and throws. A participant's
+messages are `wf.signal("{key}:reply")`; an agent's end is not a signal: name the agent, `{ done: agent }`.
 
 ### wf.at {#at}
 
@@ -965,6 +981,8 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `AgentRef` | An agent the run opened or forked: a `CallerRef`, and `compact` and `set`. |
 | `CallerRef` | What [`caller`](#agents-caller) returns, and what every agent is: `key`, `execution`, `run`, `fork` (taking no `tools`), `start`, `turn`, `is` and `close`; a source, and a peer for [`allow`](#messages-allow). A helper for any agent, the calling session included, takes one. |
 | `EventSchemas` | What `events` is: each name's schema. |
+| `ParticipantReply`, `AgentEnded` | Each a value, the schema to declare `{key}:reply` and `{key}:ended` with, and the type of that event's data. |
+| `ParticipantRef` | What [`connect`](#participants-connect) returns: `key`, `post` and `release`; a peer for [`allow`](#messages-allow). |
 | `TurnOutcome<T>` | An [outcome](#outcomes), `T` the answer's type. |
 | `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: annotate a TypeBox schema with it, `const X: OutputSchema<Type.Static<typeof x>> = x`, and `run`, `stage` and `events` take its type. |
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
@@ -999,6 +1017,11 @@ naming what replaces it. An old bound given with its replacement, `timeoutMs` or
 | `keepAlive: { timeoutMs }` | `keepAlive: { window }`, a duration such as `"90s"`. |
 | `wf.deadline.unixMilliseconds` | `wf.deadline.getTime()`. `wf.deadline` is now a `Date`, the one change here to a value rather than a field: its `unixMilliseconds` still reads the same time, and logs once. |
 | `EventWorkflowContext<Events>`, `EventAgentRef`, `EventAgentOpenSpec`, `EventAgentDirectory` | `WorkflowContext<Events>`, `AgentRef`, `AgentOpenSpec`, `AgentDirectory`: every workflow has one of each. Types log nothing. |
+| `wf.participants.connect({ key, to: "code" })` | Declare `"{key}:reply": ParticipantReply` in `events` and connect it without `to`: [its messages](#participant-to-code) arrive as `{key}:reply`. Until then they arrive as `participant:reply` from its key. In a workflow that declares any `{key}:reply`, `to: "code"` for a key it doesn't declare throws. |
+| `participant.is(e)`, and a participant routed with `to: "code"` as a wait's branch | `e.name === "{key}:reply"`, and `wf.signal("{key}:reply")` as the branch, which hands back the whole event. |
+| `agent.start()` for an agent whose `{key}:ended` isn't declared | Declare `"{key}:ended": AgentEnded` in `events`: its end arrives as `{key}:ended`. Until then it arrives as `agent:ended`, logged once per key; in a workflow that declares any `{key}:ended`, it throws. |
+| `participant:reply`, `agent:ended` as names, and the type `ParticipantReplyEvent` | The declared `{key}:reply` and `{key}:ended`. |
+| `CodeParticipantSpec`, `CodeParticipantRef`, `CodeParticipantDirectory` | `ParticipantSpec`, `ParticipantRef` (`post`, `release`), `ParticipantDirectory`. Types log nothing. |
 
 A test's old forms, such as `reply.silent()` and `run.stopped`, are on
 [the testing API page](/reference/testing-api#deprecated).

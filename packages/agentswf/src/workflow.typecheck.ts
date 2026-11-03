@@ -3,9 +3,13 @@
 
 import {
   type AgentDirectory,
+  AgentEnded,
+  type AgentEndedEvent,
   type AgentOpenSpec,
   type AgentRef,
   type CallerRef,
+  type CodeParticipantRef,
+  type CodeParticipantSpec,
   type Duration,
   defineExecutableWorkflow,
   defineWorkflow,
@@ -15,9 +19,14 @@ import {
   type EventAgentRef,
   type EventWorkflowContext,
   isAnswered,
+  type JsonValue,
   type OutputSchema,
+  type ParticipantRef,
+  ParticipantReply,
+  type ParticipantReplyEvent,
   tool,
   type WorkflowContext,
+  type WorkflowEvent,
   yesNo,
 } from "./workflow";
 
@@ -205,3 +214,96 @@ export default defineWorkflow({
   meta: { name: "current", description: "The new forms." },
   run: async () => null,
 });
+
+// Story 039 task 7: participants and agents routed to the code are declared in `events`.
+const Change: OutputSchema<{ id: string }> = {
+  type: "object",
+  properties: { id: { type: "string" } },
+  required: ["id"],
+};
+
+export const declaring = defineWorkflow({
+  meta: { name: "declaring", description: "Declares what wakes it." },
+  events: { change: Change, "thread:reply": ParticipantReply, "fixer:ended": AgentEnded },
+  async run(wf) {
+    const thread: ParticipantRef = await wf.participants.connect({ key: "thread" });
+    await thread.post("Looking.");
+    // @ts-expect-error A ParticipantRef is not a source: race the signal of its declared reply.
+    await wf.race("bare", { reply: thread });
+    // @ts-expect-error is(e) stays on timers and agents: a reply is told by its name.
+    void thread.is;
+    const fixer = await wf.agents.open({ key: "fixer", runtime: "claude" });
+    await fixer.start({ prompt: "Fix it." });
+    for (const e of await wf.receive()) {
+      if (e.name === "thread:reply") {
+        const reply: ParticipantReply = e.data;
+        void reply.author;
+      }
+      if (e.name === "fixer:ended") void e.data.outcome.answered;
+      // @ts-expect-error A misspelled end is no event the workflow declares.
+      if (e.name === "fxier:ended") void e;
+      if (fixer.is(e)) void e.data.meta;
+      // Narrowed under the name it arrives by, the declared one included.
+      if (fixer.is(e) && e.name === "fixer:ended") void e.data.outcome;
+    }
+    const next = await wf.race("approval", { reply: wf.signal("thread:reply"), quiet: "1d" });
+    // @ts-expect-error An agent's end is waited on by naming the agent: { done: fixer }.
+    wf.signal("fixer:ended");
+    if (next.reply) void next.reply.data.text;
+    // @ts-expect-error A run speaks for no participant: wf.emit sends its target's own events.
+    await wf.emit(declaringTarget, "k", "thread:reply", { text: "hi" });
+    return null;
+  },
+});
+declare const declaringTarget: typeof declaring;
+
+// @ts-expect-error `{key}:reply` takes ParticipantReply, and no other schema.
+export const wrongSchema = defineWorkflow({
+  meta: { name: "wrong", description: "An awf name with a schema of its own." },
+  events: { "thread:reply": Change },
+  run: async () => null,
+});
+
+// @ts-expect-error Only `{key}:reply` and `{key}:ended` have a colon.
+export const unknownColon = defineWorkflow({
+  meta: { name: "colon", description: "A colon name awf doesn't make." },
+  events: { "thread:said": ParticipantReply },
+  run: async () => null,
+});
+
+export const awfStart = defineWorkflow({
+  meta: { name: "start", description: "A reply can't start a run." },
+  file: "/flows/start.ts",
+  events: { change: Change, "thread:reply": ParticipantReply },
+  // @ts-expect-error `starts` takes only the workflow's own events.
+  starts: ["thread:reply"],
+  run: async () => null,
+});
+
+export const stillCompiles = defineWorkflow({
+  meta: { name: "old-routing", description: "The deprecated form." },
+  events: { change: Change },
+  async run(wf) {
+    const thread: CodeParticipantRef = await wf.participants.connect({ key: "thread", to: "code" });
+    await thread.post("Looking.");
+    for (const e of await wf.receive()) if (thread.is(e)) void e.data.text;
+    const next = await wf.race("reply", { reply: thread, quiet: "1d" });
+    if (next.reply) void next.reply.text;
+    // A spec held in a variable, which no excess-property check sets apart, still routes.
+    const spec: CodeParticipantSpec = { key: "pager", to: "code" };
+    const pager = await wf.participants.connect(spec);
+    for (const e of await wf.receive()) if (pager.is(e)) void e.data.text;
+    await wf.race("page", { reply: pager, quiet: "1d" });
+    return null;
+  },
+});
+
+// As before task 7: an end read from a loosely typed event narrows to `AgentEndedEvent`.
+declare const loose: WorkflowEvent<string, JsonValue>;
+declare function handleEnd(e: AgentEndedEvent<{ n: number }>): void;
+declare function handleReply(e: ParticipantReplyEvent): void;
+export async function looseEvents(inv: AgentRef, thread: CodeParticipantRef): Promise<void> {
+  if (inv.is<{ n: number }>(loose)) handleEnd(loose);
+  if (inv.is(loose)) void loose.data.outcome;
+  if (thread.is(loose)) handleReply(loose);
+}

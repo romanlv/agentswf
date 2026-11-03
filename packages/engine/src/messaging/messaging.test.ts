@@ -1167,7 +1167,7 @@ describe("an outside participant", () => {
     return run;
   }
 
-  test("connects under a free key, and routes to it take timeoutMs only where an agent asks it", () => {
+  test("connects under a free key, and any route takes a timeoutMs", () => {
     const { messaging, events } = setup({ investigator: "working", fixer: "idle" });
     messaging.connect("coordinator", { audience: "operator" });
     expect(() => messaging.connect("coordinator")).toThrow("already connected");
@@ -1176,18 +1176,10 @@ describe("an outside participant", () => {
     expect(() =>
       messaging.grant({ between: ["coordinator", "pager"] }, { purpose: ASK, scope }),
     ).toThrow("both outside the run");
-    expect(() =>
-      messaging.grant(
-        { between: ["investigator", "fixer"] },
-        { purpose: ASK, scope, timeoutMs: 60_000 },
-      ),
-    ).toThrow("only for a route an agent asks an outside participant over");
-    expect(() =>
-      messaging.grant(
-        { from: "coordinator", to: "investigator" },
-        { purpose: ASK, scope, timeoutMs: 60_000 },
-      ),
-    ).toThrow("only for a route");
+    messaging.grant(
+      { between: ["investigator", "fixer"] },
+      { purpose: ASK, scope, timeoutMs: 60_000 },
+    );
     for (const timeoutMs of [0, 1.5, "1h"]) {
       expect(() =>
         messaging.grant(
@@ -1218,6 +1210,13 @@ describe("an outside participant", () => {
         labels: { audience: "operator" },
       },
       { kind: "participant-connected", participant: "pager" },
+      {
+        kind: "route-opened",
+        between: ["investigator", "fixer"],
+        purpose: ASK,
+        maxMessages: 40,
+        timeoutMs: 60_000,
+      },
       {
         kind: "route-opened",
         between: ["investigator", "coordinator"],
@@ -1573,5 +1572,28 @@ describe("an outside participant", () => {
     expect(
       await messaging.holderSend({ agent: "investigator", text: "Hi.", via: "command" }),
     ).toMatchObject({ code: "closed" });
+  });
+});
+
+describe("a route's timeout between agents", () => {
+  test("a question to an agent closes at its route's timeoutMs, as one outside does", async () => {
+    const { messaging, events, open, advance } = setup();
+    messaging.grant(
+      { from: "reviewer", to: "implementer" },
+      { purpose: PURPOSE, scope: messaging.attempt, timeoutMs: 120_000 },
+    );
+    open("reviewer", "op-1");
+    await messaging.send("reviewer", { peer: "implementer", text: "Ready?", awaitReply: true });
+    advance(119_999);
+    expect(events.some((event) => event.kind === "request-ended")).toBe(false);
+    advance(1);
+    expect(events.find((event) => event.kind === "request-ended")).toEqual({
+      kind: "request-ended",
+      message: 1,
+      owedBy: "implementer",
+      asker: "reviewer",
+      end: "timed-out",
+      reason: "the question closed unanswered after 2m00s",
+    });
   });
 });

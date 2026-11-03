@@ -11,7 +11,7 @@ import {
   type TestTurnOutcome,
   testWorkflow,
 } from "./testing";
-import { defineWorkflow, type OutputSchema } from "./workflow";
+import { AgentEnded, defineWorkflow, type OutputSchema, ParticipantReply } from "./workflow";
 
 type Surface = typeof import("./testing");
 // @ts-expect-error Only a claude TUI agent may wait, which its harness decides, not a workflow.
@@ -134,5 +134,30 @@ export async function current(): Promise<void> {
     id: "k",
     event: { name: "ping", data: { n: 1 }, eventId: "e-1" },
     events: [{ during: "a#1", name: "ping", data: { n: 2 }, eventId: "e-2" }],
+  });
+}
+
+const declaring = defineWorkflow({
+  meta: { name: "declaring", description: "Declares its thread's replies and an agent's end." },
+  file: import.meta.path,
+  events: { ping: Ping, "thread:reply": ParticipantReply, "a:ended": AgentEnded },
+  run: async (wf) => (await wf.receive()).length,
+});
+
+export async function scriptedReplies(): Promise<void> {
+  await testWorkflow(declaring, {
+    events: [{ during: "a#1", name: "thread:reply", data: { text: "hi", author: "dana" } }],
+  });
+  // @ts-expect-error A reply's data is ParticipantReply's: text, and author.
+  await testWorkflow(declaring, {
+    events: [{ during: "a#1", name: "thread:reply", data: { body: "hi" } }],
+  });
+  // @ts-expect-error Only awf sends an agent's end.
+  await testWorkflow(declaring, {
+    events: [{ during: "a#1", name: "a:ended", data: { turn: "t", meta: null } }],
+  });
+  // Deprecated: the old name, from the participant's key.
+  await testWorkflow(withEvents, {
+    events: [{ during: "a#1", name: "participant:reply", from: "thread", data: { text: "hi" } }],
   });
 }

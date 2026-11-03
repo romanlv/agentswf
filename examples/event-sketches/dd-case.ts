@@ -1,7 +1,14 @@
 // The Datadog watcher's case run, from agent/workflows/datadog-watcher/style-c-sketch.md: one run
 // per case, named by the case id. A type-checked sketch: the case's files are declared below, and
 // so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
-import { defineWorkflow, type JsonValue, type TurnOutcome, tool } from "agentswf/workflow";
+import {
+  AgentEnded,
+  defineWorkflow,
+  type JsonValue,
+  ParticipantReply,
+  type TurnOutcome,
+  tool,
+} from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
@@ -68,13 +75,18 @@ const caseRun = defineWorkflow({
     description: "Investigate one Datadog case in its own #dd-watch thread.",
   },
   file: import.meta.path,
-  events: { "dd.changes": Changes, "dd.closed": Closed },
+  // Everything that wakes a case run: its own events, a reply in its thread, its turn's end.
+  events: {
+    "dd.changes": Changes,
+    "dd.closed": Closed,
+    "thread:reply": ParticipantReply,
+    "investigator:ended": AgentEnded,
+  },
   starts: ["dd.changes"],
   async run(wf) {
     const kase = openCase(DD_CASES, wf.runId);
     const thread = await wf.participants.connect({
       key: "thread",
-      to: "code",
       labels: { title: kase.title },
     });
     const investigator = await wf.agents.open({
@@ -113,7 +125,7 @@ const caseRun = defineWorkflow({
               await wf.stage(`failed-${e.id}`, () => thread.post(failedNote(e.data.outcome)));
           }
         }
-        if (thread.is(e)) kase.addReply(e.id, e.data);
+        if (e.name === "thread:reply") kase.addReply(e.id, e.data);
         if (e.name === "dd.closed") {
           if (e.data.by === "triage") await investigator.turn?.cancel();
           await wf.stage(`close-${e.id}`, () => kase.close(e.data, e.at));

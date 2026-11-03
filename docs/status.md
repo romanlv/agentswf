@@ -325,6 +325,18 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   workflow with events too); `testWorkflow(workflow, args, options)`, `recorded` and `mailbox` are
   deprecated, each logged once; `agentswf/testing` re-exports one curated list, the engine's
   workflow-testing index, and every example test uses the one signature.
+  Task 7 built, awaiting review: everything that wakes a run is declared in `events`. A
+  participant's messages reach the code only under a declared `{key}:reply: ParticipantReply`,
+  sent by `awf emit {ref} {key}:reply '{json}' --event-id {id}`, which finds a run by its ref and
+  checks the event against the file it runs; an agent's started turn ends as a declared
+  `{key}:ended: AgentEnded`. `ParticipantReply` and `AgentEnded` are schemas; `connect` returns one
+  `ParticipantRef` with `post`; `wf.signal("{key}:reply")` races a reply; a route's `timeout` works
+  between agents too; a test scripts `{ name: "thread:reply", data }`. `to: "code"`, a
+  participant's `is(e)`, `start()` without a declared end, the `participant:reply` and
+  `agent:ended` names, the scripted `participant:reply` and `awf send --event-id` are deprecated,
+  each logged; a workflow that declares some reply or end refuses an undeclared `to: "code"` or
+  `start()`. The mailbox keeps its record names. The examples with a participant routed to the code
+  and the Datadog sketch use the declared form.
 
 ## Known gaps
 

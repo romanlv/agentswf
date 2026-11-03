@@ -1,6 +1,14 @@
 import type { JsonSchema } from "../schema";
 import { DEPRECATED_DEFINITION } from "./deprecated";
-import type { EventSchemas, NoColonNames, NoEvents } from "./events";
+import {
+  AGENT_ENDED_ID,
+  awfEventOf,
+  type DeclaredEvents,
+  type EventSchemas,
+  type NoEvents,
+  type OwnNames,
+  PARTICIPANT_REPLY_ID,
+} from "./events";
 import type { JsonValue } from "./json";
 import type { StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
 
@@ -122,7 +130,7 @@ type StartsAndFile<Events extends EventSchemas> =
        * The events that start a run with an id that has none; any other is refused then. Absent,
        * any event starts one.
        */
-      readonly starts: readonly (keyof Events & string)[];
+      readonly starts: readonly OwnNames<Events>[];
       /**
        * `import.meta.path`: where a sender holding the workflow finds it, as `wf.emit` does, and
        * which project its runs live in, the nearest directory above it holding `.awf/`.
@@ -154,8 +162,8 @@ type PrepareSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
 
 /**
  * Defines a workflow. One whose args are `null` may leave out `prepare`: then it takes no arguments,
- * and any argv is refused. With `events`, an event name with a colon fails `tsc`, and `starts` needs
- * `file`; its events are concrete here, as a helper generic over them can't make the context follow
+ * and any argv is refused. With `events`, a name with a colon fails `tsc` unless it is awf's,
+ * `{key}:reply: ParticipantReply` or `{key}:ended: AgentEnded`, and `starts` needs `file`; its events are concrete here, as a helper generic over them can't make the context follow
  * them.
  */
 export function defineWorkflow<
@@ -163,7 +171,7 @@ export function defineWorkflow<
   Result extends JsonValue = JsonValue,
   Events extends EventSchemas = never,
 >(
-  spec: PrepareSpec<Args, Result> & { readonly events: NoColonNames<Events> } & EventsRun<
+  spec: PrepareSpec<Args, Result> & { readonly events: DeclaredEvents<Events> } & EventsRun<
       Args,
       Result,
       Events
@@ -227,14 +235,23 @@ export function eventWorkflowProblem(workflow: unknown): string | undefined {
   const events = given.events;
   if (typeof events !== "object" || events === null)
     return "a workflow with events declares them in events";
-  const colon = Object.keys(events).find((each) => each.includes(":"));
-  if (colon) return `events: ${colon} has a colon, which only awf's own names do`;
+  for (const [name, schema] of Object.entries(events)) {
+    if (!name.includes(":")) continue;
+    const awf = awfEventOf(name);
+    if (!awf)
+      return `events: ${name} has a colon, which only awf's own names do: {key}:reply and {key}:ended`;
+    const declared = awf.kind === "reply" ? "ParticipantReply" : "AgentEnded";
+    // By its `$id`: the workflow's agentswf may be another version than the awf loading it.
+    const id = awf.kind === "reply" ? PARTICIPANT_REPLY_ID : AGENT_ENDED_ID;
+    if (typeof schema !== "object" || schema === null || (schema as { $id?: unknown }).$id !== id)
+      return `events: ${name} is awf's, declared with its schema: "${name}": ${declared}`;
+  }
   const starts = given.starts;
   if (
     starts !== undefined &&
     (!Array.isArray(starts) ||
       starts.length === 0 ||
-      starts.some((each) => typeof each !== "string" || !(each in events)))
+      starts.some((each) => typeof each !== "string" || each.includes(":") || !(each in events)))
   )
     return "starts lists the events, by their names, that start a run; absent, every event does";
   if (given.file !== undefined && typeof given.file !== "string") return "file is import.meta.path";

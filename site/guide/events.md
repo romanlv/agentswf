@@ -37,9 +37,11 @@ and its test.
 
 A workflow takes events when its definition declares them:
 
-- **`events`**: each event's name and the schema of its data. Names have no colon; `agent:ended`,
-  `participant:reply` and `timer:due` are awf's own.
-- **`starts`**: the events that may start a run. Without it, any of them may.
+- **`events`**: everything that can wake a run, each name with the schema of its data. The
+  workflow's own names have no colon. awf's are declared with its schemas:
+  `"fixer:ended": AgentEnded` for the end of a turn `fixer.start()` began, and
+  `"thread:reply": ParticipantReply` for a participant's messages to the code.
+- **`starts`**: the workflow's own events that may start a run. Without it, any of them may.
 - **`file: import.meta.path`**, required with `starts`: where the workflow lives, so a sender
   holding it, as [`wf.emit`](/reference/workflow-api#emit) does, can find it and its runs. `awf`
   commands find it by the path you give them.
@@ -102,7 +104,8 @@ waits there.
 A run parks when it waits with nothing else of it working: no agent turn, no stage, and nothing in
 the mailbox for the wait to take. Waiting while a turn runs keeps the process, so an agent can work
 while the code goes on taking events: `agent.start()` launches a turn without awaiting it, and its
-end arrives at a wait as `agent:ended`, with the outcome. The race below uses one.
+end arrives at a wait as `fixer:ended`, which the workflow declares, with the outcome. The race
+below uses one.
 [Events](/reference/workflow-api#events) in the workflow API has `start` and the rest.
 
 ## Race and select
@@ -115,9 +118,9 @@ can take events while the agent works, and a pull request closing mid-fix cuts i
 
 <<< @/../examples/site/guide/events.ts#race
 
-A branch is a declared event (`wf.signal(name)`), an agent (the end of the turn it started), a
-[participant routed to the code](/guide/people#a-participant-routed-to-the-code), whose
-messages come to your code instead of an agent, or a [timer](/guide/timers). The answer names the
+A branch is a declared event (`wf.signal(name)`, and `wf.signal("thread:reply")` for a
+[participant's messages to the code](/guide/people#to-the-code)), an
+agent (the end of the turn it started), or a [timer](/guide/timers). The answer names the
 branch that won, so `if (first.closed)` narrows it. The race is recorded under its name,
 `fix-or-close`, so a run woken after parking gets the same answer back and walks on.
 

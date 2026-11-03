@@ -49,7 +49,8 @@ END
 `--to`: it keeps a late answer off a newer question. To message an agent first, use
 `awf send {ref} {agent} --json` the same way. When the workflow connects more than one
 participant, add `--as {key}`, the item's `participant`. A participant whose messages go to the
-run's code has no agent: send to it as `awf send {ref} --as {key} --event-id {message id} --json`,
+run's code has no agent: send to it as
+`awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`,
 and read what the code writes back as `post` items.
 
 The result is one JSON line. `delivered` means the agent will see it. `expired` means the question

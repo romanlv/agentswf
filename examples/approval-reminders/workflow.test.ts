@@ -28,13 +28,12 @@ describe("approval", () => {
       events: [
         {
           during: "writer#2",
-          name: "participant:reply",
-          from: "approvals",
-          data: { text: "Approved, thanks." },
+          name: "approvals:reply",
+          data: { text: "Approved, thanks.", author: "dana" },
         },
       ],
     });
-    expect(run.value).toEqual({ doc: "rfc-12", ended: "approved", round: 3, by: "engineer" });
+    expect(run.value).toEqual({ doc: "rfc-12", ended: "approved", round: 3, by: "dana" });
   });
 
   test("it parks at its first race, waiting for the reply or the reminder", async () => {

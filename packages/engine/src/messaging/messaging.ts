@@ -180,7 +180,7 @@ type Obligation = {
   /** It has a `--timeout` of its own, which only that fails it at. */
   readonly timed: boolean;
   /**
-   * When it closes unanswered, on an outside participant: the route's `timeoutMs` or the asker's
+   * When it closes unanswered: the route's `timeoutMs` or the asker's
    * shorter `--timeout`, and which of the two.
    */
   readonly closes?: { at: number; by: "route" | "own"; ms: number };
@@ -279,17 +279,13 @@ export class Messaging {
       }
     }
     const timeoutMs = options.timeoutMs;
-    if (timeoutMs !== undefined) {
-      if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
-        throw new Error(
-          `a route's timeoutMs is a positive whole number of milliseconds: not ${timeoutMs}`,
-        );
-      // Only where an agent can ask an outside participant: nothing else needs it yet.
-      if (!pairs.some(([, to]) => this.#outside.has(to)))
-        throw new Error(
-          "a timeout is only for a route an agent asks an outside participant over: between them, or to it",
-        );
-    }
+    if (
+      timeoutMs !== undefined &&
+      (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
+    )
+      throw new Error(
+        `a route's timeoutMs is a positive whole number of milliseconds: not ${timeoutMs}`,
+      );
     const open = pairs.map(([from, to]) => this.#open(from, to));
     if (open.some(Boolean)) {
       if (
@@ -363,7 +359,7 @@ export class Messaging {
     });
   }
 
-  /** Writes `text` to a participant routed to the code, without a turn: an inbox item for it. */
+  /** Writes `text` to a participant, without a turn: an inbox item for it. */
   async post(key: AgentKey, text: string): Promise<string> {
     if (this.#closed) throw new Error("the attempt has ended; nothing more is posted");
     if (!this.#outside.has(key)) throw new Error(`${key} is not connected`);
@@ -1047,7 +1043,7 @@ export class Messaging {
   #ask(message: Message, operation: Operation, timeoutMs?: number): { until?: number } {
     message.route.count += 1;
     const now = this.#host.now();
-    const routeMs = this.#outside.has(message.to) ? message.route.timeoutMs : undefined;
+    const routeMs = message.route.timeoutMs;
     // The route's limit, or the asker's own when shorter: the shorter wins.
     const limit =
       routeMs !== undefined && (timeoutMs === undefined || routeMs <= timeoutMs)
@@ -1071,7 +1067,7 @@ export class Messaging {
       owedBy: message.to,
       ...(until === undefined ? {} : { until }),
       timed: limitAt < (outside ? Infinity : (operation.deadline ?? Infinity)),
-      ...(limit && outside ? { closes: { ...limit, at: limitAt } } : {}),
+      ...(limit ? { closes: { ...limit, at: limitAt } } : {}),
       state: "open",
     };
     message.asks = obligation;

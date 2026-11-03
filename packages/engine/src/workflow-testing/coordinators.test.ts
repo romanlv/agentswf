@@ -378,7 +378,7 @@ describe("a coordinator in a workflow's test", () => {
     expect(run.value).toBe("DeadlineExceededError");
   });
 
-  test("reserved keys, taken keys, and timeoutMs between agents are refused", async () => {
+  test("reserved keys and taken keys are refused; a timeout between agents is not", async () => {
     const refusals: RunnableWorkflow<null, JsonValue> = {
       meta: { name: "refusals", description: "keys" },
       async run(workflow) {
@@ -396,9 +396,8 @@ describe("a coordinator in a workflow's test", () => {
         await tried(() => workflow.participants.connect({ key: "a" }));
         await workflow.participants.connect({ key: "coordinator" });
         await tried(() => workflow.agents.open({ key: "coordinator", runtime: "claude" }));
-        await tried(() =>
-          workflow.messages.allow({ between: [a, b], purpose: "Talk.", timeoutMs: 1 }),
-        );
+        // Any route takes a timeout now, between two agents too.
+        await workflow.messages.allow({ between: [a, b], purpose: "Talk.", timeout: "1m" });
         return errors;
       },
     };
@@ -409,7 +408,6 @@ describe("a coordinator in a workflow's test", () => {
       "user is reserved: an agent could read a message from it as authority; an agent takes another key",
       "a is an agent's key; a participant takes a key of its own",
       "coordinator is a participant outside the run; an agent takes another key",
-      "a timeout is only for a route an agent asks an outside participant over: between them, or to it",
     ]);
   });
 

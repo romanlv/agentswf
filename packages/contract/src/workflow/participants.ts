@@ -1,5 +1,5 @@
 import type { PARTICIPANT } from "../participant";
-import type { Matched, ParticipantReply, ParticipantReplyEvent } from "./events";
+import type { ParticipantReply, ParticipantReplyOf } from "./events";
 import type { JsonObject } from "./json";
 import type { EventLike, Source, Taken } from "./waits";
 
@@ -22,6 +22,8 @@ export interface ParticipantSpec {
 }
 
 export interface ParticipantRef extends PeerRef {
+  /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
+  post(text: string): Promise<void>;
   /**
    * Closes its routes and ends every question open to it, `released`. `false` when it was
    * released already.
@@ -32,35 +34,50 @@ export interface ParticipantRef extends PeerRef {
 export interface ParticipantDirectory {
   /**
    * Connects a participant outside the run, such as a coordinator, read with `awf inbox` and
-   * answered with `awf reply` and `awf send`. It waits for no one. A reserved key, or one any agent or
-   * participant holds anywhere in the run, rejects. It stays connected until released, or until the workflow has returned and no question
-   * to it is open.
+   * answered with `awf reply` and `awf send`. Its messages go to the agents it has routes with;
+   * to the run's code only when the workflow declares `{key}:reply: ParticipantReply` in
+   * `events`, each sent by `awf emit {ref} {key}:reply '{"text":…}' --event-id {message id}`. It
+   * waits for no one. A reserved key, or one any agent or participant holds anywhere in the run,
+   * rejects. It stays connected until released, or until the workflow has returned and no
+   * question to it is open.
    */
   connect(spec: ParticipantSpec): Promise<ParticipantRef>;
 }
 
+// First, so a `to: "code"` spec held in a variable, which no excess-property check sets apart,
+// still gets the ref it got before.
+export interface ParticipantDirectory {
+  /**
+   * @deprecated Declare `{key}:reply: ParticipantReply` in `events` and drop `to: "code"`; take
+   * its messages as `e.name === "{key}:reply"`, or race `wf.signal("{key}:reply")`.
+   */
+  connect(spec: CodeParticipantSpec): Promise<CodeParticipantRef>;
+}
+
+/** @deprecated Declare `{key}:reply: ParticipantReply` in `events`, and connect it without `to`. */
 export interface CodeParticipantSpec extends ParticipantSpec {
   /**
    * Its messages come to the run's code, each a `participant:reply` from its key taken at a wait,
-   * not to an agent: `awf send {ref} --as {key} --event-id {message id} {text}` delivers one, and continues
-   * a parked run.
+   * not to an agent.
+   *
+   * @deprecated Declare `{key}:reply: ParticipantReply` in `events` instead.
    */
   to: "code";
 }
 
-/** A participant routed to the code: a source of its replies, one per wait. */
+/**
+ * A participant routed to the code: a source of its replies, one per wait.
+ *
+ * @deprecated A `ParticipantRef`: race `wf.signal("{key}:reply")`, declared in `events`.
+ */
 export interface CodeParticipantRef extends ParticipantRef, Source<Taken<ParticipantReply>> {
-  /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
-  post(text: string): Promise<void>;
-  /** True for a message on this participant. */
-  is(event: EventLike): event is ParticipantReplyEvent & Matched;
+  /**
+   * True for a message on this participant.
+   *
+   * @deprecated Read `e.name === "{key}:reply"`, declared in `events`.
+   */
+  is<E extends EventLike = EventLike>(event: E): event is E & ParticipantReplyOf<E>;
 }
 
-/**
- * The directory of a run of a workflow with `events`, which also connects participants routed to
- * the code. A parked run keeps them connected.
- */
-export interface CodeParticipantDirectory extends ParticipantDirectory {
-  connect(spec: CodeParticipantSpec): Promise<CodeParticipantRef>;
-  connect(spec: ParticipantSpec): Promise<ParticipantRef>;
-}
+/** @deprecated Use `ParticipantDirectory`: every participant is connected by it. */
+export type CodeParticipantDirectory = ParticipantDirectory;

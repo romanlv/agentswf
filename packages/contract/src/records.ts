@@ -384,6 +384,12 @@ export type MailboxRecord = {
   | {
       kind: "event";
       id: EventId;
+      /**
+       * A participant's message to the code is recorded as `participant:reply` and an agent's turn's
+       * end as `agent:ended`, each `from` its key, whatever name the workflow declares and is handed,
+       * `{key}:reply` or `{key}:ended`. These are the mailbox's names for good: story 039's task 10
+       * removes them from the author API, not from here.
+       */
       name: string;
       data: JsonValue;
       /** As `WorkflowEvent.from`. */
@@ -623,7 +629,8 @@ export type OutsideVia = "terminal" | "command" | "test";
 export type MessagingEvent =
   /**
    * An outside participant connected, with the labels the workflow gave it; `to: "code"` when its
-   * messages go to the run's code, as `participant:reply` events, not to agents.
+   * messages go to the run's code, each recorded in the mailbox as `participant:reply` from its key:
+   * its workflow declares `{key}:reply`, or connected it with the deprecated `to: "code"`.
    */
   | {
       kind: "participant-connected";
@@ -632,7 +639,7 @@ export type MessagingEvent =
       labels?: JsonObject;
       to?: "code";
     }
-  /** `participant.post(text)` to a participant routed to the code: `awf inbox`'s `post` item. */
+  /** `participant.post(text)`: `awf inbox`'s `post` item. */
   | { kind: "participant-post"; callPath: string[]; participant: string; id: string; text: string }
   | ({
       kind: "route-opened";
@@ -976,7 +983,7 @@ export type InboxItemJson = {
     }
   | { kind: "answered"; participant: string; id: string; answer: string; via: OutsideVia }
   /**
-   * `participant.post(text)` to a participant routed to the code, under `participant`, its key,
+   * `participant.post(text)`, to any participant, under `participant`, its key,
    * with the labels the workflow connected it with. Its id, `{attempt}.p{n}`, is new at every
    * attempt: a post a crashed attempt made before its stage was recorded is made again, so a host
    * may see it twice.
@@ -1020,7 +1027,7 @@ export type WakeWhy =
   | "nudge-failed"
   | "launch-failed";
 
-/** `awf emit --json`, and `awf send --json` to a participant routed to the code. */
+/** `awf emit --json`, and the deprecated `awf send --event-id --json`. */
 export type EmitResultJson = {
   v: 1;
   outcome: EmitOutcome;

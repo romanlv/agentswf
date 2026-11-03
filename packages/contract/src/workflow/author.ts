@@ -60,8 +60,8 @@ export type {
 } from "./decisions";
 export { choice, DecisionError, score, yesNo } from "./decisions";
 export type {
-  AgentEnded,
   AgentEndedEvent,
+  AgentEndOf,
   EmitOptions,
   EmitOutcome,
   EventId,
@@ -69,11 +69,13 @@ export type {
   OutputOf,
   OwnEvent,
   OwnEventOf,
-  ParticipantReply,
   ParticipantReplyEvent,
+  ParticipantReplyOf,
   ReceivedEvent,
   WorkflowEvent,
 } from "./events";
+// Each a schema to declare in `events` and the type of the data under it.
+export { AgentEnded, ParticipantReply } from "./events";
 export type {
   AttemptOutcome,
   Ending,

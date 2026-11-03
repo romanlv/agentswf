@@ -61,7 +61,8 @@ Sets up a folder for writing workflows, with a `hello` workflow and its test to 
 
 ### awf emit {#emit}
 
-Sends an event to a workflow with events, starting its run or waking the one that waits.
+Sends an event to a workflow with events, starting its run or waking the one that waits; or, by
+the run's ref, to a run that is there, as a participant's message to its code, `{key}:reply`.
 [Events](/guide/events) covers workflows with events; [Hosting events](/guide/hosting-events)
 calls `awf emit` from a webhook or a CI job.
 
@@ -113,7 +114,8 @@ back. [Answering for a participant](/guide/people) teaches it.
 ### awf reply and awf send {#reply}
 
 `awf reply` answers a question an agent asked; `awf send` messages an agent first, or, with
-`--event-id`, a run that routes the participant to its code. They share one help.
+the deprecated `--event-id`, a run's code, which `awf emit {run} {key}:reply` replaces. They
+share one help.
 [Answering for a participant](/guide/people) teaches both.
 
 <a id="send"></a>

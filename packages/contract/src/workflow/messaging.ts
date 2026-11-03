@@ -6,8 +6,9 @@ interface RouteLimits {
   /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
   maxMessages?: number;
   /**
-   * Only on a route to an outside participant: a question on it closes unanswered after this
-   * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
+   * A question on it closes unanswered after this long, to an agent or an outside participant.
+   * Absent, it waits until answered, or its asker's turn ends; an agent's `--timeout` can only
+   * shorten it.
    */
   timeout?: Duration;
   /** @deprecated Give `timeout`, a `Duration` such as `"30m"`. */

@@ -4,9 +4,12 @@ import { type EmitResultJson, MAILBOX_RECORD_VERSION } from "@agentswf/contract/
 import { parseJsonSchema, validate } from "@agentswf/contract/schema";
 import {
   AWF_ID_PREFIX,
+  awfEventOf,
   eventWorkflowProblem,
+  isEventWorkflow,
   type JsonValue,
   nameProblem,
+  ParticipantReply,
 } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { exists } from "./files";
@@ -14,9 +17,10 @@ import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
 import { prepareArgs } from "./run-prepare";
+import type { RunStatus } from "./run-state";
 import { createRun, idProblem, openRun, type Run, readAttempts } from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
-import type { EventWorkflow } from "./workflow-loader";
+import { type EventWorkflow, loadWorkflowFile } from "./workflow-loader";
 
 /** An event awf refuses to take at all: a name, shape or id no run of the target could have. */
 export class EmitError extends Error {
@@ -62,6 +66,58 @@ export async function emitEvent(
       deduplicate: event.id !== undefined,
       file,
       ...(starts ? { start: { project, target } } : {}),
+    },
+    context,
+  );
+}
+
+/**
+ * `awf emit {ref} {key}:reply …`: a participant's message to the code of a run that is there,
+ * checked against the definition in the file a wake would run, its last attempt's, and delivered.
+ * It never starts a run, and doesn't ask whether the participant has connected: one sent before
+ * the run connects it waits in the mailbox for the run's next wait.
+ */
+export async function emitToRun(
+  status: RunStatus,
+  event: { name: string; data: JsonValue; id?: string },
+  context: Omit<WakeContext, "file">,
+): Promise<EmitResultJson> {
+  const { run, ref } = status;
+  const reply = awfEventOf(event.name);
+  if (reply?.kind !== "reply")
+    throw new EmitError(
+      `awf emit {run} sends a participant's message to the code, {key}:reply, not ${event.name}; the workflow's own events go by --target {file} --id {id}`,
+    );
+  if (!run.record.events) throw new EmitError(`${ref} is a run of a workflow without events`);
+  const file = status.attempts.at(-1)?.file ?? run.record.file;
+  if (file === undefined) throw new Error(`${ref} has no file to check the event against`);
+  const { workflow } = await loadWorkflowFile(file, run.record.cwd);
+  if (!isEventWorkflow(workflow) || workflow.meta.name !== run.record.workflow)
+    throw new Error(`${file} is no longer ${run.record.workflow} with events, which ${ref} ran`);
+  checkEvent(workflow, event, true);
+  return deliverReply(status, reply.key, event, context);
+}
+
+/**
+ * `{key}:reply` appended to a run that is there, and the run woken: a duplicate id is a duplicate.
+ * The caller has checked it.
+ */
+export function deliverReply(
+  status: RunStatus,
+  key: string,
+  event: { data: JsonValue; id?: string },
+  context: Omit<WakeContext, "file">,
+): Promise<EmitResultJson> {
+  const { run } = status;
+  const at = new Date(context.now?.() ?? Date.now()).toISOString();
+  const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
+  return deliver(
+    {
+      runRoot: run.root,
+      workflow: run.record.workflow,
+      runId: run.record.id,
+      event: replyRecord(key, id, event.data, at),
+      deduplicate: event.id !== undefined,
     },
     context,
   );
@@ -220,23 +276,47 @@ function fileOf(target: EventWorkflow): string {
   return target.file;
 }
 
-/** The event's name, shape and id, as the target declares them; an `EmitError` when they don't fit. */
+/**
+ * `{key}:reply`'s event as the mailbox records it: `participant:reply` from its key, whatever the
+ * workflow declares it as, so a wait takes it by one name.
+ */
+export function replyRecord(
+  key: string,
+  id: string,
+  data: JsonValue,
+  at: string,
+): Delivery["event"] {
+  return { id, name: "participant:reply", data, from: key, at };
+}
+
+/**
+ * The event's name, shape and id, as the target declares them; an `EmitError` when they don't fit.
+ * A name with a colon is awf's: only `{key}:reply`, from the operator (`replies`), is sent.
+ */
 export function checkEvent(
   target: EventWorkflow,
   event: { name: string; data: JsonValue; id?: string },
+  replies = false,
 ): void {
   const workflow = target.meta.name;
   const problem = eventWorkflowProblem(target);
   if (problem) throw new EmitError(`${workflow}: ${problem}`);
   if (target.file !== undefined && !isAbsolute(target.file))
     throw new EmitError(`${workflow}: its file, ${target.file}, is import.meta.path, absolute`);
-  if (event.name.includes(":"))
-    throw new EmitError(`${event.name}: a name with a colon is awf's own, and not sent`);
-  const schema = target.events[event.name];
-  if (!schema)
+  const reply = awfEventOf(event.name)?.kind === "reply";
+  if (event.name.includes(":") && !(replies && reply))
+    throw new EmitError(
+      reply
+        ? `${event.name}: a participant's message goes to a run that is there, awf emit ${workflow}/{id} ${event.name} '{"text":…}'`
+        : `${event.name}: a name with a colon is awf's own, and not sent`,
+    );
+  const declared = target.events[event.name];
+  if (!declared)
     throw new EmitError(
       `${workflow} declares no event ${event.name}; its events are ${Object.keys(target.events).join(", ")}`,
     );
+  // A reply is checked against awf's own schema, not the workflow's copy, which may be older.
+  const schema = reply ? ParticipantReply : declared;
   let parsed: ReturnType<typeof parseJsonSchema>;
   try {
     parsed = parseJsonSchema(schema);

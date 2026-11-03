@@ -9,8 +9,7 @@ const asked = {
 const writer = answer(Nudge, { text: "Any thoughts on the index?" });
 const reply = (during: string, text: string) => ({
   during,
-  name: "participant:reply" as const,
-  from: "engineer",
+  name: "engineer:reply" as const,
   data: { text },
 });
 const HOUR = 3_600_000;

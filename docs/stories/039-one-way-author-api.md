@@ -201,7 +201,7 @@ Betas from the design's §8 in brackets.
 - [x] 4. Agents: `CallerRef`, `runtime` on fork, `agent.close()` (B)
 - [x] 5. One duration and `timeout` in the API (B)
 - [x] 6. One `testWorkflow` signature (B)
-- [ ] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
+- [x] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
 - [ ] 8. Durations and one word per state on the CLI and the wire (D)
 - [ ] 9. Pane workspace and keeping panes move to the operator (E)
 - [ ] 10. What tasks 1–9 deprecated is removed (F)
@@ -426,14 +426,14 @@ Outcome: a reader of a workflow's definition sees everything that can wake its r
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -539,6 +539,10 @@ Work:
 - Remove every deprecated name, each at least one beta after the beta that deprecated it.
 - Remove `awf send --event-id`, and the bare-number `--wait`.
 - A key with a colon is refused when the agent or participant opens, with the reason.
+- Agent keys made at run time: `site/patterns/review-on-event` opens `reviewer#2`, `reviewer#3`
+  after a failed turn, and no fixed `events` declares their `{key}:ended` without the wildcard 034
+  dropped. Decide before the refusal lands: a pattern that doesn't start a new key, or a declared
+  name a family of keys shares. **Needs the human's decision.**
 - Cost grouping: a run without stages groups agents by the key's part before a colon (`grouping:
   "prefix"`, a record value). With colons refused, decide whether it groups at `-`, which regroups
   existing hyphenated keys, or becomes one row per agent under a new value.
@@ -693,6 +697,40 @@ Correctness and proof review:
 - Options must be a plain object; the key check runs before the `kind` check, naming the key.
 
 Engine tests that still call the deprecated forms move with task 10.
+
+### Task 7
+
+Transition, decided: throwing at once in `start()` without a declared `{key}:ended` would break
+every workflow with events that starts a turn today, with no beta between. It throws only in a
+workflow that declares some `{key}:ended`, which no workflow before this task could; elsewhere it
+is deprecated and logged, and task 10 makes it throw. `to: "code"` follows the same rule.
+
+Architecture and scope review:
+- The shipped coordinator skill still taught `awf send --event-id`; it teaches `awf emit` now.
+- Accepting awf's two event names only when their schema equals the engine's literal tied every
+  workflow to one version of it. They are recognised by `$id` instead, and a reply is checked
+  against the engine's own schema.
+- `awf send --event-id` stopped working without the run's file; a participant connected to the
+  code is again delivered without loading it.
+- The `awf emit {ref}` form had grown to take any event: it takes only `{key}:reply`, and the
+  `--target` form refuses one.
+- A misspelled `{key}:ended` type-checked; it no longer does.
+- `wf.signal` on an agent's end, a second way to wait on it, is refused.
+- The mailbox's record names are documented as permanent.
+
+Correctness and proof review:
+- A reused stage around a wait handed back awf's record names where attempt 1 handed out the
+  declared ones; every path now presents the declared name.
+- `start()`'s error for a colon key now says to rename it.
+
+A targeted re-review found:
+- A compile break: a `to: "code"` spec held in a variable matched the plain `connect` overload.
+  The deprecated overload now comes first.
+- `agent.is` narrowed a loosely typed event wider than before; it narrows as it did.
+- `awf send --event-id` exited 3 where it had refused with exit 1; it refuses again.
+
+Not run: the live check of a participant routed to the code (one cheap model turn). Its commands
+are in the task 7 notes.
 
 ## Readiness
 
@@ -1062,6 +1100,162 @@ As built, after review:
   of `null | { x }` optional, array args required, and given second in the deprecated form; the
   deprecated forms compile). Every example test, the `awf init` template's and the site's samples
   use the one form, rewritten by a codemod and checked by `tsc`.
+
+### Task 7
+
+Plan, settled before coding:
+
+- **The mailbox keeps awf's record names; the runner presents the declared one.** A reply is
+  still appended as `participant:reply` and an end as `agent:ended`, each `from` its key, and every
+  take and match works on those, as today. What the code is handed, by `receive`, `race`, `select`
+  and a stage's batch, is the event under `{from}:reply` or `{from}:ended` when the workflow
+  declares that name, and under the old name otherwise. `matches` reads a presented name as its
+  record name, so `agent.is(e)`, a turn's `is` and `branchOf` work on either. No record changes,
+  and a run parked across the upgrade, or an end a later attempt recovers, has one spelling.
+  Rejected: appending the declared name. Each writer (the CLI, recovery, a test) would read the
+  definition to choose it, and a reply or end appended under the old name before the code
+  declared the new one would be under the other: two spellings of one event in one record, which
+  the matching would have to fold anyway.
+- **Declaring.** `events` takes `{key}:reply: ParticipantReply` and `{key}:ended: AgentEnded`,
+  split at the one colon, the key without one. `ParticipantReply` and `AgentEnded` are values in
+  the contract, plain JSON Schema object literals (pure; no TypeBox), each with a type-only brand,
+  and still the types they were. `DeclaredEvents<Events>` replaces `NoColonNames` in
+  `defineWorkflow`: any other colon name, or an awf name with another schema, is `never`, so `tsc`
+  refuses it. At load, `eventWorkflowProblem` refuses the same for a file `tsc` never saw (the
+  schema compared by `canonicalSchema`), and an awf name in `starts`. `starts`, `wf.emit` and
+  `started` take only the workflow's own names. `wf.signal("thread:reply")` is a source of that
+  participant's replies, the way to race one now that a `ParticipantRef` is not a source; like any
+  signal it hands back the whole event.
+- **`ParticipantRef` is `post` and `release`** for every participant. `CodeParticipantSpec`,
+  `CodeParticipantRef` and `CodeParticipantDirectory` are `@deprecated`, as is `connect`'s
+  `to: "code"` overload. `is(e)` on a participant is `@deprecated` and logs `participant-is`.
+- **The transition** (the deprecation rule: what works today keeps working for a beta, logged):
+  - `to: "code"` with `{key}:reply` declared works as the declaration alone, logging `to-code`.
+  - `to: "code"` without it, in a workflow that declares no `{key}:reply` at all: as today, its
+    replies presented as `participant:reply`, logging `to-code` with the name to declare. In a
+    workflow that declares some `{key}:reply`, it throws, naming the declaration: that workflow
+    has moved to the new form, and nothing written before this task can declare one (a colon name
+    failed `tsc` and the loader).
+  - `start()` with `{key}:ended` declared: the end is presented under it. Without, in a workflow
+    that declares no `{key}:ended` at all: as today, presented as `agent:ended`, logging
+    `undeclared-ended` per key. In a workflow that declares some `{key}:ended`, it throws.
+  - So the Done-when's "start() throws" holds for every workflow that declares an end, and is a
+    deprecation for one that declares none, which task 10 turns into the throw. **Decision for
+    review**: the story says it throws outright; that would break every workflow with events that
+    calls `start()` today (the Datadog watcher's investigator, the sketches) with no beta between,
+    against the deprecation rule.
+  - The record `participant-connected` keeps `to: "code"`, now for a participant whose replies go
+    to the code by either form, so `awf logs` and `awf send --event-id` read it as before.
+- **`awf emit {ref} {name} [{json}] [--event-id {id}]`**: the run found by its ref as `awf send`
+  finds one (here, then the projects awf knows), the event checked against the definition in the
+  file its last attempt ran, as a wake would run it, and delivered by `deliver`. It never starts a
+  run. `{key}:reply` must be declared, else refused (exit 2) listing the declared names, and its
+  data must fit `ParticipantReply`; it is appended as `participant:reply` from `key`, its id the
+  `--event-id` given (the message's own id, so a resend is a duplicate) or awf's random one. An
+  `{key}:ended` is refused: only awf sends one. The `--target --id` form takes `{key}:reply` too,
+  never as a start. `wf.emit` refuses every colon name: a run speaks for no participant.
+- **`awf send --event-id`** forwards: it prints that it is deprecated once on stderr, naming the
+  `awf emit` command, then delivers through the same function: as `{as}:reply` when the run's
+  definition declares it, else as before for a participant connected `to: "code"`, else refused
+  `no-participant`. Its output and exit codes stay `send`'s, which existing callers parse.
+- **A route's `timeout` on any route.** The refusal goes; a question to an agent closes unanswered
+  after the route's timeout as one to an outside participant does, the asker's shorter `--timeout`
+  winning. Records unchanged (`timeoutMs`).
+- **Tests' scripted events** take `{ during, name: "thread:reply", data }`, checked as `awf emit`
+  checks one. `{ name: "participant:reply", from }` still works, logging `test-participant-reply`.
+
+Proof: an e2e test (a workflow declaring `thread:reply`, replies by `awf emit {ref}`, live and
+parked, received under that name; an undeclared participant's reply refused listing the names;
+data that doesn't fit refused); the old e2e test kept for `awf send --event-id`, which now also
+logs its replacement; runner tests for each transition branch and for `{key}:ended` received
+under its name; a workflow-testing test for both; a messaging test for an agent-to-agent route's
+timeout; the typecheck fixtures for the declarations.
+
+As built:
+
+- **Where the name changes.** `sources.ts` holds both directions: `presented(event, declared)`,
+  applied once, to what `#holdingWait` returns, so `receive`, `race`, `select` and a stage's batch
+  all hand back the declared name, and to the batch a reused stage around a wait returns
+  (`batchOf`), so no path hands out a record name for a declared one; and `recordName(event)`,
+  which `matches` reads, so a take recorded as `agent:ended` from `fixer` takes `fixer:ended` too.
+  A signal is marked when made (`signalOf`), and a race's or select's branch on one hands back the
+  whole event, where an agent's or timer's hands back its data, as before.
+  `wf.signal("{key}:reply")` takes `{ name: "participant:reply", from: key }`;
+  `wf.signal("{key}:ended")` fails `tsc` and throws, pointing to the agent as the source: one way
+  to wait on an end.
+- **Types.** `AgentEndedEvent` keeps the name `agent:ended` (deprecated); a declared end is one of
+  the workflow's own events, so a misspelled `e.name === "fxier:ended"` fails `tsc`. `agent.is(e)`
+  narrows to `e`'s own type intersected with `AgentEndOf<E, Meta, T>`: for one of a run's events,
+  the agent's end under either name, the declared `{key}:ended` or `agent:ended`; for an event
+  typed loosely (`WorkflowEvent<string, JsonValue>`, `EventLike`), to `AgentEndedEvent` as before
+  the task, so code that hands it to a function taking `AgentEndedEvent<Batch>` still compiles.
+  Given explicit type arguments, `is<Batch>(e)`, `E` can't be inferred and it narrows as before
+  too, which for a declared end types its name as `agent:ended` while it arrives as
+  `{key}:ended`: accepted, as at HEAD. A deprecated `CodeParticipantRef.is` narrows the same way
+  (`ParticipantReplyOf<E>`), so with `{key}:reply` declared beside `to: "code"` the narrowed name
+  is `{key}:reply` or `participant:reply`, not a lie. The deprecated `connect(CodeParticipantSpec)`
+  overload comes first (a second declaration of `ParticipantDirectory`, whose members merge
+  ahead), so a `to: "code"` spec held in a typed variable still gets a `CodeParticipantRef`.
+- **Schema identity by `$id`.** `ParticipantReply` and `AgentEnded` carry `$id`
+  `agentswf:ParticipantReply` and `agentswf:AgentEnded`. `tsc` (through the schema types) and the
+  loader (`eventWorkflowProblem`) accept an awf name only with that `$id`, since the workflow's
+  installed `agentswf` may be another version than the awf loading it. A reply's data is always
+  checked against the engine's own `ParticipantReply`, never the workflow's copy. Rejected:
+  comparing the schema's canonical JSON with the engine's, which a version bump of either would
+  break.
+- **Checks.** `start()` asks its agent's `turns.checkDeclared()` before anything is recorded;
+  `connect` checks `to: "code"` as above. Both read the run's `declared` set, which the runner
+  already held for `signal`. For a key with a colon, the throw and the deprecation say to rename
+  the key (`fix:er` to `fix-er`), not to declare `fix:er:ended`.
+- **`awf emit`.** The ref form, `emitToRun(status, event, context)` in `emit.ts`, takes only
+  `{key}:reply` (design §7): it loads the run's last attempt's file (or `run.json`'s), refuses one
+  that is no longer that workflow with events, checks the event (`checkEvent` with `replies` on),
+  and delivers through `deliverReply`. It checks the definition alone, not whether the participant
+  has connected: one sent before the run connects it waits in the mailbox for the next wait. The
+  `--target --id` form and `wf.emit` take only the workflow's own events; a `{key}:reply` there is
+  refused, pointing to the ref form. A run whose file no longer declares the reply refuses it
+  (exit 2); one whose file is gone fails to load (exit 1).
+- **`awf send --event-id`** keeps its beta behaviour: a participant the run never connected is
+  refused `no-participant` (exit 1), as before; one the run recorded as connected `to: "code"`
+  (declared or the deprecated form) gets the reply through `deliverReply` without loading the
+  workflow file, as before; any other connected participant goes through `emitToRun`, and any
+  error from it, a file that won't load included, becomes `no-participant` (exit 1) with the
+  reason, as that case was refused before. It prints its replacement on stderr once.
+- **Testing.** A scripted `{key}:reply` goes through `checkEvent(workflow, event, true)` and is
+  built by `replyRecord`, the one writer `awf emit` uses too; no `author` is filled in (the old
+  form still fills `engineer`).
+- **Docs.** The coordinator skill (`packages/engine/skills/awf-coordinator/SKILL.md`) teaches
+  `awf emit {ref} {key}:reply … --json`; `records.ts` says the mailbox keeps `participant:reply`
+  and `agent:ended` as its names for good (task 10 doesn't remove them), and that `post` is to any
+  participant.
+- **Route timeout.** `Messaging.grant` no longer refuses it; `#ask` takes the route's limit for
+  any recipient, and sets `closes` for any, so a question to an agent ends `timed-out` with "the
+  question closed unanswered after …". `openQuestions` and `awf inbox` still list only outside
+  participants'.
+- **Examples.** `approval-reminders`, `nudges`, the site's `testing-api` and `workflow-api`
+  samples and `event-sketches/dd-case` declare `{key}:reply` (and the sketch and the guide's
+  race `{key}:ended`) and race `wf.signal(…)`; their tests script `{ name: "{key}:reply" }`.
+  `site/patterns/review-on-event` is left on the deprecated `start()`: it opens `reviewer#2`,
+  `reviewer#3`, … after a failed turn, keys the code makes, which no fixed `events` can declare
+  without the `*:ended` wildcard the design dropped. **Open for task 10**: such a workflow either
+  reuses one key (a closed key can't be reopened today) or declares a bounded set; task 10's
+  refusal breaks it otherwise.
+- Proof added after review: a declared reply taken in a stage around `receive`, then reused by
+  the next attempt, has the same name (`deprecations.test.ts`); an undeclared participant's answer
+  reaches the asking agent with no mailbox event (`event-testing.test.ts`); `awf emit {ref}` to a
+  run whose file no longer declares the reply (2) or is gone (1), an own event by ref and a reply
+  by `--target` refused, and `send --event-id` for a declared participant never connected refused
+  (`participant-e2e.test.ts`); `wf.signal("{key}:ended")`, a colon key's `start()`, and the
+  misspelled end and signal of an end in the typecheck fixture.
+- **Live check to return to** (one cheap model turn; not run): the approval example, started by
+  an event and approved by a declared reply:
+
+  ```sh
+  awf emit --target examples/approval-reminders/workflow.ts --id doc-1 doc.submitted \
+    '{"doc":"doc-1","remindEvery":"1m","expiresIn":"10m"}'
+  awf emit approval/doc-1 approvals:reply '{"text":"approved","author":"dana"}' --event-id m1
+  awf runs approval/doc-1   # completed, { ended: "approved", by: "dana" }
+  ```
 
 ## Human review
 

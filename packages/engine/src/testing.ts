@@ -80,7 +80,7 @@ const Changes: OutputSchema<{ case: string }> = {
   properties: { case: { type: "string" } },
   required: ["case"],
 };
-const caseEvents = { "dd.changes": Changes };
+export const caseEvents = { "dd.changes": Changes };
 
 /** A workflow with one event, `dd.changes`, keyed by its case, whose body is `run`. */
 export const caseRun = (

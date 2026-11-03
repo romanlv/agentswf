@@ -1,5 +1,5 @@
 import { reportDeprecated } from "./deprecated";
-import type { AgentEnded, AgentEndedEvent, Matched } from "./events";
+import type { AgentEnded, AgentEndOf } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
@@ -440,9 +440,11 @@ export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValu
 export interface StartedTurn extends Source<Taken<AgentEnded>> {
   readonly id: TurnId;
   /** @deprecated Use `agent.is(e)`: an agent has at most one started turn. */
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
-    event: EventLike,
-  ): event is AgentEndedEvent<Meta, T> & Matched;
+  is<
+    Meta extends JsonValue = JsonValue,
+    T extends JsonValue = JsonValue,
+    E extends EventLike = EventLike,
+  >(event: E): event is E & AgentEndOf<E, Meta, T>;
   /**
    * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
    * it had ended already.
@@ -568,12 +570,14 @@ export interface CallerRef extends PeerRef, Source<Taken<AgentEnded>> {
    */
   start(spec: AgentStartSpec): Promise<StartedTurn>;
   /**
-   * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
+   * True for this agent's end, `{key}:ended` or `agent:ended`, narrowing its data to the `meta` the code started the
    * turn with and the outcome its `schema` gives.
    */
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
-    event: EventLike,
-  ): event is AgentEndedEvent<Meta, T> & Matched;
+  is<
+    Meta extends JsonValue = JsonValue,
+    T extends JsonValue = JsonValue,
+    E extends EventLike = EventLike,
+  >(event: E): event is E & AgentEndOf<E, Meta, T>;
   /**
    * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
    * where `keepPane` says, kept and released (ADR 0008); the calling session is handed back to the

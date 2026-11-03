@@ -2,7 +2,8 @@ import { homedir } from "node:os";
 import type { ParticipantResultJson } from "@agentswf/contract/records";
 import { type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
 import { liveCoordinatorSocket } from "./coordinator-socket";
-import { deliver, eventIdProblem } from "./emit";
+import { deprecationLine } from "./deprecations";
+import { deliverReply, emitToRun, eventIdProblem } from "./emit";
 import { printEmit } from "./emit-command";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
@@ -221,9 +222,11 @@ async function awaitedBy(
 }
 
 /**
- * `awf send {ref} --as {participant} --event-id {message id} {text}`: a reply on a participant the run
- * routed to the code, delivered through the one way in as `participant:reply`, so it continues a
- * parked run. The run is found here, or in a project awf started an event run in (Q15).
+ * `awf send {ref} --as {participant} --event-id {message id} {text}`, deprecated: `awf emit {ref}
+ * {participant}:reply`. It keeps its own refusals and exit codes for the beta: a participant the
+ * run never connected is refused; one the run recorded as routed to the code, declared or by the
+ * deprecated `to: "code"`, gets the reply as before, the workflow's file not loaded; any other is
+ * `awf emit`'s to check against the definition.
  */
 async function toTheCode(
   options: Extract<Options, { id: string }>,
@@ -236,6 +239,7 @@ async function toTheCode(
   const environment = io.environment ?? process.env;
   const { id, as } = options;
   const { refused } = say;
+  io.stderr(deprecationLine("send-event-id"));
   let found: RunStatus;
   try {
     found = await findRunByRef(options.ref, place, home);
@@ -243,37 +247,37 @@ async function toTheCode(
     if (error instanceof RunNotFound) return refused("not-found", error.message);
     return failed(error, place, io, messageOf(error));
   }
-  const { run } = found;
-  const routed = (await readEvents(run.dir)).some(
-    (line) =>
-      line.kind === "participant-connected" && line.participant === as && line.to === "code",
+  const connected = (await readEvents(found.run.dir)).filter(
+    (line) => line.kind === "participant-connected" && line.participant === as,
   );
-  if (!run.record.events || !routed)
+  // As it always did: only a participant the run has connected; `awf emit` doesn't ask.
+  if (!found.run.record.events || connected.length === 0)
     return refused(
       "no-participant",
-      `${found.ref} has no participant ${as} routed to its code; --event-id is for one`,
+      `${found.ref} has no participant ${as} connected to its code; --event-id is for one`,
     );
   const text = options.text ?? (await io.stdin());
   if (text.trim() === "") return say.usage("nothing to say: stdin was empty");
-  try {
-    const result = await deliver(
-      {
-        runRoot: run.root,
-        workflow: run.record.workflow,
-        runId: run.record.id,
-        event: {
-          id,
-          name: "participant:reply",
-          data: { text, ...(options.author === undefined ? {} : { author: options.author }) },
-          from: as,
-          at: new Date().toISOString(),
-        },
-        deduplicate: true,
-      },
-      { home, environment },
-    );
-    return printEmit(result, json, io);
-  } catch (error) {
-    return failed(error, place, io, messageOf(error));
+  const data = { text, ...(options.author === undefined ? {} : { author: options.author }) };
+  const context = { home, environment };
+  // Recorded as routed to the code, by either form: delivered as before, the file not loaded.
+  if (connected.some((line) => line.kind === "participant-connected" && line.to)) {
+    try {
+      return printEmit(await deliverReply(found, as, { data, id }, context), json, io);
+    } catch (error) {
+      return failed(error, place, io, messageOf(error));
+    }
   }
+  // Connected to agents only, which send has always refused: whatever stops `awf emit`, a file
+  // that won't load included, is that refusal, with its reason.
+  let result: Awaited<ReturnType<typeof emitToRun>>;
+  try {
+    result = await emitToRun(found, { name: `${as}:reply`, data, id }, context);
+  } catch (error) {
+    return refused(
+      "no-participant",
+      `${found.ref} has no participant ${as} whose messages go to its code: ${messageOf(error)}`,
+    );
+  }
+  return printEmit(result, json, io);
 }

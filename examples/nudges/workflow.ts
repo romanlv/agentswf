@@ -1,4 +1,4 @@
-import { type Duration, defineWorkflow } from "agentswf/workflow";
+import { type Duration, defineWorkflow, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 import { Ledger } from "./ledger";
@@ -31,7 +31,7 @@ export default defineWorkflow({
     description: "Asks the engineer a question, nudging until it is answered.",
   },
   file: import.meta.path,
-  events: { "question.asked": Asked },
+  events: { "question.asked": Asked, "engineer:reply": ParticipantReply },
   starts: ["question.asked"],
   async run(wf) {
     const asked = wf.started;
@@ -40,7 +40,7 @@ export default defineWorkflow({
     const ledger = await Ledger.open(`${wf.cwd}/.nudges/${wf.runId}.json`, () =>
       wf.after(nudgeAfter as Duration),
     );
-    const engineer = await wf.participants.connect({ key: "engineer", to: "code" });
+    const engineer = await wf.participants.connect({ key: "engineer" });
     await wf.stage("ask", () => engineer.post(question));
     const writer = await wf.agents.open({
       key: "writer",
@@ -48,17 +48,17 @@ export default defineWorkflow({
     });
     // #region select
     for await (const next of wf.select(
-      { reply: engineer, nudge: wf.at(() => ledger.nextNudge()) },
+      { reply: wf.signal("engineer:reply"), nudge: wf.at(() => ledger.nextNudge()) },
       { label: () => `awaiting an answer, ${ledger.nudges} nudged` },
     )) {
       if (next.reply) {
         // A stand-in for reading a reply: one that starts "later" asks for time.
-        if (/^later\b/i.test(next.reply.text.trim())) {
+        if (/^later\b/i.test(next.reply.data.text.trim())) {
           await ledger.putOff(wf.after(putOff as Duration));
           continue;
         }
         await ledger.answered();
-        return { answer: next.reply.text, nudges: ledger.nudges };
+        return { answer: next.reply.data.text, nudges: ledger.nudges };
       }
       if (next.nudge) {
         const n = ledger.nudges + 1;
