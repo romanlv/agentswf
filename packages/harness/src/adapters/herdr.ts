@@ -972,7 +972,7 @@ export function createHerdrRunHostFactory(
             let got = await herdr(["agent", "get", agentName]);
             for (let check = 1; !got.ok && check < MISSING_CHECKS; check++) {
               if (!hasHerdrErrorCode(got.error, "agent_not_found")) break;
-              await Bun.sleep(RECORD_CATCH_UP_MS);
+              await Bun.sleep(config.untakenMs ?? UNTAKEN_MS);
               got = await herdr(["agent", "get", agentName]);
             }
             if (!got.ok) return false;
@@ -1020,8 +1020,16 @@ export function createHerdrRunHostFactory(
                 ["agent", "read", agentName, "--source", "detection"],
                 config.commandTimeoutMs,
               );
-              if (read.ok && heldInInput(read.stdout, untaken))
-                return "its prompt is still unsent in its input";
+              // Held on two looks running, as a loaded screen lags its record.
+              if (read.ok && heldInInput(read.stdout, untaken)) {
+                await Bun.sleep(RECORD_CATCH_UP_MS);
+                const again = await herdr(
+                  ["agent", "read", agentName, "--source", "detection"],
+                  config.commandTimeoutMs,
+                );
+                if ((!turn || !turn.accepted) && again.ok && heldInInput(again.stdout, untaken))
+                  return "its prompt is still unsent in its input";
+              }
             }
             const busy = await settle(
               agentName,
@@ -1305,11 +1313,12 @@ export function createHerdrRunHostFactory(
           const closeCurrentPane = async (): Promise<void> => {
             const closing = pane;
             if (!closing) return;
+            // Its turn is read no more, whether the pane closes or not.
+            dropTurn();
             await placing.close(closing);
             if (pane === closing) {
               pane = undefined;
               current = undefined;
-              dropTurn();
             }
           };
 
@@ -1322,6 +1331,14 @@ export function createHerdrRunHostFactory(
             deadline: { unixMilliseconds: number },
             signal: AbortSignal,
           ): Promise<NativeTurnOutcome | undefined> => {
+            // A turn its harness took in whose record then failed: Herdr, which may never have
+            // seen it, cannot say it is over.
+            if (turn?.accepted && turn.end && "failed" in turn.end) {
+              return localOutcome(
+                "failed",
+                `its harness's record could not be read: ${turn.end.failed}`,
+              );
+            }
             if (!recordSpeaks(turn)) {
               const busy = await settleAgent(herdr, agentName, deadline.unixMilliseconds, signal);
               if (!busy) herdrBehind = false;
@@ -1329,10 +1346,16 @@ export function createHerdrRunHostFactory(
             }
             const ended = await untilEnded(turn, deadline.unixMilliseconds, signal);
             if ("outcome" in ended) return ended.outcome;
-            // A dialog can follow the turn's end, as claude's setup offers did.
-            const got = await herdr(["agent", "get", agentName], undefined, signal);
-            if (signal.aborted) return localOutcome("cancelled", "pane operation cancelled");
-            return blockedBy(got);
+            // A dialog can follow the turn's end, as claude's setup offers did; one shown only a
+            // moment is no dialog.
+            const dialog = async () => {
+              const got = await herdr(["agent", "get", agentName], undefined, signal);
+              return blockedBy(got);
+            };
+            if (!(await dialog())) return undefined;
+            if (!(await abortableDelay(RECORD_CATCH_UP_MS, signal)))
+              return localOutcome("cancelled", "pane operation cancelled");
+            return dialog();
           };
 
           /**
@@ -1470,7 +1493,18 @@ export function createHerdrRunHostFactory(
               const begun = abortableDelay(
                 Math.max(0, Math.min(remaining(), config.compactionGraceMs ?? COMPACTION_GRACE_MS)),
                 reading.signal,
-              ).then(() => (started ? new Promise<boolean>(() => {}) : false));
+              ).then((again) =>
+                // Begun, it is given as long again to end, then the screen says.
+                again && started
+                  ? abortableDelay(
+                      Math.max(
+                        0,
+                        Math.min(remaining(), config.compactionGraceMs ?? COMPACTION_GRACE_MS),
+                      ),
+                      reading.signal,
+                    ).then(() => false)
+                  : false,
+              );
               const inRecord = recorded
                 ? await Promise.race([recorded, shownOnScreen(), begun])
                 : false;
