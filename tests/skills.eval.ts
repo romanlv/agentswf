@@ -11,7 +11,7 @@ import {
 } from "../examples/skills-probe/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, interruption, loadFromDotEnv } from "./live";
 
 /**
  * Agents given skills, and using them, live (story 007): codex, pi and a claude pane on the host,
@@ -159,6 +159,8 @@ async function findReceipts(root: string): Promise<Receipt[]> {
 
 if (import.meta.main) {
   assertLiveOptIn();
+  // A sandboxed cursor logs in with an API key, its own login being in the keychain.
+  await loadFromDotEnv("CURSOR_API_KEY");
   const workDir = await mkdtemp(join(tmpdir(), "awf-skills-"));
   const stampName = `awf-stamp-${randomBytes(3).toString("hex")}`;
   const sealName = `awf-seal-${randomBytes(3).toString("hex")}`;

@@ -157,8 +157,9 @@ What they cover between them:
   Each agent must make its own probe's value for its own build id and not the other's, leave the
   script's receipt in its own copy and none in a source or snapshot, list its own probe and none of
   the operator's skills; `output.json` must record each, the git-sourced probe with its commit.
-  `tests/skills-eval.test.ts` checks these checks for free. 5 agents, ~40 s, ~$0.08, on
-  subscriptions; srt must be installed.
+  `tests/skills-eval.test.ts` checks these checks for free. 6 agents, ~40 s, ~$0.08, on
+  subscriptions; srt must be installed, and the sandboxed cursor needs `CURSOR_API_KEY`, from the
+  environment or `.env`.
 - `review-judge` — the panel judge (story 008; since story 011 match first with nothing settled, which
   `match-first` scorers can also run as `--sure 1`) through `awf run`, on a synthetic fixture: a
   two-file change with two planted issues, a hand-written key, and six findings with known labels.

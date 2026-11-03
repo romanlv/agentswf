@@ -8,7 +8,7 @@ import type { SandboxEnvironmentKey } from "../packages/contract/src/workflow";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { installSandboxes } from "../packages/engine/src/operator-runtime";
 import { findDocker, imageBuildCommand } from "../packages/sandbox/src/docker";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, interruption, loadFromDotEnv } from "./live";
 
 /**
  * The sandbox probe, run for real under one provider (story 004, Task 4): codex and claude share
@@ -392,7 +392,8 @@ export async function runProbe(
     console.log(JSON.stringify({ ok: false, failed: [environment], reason: unready }, null, 2));
     process.exit(1);
   }
-  await loadClaudeToken();
+  // claude runs on a setup token in a sandbox.
+  await loadFromDotEnv("CLAUDE_CODE_OAUTH_TOKEN");
   const work = await realpath(await mkdtemp(join(tmpdir(), `awf-sandbox-${environment}-`)));
   const repo = join(work, "repo");
   const runs = join(work, "runs");
@@ -473,18 +474,6 @@ export async function runProbe(
     ),
   );
   if (failed.length > 0) process.exitCode = 1;
-}
-
-/** claude runs on a setup token in a sandbox; the repository's git-ignored `.env` may hold it. */
-async function loadClaudeToken(): Promise<void> {
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return;
-  const env = await readFile(join(import.meta.dir, "..", ".env"), "utf8").catch(() => "");
-  const line = env.split("\n").find((entry) => entry.startsWith("CLAUDE_CODE_OAUTH_TOKEN="));
-  const value = line
-    ?.slice(line.indexOf("=") + 1)
-    .replace(/^["']|["']$/g, "")
-    .trim();
-  if (value) process.env.CLAUDE_CODE_OAUTH_TOKEN = value;
 }
 
 /** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */
