@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { claudeActivity } from "../activity/rows";
 import { count, jsonLines, record, reported, text } from "../json";
+import { claudeTurnPlace, createClaudeReceiptReducer } from "../turns/claude";
 import { readClaudeAllowance } from "../usage/allowance";
 import { readClaudeBilling } from "../usage/billing";
 import {
@@ -196,6 +197,11 @@ const CLAUDE = {
     readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
   sessionFiles: (home, session, cwd) => claudeSessionFiles(home, session, cwd),
   activityRow: claudeActivity,
+  turnRecord: {
+    place: (cwd, _since, home, session) => claudeTurnPlace(cwd, home, session),
+    reducer: createClaudeReceiptReducer,
+    session: (file) => basename(file, ".jsonl"),
+  },
   findSession: (marker, since, cwd, home) => findClaudeSession(marker, since, cwd, home),
   homeSessions: async (home) =>
     (await ownFiles(home, claudeProjectsDirectory(home)))

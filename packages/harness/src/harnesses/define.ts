@@ -3,6 +3,7 @@ import type { Effort } from "@agentswf/contract/workflow";
 import type { ActivityLine } from "../activity/read";
 import type { Holding, RunProcess } from "../command";
 import type { Row } from "../json";
+import type { TurnRecordPlace, TurnReducer } from "../turns/record";
 import type { AllowanceRead } from "../usage/allowance";
 import type { SessionRead, UsageRecord } from "../usage/records";
 import type { LoginCheck } from "./login";
@@ -231,6 +232,17 @@ export type HarnessSpec = {
    * where its default sandbox does not (E8).
    */
   localSockets?: string;
+  /**
+   * Where a pane's turn is recorded as it runs, read for its start and end in place of Herdr's
+   * screen, which with many panes busy misses a turn or shows it late (story concurrent-agents).
+   * `session` is the one the prompt goes to, where known; `since`, when its harness launched.
+   */
+  turnRecord?: {
+    place(cwd: string, since: number, home?: string, session?: string): Promise<TurnRecordPlace>;
+    reducer(marker: string, lead?: string): TurnReducer;
+    /** The session a file of its place is, by its path there. */
+    session(file: string): string | undefined;
+  };
   /**
    * What its screen shows once the operator stops a turn, where that can be told apart (story 014,
    * E8's follow-up). Absent, an interrupted turn looks like one that ended without answering.

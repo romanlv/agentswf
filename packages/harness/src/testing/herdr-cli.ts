@@ -1,5 +1,6 @@
 import { HERDR_VERSION } from "../adapters/herdr";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
+import { recordTurn } from "./turn-records";
 
 /**
  * A Herdr CLI model for adapter tests.
@@ -11,7 +12,8 @@ import type { ProcessInput, ProcessResult, RunProcess } from "../command";
  * TUI, and left on the screen after it is answered; startup raises a queue of blocks whose keys
  * are not interchangeable; `agent wait` answers for a blocked agent as readily as a ready one; and
  * an agent reports ready before its UI accepts input, discarding a prompt submitted into that
- * window. A command outside that answers an empty success, exactly as the stubs did.
+ * window. A delivered prompt is recorded as claude and codex record a turn, in the homes their
+ * variables name. A command outside that answers an empty success, exactly as the stubs did.
  */
 export type StartupBlock = "trust" | "update";
 
@@ -396,6 +398,8 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
           );
         }
         agent.delivered.push(argv[6] ?? "");
+        // The harness records the turn it ran, where awf reads it, under a delivery marker.
+        if (argv[6]?.startsWith("[awf-delivery:")) recordTurn(argv[6], `session-${target}`);
         return ok(agentInfo(target, "done"));
       }
       default:
