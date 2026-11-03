@@ -359,8 +359,8 @@ export function assertNativeEvidence(outcomes: NativeOutcomeEvidence[]): void {
   }
   const completed = new Map(outcomes.map((outcome) => [outcome.agent, outcome]));
   if (
-    completed.get("reviewer:correctness")?.harness !== "claude" ||
-    completed.get("reviewer:maintainability")?.harness !== "codex"
+    completed.get("reviewer-correctness")?.harness !== "claude" ||
+    completed.get("reviewer-maintainability")?.harness !== "codex"
   ) {
     const observed = outcomes
       .map((outcome) => `${outcome.agent}:${outcome.harness}:${outcome.state}`)

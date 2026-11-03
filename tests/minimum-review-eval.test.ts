@@ -23,7 +23,7 @@ const nativeOutcome = (
   reviewer: "correctness" | "maintainability",
   overrides: Partial<NativeOutcomeEvidence> = {},
 ): NativeOutcomeEvidence => ({
-  agent: `reviewer:${reviewer}`,
+  agent: `reviewer-${reviewer}`,
   harness: reviewer === "correctness" ? "claude" : "codex",
   operation: "turn",
   settlement: "native",
@@ -243,7 +243,7 @@ describe("minimum review live evaluation plan", () => {
         },
       };
       const evidence: Parameters<typeof observeTurn>[4] = [];
-      const observed = observeTurn(turn, "turn", "reviewer:correctness", "claude", evidence);
+      const observed = observeTurn(turn, "turn", "reviewer-correctness", "claude", evidence);
 
       if (releaseFailure === "rejected") {
         await expect(
@@ -284,7 +284,7 @@ describe("minimum review live evaluation plan", () => {
       },
     };
     const evidence: Parameters<typeof observeTurn>[4] = [];
-    const observed = observeTurn(turn, "turn", "reviewer:maintainability", "codex", evidence);
+    const observed = observeTurn(turn, "turn", "reviewer-maintainability", "codex", evidence);
     await observed.release(
       "result accepted",
       { unixMilliseconds: Date.now() + 1_000 },

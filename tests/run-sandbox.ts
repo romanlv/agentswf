@@ -178,7 +178,7 @@ export function problems(evidence: Evidence): string[] {
   if (
     quickBoxes.length !== 1 ||
     quickBox?.key !== "run" ||
-    quickBox.agents.map((a) => a.agent).join(",") !== "check:codex"
+    quickBox.agents.map((a) => a.agent).join(",") !== "check-codex"
   ) {
     found.push(
       `quick-check's record lists sandboxes ${quickBoxes.map((b) => b.key).join(", ") || "none"}`,

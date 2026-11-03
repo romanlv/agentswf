@@ -75,7 +75,9 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
       found.push(`${check.name}: the worker recalled ${worker.codename} and ${worker.release}`);
     }
     if (unread(check.name)) continue;
-    const first = record.usage.find((usage) => usage.agent === `fork:${check.name}`);
+    const first = record.usage.find(
+      (usage) => usage.agent === `fork-${check.name.replaceAll(":", "-")}`,
+    );
     const share = cachedShare(first);
     if (share === undefined || share < CACHED) {
       found.push(`${check.name}: the fork's first turn read ${share ?? "nothing"} from the cache`);
@@ -118,7 +120,11 @@ if (import.meta.main) {
         failed,
         checks: succeeded.map((check) => ({
           ...check,
-          cached: cachedShare(record?.usage.find((usage) => usage.agent === `fork:${check.name}`)),
+          cached: cachedShare(
+            record?.usage.find(
+              (usage) => usage.agent === `fork-${check.name.replaceAll(":", "-")}`,
+            ),
+          ),
         })),
         estimateUsd: record?.accounting.totals.estimate,
         artifacts: record?.artifacts,

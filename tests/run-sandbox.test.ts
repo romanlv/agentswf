@@ -62,7 +62,7 @@ function passing(provider: Provider = "srt"): Evidence {
       stderr: "",
       record: {
         outcome: "completed",
-        sandboxes: [box("run", ["check:codex"], [])],
+        sandboxes: [box("run", ["check-codex"], [])],
         value: {
           checks: [
             {
