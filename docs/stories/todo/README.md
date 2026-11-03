@@ -83,6 +83,8 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 
 ### P1
 
+- [[concurrent-agents]] — a dozen agents at once stay reliable: E4 measured, a turn read from its
+  harness's records, a limit if the numbers call for one.
 - [[woken-run-bounds]] — a woken run gets a deadline, and `awf tick` reaps an ended attempt still
   alive; one reading of liveness when `ps` can't answer.
 - [[run-record-layout]] — a run's folder designed as a whole, before leaving evaluation.
