@@ -1,24 +1,16 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { PaneLayout, PaneWorkspace } from "@agentswf/contract/workflow";
 import type { AgentRunHost } from "../adapter";
 import { createFakeHerdr, type FakeHerdr } from "../testing/herdr-cli";
+import { isolateHarnessHomes, recordTurn } from "../testing/turn-records";
 import { createHerdrRunHostFactory, type HerdrConfig } from "./herdr";
 
-let originalClaudeHome: string | undefined;
-let isolatedClaudeHome: string;
+let homes: ReturnType<typeof isolateHarnessHomes>;
 beforeAll(() => {
-  originalClaudeHome = process.env.CLAUDE_CONFIG_DIR;
-  isolatedClaudeHome = mkdtempSync(join(tmpdir(), "awf-herdr-layout-claude-"));
-  process.env.CLAUDE_CONFIG_DIR = isolatedClaudeHome;
+  homes = isolateHarnessHomes("awf-herdr-layout-");
 });
-afterAll(() => {
-  if (originalClaudeHome === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-  else process.env.CLAUDE_CONFIG_DIR = originalClaudeHome;
-  rmSync(isolatedClaudeHome, { recursive: true, force: true });
-});
+beforeEach(() => homes.fresh());
+afterAll(() => homes.restore());
 
 const CONFIG: HerdrConfig = {
   session: "awf",
@@ -318,6 +310,16 @@ describe("keeping a pane", () => {
     let busy = false;
     const working: typeof herdr.run = async (input) => {
       const verb = input.argv.slice(3, 5).join(" ");
+      // Its record shows the turn going on, and no Escape ends it.
+      if (busy && verb === "agent prompt") {
+        recordTurn(input.argv[6]!, `session-${input.argv[5]}`, { open: true });
+        return {
+          stdout: JSON.stringify({ result: { agent: { agent_status: "working" } } }),
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
       if (busy && verb === "agent wait") {
         return { stdout: "", stderr: "wait timed out", exitCode: 1, timedOut: true };
       }
@@ -339,7 +341,13 @@ describe("keeping a pane", () => {
     const lead = await open(host, "lead");
     await turn(lead, "one");
     busy = true;
+    const second = await lead.start(
+      { id: "two", prompt: "work", deadline: deadline() },
+      { endpoint: "/e.sock", operationId: "two" },
+    );
+    await Bun.sleep(300);
     await lead.close("done", { keep: true });
+    await second.settled;
     expect(calls(herdr, "agent send-keys").map((call) => call.argv.at(-1))).toEqual(["esc"]);
     expect(lead.pane?.()?.notKept).toContain("did not settle after an interrupt");
     expect(paneOf(herdr, "lead")).toBeUndefined();

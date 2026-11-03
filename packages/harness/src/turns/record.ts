@@ -1,86 +1,43 @@
 import { constants, type FSWatcher, watch as watchDirectory } from "node:fs";
 import { open, opendir } from "node:fs/promises";
 import { join } from "node:path";
-import { parseRow, record, text } from "../json";
-import { claudeProjectDirectory } from "../usage/claude";
-import { abortableDelay } from "./herdr-protocol";
+import { abortableDelay } from "../adapters/herdr-protocol";
+import { parseRow, record } from "../json";
 
 const MAX_FILES = 256;
 const MAX_BASELINE_FILES = 100_000;
 const MAX_BASELINE_NAME_BYTES = 16 * 1024 * 1024;
-const MAX_ROWS = 4096;
 const MAX_BYTES = 8 * 1024 * 1024;
 const CHUNK_BYTES = 256 * 1024;
 const POLL_MS = 100;
 const SCAN_BATCH = 64;
 
 /**
- * Only native prompt insertion and linked model output count; queued is not yet received. A prompt
- * may follow the `lead` typed before it.
+ * What a session file's rows say so far of the turn whose prompt carried the marker: the harness
+ * took the prompt in, its model answered it, the turn ended. Each holds once it does.
  */
-export function createClaudeReceiptReducer(marker: string, lead?: string) {
-  const parents = new Map<string, string | undefined>();
-  const inputs = new Set<string>();
-  let accepted = false;
-  let received = false;
-  const matches = (value: unknown) => {
-    if (typeof value !== "string") return false;
-    const prompt = lead && value.startsWith(lead) ? value.slice(lead.length) : value;
-    if (prompt.startsWith(marker)) return true;
-    // Claude wraps terminal bracketed pastes before persisting the human input.
-    const paste = /^\n\n<pasted_content id="[A-Za-z0-9]+">\n/.exec(prompt);
-    return paste !== null && prompt.slice(paste[0].length).startsWith(marker);
-  };
-  return {
-    push(value: unknown): { accepted: boolean; received: boolean } {
-      const row = record(value);
-      if (!row || row.isSidechain === true) return { accepted, received };
-      const attachment = record(row.attachment);
-      const message = record(row.message);
-      const input =
-        (row.type === "user" && matches(message?.content)) ||
-        (row.type === "attachment" &&
-          attachment?.type === "queued_command" &&
-          attachment.commandMode === "prompt" &&
-          attachment.humanTurn === true &&
-          record(attachment.origin)?.kind === "human" &&
-          matches(attachment.prompt));
-      if (
-        input ||
-        (row.type === "queue-operation" && row.operation === "enqueue" && matches(row.content))
-      ) {
-        accepted = true;
-      }
-      if (!accepted) return { accepted, received };
-      const uuid = text(row.uuid);
-      if (uuid) {
-        if (parents.has(uuid)) return { accepted, received };
-        if (parents.size >= MAX_ROWS) throw new Error("Claude receipt ancestry exceeds its bound");
-        parents.set(uuid, text(row.parentUuid));
-        if (input) inputs.add(uuid);
-        if (
-          row.type === "assistant" &&
-          message?.role === "assistant" &&
-          typeof message.model === "string" &&
-          message.model !== "<synthetic>"
-        ) {
-          let parent = text(row.parentUuid);
-          const visited = new Set<string>();
-          while (parent && !visited.has(parent)) {
-            if (inputs.has(parent)) {
-              received = true;
-              accepted = true;
-              break;
-            }
-            visited.add(parent);
-            parent = parents.get(parent);
-          }
-        }
-      }
-      return { accepted, received };
-    },
-  };
-}
+export type TurnReading = {
+  accepted: boolean;
+  received: boolean;
+  ended?: "completed" | "interrupted";
+};
+
+/** A harness's reading of one session file's rows, from the one carrying the marker on. */
+export type TurnReducer = { push(row: unknown): TurnReading };
+
+/**
+ * Where a harness writes its sessions: `root`, and its `directories`, relative, a session file in
+ * each named by its path from `root`. `known`, the file of the session the prompt goes to, where it
+ * is known: only it and files new since are read.
+ */
+export type TurnRecordPlace = { root: string; directories: readonly string[]; known?: string };
+
+/** What a watch tells, as it learns it; `ended` with the file the turn was read from. */
+export type TurnObserver = {
+  accepted(): void;
+  received(): void;
+  ended?(how: "completed" | "interrupted", file: string): void;
+};
 
 class ReceiptCapacityError extends Error {}
 
@@ -93,7 +50,7 @@ type Cursor = {
   bytes: number;
   protected: boolean;
   partial: Buffer;
-  reducer?: ReturnType<typeof createClaudeReceiptReducer>;
+  reducer?: TurnReducer;
 };
 
 function* markerRows(cursor: Cursor, data: Buffer, start: number, marker: Buffer) {
@@ -117,16 +74,20 @@ function* markerRows(cursor: Cursor, data: Buffer, start: number, marker: Buffer
   }
 }
 
-/** Historical names are discovery metadata, not live receipt cursors. */
-export async function prepareClaudeReceipt(
-  cwd: string,
+/**
+ * The session files under `place` as they are now, to read from: a file is read only past where it
+ * ended here, a file new since from its start, and the first row carrying `marker` picks the file.
+ * Historical names are discovery metadata, not live receipt cursors.
+ */
+export async function prepareTurnRecord(
+  place: TurnRecordPlace,
   marker: string,
-  home?: string,
-  options: { sessionRef?: string; signal?: AbortSignal; lead?: string } = {},
+  reducer: () => TurnReducer,
+  options: { signal?: AbortSignal } = {},
 ) {
   options.signal?.throwIfAborted();
-  const directory = await claudeProjectDirectory(cwd, home);
-  const known = options.sessionRef ? `${options.sessionRef}.jsonl` : undefined;
+  const { root: directory, known } = place;
+  const directories = [...new Set(place.directories)];
   const markerBytes = Buffer.from(marker);
   const cursors = new Map<string, Cursor>();
   const progress = new Map<string, Cursor>();
@@ -135,13 +96,15 @@ export async function prepareClaudeReceipt(
   let newNames = 0;
   const relevant = (name: string) => !known || name === known || !baseline.has(name);
   const fileNames = async function* () {
-    const entries = await opendir(directory).catch((error: unknown) => {
-      if (record(error)?.code === "ENOENT") return undefined;
-      throw error;
-    });
-    if (!entries) return;
-    for await (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith(".jsonl")) yield entry.name;
+    for (const subdirectory of directories) {
+      const entries = await opendir(join(directory, subdirectory)).catch((error: unknown) => {
+        if (record(error)?.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (!entries) continue;
+      for await (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".jsonl")) yield join(subdirectory, entry.name);
+      }
     }
   };
   const cursorFor = (name: string, inode: number, offset: number) => {
@@ -151,7 +114,7 @@ export async function prepareClaudeReceipt(
         baseline.size + ++newNames > MAX_BASELINE_FILES ||
         discoveryNameBytes > MAX_BASELINE_NAME_BYTES
       )
-        throw new ReceiptCapacityError("Claude receipt discovery history exceeds its bound");
+        throw new ReceiptCapacityError("turn record discovery history exceeds its bound");
     }
     const cursor: Cursor = {
       inode,
@@ -162,7 +125,7 @@ export async function prepareClaudeReceipt(
       bytes: 0,
       protected: name === known,
       partial: Buffer.alloc(0),
-      ...(name === known ? { reducer: createClaudeReceiptReducer(marker, options.lead) } : {}),
+      ...(name === known ? { reducer: reducer() } : {}),
     };
     progress.set(name, cursor);
     return cursor;
@@ -171,7 +134,7 @@ export async function prepareClaudeReceipt(
     options.signal?.throwIfAborted();
     discoveryNameBytes += Buffer.byteLength(name);
     if (baseline.size >= MAX_BASELINE_FILES || discoveryNameBytes > MAX_BASELINE_NAME_BYTES)
-      throw new Error("Claude receipt discovery baseline exceeds its bound");
+      throw new Error("turn record discovery baseline exceeds its bound");
     baseline.set(name, undefined);
     if (known && name !== known) continue;
     const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW).catch(
@@ -192,17 +155,21 @@ export async function prepareClaudeReceipt(
     }
   }
   return {
+    /**
+     * Reads until the model has answered, or with `observer.ended` until the turn has ended; or
+     * until `signal` or `deadline`.
+     */
     async watch(
       signal: AbortSignal,
-      onAccepted: () => void,
-      onReceived: () => void,
+      observer: TurnObserver,
       pause: (signal: AbortSignal) => Promise<boolean> = (signal) =>
         abortableDelay(POLL_MS, signal),
       deadline: () => number = () => Number.POSITIVE_INFINITY,
     ) {
       let reportedAcceptance = false;
+      let reportedReceipt = false;
       let workBytes = 0;
-      let watcher: FSWatcher | undefined;
+      const watchers = new Map<string, FSWatcher>();
       let watcherFailure: Error | undefined;
       let rescanRequested = false;
       let scan: AsyncGenerator<string> | undefined;
@@ -223,48 +190,60 @@ export async function prepareClaudeReceipt(
         if (!cursors.has(name) && cursors.size >= MAX_FILES) {
           const discard = [...cursors].find(([, entry]) => !entry.protected)?.[0];
           if (discard === undefined)
-            throw new ReceiptCapacityError("Claude protected receipt files exceed their bound");
+            throw new ReceiptCapacityError("turn record protected files exceed their bound");
           cursors.delete(discard);
           rescanRequested = true;
         }
         cursors.set(name, cursor);
       };
-      const protectedRows = (cursor: Cursor, data: Buffer): boolean => {
-        if (cursor.bytes + data.length > MAX_BYTES)
-          throw new Error("Claude receipt read exceeds its bound");
+      const protectedRows = (name: string, cursor: Cursor, data: Buffer): boolean => {
+        // Past its answer a turn may write far more, read only for its end, a chunk at a time.
+        if (!reportedReceipt && cursor.bytes + data.length > MAX_BYTES)
+          throw new Error("turn record read exceeds its bound");
         cursor.bytes += data.length;
         cursor.partial = Buffer.concat([cursor.partial, data]);
         let newline = cursor.partial.indexOf(10);
         while (newline >= 0) {
           const line = cursor.partial.subarray(0, newline).toString("utf8");
           cursor.partial = cursor.partial.subarray(newline + 1);
-          const receipt = cursor.reducer!.push(parseRow(line));
-          if (receipt.accepted && !reportedAcceptance) {
+          const reading = cursor.reducer!.push(parseRow(line));
+          if (reading.accepted && !reportedAcceptance) {
             reportedAcceptance = true;
-            onAccepted();
+            observer.accepted();
           }
-          if (receipt.received) {
-            onReceived();
+          if (reading.received && !reportedReceipt) {
+            reportedReceipt = true;
+            observer.received();
+            if (!observer.ended) return true;
+          }
+          if (reading.ended && observer.ended) {
+            observer.ended(reading.ended, name);
             return true;
           }
           newline = cursor.partial.indexOf(10);
         }
         cursor.partial = Buffer.from(cursor.partial);
         if ([...cursors.values()].reduce((sum, entry) => sum + entry.partial.length, 0) > MAX_BYTES)
-          throw new Error("Claude receipt buffered data exceeds its bound");
+          throw new Error("turn record buffered data exceeds its bound");
         return false;
       };
       try {
         while (!signal.aborted && Date.now() < deadline()) {
-          if (!watcher) {
+          for (const subdirectory of directories) {
+            if (watchers.has(subdirectory)) continue;
             try {
-              watcher = watchDirectory(directory, { persistent: false }, (_event, name) => {
-                if (name) enqueue(String(name));
-                else rescanRequested = true;
-              });
+              const watcher = watchDirectory(
+                join(directory, subdirectory),
+                { persistent: false },
+                (_event, name) => {
+                  if (name) enqueue(join(subdirectory, String(name)));
+                  else rescanRequested = true;
+                },
+              );
               watcher.on("error", (error) => {
                 watcherFailure = error;
               });
+              watchers.set(subdirectory, watcher);
               rescanRequested = true;
             } catch (error) {
               if (record(error)?.code !== "ENOENT") throw error;
@@ -337,8 +316,7 @@ export async function prepareClaudeReceipt(
                 progress.get(name) ??
                 cursorFor(name, before?.inode ?? stat.ino, before?.offset ?? 0);
               if (cursor.inode !== stat.ino || stat.size < cursor.offset) {
-                if (cursor.protected)
-                  throw new Error("Claude receipt transcript was replaced or truncated");
+                if (cursor.protected) throw new Error("turn record file was replaced or truncated");
                 cursor = cursorFor(name, stat.ino, 0);
               }
               track(name, cursor);
@@ -353,7 +331,7 @@ export async function prepareClaudeReceipt(
               if (cursor.offset < stat.size) again.push(name);
               const data = buffer.subarray(0, bytesRead);
               if (cursor.protected) {
-                if (protectedRows(cursor, data)) return;
+                if (protectedRows(name, cursor, data)) return;
               } else {
                 for (const candidate of markerRows(cursor, data, start, markerBytes)) {
                   const row = Buffer.alloc(candidate.length);
@@ -361,19 +339,21 @@ export async function prepareClaudeReceipt(
                   workBytes += read.bytesRead;
                   if (signal.aborted) return;
                   if (read.bytesRead !== candidate.length) continue;
-                  const reducer = createClaudeReceiptReducer(marker, options.lead);
-                  const receipt = reducer.push(parseRow(row.toString("utf8")));
-                  if (!receipt.accepted) continue;
+                  // One file holds the turn: a subagent's copy of its history is not it.
+                  if (reportedAcceptance) break;
+                  const reading = reducer();
+                  const first = reading.push(parseRow(row.toString("utf8")));
+                  if (!first.accepted) continue;
                   cursor.protected = true;
-                  cursor.reducer = reducer;
+                  cursor.reducer = reading;
                   cursor.bytes = candidate.length;
                   cursor.tail = Buffer.alloc(0);
                   if (!reportedAcceptance) {
                     reportedAcceptance = true;
-                    onAccepted();
+                    observer.accepted();
                   }
                   const after = candidate.offset + candidate.length + 1 - start;
-                  if (protectedRows(cursor, data.subarray(after))) return;
+                  if (protectedRows(name, cursor, data.subarray(after))) return;
                   break;
                 }
               }
@@ -393,7 +373,7 @@ export async function prepareClaudeReceipt(
           await Bun.sleep(0);
         }
       } finally {
-        watcher?.close();
+        for (const watcher of watchers.values()) watcher.close();
         await scan?.return(undefined);
       }
     },

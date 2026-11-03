@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createClaudeReceiptReducer, prepareClaudeReceipt } from "./claude-receipt";
+import { createClaudeReceiptReducer, prepareClaudeReceipt } from "./claude";
 
 const marker = "[awf-delivery:test]";
 const user = (uuid = "input") => ({
@@ -121,11 +121,13 @@ test("watch skips old history, buffers a partial UTF-8 row and stops at linked r
     });
     const watching = receipt.watch(
       controller.signal,
-      () => {
-        accepted++;
-      },
-      () => {
-        received++;
+      {
+        accepted: () => {
+          accepted++;
+        },
+        received: () => {
+          received++;
+        },
       },
       async () => {
         scanned();
@@ -160,11 +162,7 @@ test("replaced or truncated baseline fails closed", async () => {
     const receipt = await prepareClaudeReceipt("/probe", marker, home, { sessionRef: "session" });
     await writeFile(path, "");
     await expect(
-      receipt.watch(
-        new AbortController().signal,
-        () => {},
-        () => {},
-      ),
+      receipt.watch(new AbortController().signal, { accepted: () => {}, received: () => {} }),
     ).rejects.toThrow("truncated");
   } finally {
     await rm(home, { recursive: true, force: true });
@@ -182,9 +180,11 @@ test("empty transcript churn stays bounded without failing our receipt", async (
     let received = false;
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => {
         if (++generation > 70) return false;
@@ -225,9 +225,11 @@ test("a symlink cwd observes Claude's canonical project directory", async () => 
     let received = false;
     await receipt.watch(
       new AbortController().signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => false,
     );
@@ -281,9 +283,11 @@ test("historical cwd sessions do not exhaust the live receipt file budget", asyn
     let received = false;
     await receipt.watch(
       new AbortController().signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => false,
     );
@@ -306,9 +310,11 @@ test("known session receipt ignores preexisting siblings", async () => {
     let received = false;
     await receipt.watch(
       new AbortController().signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => false,
     );
@@ -336,9 +342,11 @@ test.each([true, false])(
       let received = false;
       await receipt.watch(
         new AbortController().signal,
-        () => {},
-        () => {
-          received = true;
+        {
+          accepted: () => {},
+          received: () => {
+            received = true;
+          },
         },
         async () => false,
       );
@@ -366,9 +374,11 @@ test.each(["truncate", "replace", "delete"])(
       let received = false;
       await receipt.watch(
         controller.signal,
-        () => {},
-        () => {
-          received = true;
+        {
+          accepted: () => {},
+          received: () => {
+            received = true;
+          },
         },
         async () => {
           if (++passes > 50) return false;
@@ -413,9 +423,11 @@ test("more than256 unrelated candidates leave room for our receipt", async () =>
     let received = false;
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => ++passes < 12,
     );
@@ -442,9 +454,11 @@ test("unread candidates survive the per-pass byte budget without later file even
     let received = false;
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => false,
     );
@@ -470,9 +484,11 @@ test("an evicted split marker is reread from its baseline", async () => {
     let received = false;
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => {
         if (++passes > 50) return false;
@@ -502,10 +518,12 @@ test("a marker-bearing unknown transcript stays protected during sibling churn",
     await expect(
       receipt.watch(
         controller.signal,
-        () => {
-          accepted = true;
+        {
+          accepted: () => {
+            accepted = true;
+          },
+          received: () => {},
         },
-        () => {},
         async () => {
           expect(accepted).toBe(true);
           for (let i = 0; i < 300; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), "");
@@ -536,10 +554,12 @@ test("large unmarked rows reach polling pauses without consuming a CPU core", as
     const before = process.cpuUsage();
     await receipt.watch(
       controller.signal,
-      () => {
-        accepted = true;
+      {
+        accepted: () => {
+          accepted = true;
+        },
+        received: () => {},
       },
-      () => {},
       async () => {
         pauses += 1;
         await Bun.sleep(50);
@@ -575,9 +595,11 @@ test("a receipt beyond one read chunk survives more than256 large siblings", asy
     timeout = setTimeout(() => controller.abort(), 3000);
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {
-        received = true;
+      {
+        accepted: () => {},
+        received: () => {
+          received = true;
+        },
       },
       async () => {
         await Bun.sleep(10);
@@ -604,11 +626,13 @@ async function scannedReceipt(contents: string) {
     let received = false;
     await receipt.watch(
       controller.signal,
-      () => {
-        accepted = true;
-      },
-      () => {
-        received = true;
+      {
+        accepted: () => {
+          accepted = true;
+        },
+        received: () => {
+          received = true;
+        },
       },
       async () => false,
     );
@@ -669,8 +693,7 @@ test("a watch with nothing to read and a pause that answers at once still ends a
     setTimeout(() => controller.abort(), 50);
     await receipt.watch(
       controller.signal,
-      () => {},
-      () => {},
+      { accepted: () => {}, received: () => {} },
       async () => true,
     );
     expect(controller.signal.aborted).toBe(true);

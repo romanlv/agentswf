@@ -175,6 +175,7 @@ const PI = {
 } satisfies HarnessDefinition;
 
 export const pi = defineHarness(PI, {
+  turnRecord: "Herdr's pi state is pi's own extension reporting its turns, not its screen",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "pi logs each request in its session files",
   readCostTotal: "pi prints each request's cost, which readCharge reads",

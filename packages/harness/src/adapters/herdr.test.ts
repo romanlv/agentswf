@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
   mkdirSync,
@@ -12,20 +12,21 @@ import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
+import { isolateHarnessHomes, recordTurn } from "../testing/turn-records";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
-let originalClaudeHome: string | undefined;
-let isolatedClaudeHome: string;
+let homes: ReturnType<typeof isolateHarnessHomes>;
 beforeAll(() => {
-  originalClaudeHome = process.env.CLAUDE_CONFIG_DIR;
-  isolatedClaudeHome = mkdtempSync(join(tmpdir(), "awf-herdr-test-claude-"));
-  process.env.CLAUDE_CONFIG_DIR = isolatedClaudeHome;
+  homes = isolateHarnessHomes("awf-herdr-test-");
 });
-afterAll(() => {
-  if (originalClaudeHome === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-  else process.env.CLAUDE_CONFIG_DIR = originalClaudeHome;
-  rmSync(isolatedClaudeHome, { recursive: true, force: true });
-});
+beforeEach(() => homes.fresh());
+afterAll(() => homes.restore());
+
+/** The prompt text an `agent prompt` call carries, and whether it carries a delivery marker. */
+function promptOf(input: ProcessInput): string | undefined {
+  const text = input.argv[6];
+  return text?.startsWith("[awf-delivery:") ? text : undefined;
+}
 
 const CONFIG: HerdrConfig = {
   session: "wf-lab",
@@ -934,6 +935,8 @@ describe("createHerdrRunHostFactory", () => {
         return commandResult({ pane: { pane_id: `w1:p${panes}` } });
       }
       if (command === "agent prompt") {
+        const text = promptOf(input);
+        if (text) recordTurn(text, `session-${input.argv[5]}`);
         return commandResult({
           agent: {
             agent_status: "idle",
@@ -987,6 +990,7 @@ describe("createHerdrRunHostFactory", () => {
                     parentUuid: "input",
                     message: { role: "assistant", model: "claude", content: [] },
                   },
+                  { type: "system", subtype: "turn_duration", uuid: "end" },
                 ];
             writeFileSync(
               join(project, "native.jsonl"),
@@ -1056,6 +1060,7 @@ describe("createHerdrRunHostFactory", () => {
             parentUuid: userId,
             message: { role: "assistant", model: "claude", content: [] },
           },
+          { type: "system", subtype: "turn_duration", uuid: `end-${prompts}` },
         ];
         appendFileSync(
           join(project, `session-${input.argv[5]}.jsonl`),
@@ -1235,7 +1240,8 @@ describe("createHerdrRunHostFactory", () => {
       entered = resolve;
     });
     const run: RunProcess = async (input) => {
-      if (hold && verb(input) === "agent wait") {
+      // Settling asks Herdr whether a dialog blocks the agent, its record showing the turn ended.
+      if (hold && (verb(input) === "agent wait" || verb(input) === "agent get")) {
         entered();
         await new Promise<void>((resolve) => {
           if (input.signal?.aborted) resolve();
@@ -1308,19 +1314,19 @@ describe("createHerdrRunHostFactory", () => {
 
     await expect(second.settled).resolves.toMatchObject({ state: "completed" });
     const prompts = calls.filter((call) => verb(call) === "agent prompt");
-    expect(prompts.map((call) => call.argv[6])).toEqual([
+    expect(prompts.map((call) => call.argv[6]?.replace(/^\[awf-delivery:[^\]]+\] /, ""))).toEqual([
       "You review code.\n\nreview",
       "report",
       "review again",
     ]);
     expect(new Set(prompts.map((call) => call.argv[5])).size).toBe(1);
-    // Every prompt after the first waits for the agent to settle.
-    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+    // Every prompt after the first waits for the agent to settle: its record shows the turn ended, and Herdr no dialog blocking it.
+    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent get");
     expect(order).toEqual([
       "agent prompt",
-      "agent wait",
+      "agent get",
       "agent prompt",
-      "agent wait",
+      "agent get",
       "agent prompt",
     ]);
     expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
@@ -1362,19 +1368,19 @@ describe("createHerdrRunHostFactory", () => {
       })
     ).settled;
     const prompts = calls.filter((call) => verb(call) === "agent prompt");
-    expect(prompts.map((call) => call.argv[6])).toEqual([
+    expect(prompts.map((call) => call.argv[6]?.replace(/^\[awf-delivery:[^\]]+\] /, ""))).toEqual([
       "fix what the lenses send",
       "Message from lens, on the route \u201cReport.\u201d",
       "Message from lens: done.",
     ]);
     expect(new Set(prompts.map((call) => call.argv[5])).size).toBe(1);
-    // Never typed into a busy agent: each waits for it to settle first.
-    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+    // Never typed into a busy agent: each waits for it to settle first: its record shows the turn ended, and Herdr no dialog blocking it.
+    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent get");
     expect(order).toEqual([
       "agent prompt",
-      "agent wait",
+      "agent get",
       "agent prompt",
-      "agent wait",
+      "agent get",
       "agent prompt",
     ]);
     await host.close();
@@ -1389,7 +1395,8 @@ describe("createHerdrRunHostFactory", () => {
       entered = resolve;
     });
     const run: RunProcess = async (input) => {
-      if (hold && verb(input) === "agent wait") {
+      // Settling asks Herdr whether a dialog blocks the agent, its record showing the turn ended.
+      if (hold && (verb(input) === "agent wait" || verb(input) === "agent get")) {
         entered();
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -1464,8 +1471,10 @@ describe("createHerdrRunHostFactory", () => {
     const run: RunProcess = async (input) => {
       if (verb(input) === "agent prompt" && ++prompts === 1) {
         base.calls.push(input);
-        await firstEnds;
-        return commandResult({ agent: { agent_status: "done" } });
+        // Its record shows the turn going on until it ends.
+        const end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+        void firstEnds.then(() => end());
+        return commandResult({ agent: { agent_status: "idle" } });
       }
       return base.run(input);
     };
@@ -1505,15 +1514,15 @@ describe("createHerdrRunHostFactory", () => {
   test("an answered agent still working when the next operation must start is interrupted, in its pane", async () => {
     const base = hostStub();
     let prompts = 0;
+    let interrupt: ((interrupted?: boolean) => void) | undefined;
     const run: RunProcess = async (input) => {
       if (verb(input) === "agent prompt" && ++prompts === 1) {
         base.calls.push(input);
-        await new Promise<void>((resolve) => {
-          if (input.signal?.aborted) resolve();
-          else input.signal?.addEventListener("abort", () => resolve(), { once: true });
-        });
-        return { stdout: "", stderr: "cancelled", exitCode: 130, timedOut: false, cancelled: true };
+        // Its record shows the turn going on until Escape interrupts it.
+        interrupt = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+        return commandResult({ agent: { agent_status: "idle" } });
       }
+      if (verb(input) === "agent send-keys" && input.argv.at(-1) === "esc") interrupt?.(true);
       if (verb(input) === "agent get") {
         base.calls.push(input);
         return commandResult({ agent: { agent_status: "working" } });
@@ -1553,7 +1562,7 @@ describe("createHerdrRunHostFactory", () => {
   test("an agent still blocked when the next operation comes settles it blocked, unprompted", async () => {
     const base = hostStub();
     const run: RunProcess = async (input) =>
-      verb(input) === "agent wait"
+      verb(input) === "agent wait" || verb(input) === "agent get"
         ? commandResult({ agent: { agent_status: "blocked", agent_status_text: "approve?" } })
         : base.run(input);
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
@@ -1678,10 +1687,13 @@ describe("createHerdrRunHostFactory", () => {
       const [, focus, command] = prompted(calls);
       expect(focus).toContain("Keep the path.");
       expect(command).toBe("/compact");
-      const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+      // The turn before settles by its record, the compaction's focus by Herdr: no record ends it.
+      const order = calls
+        .map(verb)
+        .filter((v) => v === "agent prompt" || v === "agent wait" || v === "agent get");
       expect(order).toEqual([
         "agent prompt",
-        "agent wait",
+        "agent get",
         "agent prompt",
         "agent wait",
         "agent prompt",
@@ -1895,7 +1907,8 @@ describe("createHerdrRunHostFactory", () => {
       expect(calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
       const order = calls.map(verb);
       const relaunched = order.lastIndexOf("agent start");
-      expect(order.slice(0, relaunched)).toContain("agent wait");
+      // Settled by its record, and asked whether a dialog blocks it.
+      expect(order.slice(0, relaunched)).toContain("agent get");
       // The session already holds its instructions: the relaunched pane is not told them again.
       const typed = calls
         .filter((call) => ["agent prompt", "pane send-text"].includes(verb(call)))
@@ -1964,6 +1977,10 @@ describe("createHerdrRunHostFactory", () => {
       const { run, calls } = hostStub();
       const codex = HARNESSES.codex;
       const original = codex.findSession;
+      const record = codex.turnRecord!;
+      const named = record.session;
+      // A rollout whose name holds no id names no session.
+      record.session = () => undefined;
       const asked: string[] = [];
       codex.findSession = async (marker) => {
         asked.push(marker);
@@ -1978,6 +1995,7 @@ describe("createHerdrRunHostFactory", () => {
         await host.close();
       } finally {
         codex.findSession = original;
+        record.session = named;
       }
     });
 
@@ -2066,7 +2084,7 @@ describe("createHerdrRunHostFactory", () => {
       );
       expect(forked.stdin).toBe("/cost");
       const order = calls.map((call) => (call.argv[0] === "claude" ? "fork" : verb(call)));
-      expect(order.slice(order.lastIndexOf("agent wait"))).toEqual(["agent wait", "fork"]);
+      expect(order.slice(order.lastIndexOf("agent get"))).toEqual(["agent get", "fork"]);
       await host.close();
     });
 
@@ -2107,6 +2125,9 @@ describe("createHerdrRunHostFactory", () => {
       };
       const codex = HARNESSES.codex;
       const original = codex.findSession;
+      const record = codex.turnRecord!;
+      const named = record.session;
+      record.session = () => undefined;
       const asked: string[] = [];
       codex.findSession = async (marker) => {
         asked.push(marker);
@@ -2138,20 +2159,28 @@ describe("createHerdrRunHostFactory", () => {
         await host.close();
       } finally {
         codex.findSession = original;
+        record.session = named;
       }
     });
 
     test("a pane whose harness never named its session is not forked", async () => {
       const { run, calls } = forking({ exposeSession: false });
-      const { host, session } = await opened(run);
-      await (
-        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
-      ).settled;
-      await expect(session.fork!(deadline())).rejects.toThrow(
-        "its harness never named its session, so it cannot be forked",
-      );
-      expect(calls.some((call) => call.argv[0] === "claude")).toBe(false);
-      await host.close();
+      const record = HARNESSES.claude.turnRecord!;
+      const named = record.session;
+      record.session = () => undefined;
+      try {
+        const { host, session } = await opened(run);
+        await (
+          await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+        ).settled;
+        await expect(session.fork!(deadline())).rejects.toThrow(
+          "its harness never named its session, so it cannot be forked",
+        );
+        expect(calls.some((call) => call.argv[0] === "claude")).toBe(false);
+        await host.close();
+      } finally {
+        record.session = named;
+      }
     });
 
     test("a pane continuing a fork launches on it, and its first prompt carries its instructions", async () => {
@@ -2339,9 +2368,18 @@ describe("createHerdrRunHostFactory", () => {
   test("a blocked or unknown generation keeps its own state", async () => {
     for (const terminalState of ["blocked", "unknown"] as const) {
       const base = hostStub();
+      // A recorded turn is blocked once Herdr shows a dialog, its record still open; Herdr's
+      // `unknown` settles only a turn with no record, as pi's.
       const run: RunProcess = async (input) => {
+        if (verb(input) === "agent get" && terminalState === "blocked") {
+          return commandResult({
+            agent: { agent_status: terminalState, agent_status_text: "stuck" },
+          });
+        }
         if (verb(input) !== "agent prompt") return base.run(input);
         base.calls.push(input);
+        const text = promptOf(input);
+        if (text) recordTurn(text, `session-${input.argv[5]}`, { open: true });
         return commandResult({
           agent: { agent_status: terminalState, agent_status_text: "stuck" },
         });
@@ -2355,7 +2393,7 @@ describe("createHerdrRunHostFactory", () => {
         key: "reviewer",
         cwd: "/repo",
         deadline: deadline(),
-        execution: { harness: "claude", model: "opus" },
+        execution: { harness: terminalState === "blocked" ? "claude" : "pi", model: "opus" },
       });
       const turn = await session.start(
         { id: "one", prompt: "one", deadline: deadline() },
@@ -2527,7 +2565,11 @@ describe("createHerdrRunHostFactory", () => {
     ).rejects.toThrow("acquisition and cleanup failed");
     expect(calls.map(verb)).toEqual(["workspace create", "workspace close"]);
   });
-  async function stalledReviewer(run: RunProcess, operationMs: number) {
+  async function stalledReviewer(
+    run: RunProcess,
+    operationMs: number,
+    harness: "claude" | "pi" = "claude",
+  ) {
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
       cwd: "/repo",
@@ -2537,7 +2579,7 @@ describe("createHerdrRunHostFactory", () => {
       key: "reviewer",
       cwd: "/repo",
       deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
+      execution: { harness, model: "opus" },
     });
     const turn = await session.start(
       { id: "one", prompt: "review", deadline: { unixMilliseconds: Date.now() + operationMs } },
@@ -2549,7 +2591,8 @@ describe("createHerdrRunHostFactory", () => {
   /**
    * Herdr accepts the submission before the stall is reported, so the turn may be running. E2
    * measured the nudge recovering silent turns, but a nudge here would be a second prompt into a
-   * live agent, and settling would close the result slot under it.
+   * live agent, and settling would close the result slot under it. A harness whose record is read
+   * is sent its prompt without Herdr's wait, so only one with none, as pi, can stall.
    */
   test("a stall waits the operation out instead of settling or closing the pane", async () => {
     const base = hostStub();
@@ -2558,7 +2601,7 @@ describe("createHerdrRunHostFactory", () => {
       base.calls.push(input);
       return errorResult("agent_prompt_stalled");
     };
-    const { host, turn } = await stalledReviewer(run, 150);
+    const { host, turn } = await stalledReviewer(run, 150, "pi");
     const startedAt = Date.now();
 
     await expect(turn.settled).resolves.toMatchObject({
@@ -2571,6 +2614,194 @@ describe("createHerdrRunHostFactory", () => {
     // engine's release or the run's cleanup takes them away.
     expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     await host.close();
+  });
+
+  describe("a turn read from its harness's record", () => {
+    // Untaken past the record's own poll, as in production, where it waits 5 s on a 100 ms poll.
+    const FAST: HerdrConfig = { ...CONFIG, turnPollMs: 20, untakenMs: 300 };
+
+    async function recordedAgent(
+      run: RunProcess,
+      harness: "claude" | "codex",
+      operationMs = 30_000,
+    ) {
+      const host = await createHerdrRunHostFactory(FAST, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "reviewer",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness, model: "m" },
+      });
+      const turn = await session.start(
+        { id: "one", prompt: "review", deadline: { unixMilliseconds: Date.now() + operationMs } },
+        binding("op-1"),
+      );
+      return { host, turn };
+    }
+
+    for (const harness of ["claude", "codex"] as const) {
+      // Herdr missed 7 of 12 codex turns with twelve panes busy: the pane stayed idle throughout.
+      test(`a ${harness} turn Herdr never sees working ends when its record says`, async () => {
+        const base = hostStub();
+        let end: ((interrupted?: boolean) => void) | undefined;
+        const run: RunProcess = async (input) => {
+          if (verb(input) === "agent prompt") {
+            base.calls.push(input);
+            end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+            return commandResult({ agent: { agent_status: "idle" } });
+          }
+          if (verb(input) === "agent get" || verb(input) === "agent wait") {
+            base.calls.push(input);
+            return commandResult({ agent: { agent_status: "idle" } });
+          }
+          return base.run(input);
+        };
+        const { host, turn } = await recordedAgent(run, harness);
+        const startedAt = Date.now();
+        let ended = false;
+        void turn.settled.then(() => {
+          ended = true;
+        });
+        await Bun.sleep(300);
+        expect(ended).toBe(false);
+        end!();
+        await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(300);
+        const prompt = base.calls.find((call) => verb(call) === "agent prompt")!;
+        expect(prompt.argv).not.toContain("--wait");
+        expect(base.calls.filter((call) => verb(call) === "agent wait")).toHaveLength(0);
+        await host.close();
+      });
+    }
+
+    test("a turn its record never ends times out at its deadline, though Herdr shows it idle", async () => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "idle" } });
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex", 400);
+      await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
+      await host.close();
+    });
+
+    test("a claude that dropped the Enter after the paste is sent it once, and the turn goes on", async () => {
+      const base = hostStub();
+      let held: string | undefined;
+      const run: RunProcess = async (input) => {
+        const command = verb(input);
+        if (command === "agent prompt") {
+          base.calls.push(input);
+          held = promptOf(input);
+          return commandResult({ agent: { agent_status: "idle" } });
+        }
+        if (command === "agent read" && held) {
+          base.calls.push(input);
+          const marker = /^\[awf-delivery:[^\]]+\]/.exec(held)![0];
+          const rule = "─".repeat(40);
+          return {
+            stdout: `${rule}\n> ${marker} review\n${rule}\n  ? for shortcuts`,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (command === "agent send-keys" && input.argv.at(-1) === "enter" && held) {
+          base.calls.push(input);
+          recordTurn(held, `session-${input.argv[5]}`);
+          held = undefined;
+          return commandResult({});
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "claude");
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      const keys = base.calls.filter((call) => verb(call) === "agent send-keys");
+      expect(keys.map((call) => call.argv.at(-1))).toEqual(["enter"]);
+      await host.close();
+    });
+
+    test("a prompt its record took is never pressed again, however its screen looks", async () => {
+      const base = hostStub();
+      let end: ((interrupted?: boolean) => void) | undefined;
+      const run: RunProcess = async (input) => {
+        const command = verb(input);
+        if (command === "agent prompt") {
+          base.calls.push(input);
+          end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "idle" } });
+        }
+        if (command === "agent read") {
+          const rule = "─".repeat(40);
+          return {
+            stdout: `${rule}\n> [Pasted text #1 +40 lines]\n${rule}`,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "claude");
+      await Bun.sleep(200);
+      end!();
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      expect(base.calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+      await host.close();
+    });
+
+    test("a dialog Herdr shows while a recorded turn runs ends it blocked", async () => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        if (verb(input) === "agent get") {
+          return commandResult({ agent: { agent_status: "blocked", agent_status_text: "Allow?" } });
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "codex");
+      await expect(turn.settled).resolves.toMatchObject({ state: "blocked" });
+      await host.close();
+    });
+
+    test("an answered turn is released once its record ends, though Herdr still shows it working", async () => {
+      const base = hostStub();
+      let end: ((interrupted?: boolean) => void) | undefined;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent prompt") {
+          base.calls.push(input);
+          end = recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
+          return commandResult({ agent: { agent_status: "idle" } });
+        }
+        if (verb(input) === "agent get" || verb(input) === "agent wait") {
+          base.calls.push(input);
+          return commandResult({ agent: { agent_status: "working" } });
+        }
+        return base.run(input);
+      };
+      const { host, turn } = await recordedAgent(run, "claude");
+      await turn.delivery!.received;
+      setTimeout(() => end!(), 100);
+      const release = await turn.release("answer admitted", deadline(), {
+        answered: true,
+        awaitCompletion: true,
+      });
+      expect(release.kind).toBe("released");
+      expect(base.calls.filter((call) => verb(call) === "agent wait")).toHaveLength(0);
+      await host.close();
+    });
   });
 
   test("a stall whose screen shows the harness cannot sign in fails at once, saying so", async () => {

@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { codexActivity } from "../activity/rows";
 import { jsonLines, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
+import { codexTurnPlace, createCodexTurnReducer } from "../turns/codex";
 import { readCodexAllowance } from "../usage/allowance";
 import { readCodexBilling } from "../usage/billing";
 import {
@@ -231,6 +232,16 @@ const CODEX = {
     readCodexUsage(sessions, codexSessionsDirectory(home)),
   sessionFiles: (home, session) => codexSessionFiles(home, session),
   activityRow: codexActivity,
+  turnRecord: {
+    // Its rollout is found by the marker: a resumed session goes on in the file it started.
+    place: async (_cwd, since, home, session) => {
+      const files = session ? await codexSessionFiles(home ?? harnessState().codex, session) : [];
+      const own = files?.[0]?.replace(/^sessions\//, "");
+      return codexTurnPlace(since, home, own);
+    },
+    reducer: (marker) => createCodexTurnReducer(marker),
+    session: (file) => codexRolloutId(basename(file)),
+  },
   findSession: (marker, since, cwd, home) =>
     findCodexSession(marker, since, cwd, codexSessionsDirectory(home)),
   // By start time, which a rollout's name begins with: a root session starts before the

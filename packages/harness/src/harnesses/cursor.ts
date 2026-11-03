@@ -143,6 +143,8 @@ function cursorCompactionFocus(focus: string): string {
 }
 
 export const cursor = defineHarness(CURSOR, {
+  turnRecord:
+    "cursor keeps a chat in a SQLite store.db, not read as it runs; its hooks load only from the operator's or the project's files",
   activityRow:
     "cursor keeps a chat in a SQLite store.db, which cannot be read from an offset, and awf's sidecar beside it holds usage only",
   launchModel: "cursor's files log no model for a session awf did not start",
