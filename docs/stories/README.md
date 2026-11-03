@@ -161,7 +161,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   standalone `site/`, each page also served as plain Markdown with an llms.txt, so an agent reads
   it as easily as a person.
 - [`039` — An author learns one way to do each thing](039-one-way-author-api.md) —
-  `draft` — one context type for every workflow, participants routed to the code declared in
+  `ready` — one context type for every workflow, participants routed to the code declared in
   `events`, one duration grammar, one `testWorkflow` signature, one word per state, and what is
   unbuilt or unused removed, each deprecated for one beta before 0.1.0.
 

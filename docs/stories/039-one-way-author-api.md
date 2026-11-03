@@ -3,7 +3,7 @@ id: "039"
 title: "An author learns one way to do each thing"
 summary: "One context type for every workflow, participants routed to the code declared in events, one duration grammar, one testWorkflow signature, one word per state, and what is unbuilt or unused removed, each through a deprecation that ends before 0.1.0."
 type: story
-status: draft
+status: ready
 priority: P0
 epic: authoring
 discovered_in: "a review of the workflow API while running the Datadog watcher, 2026-10-26"
@@ -82,6 +82,7 @@ Out of scope:
 - Model and effort in three places, the four meanings of "label", `wf.decisions` on the core
   context, and `wf.usage()` beside `wf.allowance()` (candidates 6 and 8 below). Each was weighed and
   left as it is.
+- Whether the operator can refuse `metered: true` in a workflow installed from npm.
 
 ### The candidates and what became of each
 
@@ -207,11 +208,8 @@ Betas from the design's §8 in brackets.
 
 ## Open questions
 
-### 4. Agents
-
-- Can the operator refuse `metered: true` (an author's consent to per-token billing) in a workflow
-  installed from npm? This doesn't block task 4. `runtime` on fork only moves where `metered` is
-  written.
+None. Whether the operator can refuse `metered: true` (an author's consent to per-token billing)
+in a workflow installed from npm is out of scope: task 4 only moves where `metered` is written.
 
 ## Task execution rule
 
@@ -571,10 +569,9 @@ Record reviews under the task they cover.
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled. Waiting on the
-  open questions.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
 

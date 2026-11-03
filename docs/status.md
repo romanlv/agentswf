@@ -288,8 +288,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
 - [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
-  way to do each thing in the author API, before more people build on the beta. Draft, its open
-  questions waiting for review; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+  way to do each thing in the author API, before more people build on the beta. Ready; design in [`design/api-consolidation.md`](design/api-consolidation.md).
 
 ## Known gaps
 
