@@ -10,9 +10,9 @@ depends_on: []
 
 # Many agents at once stay reliable
 
-Measure where running many agents at once breaks (E4), then make awf hold up there: a turn's start
-and end read from its harness's own records, an answered agent past its release stopped rather than
-the run failed, and whatever limit on concurrent agents the measurement calls for.
+Make awf hold up with many agents at once: a pane's turn read from its harness's own session file,
+not Herdr's screen; an answered agent past its release stopped rather than the run failed; then
+E4, and whatever limit on concurrent agents it calls for.
 
 Why it matters: a workflow that fans out a dozen agents is ordinary use, and today it fails. The
 fork eval (16 agents at once, 32 in all) fails on every run on a 10-core machine; compaction (8)
@@ -34,8 +34,8 @@ during a fork run. Herdr itself stayed fast, 0.2 s or less a call.
   on its model's next response; the 30 s release ran out and failed the run.
 - **A provider can refuse.** cursor answered `resource_exhausted` once and worked minutes later.
 
-The first three are a starved terminal; the last two are the provider, and grow with sessions on
-the account rather than with load on the machine.
+The first three are a starved terminal, which the plan answers; the last two are the provider, and
+grow with sessions on the account rather than with load on the machine, which Q6 and E4 answer.
 
 ## Measured
 
@@ -68,10 +68,71 @@ are here.
   `Stop` hook, a review tool with a four-day timeout; whether it slowed a turn's end was not
   measured. It has since been removed.
 
-## To measure (E4)
+## Plan
 
-[`experiments/e4-concurrency/`](../../../experiments/e4-concurrency/) already holds the question.
-Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
+The turn record first: it needs no measurement and answers the failures seen. Then Q6, then E4
+and whatever limit it calls for. [[herdr-pane-settlement]] already says screen and quiet signals
+are diagnostics, not authority; a harness's own record is the turn-scoped completion it found no
+provider reported.
+
+### 1. A turn read from its harness's record
+
+One watcher, generalized from `claude-receipt.ts`, which already finds claude's transcript by the
+prompt's `awf-delivery` marker and tails it within bounds. A harness's spec gives it a
+`turnRecord`, beside `activityRow`: where its session files are, and a reducer over their rows
+that says `accepted`, `received`, and `ended` as `completed` or `interrupted`.
+
+- claude: the receipt's reducer, plus `system` `turn_duration` for the end and
+  `[Request interrupted by user]` for an interrupt.
+- codex: the `user_message` carrying the marker accepts, the `task_started` before it starts, and
+  `task_complete` or `turn_aborted` ends; a subagent it waits on keeps the turn open, as `turnOpen`
+  in `usage/codex.ts` already reads. Its prompt gains the marker; `findCodexSession` already finds
+  the rollout by the operation id.
+- pi: none. Herdr's pi state is pi's own extension reporting `agent_start` and `agent_settled`,
+  not its screen, and stays.
+- cursor: none in this story; Herdr's screen, as today. Its chat store is M7; hooks in a sandbox,
+  whose home awf writes, come after it.
+- A file the host cannot read, in a box whose home it does not hold, leaves Herdr as today.
+
+### 2. The pane host waits on the record
+
+In `adapters/herdr.ts`, for a harness with a record:
+
+- `execute` sends with `agent prompt` and no `--wait`. The turn ends when the record says so,
+  raced against Herdr showing `blocked` and the deadline. That removes the false completion seen,
+  a `prompt --wait` returning while the turn ran on, and `agent_prompt_stalled` with its
+  wait-out-the-deadline branch. The screen is still read after the end, for evidence and login.
+- Before the next prompt, a fork or a relaunch, the record's last turn has ended, in place of
+  `agent wait`; `untilWritten` already waits so on codex.
+- `finishAnswered` waits on the record's end in place of `agent wait`: the `cleanup-unresolved`
+  failures.
+- `stopFinishing` and `release` press Escape only while the record shows the turn open, and the
+  record's interrupt confirms it stopped.
+- `blocked` is read with `agent get` every few seconds while a turn runs; a blocking dialog ends
+  the turn `blocked`, as today. Whether that holds under load is M6.
+- Compaction stays on the screen in this story.
+
+### 3. claude's dropped Enter
+
+When the receipt has not accepted a few seconds after the Enter, and `agent read` shows the marked
+prompt still in the input box, Enter is pressed once more. A prompt accepted or queued, which the
+reducer counts by `enqueue`, is never pressed again. Still nothing, the turn fails as today.
+
+### 4. Tests
+
+- A fixture per harness version, from a real session file: a turn, an interrupted turn, and for
+  codex a turn with a subagent, in `usage/fixtures/{harness}`; the reducers are tested on them, so
+  a harness release that changes its format fails a test, not a run.
+- `herdr.test.ts`: the fake Herdr stays `idle` while the file records the turn, the measured miss,
+  and the turn completes; a file that never ends times out; `blocked` ends it; the dropped Enter is
+  pressed once.
+- Live: the fork eval at 16 and compaction beside another eval, each three times, and the 12-pane
+  codex fan-out as an eval.
+
+## To measure
+
+M1–M5 are E4: [`experiments/e4-concurrency/`](../../../experiments/e4-concurrency/) already holds
+the question. Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
 
 - M1. Which ceiling comes first, per harness and placement: CPU, the harness's terminal, or the
   provider. Delivery failures, late screens and release times against load and provider errors.
@@ -84,6 +145,12 @@ Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
   account.
 - M5. E4's own questions: per-call cost and latency at N, the result gate settling exactly once,
   a pane's usage attribution under concurrency.
+
+M6–M7 the plan needs, before step 2 and after it:
+
+- M6. Whether Herdr's `blocked` holds under load, the one screen signal the plan keeps: a blocking
+  dialog in one of 12 busy panes, and how late Herdr shows it.
+- M7. Whether cursor's chat store records a turn's start and end, so cursor needs no hook.
 
 ## Open questions
 
@@ -100,26 +167,7 @@ Fan out 4, 8 and 16 agents per harness, headless and in panes, and record:
   fails only if the stop cannot be confirmed. That changes story 021's "fail with
   `cleanup-unresolved`", and matches a pane agent stopped past its grace.
 
-## Independent of the limit
-
-Reading a turn off the screen fails under load whatever the limit, which
-[[herdr-pane-settlement]] already says: screen and quiet signals are diagnostics, not authority.
-
-- A turn's start and end come from the harness's own records: claude's transcript, which already
-  confirms delivery by the marker, and codex's session file, which need nothing added and hold an
-  interrupted turn too. That is the turn-scoped completion [[herdr-pane-settlement]] found no
-  provider reported. Where there is no file, a hook: pi's through an awf extension, cursor's in a
-  sandbox, whose home awf writes; outside one, cursor's hooks are the operator's or the project's
-  files.
-- Herdr stays the pane's host, its keys and the only sign of a blocking dialog; its state is a
-  diagnostic.
-- claude's dropped Enter is pressed again only when its receipt shows the prompt never arrived and
-  its input box still holds the marked prompt. A record of the turn finds the drop; it does not
-  prevent it.
-- The transcript and session file are not published formats, unlike claude's hooks: a fixture per
-  harness version catches a change.
-
 Notes: [[021-turn-liveness-and-limits]] holds the release design; [[herdr-pane-settlement]] the
-stall design and what Story 001 settled; foundation §12 schedules E4. A screen-based late-turn wait for codex and the claude Enter
-re-press were tried in `packages/harness/src/adapters/herdr.ts` and `herdr-protocol.ts` and set
-aside, unreleased: they read the turn off the screen.
+stall design and what Story 001 settled; foundation §12 schedules E4. A screen-based late-turn
+wait for codex and an unguarded claude Enter re-press were tried and set aside, unreleased, in the stash
+"concurrent-agents: herdr stall heuristics": they read the turn off the screen.
