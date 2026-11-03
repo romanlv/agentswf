@@ -48,17 +48,40 @@ test.each([
   expect(readings.slice(0, -1).some((reading) => reading.ended)).toBe(false);
 });
 
-test("an earlier turn's end, before its model answers this one, does not end it", () => {
+test("a queued prompt is not ended by the turn before it, which claude ends first", () => {
   const reducer = createClaudeReceiptReducer(MARKER);
-  reducer.push({ type: "user", uuid: "u1", message: { content: `${MARKER} go` } });
+  reducer.push({ type: "queue-operation", operation: "enqueue", content: `${MARKER} go` });
   expect(reducer.push({ type: "system", subtype: "turn_duration" }).ended).toBeUndefined();
   reducer.push({
+    type: "attachment",
+    uuid: "q1",
+    attachment: {
+      type: "queued_command",
+      commandMode: "prompt",
+      humanTurn: true,
+      origin: { kind: "human" },
+      prompt: `${MARKER} go`,
+    },
+  });
+  expect(reducer.push({ type: "system", subtype: "turn_duration" }).ended).toBe("completed");
+});
+
+test("a turn its API refused, whose answer is synthetic, still ends at its turn_duration", () => {
+  const reducer = createClaudeReceiptReducer(MARKER);
+  reducer.push({ type: "user", uuid: "u1", message: { content: `${MARKER} go` } });
+  const refused = reducer.push({
     type: "assistant",
     uuid: "a1",
     parentUuid: "u1",
-    message: { role: "assistant", model: "m" },
+    isApiErrorMessage: true,
+    message: { role: "assistant", model: "<synthetic>" },
   });
-  expect(reducer.push({ type: "system", subtype: "turn_duration" }).ended).toBe("completed");
+  expect(refused.received).toBe(false);
+  expect(reducer.push({ type: "system", subtype: "turn_duration" })).toEqual({
+    accepted: true,
+    received: false,
+    ended: "completed",
+  });
 });
 
 test("a sidechain's end, a subagent's, does not end claude's turn", () => {

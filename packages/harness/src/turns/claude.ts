@@ -1,6 +1,6 @@
 import { record, text } from "../json";
 import { claudeProjectDirectory } from "../usage/claude";
-import { prepareTurnRecord, type TurnReading, type TurnRecordPlace } from "./record";
+import type { TurnReading, TurnRecordPlace } from "./record";
 
 const MAX_ROWS = 4096;
 const INTERRUPTED = "[Request interrupted by user";
@@ -14,15 +14,16 @@ function said(content: unknown): string {
 
 /**
  * Only native prompt insertion and linked model output count; queued is not yet received. A prompt
- * may follow the `lead` typed before it. The turn ends at its `turn_duration` once its model has
- * answered, so an earlier turn's cannot end it, or at the interrupt claude writes on Escape, which
- * writes none.
+ * may follow the `lead` typed before it. The turn ends at the `turn_duration` after the prompt
+ * itself is in, answered or not, as by an API error, whose answer is synthetic; a queued prompt's
+ * would be the turn's before it. Or at the interrupt claude writes on Escape, which writes none.
  */
 export function createClaudeReceiptReducer(marker: string, lead?: string) {
   const parents = new Map<string, string | undefined>();
   const inputs = new Set<string>();
   let accepted = false;
   let received = false;
+  let inserted = false;
   let ended: TurnReading["ended"];
   const matches = (value: unknown) => {
     if (typeof value !== "string") return false;
@@ -43,10 +44,11 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
         ended = "interrupted";
         return reading();
       }
-      if (received) {
-        if (row.type === "system" && row.subtype === "turn_duration") ended = "completed";
+      if (inserted && row.type === "system" && row.subtype === "turn_duration") {
+        ended = "completed";
         return reading();
       }
+      if (received) return reading();
       const input =
         (row.type === "user" && matches(message?.content)) ||
         (row.type === "attachment" &&
@@ -67,7 +69,10 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
         if (parents.has(uuid)) return reading();
         if (parents.size >= MAX_ROWS) throw new Error("Claude receipt ancestry exceeds its bound");
         parents.set(uuid, text(row.parentUuid));
-        if (input) inputs.add(uuid);
+        if (input) {
+          inputs.add(uuid);
+          inserted = true;
+        }
         if (
           row.type === "assistant" &&
           message?.role === "assistant" &&
@@ -103,20 +108,4 @@ export async function claudeTurnPlace(
     directories: [""],
     ...(session ? { known: `${session}.jsonl` } : {}),
   };
-}
-
-/** claude's transcript for `cwd`, read for the turn whose prompt carries `marker`. */
-export async function prepareClaudeReceipt(
-  cwd: string,
-  marker: string,
-  home?: string,
-  options: { sessionRef?: string; signal?: AbortSignal; lead?: string } = {},
-) {
-  options.signal?.throwIfAborted();
-  return prepareTurnRecord(
-    await claudeTurnPlace(cwd, home, options.sessionRef),
-    marker,
-    () => createClaudeReceiptReducer(marker, options.lead),
-    options.signal ? { signal: options.signal } : {},
-  );
 }

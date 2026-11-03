@@ -2,9 +2,26 @@ import { expect, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createClaudeReceiptReducer, prepareClaudeReceipt } from "./claude";
+import { HARNESSES } from "../spec";
+import { createClaudeReceiptReducer } from "./claude";
+import { prepareTurnRecord } from "./record";
 
 const marker = "[awf-delivery:test]";
+
+/** claude's transcript for `cwd`, read as the pane host reads it, through its spec. */
+async function prepareClaudeReceipt(
+  cwd: string,
+  watched: string,
+  home?: string,
+  options: { sessionRef?: string } = {},
+) {
+  const record = HARNESSES.claude.turnRecord!;
+  return prepareTurnRecord(
+    await record.place(cwd, Date.now(), home, options.sessionRef),
+    watched,
+    () => record.reducer(watched),
+  );
+}
 const user = (uuid = "input") => ({
   type: "user",
   uuid,
