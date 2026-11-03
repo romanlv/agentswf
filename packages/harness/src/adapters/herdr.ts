@@ -130,6 +130,20 @@ const UNTAKEN_MS = 5_000;
 const UNRECORDED_MS = 60_000;
 /** How many times running, `UNTAKEN_MS` apart, Herdr must not find an agent for it to have exited. */
 const MISSING_CHECKS = 3;
+/** How long a record, read every `RECORD_POLL_MS` while its turn runs, is given to catch up. */
+const RECORD_CATCH_UP_MS = 600;
+/**
+ * How often a turn's record is read once its harness has taken the prompt in: an end shown this
+ * late is still well inside any release. Untaken, it is read as often as the watch reads.
+ */
+const RECORD_POLL_MS = 500;
+/** How often it is read while the prompt is untaken, which a dropped Enter is caught by. */
+const UNTAKEN_POLL_MS = 100;
+
+/** How a recorded turn settled: how it ended and its session, or the outcome that ends it. */
+type TurnSettled =
+  | { settled: Pick<NativeTurnOutcome, "state" | "detail">; session?: string }
+  | { outcome: NativeTurnOutcome };
 
 /** How a turn its harness records ended, as read there: its end and session, or why not. */
 type TurnEnd =
@@ -913,6 +927,11 @@ export function createHerdrRunHostFactory(
           const interrupt = async (agentName: string): Promise<boolean> => {
             const got = await herdr(["agent", "get", agentName]);
             if (!got.ok) return false;
+            // A record a poll behind a turn just ended would have Escape reach an idle codex,
+            // whose second opens its history: it is given a moment to catch up first.
+            if (recordSpeaks(turn) && turn.state === "watching") {
+              await Promise.race([turn.ended, Bun.sleep(RECORD_CATCH_UP_MS)]);
+            }
             if (
               recordSpeaks(turn)
                 ? turn.state === "watching"
@@ -992,15 +1011,8 @@ export function createHerdrRunHostFactory(
             deadline: number,
             signal: AbortSignal,
             untaken?: () => Promise<NativeTurnOutcome | undefined>,
-          ): Promise<
-            | { settled: Pick<NativeTurnOutcome, "state" | "detail">; session?: string }
-            | { outcome: NativeTurnOutcome }
-          > => {
-            const ended = (
-              end: TurnEnd,
-            ):
-              | { settled: Pick<NativeTurnOutcome, "state" | "detail">; session?: string }
-              | { outcome: NativeTurnOutcome } =>
+          ): Promise<TurnSettled> => {
+            const ended = (end: TurnEnd): TurnSettled =>
               "how" in end
                 ? {
                     settled: {
@@ -1037,6 +1049,10 @@ export function createHerdrRunHostFactory(
                 waiting,
               ).then((dialog) => ({ dialog }));
             let dialog: Promise<{ dialog: HerdrResult }> = dialogFor();
+            const later = () =>
+              abortableDelay(config.untakenMs ?? UNTAKEN_MS, waiting).then((again) =>
+                again ? dialogFor() : never,
+              );
             // Herdr answered `agent_not_found` for a live claude with eighteen panes busy, so
             // only one it keeps not finding has exited.
             let missing = 0;
@@ -1054,7 +1070,7 @@ export function createHerdrRunHostFactory(
                 const next = await Promise.race([
                   recorded.ended,
                   dialog,
-                  abortableDelay(tick, signal),
+                  abortableDelay(tick, waiting),
                 ]);
                 if (next === false) {
                   return { outcome: localOutcome("cancelled", "pane operation cancelled") };
@@ -1085,13 +1101,12 @@ export function createHerdrRunHostFactory(
                         outcome: localOutcome("failed", "its harness exited during the turn"),
                       };
                     }
-                    dialog = abortableDelay(config.untakenMs ?? UNTAKEN_MS, waiting).then(
-                      dialogFor,
-                    );
+                    dialog = later();
                     continue;
                   }
-                  // Answered otherwise, Herdr is not asked again: the record's end still decides.
-                  dialog = never;
+                  // A wait that failed otherwise is asked again; one answered, never: the
+                  // record's end still decides.
+                  dialog = shown.ok ? never : later();
                   continue;
                 }
                 return ended(next);
@@ -1161,24 +1176,34 @@ export function createHerdrRunHostFactory(
               stop: () => stopping.abort(),
             };
             void watching
-              .watch(stopping.signal, {
-                accepted() {
-                  recorded.accepted = true;
-                  if (receiving()) operation.onAccepted?.();
+              .watch(
+                stopping.signal,
+                {
+                  accepted() {
+                    recorded.accepted = true;
+                    if (receiving()) operation.onAccepted?.();
+                  },
+                  received() {
+                    recorded.accepted = true;
+                    recorded.received = true;
+                    if (receiving()) operation.onReceived?.();
+                  },
+                  ended(how, file) {
+                    recorded.state = "ended";
+                    const session = record.session(file);
+                    lastRecorded = { file, ...(session ? { session } : {}) };
+                    herdrBehind = true;
+                    end({ how, ...(session ? { session } : {}) });
+                  },
                 },
-                received() {
-                  recorded.accepted = true;
-                  recorded.received = true;
-                  if (receiving()) operation.onReceived?.();
-                },
-                ended(how, file) {
-                  recorded.state = "ended";
-                  const session = record.session(file);
-                  lastRecorded = { file, ...(session ? { session } : {}) };
-                  herdrBehind = true;
-                  end({ how, ...(session ? { session } : {}) });
-                },
-              })
+                (paused) =>
+                  abortableDelay(recorded.accepted ? RECORD_POLL_MS : UNTAKEN_POLL_MS, paused),
+                // A prompt never taken in is read no longer than its operation runs.
+                () =>
+                  recorded.accepted
+                    ? Number.POSITIVE_INFINITY
+                    : operation.deadline.unixMilliseconds,
+              )
               .catch((error: unknown) => {
                 const reason = error instanceof Error ? error.message : String(error);
                 recorded.state = "failed";
@@ -1851,21 +1876,26 @@ export function createHerdrRunHostFactory(
                     return localOutcome("cancelled", "pane operation cancelled");
                   }
                   if (login) return login;
-                  if (!recorded && hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
-                    // Herdr had already accepted the submission, so the turn may be running.
-                    // Settling here would close the result slot under a live agent and arm the
-                    // nudge; resending would duplicate a delivered prompt.
-                    return (await abortableDelay(
-                      Math.max(0, operation.deadline.unixMilliseconds - Date.now()),
-                      controller.signal,
-                    ))
-                      ? localOutcome(
-                          "timed-out",
-                          "operation deadline exceeded after a stalled prompt observation",
-                        )
-                      : localOutcome("cancelled", "pane operation cancelled");
+                  // Herdr answered an error, so it said what it did, and sent nothing that runs;
+                  // one that never answered may have pasted the prompt, which the record says.
+                  if (!recorded || !sent.timedOut) {
+                    if (!recorded && hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                      // Herdr had already accepted the submission, so the turn may be running.
+                      // Settling here would close the result slot under a live agent and arm the
+                      // nudge; resending would duplicate a delivered prompt.
+                      return (await abortableDelay(
+                        Math.max(0, operation.deadline.unixMilliseconds - Date.now()),
+                        controller.signal,
+                      ))
+                        ? localOutcome(
+                            "timed-out",
+                            "operation deadline exceeded after a stalled prompt observation",
+                          )
+                        : localOutcome("cancelled", "pane operation cancelled");
+                    }
+                    if (recorded) dropTurn();
+                    return herdrFailure(sent, remainingMs);
                   }
-                  return herdrFailure(sent, remainingMs);
                 }
                 let settled: Pick<NativeTurnOutcome, "state" | "detail">;
                 let session: string | undefined;
@@ -1935,8 +1965,10 @@ export function createHerdrRunHostFactory(
                   if ("outcome" in ended) return ended.outcome;
                   settled = ended.settled;
                   session = ended.session;
-                } else {
+                } else if (sent.ok) {
                   ({ settled, session } = herdrSettled(harness, sent));
+                } else {
+                  return herdrFailure(sent, remainingMs);
                 }
                 const read = await herdr(
                   ["agent", "read", placement.agentName, "--source", "detection"],
@@ -2020,7 +2052,6 @@ export function createHerdrRunHostFactory(
                 fate = { notKept: why ?? "its pane closed" };
               }
               await closeCurrentPane();
-              dropTurn();
               closed = true;
             },
           };

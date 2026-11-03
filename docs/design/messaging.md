@@ -760,11 +760,11 @@ already shown.
 A message is typed into a pane only when it is idle. Typed into a busy one, it would sit in the
 harness's own queue and could start a turn after its operation had settled, a turn no operation
 owns. There is no interrupting delivery. Folding a message into a running claude turn between tool
-calls, which E8 showed claude does and `claude-receipt` can confirm, is later
+calls, which E8 showed claude does and claude's turn record (`turns/claude.ts`) can confirm, is later
 ([[mid-turn-messages]]); until then a one-way report reaches a busy agent only when its turn ends.
 
 A message is `offered` when it is typed or its resumed process starts, and `observed` when the
-harness's delivery evidence confirms the model read it: `claude-receipt` on a claude TUI agent, the
+harness's delivery evidence confirms the model read it: claude's turn record on a claude TUI agent, the
 resumed turn's session record headless. Without that evidence it stays `unconfirmed`.
 
 When a workflow operation's turn ends without a result and messages are held for it, they continue

@@ -75,7 +75,13 @@ export default defineWorkflow<{ agents: { runtime: Runtime; index: number }[] },
     const agents: { runtime: Runtime; index: number }[] = [];
     for (const count of counts) {
       const [runtime, n] = count.split("=");
-      if (!runtime || !Object.hasOwn(RUNTIMES, runtime) || !Number.isInteger(Number(n))) {
+      if (
+        !runtime ||
+        !Object.hasOwn(RUNTIMES, runtime) ||
+        !n ||
+        !Number.isInteger(Number(n)) ||
+        Number(n) < 1
+      ) {
         throw new Error(`expected {runtime}={count}, runtime one of ${Object.keys(RUNTIMES)}`);
       }
       for (let index = 0; index < Number(n); index++) {

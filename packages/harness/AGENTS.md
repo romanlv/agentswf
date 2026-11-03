@@ -23,7 +23,8 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `placement-host.ts` | one run host over a TUI host and a headless one, routing each agent and its accounting by placement |
 | `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
-| `adapters/claude-receipt.ts` | bounded native queue and model-receipt observation for measured Claude TUI placements; provider details remain inside harness |
+| `turns/record.ts` | reading a pane's turn from its harness's own session files, bounded: the file found by the prompt's delivery marker, then its rows told to the harness's reducer |
+| `turns/claude.ts`, `turns/codex.ts` | each harness's reducer over those rows: the prompt taken in, its model's answer, the turn's end or interrupt; claude's also confirms delivery. `turns/fixtures/` holds the rows each version writes |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
 | `adapters/direct-process.ts` | the headless run host: one subprocess per headless operation |
@@ -31,6 +32,7 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `types.ts` | `Harness` and `SettledState` |
 | `testing/fake.ts` | scriptable engine-facing adapter and a manual clock |
 | `testing/herdr-cli.ts` | a Herdr 0.8.2 model: pane width, per-process environment, startup blocks, input readiness |
+| `testing/turn-records.ts` | a test's own claude and codex homes, and the turn records a fake harness writes into them |
 
 Before editing:
 
