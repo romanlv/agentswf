@@ -24,6 +24,8 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
   let accepted = false;
   let received = false;
   let inserted = false;
+  /** claude compacted on its own after the prompt: its answer's ancestry starts anew. */
+  let restarted = false;
   let ended: TurnReading["ended"];
   const matches = (value: unknown) => {
     if (typeof value !== "string") return false;
@@ -50,6 +52,20 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
         return reading();
       }
       if (received) return reading();
+      if (inserted && row.type === "system" && row.subtype === "compact_boundary") {
+        restarted = true;
+        return reading();
+      }
+      if (
+        restarted &&
+        row.type === "assistant" &&
+        message?.role === "assistant" &&
+        typeof message.model === "string" &&
+        message.model !== "<synthetic>"
+      ) {
+        received = true;
+        return reading();
+      }
       const input =
         (row.type === "user" && matches(message?.content)) ||
         (row.type === "attachment" &&

@@ -1532,13 +1532,22 @@ export function createHerdrRunHostFactory(
                 }
                 read = await readScreen();
               }
-              if (!read.ok) {
-                return read.cancelled || signal.aborted
-                  ? localOutcome("cancelled", "pane operation cancelled")
-                  : localOutcome("failed", `the pane could not be read: ${read.error}`);
+              if (!read.ok && (read.cancelled || signal.aborted)) {
+                return localOutcome("cancelled", "pane operation cancelled");
               }
-              const evidence = { kind: "transcript" as const, text: read.stdout };
-              if (!inRecord && !compaction.compacted(read.stdout, operation.prompt, before)) {
+              // Herdr reads no scrollback of a pane it sees working, which a codex just past its
+              // compaction can be: one its record showed needs no screen to say so.
+              if (!read.ok && !inRecord) {
+                return localOutcome("failed", `the pane could not be read: ${read.error}`);
+              }
+              const evidence = read.ok
+                ? { kind: "transcript" as const, text: read.stdout }
+                : { kind: "unavailable" as const };
+              if (
+                read.ok &&
+                !inRecord &&
+                !compaction.compacted(read.stdout, operation.prompt, before)
+              ) {
                 return {
                   state: "failed",
                   detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
@@ -2101,7 +2110,12 @@ export function createHerdrRunHostFactory(
                   // which the record says.
                   if (
                     !recorded ||
-                    !(sent.timedOut || hasHerdrErrorCode(sent.error, "agent_prompt_stalled"))
+                    !(
+                      sent.timedOut ||
+                      hasHerdrErrorCode(sent.error, "agent_prompt_stalled") ||
+                      // Herdr loses a live agent a moment under load: its record says.
+                      hasHerdrErrorCode(sent.error, "agent_not_found")
+                    )
                   ) {
                     if (!recorded && hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                       // Herdr had already accepted the submission, so the turn may be running.

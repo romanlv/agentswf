@@ -254,3 +254,16 @@ test("claude's compaction has begun at the /compact it writes at once", () => {
   const typed = { type: "user", message: { content: "/compact Keep the path." } };
   expect(reducer.push(typed)).toEqual({ accepted: true, received: false });
 });
+
+test("an answer after claude compacts on its own, its ancestry started anew, is received", () => {
+  const reducer = createClaudeReceiptReducer(MARKER);
+  reducer.push({ type: "user", uuid: "u1", message: { content: `${MARKER} go` } });
+  reducer.push({ type: "system", subtype: "compact_boundary", uuid: "b1", parentUuid: null });
+  const answer = reducer.push({
+    type: "assistant",
+    uuid: "a1",
+    parentUuid: "s1",
+    message: { role: "assistant", model: "m" },
+  });
+  expect(answer.received).toBe(true);
+});
