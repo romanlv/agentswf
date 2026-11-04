@@ -129,6 +129,36 @@ reducer counts by `enqueue`, is never pressed again. Still nothing, the turn fai
 - Live: the fork eval at 16 and compaction beside another eval, each three times, and the 12-pane
   codex fan-out as an eval.
 
+## Built
+
+Steps 1–4 are on the `concurrent-agents` branch, the turn record in `packages/harness/src/turns/`.
+What the live suite added to the plan:
+
+- **Herdr settles only what the record cannot.** A prompt whose record never shows it waits out
+  its deadline: a 60 s fallback on Herdr's status failed a codex that began its turn 70 s after its
+  prompt, Herdr still showing the last turn `done`. A record that fails mid-turn fails the turn,
+  never handed to a Herdr that may not have seen it begin. A Herdr wait after a turn the record
+  settled waits for Herdr to catch up first.
+- **One dialog wait per turn**, `agent wait --until blocked`, shared by the turn's execute and
+  release, and confirmed a moment later: claude's auto mode showed `blocked` for a moment under
+  load. Herdr answered `agent_not_found` for live agents with eighteen panes busy, so an agent is
+  gone only on three misses running.
+- **Pane compaction ends on the record too**, claude's `compact_boundary` and summary or codex's
+  prompt-less task that wrote `compacted`, or the screen, whichever comes first: Herdr's wait
+  returned before a loaded codex began, and the screen showed none.
+- **cursor is prompted only once drawn.** Herdr's `agent start` called a cursor ready before it
+  drew; its prompt went to the shell and sat unsent in cursor's input until the deadline, the
+  cursor timeouts the fork, compaction and harnesses evals showed under load. Every start now
+  waits for `paneReady`.
+- **The fan-out eval**, 12 codex, 6 claude and 4 cursor panes prompted together twice, passes alone
+  and under the full suite's four evals at once.
+
+The full suite under four evals at once passed 16–17 of 21 on the branch against 13 of 20 on
+main, 2026-11-03. What still failed there passes alone: effort's pi and cursor panes, which still
+read Herdr's state (M7, and pi's extension under load); calling-session, which fails the same way
+on main, while the eval types into its caller sessions; and model answers, codex's compaction
+summary once dropping its codename.
+
 ## To measure
 
 M1–M5 are E4: [`experiments/e4-concurrency/`](../../../experiments/e4-concurrency/) already holds
@@ -150,7 +180,10 @@ M6–M7 the plan needs, before step 2 and after it:
 
 - M6. Whether Herdr's `blocked` holds under load, the one screen signal the plan keeps: a blocking
   dialog in one of 12 busy panes, and how late Herdr shows it.
-- M7. Whether cursor's chat store records a turn's start and end, so cursor needs no hook.
+- M7. Whether cursor's chat store records a turn's start and end, so cursor needs no hook. A
+  cursor pane still misses turns under load: two of four timed out in one fan-out run.
+- M8. Why a pi pane relaunched by `set` timed out under the full suite's load, its state pi's own
+  extension's.
 
 ## Open questions
 
