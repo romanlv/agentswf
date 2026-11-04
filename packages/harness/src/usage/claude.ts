@@ -15,7 +15,12 @@ export async function claudeProjectDirectory(cwd: string, home?: string): Promis
     if (record(error)?.code === "ENOENT") return cwd;
     throw error;
   });
-  return join(claudeProjectsDirectory(home), nativeCwd.replace(/[^A-Za-z0-9]/g, "-"));
+  return join(claudeProjectsDirectory(home), claudeProjectName(nativeCwd));
+}
+
+/** The directory name claude gives a project's sessions: its path, every other character a dash. */
+export function claudeProjectName(cwd: string): string {
+  return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
 
 /**

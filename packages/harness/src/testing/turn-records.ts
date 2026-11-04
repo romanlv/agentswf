@@ -1,6 +1,8 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claudeProjectName, claudeProjectsDirectory } from "../usage/claude";
+import { codexSessionsDirectory } from "../usage/codex";
 
 const HOMES = ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] as const;
 
@@ -37,9 +39,34 @@ function isolated(name: (typeof HOMES)[number]): string {
     throw new Error(`${name} is not a test's own: call isolateHarnessHomes first`);
   return home;
 }
+/** claude's session file for `session` in `cwd`, under `home`, its directory made. */
+function claudeFile(home: string, cwd: string, session: string): string {
+  const project = join(claudeProjectsDirectory(home), claudeProjectName(cwd));
+  mkdirSync(project, { recursive: true });
+  return join(project, `${session}.jsonl`);
+}
+
+/** codex's rollout for `session`, under `home`, in today's directory, made. */
+function codexFile(home: string, session: string): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const day = join(
+    codexSessionsDirectory(home),
+    String(now.getFullYear()),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+  );
+  mkdirSync(day, { recursive: true });
+  return join(day, `rollout-2026-01-01T00-00-00-${session}.jsonl`);
+}
+
+const append = (file: string, rows: readonly unknown[]) =>
+  appendFileSync(file, rows.map((row) => `${JSON.stringify(row)}\n`).join(""));
+
 /**
  * Records a turn prompted with `text` as claude and codex would, in each one's home: its prompt,
- * an answer, and, unless `open`, its end. Only a prompt carrying a delivery marker is read for it.
+ * an answer, and, unless `open`, its end, which the function returned records later. Only a prompt
+ * carrying a delivery marker is read for it.
  */
 export function recordTurn(
   text: string,
@@ -53,13 +80,13 @@ export function recordTurn(
   } = {},
 ): (interrupted?: boolean) => void {
   const n = ++recordedRows;
-  const project = join(
+  const transcript = claudeFile(
     options.claude ?? isolated("CLAUDE_CONFIG_DIR"),
-    "projects",
-    (options.cwd ?? "/repo").replace(/[^A-Za-z0-9]/g, "-"),
+    options.cwd ?? "/repo",
+    session,
   );
-  mkdirSync(project, { recursive: true });
-  const claude = [
+  const rollout = codexFile(options.codex ?? isolated("CODEX_HOME"), session);
+  append(transcript, [
     { type: "user", uuid: `u${n}`, message: { content: text } },
     {
       type: "assistant",
@@ -67,95 +94,37 @@ export function recordTurn(
       parentUuid: `u${n}`,
       message: { role: "assistant", model: "claude-test" },
     },
-    ...(options.open
-      ? []
-      : [
-          options.interrupted
-            ? { type: "user", uuid: `i${n}`, message: { content: "[Request interrupted by user]" } }
-            : { type: "system", subtype: "turn_duration", uuid: `d${n}` },
-        ]),
-  ];
-  appendFileSync(
-    join(project, `${session}.jsonl`),
-    claude.map((row) => `${JSON.stringify(row)}\n`).join(""),
-  );
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const day = join(
-    options.codex ?? isolated("CODEX_HOME"),
-    "sessions",
-    String(now.getFullYear()),
-    pad(now.getMonth() + 1),
-    pad(now.getDate()),
-  );
-  mkdirSync(day, { recursive: true });
-  const codex = [
+  ]);
+  append(rollout, [
     { type: "event_msg", payload: { type: "user_message", message: text, turn_id: `t${n}` } },
     { type: "response_item", payload: { type: "message", role: "assistant" } },
-    ...(options.open
-      ? []
-      : [
-          {
-            type: "event_msg",
-            payload: {
-              type: options.interrupted ? "turn_aborted" : "task_complete",
-              turn_id: `t${n}`,
-            },
-          },
-        ]),
-  ];
-  const rollout = join(day, `rollout-2026-01-01T00-00-00-${session}.jsonl`);
-  appendFileSync(rollout, codex.map((row) => `${JSON.stringify(row)}\n`).join(""));
-  return (interrupted = false) => {
-    const end = interrupted
-      ? { type: "user", uuid: `i${n}`, message: { content: "[Request interrupted by user]" } }
-      : { type: "system", subtype: "turn_duration", uuid: `d${n}` };
-    appendFileSync(join(project, `${session}.jsonl`), `${JSON.stringify(end)}\n`);
-    appendFileSync(
-      rollout,
-      `${JSON.stringify({
+  ]);
+  const end = (interrupted = false) => {
+    append(transcript, [
+      interrupted
+        ? { type: "user", uuid: `i${n}`, message: { content: "[Request interrupted by user]" } }
+        : { type: "system", subtype: "turn_duration", uuid: `d${n}` },
+    ]);
+    append(rollout, [
+      {
         type: "event_msg",
         payload: { type: interrupted ? "turn_aborted" : "task_complete", turn_id: `t${n}` },
-      })}\n`,
-    );
+      },
+    ]);
   };
+  if (!options.open) end(options.interrupted);
+  return end;
 }
 
 /** Records a compaction of `session` as claude and codex would, in each one's home. */
 export function recordCompaction(session: string, options: { cwd?: string } = {}) {
-  const project = join(
-    isolated("CLAUDE_CONFIG_DIR"),
-    "projects",
-    (options.cwd ?? "/repo").replace(/[^A-Za-z0-9]/g, "-"),
-  );
-  mkdirSync(project, { recursive: true });
-  appendFileSync(
-    join(project, `${session}.jsonl`),
-    [
-      { type: "system", subtype: "compact_boundary" },
-      { type: "user", isCompactSummary: true, message: { content: "The summary." } },
-    ]
-      .map((row) => `${JSON.stringify(row)}\n`)
-      .join(""),
-  );
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const day = join(
-    isolated("CODEX_HOME"),
-    "sessions",
-    String(now.getFullYear()),
-    pad(now.getMonth() + 1),
-    pad(now.getDate()),
-  );
-  mkdirSync(day, { recursive: true });
-  appendFileSync(
-    join(day, `rollout-2026-01-01T00-00-00-${session}.jsonl`),
-    [
-      { type: "event_msg", payload: { type: "task_started", turn_id: "c1" } },
-      { type: "compacted", payload: { message: "" } },
-      { type: "event_msg", payload: { type: "task_complete", turn_id: "c1" } },
-    ]
-      .map((row) => `${JSON.stringify(row)}\n`)
-      .join(""),
-  );
+  append(claudeFile(isolated("CLAUDE_CONFIG_DIR"), options.cwd ?? "/repo", session), [
+    { type: "system", subtype: "compact_boundary" },
+    { type: "user", isCompactSummary: true, message: { content: "The summary." } },
+  ]);
+  append(codexFile(isolated("CODEX_HOME"), session), [
+    { type: "event_msg", payload: { type: "task_started", turn_id: "c1" } },
+    { type: "compacted", payload: { message: "" } },
+    { type: "event_msg", payload: { type: "task_complete", turn_id: "c1" } },
+  ]);
 }

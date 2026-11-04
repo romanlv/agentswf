@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { parseRow, record, text } from "../json";
-import { readable } from "../screen";
 import { localOutcome, type NativeTurnOutcome } from "../session-core";
 import type { SettledState } from "../types";
 
@@ -160,22 +159,6 @@ export async function submitPrompt(
     wait ? waitMs + HERDR_REPORT_GRACE_MS : Math.min(waitMs, PROMPT_SUBMIT_MS),
     signal,
   );
-}
-
-/**
- * Whether claude holds a prompt unsent in its input box, the last pair of rules on its screen:
- * marked with `marker`, or collapsed into a pasted-text placeholder, which nothing but the prompt
- * typed there. A prompt above the box was submitted.
- */
-export function heldInInput(screen: string, marker: string): boolean {
-  const lines = readable(screen).split("\n");
-  const rules = lines.flatMap((line, index) => (/^\s*─{3,}/.test(line) ? [index] : []));
-  if (rules.length < 2) return false;
-  const input = lines
-    .slice(rules.at(-2)! + 1, rules.at(-1))
-    .join("")
-    .replace(/\s+/g, "");
-  return input.includes(marker) || input.includes("[Pastedtext");
 }
 
 /**

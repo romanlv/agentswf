@@ -212,6 +212,12 @@ export type HarnessSpec = {
    * typed sooner is lost (story 019).
    */
   paneReady?: string;
+  /**
+   * Whether `screen` shows the prompt carrying `marker` still unsent in its input, for a harness
+   * that can drop the Enter after a paste: pressed once more while its record shows the prompt
+   * untaken, and looked for before another prompt is typed after it.
+   */
+  heldPrompt?(screen: string, marker: string): boolean;
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];
@@ -235,17 +241,15 @@ export type HarnessSpec = {
   /**
    * Where a pane's turn is recorded as it runs, read for its start and end in place of Herdr's
    * screen, which with many panes busy misses a turn or shows it late (story concurrent-agents).
-   * `session` is the one the prompt goes to, where known, and `file` the file of its place its
-   * last turn was read from; `since`, when its harness launched.
+   * `session` is the one the prompt goes to, where known; `since`, when its harness launched.
    */
   turnRecord?: {
-    place(
-      cwd: string,
-      since: number,
-      home?: string,
-      session?: string,
-      file?: string,
-    ): Promise<TurnRecordPlace>;
+    place(where: {
+      cwd: string;
+      since: number;
+      home?: string;
+      session?: string;
+    }): Promise<TurnRecordPlace>;
     reducer(marker: string, lead?: string): TurnReducer;
     /** A reducer that ends at its own compaction, read from the session's file. */
     compaction(): TurnReducer;

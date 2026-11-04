@@ -179,7 +179,7 @@ test("past its answer, a row too long to hold is skipped, and the turn's end sti
   const home = mkdtempSync(join(tmpdir(), "awf-turn-long-"));
   try {
     const record = HARNESSES.claude.turnRecord!;
-    const place = await record.place("/probe", Date.now(), home, "s1");
+    const place = await record.place({ cwd: "/probe", since: Date.now(), home, session: "s1" });
     mkdirSync(place.root, { recursive: true });
     const file = join(place.root, "s1.jsonl");
     writeFileSync(file, "");

@@ -55,6 +55,19 @@ function codexSettings({ model, effort }: LaunchSettings): string[] {
   ];
 }
 
+/** Each session's rollout, relative to its sessions directory, by home and session, once found. */
+const rollouts = new Map<string, string>();
+
+async function rolloutOf(home: string | undefined, session: string): Promise<string | undefined> {
+  const root = home ?? harnessState().codex;
+  const key = `${root}\0${session}`;
+  const known = rollouts.get(key);
+  if (known) return known;
+  const found = (await codexSessionFiles(root, session))?.[0]?.replace(/^sessions\//, "");
+  if (found) rollouts.set(key, found);
+  return found;
+}
+
 const CODEX = {
   callingSessionEnv: ["CODEX_SESSION_ID"],
   settingsEnv: [],
@@ -237,19 +250,10 @@ const CODEX = {
   sessionFiles: (home, session) => codexSessionFiles(home, session),
   activityRow: codexActivity,
   turnRecord: {
-    // Its rollout is found by the marker: a resumed session goes on in the file it started, which
-    // its last turn named, or else is looked up once.
-    place: async (_cwd, since, home, session, file) => {
-      const own =
-        file ??
-        (session
-          ? (await codexSessionFiles(home ?? harnessState().codex, session))?.[0]?.replace(
-              /^sessions\//,
-              "",
-            )
-          : undefined);
-      return codexTurnPlace(since, home, own);
-    },
+    // Its rollout is found by the marker: a resumed session goes on in the file it started,
+    // looked up once.
+    place: async ({ since, home, session }) =>
+      codexTurnPlace(since, home, session ? await rolloutOf(home, session) : undefined),
     reducer: (marker) => createCodexTurnReducer(marker),
     compaction: createCodexCompactionReducer,
     session: (file) => codexRolloutId(basename(file)),
@@ -270,6 +274,7 @@ const CODEX = {
 } satisfies HarnessDefinition;
 
 export const codex = defineHarness(CODEX, {
+  heldPrompt: "codex's prompt was never seen held after its paste",
   launchModel: "codex names a model as it logs it",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "codex logs each request in its rollouts",

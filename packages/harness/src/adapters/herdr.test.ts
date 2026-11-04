@@ -1647,7 +1647,7 @@ describe("createHerdrRunHostFactory", () => {
     const opened = async (run: RunProcess, harness: "claude" | "codex" | "pi") => {
       // A compaction its record never shows is given a short grace here.
       const host = await createHerdrRunHostFactory(
-        { ...CONFIG, compactionGraceMs: 300 },
+        { ...CONFIG, timings: { compactionGraceMs: 300 } },
         run,
       ).openRun({
         runId: "run-1",
@@ -1727,7 +1727,7 @@ describe("createHerdrRunHostFactory", () => {
           return base.run(input);
         };
         const host = await createHerdrRunHostFactory(
-          { ...CONFIG, compactionGraceMs: 5_000 },
+          { ...CONFIG, timings: { compactionGraceMs: 5_000 } },
           run,
         ).openRun({ runId: "run-1", cwd: "/repo", deadline: deadline() });
         const session = await host.openAgent({
@@ -2432,7 +2432,10 @@ describe("createHerdrRunHostFactory", () => {
         });
       };
       // A dialog is confirmed a moment later, here a short one.
-      const host = await createHerdrRunHostFactory({ ...CONFIG, untakenMs: 50 }, run).openRun({
+      const host = await createHerdrRunHostFactory(
+        { ...CONFIG, timings: { dialogConfirmMs: 50 } },
+        run,
+      ).openRun({
         runId: `run-${terminalState}`,
         cwd: "/repo",
         deadline: deadline(),
@@ -2689,7 +2692,10 @@ describe("createHerdrRunHostFactory", () => {
 
   describe("a turn read from its harness's record", () => {
     // Untaken past the record's own poll, as in production, where it waits 5 s on a 100 ms poll.
-    const FAST: HerdrConfig = { ...CONFIG, turnPollMs: 20, untakenMs: 300 };
+    const FAST: HerdrConfig = {
+      ...CONFIG,
+      timings: { turnPollMs: 20, untakenMs: 300, dialogConfirmMs: 300, lostAgentMs: 300 },
+    };
 
     async function recordedAgent(
       run: RunProcess,
@@ -2855,7 +2861,8 @@ describe("createHerdrRunHostFactory", () => {
           recordTurn(promptOf(input)!, `session-${input.argv[5]}`, { open: true });
           return commandResult({ agent: { agent_status: "working" } });
         }
-        if (verb(input) === "agent wait") return errorResult("agent_not_found");
+        if (verb(input) === "agent wait" || verb(input) === "agent get")
+          return errorResult("agent_not_found");
         return base.run(input);
       };
       const { host, turn } = await recordedAgent(run, "codex");

@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { claudeActivity } from "../activity/rows";
 import { count, jsonLines, record, reported, text } from "../json";
+import { readable } from "../screen";
 import {
   claudeTurnPlace,
   createClaudeCompactionReducer,
@@ -60,6 +61,22 @@ function claudeSettings({ model, effort }: LaunchSettings): string[] {
 }
 
 const SESSION_SETTINGS = ["--settings", JSON.stringify(CLAUDE_SESSION_SETTINGS)];
+
+/**
+ * Whether claude holds a prompt unsent in its input box, the last pair of rules on its screen:
+ * marked with `marker`, or collapsed into a pasted-text placeholder, which nothing but the prompt
+ * typed there. A prompt above the box was submitted.
+ */
+function heldInInput(screen: string, marker: string): boolean {
+  const lines = readable(screen).split("\n");
+  const rules = lines.flatMap((line, index) => (/^\s*─{3,}/.test(line) ? [index] : []));
+  if (rules.length < 2) return false;
+  const input = lines
+    .slice(rules.at(-2)! + 1, rules.at(-1))
+    .join("")
+    .replace(/\s+/g, "");
+  return input.includes(marker) || input.includes("[Pastedtext");
+}
 
 const CLAUDE = {
   // What a Claude Code session sets for the commands it runs. The findings tie inherited
@@ -201,8 +218,9 @@ const CLAUDE = {
     readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
   sessionFiles: (home, session, cwd) => claudeSessionFiles(home, session, cwd),
   activityRow: claudeActivity,
+  heldPrompt: heldInInput,
   turnRecord: {
-    place: (cwd, _since, home, session) => claudeTurnPlace(cwd, home, session),
+    place: ({ cwd, home, session }) => claudeTurnPlace(cwd, home, session),
     reducer: createClaudeReceiptReducer,
     compaction: createClaudeCompactionReducer,
     session: (file) => basename(file, ".jsonl"),

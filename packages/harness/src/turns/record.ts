@@ -1,7 +1,7 @@
 import { constants, type FSWatcher, watch as watchDirectory } from "node:fs";
 import { open, opendir } from "node:fs/promises";
 import { join } from "node:path";
-import { parseRow, record } from "../json";
+import { parseRow, record, text } from "../json";
 
 const MAX_FILES = 256;
 const MAX_BASELINE_FILES = 100_000;
@@ -75,27 +75,37 @@ function* markerRows(cursor: Cursor, data: Buffer, start: number, marker: Buffer
   }
 }
 
+/** A user message's text: a string, or its text blocks joined; none where it is neither. */
+export function contentText(content: unknown): string | undefined {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  return content.map((block) => text(record(block)?.text) ?? "").join("");
+}
+
 /**
  * The session files under `place` as they are now, to read from: a file is read only past where it
  * ended here, a file new since from its start, and the first row carrying `marker` picks the file.
- * Historical names are discovery metadata, not live receipt cursors.
+ * With no marker, only `place.known` is read. Historical names are discovery metadata, not live
+ * receipt cursors.
  */
 export async function prepareTurnRecord(
   place: TurnRecordPlace,
-  marker: string,
+  marker: string | undefined,
   reducer: () => TurnReducer,
   options: { signal?: AbortSignal } = {},
 ) {
   options.signal?.throwIfAborted();
   const { root: directory, known } = place;
+  if (marker === undefined && !known) throw new Error("an unmarked turn record needs its file");
   const directories = [...new Set(place.directories)];
-  const markerBytes = Buffer.from(marker);
+  const markerBytes = marker === undefined ? undefined : Buffer.from(marker);
   const cursors = new Map<string, Cursor>();
   const progress = new Map<string, Cursor>();
   const baseline = new Map<string, { inode: number; offset: number } | undefined>();
   let discoveryNameBytes = 0;
   let newNames = 0;
-  const relevant = (name: string) => !known || name === known || !baseline.has(name);
+  const relevant = (name: string) =>
+    !known || name === known || (marker !== undefined && !baseline.has(name));
   const fileNames = async function* () {
     for (const subdirectory of directories) {
       const entries = await opendir(join(directory, subdirectory)).catch((error: unknown) => {
@@ -402,7 +412,7 @@ export async function prepareTurnRecord(
               const data = buffer.subarray(0, bytesRead);
               if (cursor.protected) {
                 if (protectedRows(name, cursor, data)) return;
-              } else {
+              } else if (markerBytes) {
                 for (const candidate of markerRows(cursor, data, start, markerBytes)) {
                   const row = Buffer.alloc(candidate.length);
                   const read = await file.read(row, 0, candidate.length, candidate.offset);
@@ -448,4 +458,39 @@ export async function prepareTurnRecord(
       }
     },
   };
+}
+
+/**
+ * Reads `place`'s known file from its end now until `reducer` says what follows ended, or until
+ * `signal` or `deadline`: `ended` is true once it did, false once the watch stopped or failed
+ * first; `begun`, whether the reducer accepted.
+ */
+export async function watchSessionEnd(
+  place: TurnRecordPlace,
+  reducer: () => TurnReducer,
+  signal: AbortSignal,
+  deadline: () => number,
+): Promise<{ ended: Promise<boolean>; begun(): boolean }> {
+  const watching = await prepareTurnRecord(place, undefined, reducer, { signal });
+  let begun = false;
+  const ended = new Promise<boolean>((resolve) => {
+    watching
+      .watch(
+        signal,
+        {
+          accepted() {
+            begun = true;
+          },
+          received() {},
+          ended: () => resolve(true),
+        },
+        undefined,
+        deadline,
+      )
+      .then(
+        () => resolve(false),
+        () => resolve(false),
+      );
+  });
+  return { ended, begun: () => begun };
 }

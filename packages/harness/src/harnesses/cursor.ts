@@ -143,6 +143,7 @@ function cursorCompactionFocus(focus: string): string {
 }
 
 export const cursor = defineHarness(CURSOR, {
+  heldPrompt: "cursor has no turn record to tell a held prompt from a taken one",
   turnRecord:
     "cursor keeps a chat in a SQLite store.db, not read as it runs; its hooks load only from the operator's or the project's files",
   activityRow:

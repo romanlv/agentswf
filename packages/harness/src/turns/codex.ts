@@ -1,22 +1,15 @@
 import { record, text } from "../json";
 import { codexSessionsDirectory } from "../usage/codex";
-import type { TurnReading, TurnRecordPlace } from "./record";
+import { contentText, type TurnReading, type TurnRecordPlace } from "./record";
 
 /** The text a codex row gives the operator's prompt in, if it is one. */
 function promptText(payload: Record<string, unknown> | undefined): string | undefined {
   if (!payload) return undefined;
-  if (payload.type === "message" && payload.role === "user") {
-    const content = payload.content;
-    if (!Array.isArray(content)) return text(content);
-    return content.map((block) => text(record(block)?.text) ?? "").join("");
-  }
+  if (payload.type === "message" && payload.role === "user") return contentText(payload.content);
   if (payload.type === "user_message") return text(payload.message);
   const item = record(payload.item);
   if (payload.type === "item_completed" && item?.type === "UserMessage") {
-    const content = item.content;
-    return Array.isArray(content)
-      ? content.map((block) => text(record(block)?.text) ?? "").join("")
-      : text(content);
+    return contentText(item.content);
   }
   return undefined;
 }
