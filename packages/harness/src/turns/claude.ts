@@ -1,15 +1,21 @@
 import { record, text } from "../json";
 import { claudeProjectDirectory } from "../usage/claude";
-import type { TurnReading, TurnRecordPlace } from "./record";
+import { contentText, type TurnReading, type TurnRecordPlace } from "./record";
 
 const MAX_ROWS = 4096;
 const INTERRUPTED = "[Request interrupted by user";
 
-/** A user message's text: a string, or its text blocks; a tool result's is none of it. */
-function said(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((block) => text(record(block)?.text) ?? "").join("");
+/** A user message's text; a tool result's is none of it. */
+const said = (content: unknown): string => contentText(content) ?? "";
+
+/** A row of the model's own answer, not one claude made up, as for an API error. */
+function isModelAnswer(row: Record<string, unknown>, message: Record<string, unknown> | undefined) {
+  return (
+    row.type === "assistant" &&
+    message?.role === "assistant" &&
+    typeof message.model === "string" &&
+    message.model !== "<synthetic>"
+  );
 }
 
 /**
@@ -56,13 +62,7 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
         restarted = true;
         return reading();
       }
-      if (
-        restarted &&
-        row.type === "assistant" &&
-        message?.role === "assistant" &&
-        typeof message.model === "string" &&
-        message.model !== "<synthetic>"
-      ) {
+      if (restarted && isModelAnswer(row, message)) {
         received = true;
         return reading();
       }
@@ -90,12 +90,7 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
           inputs.add(uuid);
           inserted = true;
         }
-        if (
-          row.type === "assistant" &&
-          message?.role === "assistant" &&
-          typeof message.model === "string" &&
-          message.model !== "<synthetic>"
-        ) {
+        if (isModelAnswer(row, message)) {
           let parent = text(row.parentUuid);
           const visited = new Set<string>();
           while (parent && !visited.has(parent)) {

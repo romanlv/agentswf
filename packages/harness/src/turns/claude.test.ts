@@ -17,7 +17,12 @@ async function prepareClaudeReceipt(
 ) {
   const record = HARNESSES.claude.turnRecord!;
   return prepareTurnRecord(
-    await record.place(cwd, Date.now(), home, options.sessionRef),
+    await record.place({
+      cwd,
+      since: Date.now(),
+      ...(home ? { home } : {}),
+      ...(options.sessionRef ? { session: options.sessionRef } : {}),
+    }),
     watched,
     () => record.reducer(watched),
   );
