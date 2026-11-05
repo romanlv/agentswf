@@ -101,7 +101,8 @@ function inProcess(options: { spend?: number } = {}) {
       }),
     });
     const text = output.join("\n").trim();
-    const record = text.startsWith("{") ? (JSON.parse(text) as RunOutput) : undefined;
+    // As the real runner reads it: a refusal, a document with no record's version, is none.
+    const { record } = parseRecord(text);
     if (record && options.spend !== undefined) record.accounting.totals.estimate = options.spend;
     return {
       exitCode,

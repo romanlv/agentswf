@@ -153,6 +153,10 @@ export function parseCommand(
   }
   if (!workflowFile) throw new Error("run needs one workflow file");
   if (here && session !== undefined) throw new Error("--here and --session do not go together");
+  if (here && json)
+    throw new Error(
+      "--here prints what the calling agent does next, no document: leave out --json",
+    );
   if (continuing && named === undefined)
     throw new Error("--continue goes on with the run --id names");
   const id = continuing ? undefined : named;

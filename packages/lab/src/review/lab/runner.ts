@@ -180,14 +180,15 @@ export async function awfAllowance(
   );
   const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   try {
-    const report = JSON.parse(stdout) as AllowanceReport;
-    return report.v === 1 ? report : undefined;
+    const report = JSON.parse(stdout) as AllowanceReport | { code: string };
+    // A refusal, which has a code and no report's fields, is none.
+    return "code" in report || report.v !== 1 ? undefined : report;
   } catch {
     return undefined;
   }
 }
 
-/** `awf run --json` prints the record, success or not; usage errors print none. */
+/** `awf run --json` prints the record, success or not; a run that never started, a refusal. */
 export function parseRecord(stdout: string): { record?: RunOutput } {
   const text = stdout.trim();
   if (!text.startsWith("{")) return {};

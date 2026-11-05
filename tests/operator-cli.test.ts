@@ -1647,8 +1647,8 @@ describe("awf run's runs and attempts", () => {
   test("a continue whose recorded argv no longer parses, or whose directory is gone, is refused", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awfRun(cwd, ["--id", "r1", "flow.js", "--", "old"]);
-    // The fix that follows renames the argument the run was started with.
+    // The fix that follows renames the argument the run was started with. Written first: Bun's
+    // resolver doesn't see a file written into a folder it has already imported from.
     await Bun.write(
       join(cwd, "strict.js"),
       FLAKY.replace(
@@ -1656,6 +1656,7 @@ describe("awf run's runs and attempts", () => {
         'if (invocation.argv[0] === "old") throw new Error("old is gone"); return invocation.argv;',
       ),
     );
+    await awfRun(cwd, ["--id", "r1", "flow.js", "--", "old"]);
     const parsed = await awfRun(cwd, ["strict.js", "--id", "r1", "--continue"]);
     expect(parsed).toMatchObject({ exitCode: 2, installed: false });
     expect(parsed.stderr).toBe(

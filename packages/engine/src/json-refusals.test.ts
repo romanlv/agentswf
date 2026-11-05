@@ -12,9 +12,9 @@ import { createTempRunDirs, eventProject, writeAttempt } from "./testing";
 // failure's is a refusal from the published codes, its sentence still on stderr. Each row is a
 // failure a command's help names.
 //
-// Not rows yet, each for the task that makes it reachable (story 043): `run`'s `prepare` and
-// `not-started` (task 4); `unreachable` from a run that doesn't answer, for `reply` and `send`
-// (task 5). `tick`'s exit 1 is no row: it prints its result, the runs it woke despite the others.
+// Not rows yet, each for the task that makes it reachable (story 043): `unreachable` from a run
+// that doesn't answer, for `reply` and `send` (task 5). `tick`'s exit 1 is no row: it prints its
+// result, the runs it woke despite the others.
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -113,6 +113,8 @@ type Row = {
   v: number;
   /** What the command says, on stderr or in its document, so a row fails the way it names. */
   says: RegExp;
+  /** Run as after a Ctrl-C. */
+  cancelled?: true;
 };
 
 const ROWS: Row[] = [
@@ -333,6 +335,89 @@ const ROWS: Row[] = [
     says: /workflow file not found/,
   },
   {
+    command: "run",
+    failure: "a run named where a file goes",
+    argv: () => ["dd-case/r1"],
+    code: "file",
+    exit: 2,
+    v: 1,
+    says: /is not a workflow file/,
+  },
+  {
+    command: "run",
+    failure: "arguments the workflow refuses",
+    // The --json the guard adds goes after --, to the workflow, as this one does.
+    argv: (f) => [f.plain, "--json", "--", "extra"],
+    code: "prepare",
+    exit: 2,
+    v: 1,
+    says: /prepare/,
+  },
+  {
+    command: "run",
+    failure: "a workflow with events and no run named",
+    argv: (f) => [f.file],
+    code: "no-id",
+    exit: 2,
+    v: 1,
+    says: /named by its id/,
+  },
+  {
+    command: "run",
+    failure: "options a workflow with events doesn't keep",
+    argv: (f) => [f.file, "--id", "k", "--timeout", "1m"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /takes no --timeout/,
+  },
+  {
+    command: "run",
+    failure: "--here, which prints no document",
+    argv: (f) => [f.plain, "--here"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /--here prints what the calling agent does next/,
+  },
+  {
+    command: "run",
+    failure: "a Ctrl-C before it starts",
+    argv: (f) => [f.plain],
+    code: "not-started",
+    exit: 130,
+    v: 1,
+    says: /cancelled before it started/,
+    cancelled: true,
+  },
+  {
+    command: "run",
+    failure: "a continue of no run",
+    argv: (f) => [f.plain, "--id", "nope", "--continue"],
+    code: "no-run",
+    exit: 2,
+    v: 1,
+    says: /no run nope of plain/,
+  },
+  {
+    command: "run",
+    failure: "a continue given arguments",
+    argv: (f) => [f.file, "--id", "done", "--continue", "--json", "--", "more"],
+    code: "other-args",
+    exit: 2,
+    v: 1,
+    says: /a continue takes no arguments/,
+  },
+  {
+    command: "run",
+    failure: "a continue of a run that completed",
+    argv: (f) => [f.file, "--id", "done", "--continue"],
+    code: "not-started",
+    exit: 2,
+    v: 1,
+    says: /done/,
+  },
+  {
     command: "allowance",
     failure: "no such harness",
     argv: () => ["nope"],
@@ -512,9 +597,6 @@ const ROWS: Row[] = [
 const PENDING = new Set([
   "inbox: a project whose agentswf isn't installed",
   "reply: a project whose agentswf isn't installed",
-  "run: a project whose agentswf isn't installed",
-  "run: no workflow named",
-  "run: a workflow file that isn't there",
   "reply: no run named",
   "reply: no such run",
   "reply: a run it can't read",
@@ -542,6 +624,7 @@ async function attempt(row: Row) {
     stdout: (text) => stdout.push(text),
     stderr: (text) => stderr.push(text),
     stdin: async () => "hi",
+    ...(row.cancelled ? { signal: AbortSignal.abort("SIGINT") } : {}),
     readAllowance: async () => {
       throw new Error("no harness is read here");
     },
@@ -652,4 +735,35 @@ test("a failure no command foresaw still ends stdout with a refusal, internal-er
   });
   // And its stack, the only clue to a failure no command foresaw.
   expect(stderr[1]).toContain("the clock broke");
+});
+
+test("a run that starts and fails prints its result, out.json, not a refusal", async () => {
+  // A project of its own: Bun's resolver doesn't see a file written into a folder it has read.
+  const {
+    root,
+    file: failing,
+    home,
+  } = eventProject(
+    dirs,
+    "fails.ts",
+    `import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({
+  meta: { name: "fails", description: "Fails." },
+  async run() { throw new Error("it broke"); },
+});
+`,
+  );
+  const stdout: string[] = [];
+  const exit = await runOperatorCli(["run", failing, "--cwd", root, "--json"], {
+    home,
+    environment: { PATH: process.env.PATH, HOME: home },
+    stdout: (text) => stdout.push(text),
+    stderr: () => undefined,
+  });
+  const result = JSON.parse(stdout.join("\n")) as Record<string, unknown>;
+  expect({ exit, coded: "code" in result, ref: result.ref }).toEqual({
+    exit: 1,
+    coded: false,
+    ref: expect.stringMatching(/^fails\//),
+  });
 });

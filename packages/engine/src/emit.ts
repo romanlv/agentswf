@@ -39,11 +39,12 @@ import { type EventWorkflow, loadWorkflowFile, WorkflowFileError } from "./workf
 
 /**
  * What an `EmitError` is about, as a program's `ClientError` names it: the event, an id, the
- * target's `prepare` or `id(args)`, its file, its project, or the project's engine.
+ * target's `prepare` or `id(args)`, its file, its project, the project's engine, or a run there
+ * started with other arguments or options.
  */
 export type EmitCode = Extract<
   ClientErrorCode,
-  "event" | "id" | "prepare" | "file" | "project" | "other-engine" | "no-engine"
+  "event" | "id" | "prepare" | "file" | "project" | "other-engine" | "no-engine" | "other-args"
 >;
 
 /** An event awf refuses to take at all: a name, shape or id no run of the target could have. */
@@ -324,9 +325,10 @@ export async function openEventRun(
       if (argv.length > 0 && JSON.stringify(argv) !== JSON.stringify(run.record.argv))
         throw new EmitError(
           `${ref} is there already, started with ${run.record.argv.length > 0 || run.record.args !== undefined ? "arguments of its own" : "none"}; awf run --id ${id} with none wakes it`,
+          "other-args",
         );
       const changed = panesChanged(run.record, panes);
-      if (changed) throw new EmitError(changed);
+      if (changed) throw new EmitError(changed, "other-args");
       return { run: ref, created: false, ...(await wake(run, woken)) };
     }
     try {

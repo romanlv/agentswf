@@ -7,6 +7,7 @@ import {
   type ClaimedAttempt,
   type EventLine,
   type FailedLaunch,
+  type RefusalCode,
   RUN_FORMAT,
   type RunLogLine,
   type RunPanes,
@@ -39,9 +40,20 @@ export function runRootOf(cwd: string): string {
   return join(cwd, ".awf", "runs");
 }
 
-/** Why awf will not start an attempt: the operator's to fix, so `awf run` exits 2. */
+/**
+ * Why awf will not start an attempt: the operator's to fix, so `awf run` exits 2. `code` is its
+ * refusal's: `id`, an id the grammar refuses or one taken; `no-run`; `other-args`, a continue given
+ * other arguments or options; `prepare`, a recorded argv that no longer parses; `unreachable`, a
+ * record that can't be read; `not-started`, a run that can't take an attempt now.
+ */
 export class RunRefused extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: Extract<
+      RefusalCode,
+      "id" | "no-run" | "other-args" | "prepare" | "unreachable" | "not-started"
+    >,
+  ) {
     super(message);
     this.name = "RunRefused";
   }
@@ -80,7 +92,7 @@ export function stageNameProblem(name: string): string | undefined {
 function checkIds(...ids: string[]): void {
   for (const id of ids) {
     const problem = idProblem(id);
-    if (problem) throw new RunRefused(problem);
+    if (problem) throw new RunRefused(problem, "id");
   }
 }
 
@@ -124,7 +136,11 @@ export async function createRun(
 }
 
 /** The id is a run's already, maybe in another case. */
-export class RunTaken extends RunRefused {}
+export class RunTaken extends RunRefused {
+  constructor(message: string) {
+    super(message, "id");
+  }
+}
 
 async function claimRun(
   root: string,
@@ -172,7 +188,7 @@ export async function checkFree(root: string, workflow: string, id: string): Pro
   checkIds(workflow, id);
   const parent = join(root, workflow);
   const taken = (await exists(join(parent, id))) ? id : await takenInCase(parent, id);
-  if (taken !== undefined) throw new RunRefused(takenMessage(taken));
+  if (taken !== undefined) throw new RunRefused(takenMessage(taken), "id");
 }
 
 /**
@@ -198,11 +214,13 @@ export async function openRun(root: string, workflow: string, id: string): Promi
       if (other !== workflow && (await exists(runFile(join(root, other, id))))) {
         throw new RunRefused(
           `${id} is a run of ${other}; move ${join(root, other, id)} to ${dir} to continue it here`,
+          "no-run",
         );
       }
     }
     throw new RunRefused(
       `no run ${id} of ${workflow} in ${root}; a run is kept under the directory it works in, which --cwd names`,
+      "no-run",
     );
   }
   const record = await readRecord<RunRecord>(file);
@@ -227,7 +245,7 @@ export class RunUnreadable extends RunRefused {
     record: { format?: unknown; created?: unknown; events?: unknown },
   ) {
     const why = unreadableWhy(record);
-    super(`${ref} is unreadable: ${why}`);
+    super(`${ref} is unreadable: ${why}`, "unreachable");
     this.why = why;
     this.name = "RunUnreadable";
     if (typeof record.created === "string") this.created = record.created;
@@ -270,17 +288,21 @@ export function checkContinue(
 ): void {
   const { id, cwd, sandbox } = run.record;
   const panes = panesChanged(run.record, given.panes);
-  if (panes) throw new RunRefused(panes);
+  if (panes) throw new RunRefused(panes, "other-args");
   if (given.argv.length > 0) {
     throw new RunRefused(
       `${id} keeps the arguments it was started with; a run with others is a new run (--id)`,
+      "other-args",
     );
   }
   if (given.cwd !== undefined && given.cwd !== cwd) {
-    throw new RunRefused(`${id} works in ${cwd}, not ${given.cwd}`);
+    throw new RunRefused(`${id} works in ${cwd}, not ${given.cwd}`, "other-args");
   }
   if (given.sandbox !== undefined && JSON.stringify(given.sandbox) !== JSON.stringify(sandbox)) {
-    throw new RunRefused(`${id} runs in the sandbox it was started with; leave --sandbox out`);
+    throw new RunRefused(
+      `${id} runs in the sandbox it was started with; leave --sandbox out`,
+      "other-args",
+    );
   }
 }
 
@@ -341,7 +363,7 @@ export async function readAttemptFiles(run: Pick<Run, "dir">): Promise<AttemptRe
       const file = join(dir, name);
       const record = await readRecord<AttemptRecord>(file, { missing: true });
       const problem = record && attemptProblem(record);
-      if (problem) throw new RunRefused(`${file} could not be read: ${problem}`);
+      if (problem) throw new RunRefused(`${file} could not be read: ${problem}`, "unreachable");
       return record;
     }),
   );
@@ -681,10 +703,10 @@ async function readRecord<T>(
     record = JSON.parse(await readFile(file, "utf8"));
   } catch (error) {
     if (options.missing && isCode(error, "ENOENT")) return undefined;
-    throw new RunRefused(`${file} could not be read: ${(error as Error).message}`);
+    throw new RunRefused(`${file} could not be read: ${(error as Error).message}`, "unreachable");
   }
   if (typeof record !== "object" || record === null || Array.isArray(record)) {
-    throw new RunRefused(`${file} could not be read: not a JSON object`);
+    throw new RunRefused(`${file} could not be read: not a JSON object`, "unreachable");
   }
   return record as T;
 }

@@ -5,7 +5,7 @@ import { EmitError } from "./emit";
 import { messageOf } from "./errors";
 import { EngineRefused } from "./project-engine";
 import { RunNotFound } from "./run-state";
-import { RunUnreadable } from "./runs";
+import { RunRefused } from "./runs";
 import { WorkflowFileError } from "./workflow-loader";
 
 /**
@@ -28,7 +28,7 @@ const COMMAND_ONLY = new Set<RefusalCode>([
 export function refusalCode(error: unknown): RefusalCode | undefined {
   if (error instanceof EmitError || error instanceof EngineRefused) return error.code;
   if (error instanceof RunNotFound || error instanceof WorkflowFileError) return error.code;
-  if (error instanceof RunUnreadable) return "unreachable";
+  if (error instanceof RunRefused) return error.code;
   return undefined;
 }
 
