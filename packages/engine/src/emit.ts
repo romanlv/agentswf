@@ -35,7 +35,7 @@ import {
   readAttempts,
 } from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
-import { type EventWorkflow, loadWorkflowFile } from "./workflow-loader";
+import { type EventWorkflow, loadWorkflowFile, WorkflowFileError } from "./workflow-loader";
 
 /**
  * What an `EmitError` is about, as a program's `ClientError` names it: the event, an id, the
@@ -128,10 +128,13 @@ export async function emitToRun(
   if (status.attempts.at(-1)?.outcome === "completed")
     return deliverReply(status, reply.key, event, context);
   const file = status.attempts.at(-1)?.file ?? run.record.file;
-  if (file === undefined) throw new Error(`${ref} has no file to check the event against`);
+  if (file === undefined)
+    throw new WorkflowFileError(`${ref} has no file to check the event against`);
   const { workflow } = await loadWorkflowFile(file, run.record.cwd, context.home);
   if (!isEventWorkflow(workflow) || workflow.meta.name !== run.record.workflow)
-    throw new Error(`${file} is no longer ${run.record.workflow} with events, which ${ref} ran`);
+    throw new WorkflowFileError(
+      `${file} is no longer ${run.record.workflow} with events, which ${ref} ran`,
+    );
   checkEvent(workflow, event, true);
   return deliverReply(status, reply.key, event, context);
 }

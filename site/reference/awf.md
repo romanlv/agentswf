@@ -54,10 +54,11 @@ A code means the same in every command that prints it, and is the word
 | `event` | the workflow doesn't take the event's name or data, or takes no events | `emit` |
 | `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
 | `not-started` | the run never started: Ctrl-C, a session not taken, a claim given up | `run` |
-| `unreachable` | the run's files can't be read, or it doesn't answer | `runs`, `logs`, `inbox`, `reply`, `send` |
+| `unreachable` | the run's files can't be read, or it doesn't answer | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `cursor` | a cursor or handle doesn't fit | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `emit`, and any command in a project whose install is broken |
 | `project` | the workflow isn't in a project | `emit` |
+| `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | `emit` |
 
 `awf reply` and `awf send` also refuse for the [participant's reasons](#reply).
 

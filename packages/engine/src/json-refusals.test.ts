@@ -114,6 +114,24 @@ const ROWS: Row[] = [
   },
   {
     command: "emit",
+    failure: "a run it can't read",
+    argv: () => ["dd-case/old", "slack:reply", "{}"],
+    code: "unreachable",
+    exit: 1,
+    v: 1,
+    says: /dd-case\/old/,
+  },
+  {
+    command: "emit",
+    failure: "a ref no run could have",
+    argv: () => ["dd-case/a b", "slack:reply", "{}"],
+    code: "id",
+    exit: 1,
+    v: 1,
+    says: /no run dd-case\/a b/,
+  },
+  {
+    command: "emit",
     failure: "a target that isn't there",
     argv: (f) => ["--target", join(f.root, "missing.ts"), "--id", "k", "dd.changes", "{}"],
     code: "file",
@@ -380,12 +398,6 @@ const ROWS: Row[] = [
  * its commands' rows off, and the last removes the list; a listed row that conforms fails too.
  */
 const PENDING = new Set([
-  "emit: no run named",
-  "emit: no such run",
-  "emit: a target that isn't there",
-  "emit: a workflow without events",
-  "emit: an event the workflow doesn't take",
-  "emit: an event id that isn't one",
   "runs: a bad option",
   "runs: no such run",
   "runs: a run it can't read",

@@ -545,6 +545,54 @@ describe("awf emit", () => {
     ).toBe(0);
     expect(JSON.parse(out[0]!)).toMatchObject({ v: 1, outcome: "accepted", did: "started" });
   });
+
+  test("--json prints a refusal for a failure, its sentence still on stderr; without, nothing", async () => {
+    const p = project();
+    writeFileSync(p.file, "export default 1;\n");
+    const out: string[] = [];
+    const err: string[] = [];
+    const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => err.push(t) };
+    const context = { home: p.home, environment: { PATH: "/bin" }, launch: fakeLaunch() };
+    const refused = async (argv: string[]) => {
+      out.length = 0;
+      err.length = 0;
+      const exit = await emitCommand([...argv, "--json"], p.root, io, context);
+      expect(out).toHaveLength(1);
+      const refusal = JSON.parse(out[0]!) as { v: number; code: string; error: string };
+      expect(err[0]).toStartWith(`awf: ${refusal.error}`);
+      return { exit, ...refusal };
+    };
+    // A file that isn't a workflow; a run of a workflow whose file is gone.
+    expect(await refused(["--target", p.file, "--id", "k", "dd.changes", "{}"])).toMatchObject({
+      exit: 1,
+      v: 1,
+      code: "file",
+      error: expect.stringContaining("default export"),
+    });
+    await createRun(p.runRoot, {
+      id: "gone",
+      workflow: "dd-case",
+      argv: [],
+      cwd: p.root,
+      sandbox: null,
+      events: true,
+      file: join(p.root, "flows", "gone.ts"),
+    });
+    expect(await refused(["dd-case/gone", "slack:reply", '{"text":"hi"}'])).toMatchObject({
+      exit: 1,
+      code: "file",
+    });
+    expect(await refused(["dd-case/gone", "dd.changes", "{}"])).toMatchObject({
+      exit: 2,
+      code: "event",
+    });
+    expect(await refused(["--target", p.file, "--nope"])).toMatchObject({ exit: 2, code: "usage" });
+    err.length = 0;
+    out.length = 0;
+    expect(await emitCommand(["dd-case/nope", "dd.changes"], p.root, io, context)).toBe(1);
+    expect(out).toEqual([]);
+    expect(err[0]).toStartWith("awf: no run dd-case/nope");
+  });
 });
 
 describe("wake, directly", () => {

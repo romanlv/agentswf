@@ -6,13 +6,19 @@ import { messageOf } from "./errors";
 import { EngineRefused } from "./project-engine";
 import { RunNotFound } from "./run-state";
 import { RunUnreadable } from "./runs";
+import { WorkflowFileError } from "./workflow-loader";
 
-/** The codes only a command prints: a program's call has no argv, and reads no run's socket. */
+/**
+ * The codes only a command prints: a program's call has no argv and reads no run's socket, and
+ * `internal-error` is the command's word for an error with no code, which the client throws as it
+ * is.
+ */
 const COMMAND_ONLY = new Set<RefusalCode>([
   "usage",
   "ambiguous",
   "not-started",
   "unreachable",
+  "internal-error",
 ] satisfies Exclude<RefusalCode, ClientErrorCode>[]);
 
 /**
@@ -21,7 +27,7 @@ const COMMAND_ONLY = new Set<RefusalCode>([
  */
 export function refusalCode(error: unknown): RefusalCode | undefined {
   if (error instanceof EmitError || error instanceof EngineRefused) return error.code;
-  if (error instanceof RunNotFound) return error.code;
+  if (error instanceof RunNotFound || error instanceof WorkflowFileError) return error.code;
   if (error instanceof RunUnreadable) return "unreachable";
   return undefined;
 }
@@ -36,7 +42,9 @@ export function asClientError(error: unknown, ref?: string): unknown {
 /**
  * A failure as a `--json` command prints it: the sentence on stderr, for people, and with `json`
  * the refusal as stdout's last document. The code is the error's own, as `refusalCode` gives it;
- * `otherwise` is the command's word for an error that has none. `usage` follows the sentence.
+ * `otherwise` is the command's word for an error that has none. A caller's mistake never reaches a
+ * host as `internal-error`: it gets an error class `refusalCode` reads. `usage` follows the
+ * sentence.
  */
 export function printRefusal(
   out: { stdout(text: string): void; stderr(text: string): void },

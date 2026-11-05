@@ -200,11 +200,12 @@ Out of scope:
   | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
   | `other-args` | a run there, started with other args or options | `run --id`; client |
   | `not-started` | a run that never started: Ctrl-C, a session not taken, a claim discarded | `run`; client |
-  | `unreachable` | the run's files can't be read, or it doesn't answer | `runs`, `logs`, `inbox`, `reply`, `send` |
+  | `unreachable` | the run's files can't be read, or it doesn't answer | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle made for another run or filter | `logs`, `inbox`; client |
   | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `emit`, hand-over; client |
   | `project` | a workflow in no project | `emit`; client |
   | `no-id` | a start naming no run | client |
+  | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | `emit`, then every command |
 
   Plus the participant codes only `reply` and `send` have: `no-participant`, `ended`,
   `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
@@ -238,7 +239,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. The contract, the code table, the shared mapping, the reference, and the guard
-- [ ] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
+- [x] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
 - [ ] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and the hand-over
 - [ ] 4. `awf run` refuses when no run comes of it, and the client says `not-started`
 - [ ] 5. The holder commands on the shared words, and awf-chat with them
@@ -298,12 +299,12 @@ Outcome: `awf emit --json` prints a refusal for every failure, in both forms, an
 
 Execution:
 
-- [ ] Plan: every failure path of `emitEvent`, `emitToRun` and the argv parse, and its code.
-- [ ] Implement: the refusals and `emit.txt`; awf-chat's `CliHolder.toCode`, reading `code`
+- [x] Plan: every failure path of `emitEvent`, `emitToRun` and the argv parse, and its code.
+- [x] Implement: the refusals and `emit.txt`; awf-chat's `CliHolder.toCode`, reading `code`
   instead of stderr, and its test.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: `emit.test.ts` covers each code; `emit`'s rows leave the guard's list; awf-chat's
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: `emit.test.ts` covers each code; `emit`'s rows leave the guard's list; awf-chat's
   `bun run check` and `bun test` pass.
 
 Done when:
@@ -414,8 +415,19 @@ Manual or live evaluation:
 
 ### Task 2
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: `emit` printing `unreachable` for a run of an earlier format, now in
+  its help, the reference and a guard row; `internal` added to the reference and the story's
+  table, and renamed `internal-error`, `wfa`'s word for the same idea; awf-chat's stderr
+  fallback, dropped against the story's own out-of-scope line, put back for an engine a project
+  pins from before; `internal-error` and `unreachable` throw in awf-chat, as a failure to reach
+  the run rather than a refused reply; the comments on `COMMAND_ONLY` and `printRefusal`
+  clarified. Kept: wrapping all of `loadWorkflowFile`, simpler than wrapping only its `import`.
+- Correctness and proof: every failure path enumerated and probed with the right code and an
+  unchanged exit. Coverage added for `unreachable` and a malformed ref's `id`. `prepare`,
+  `ambiguous`, `no-engine` and `other-engine` were probed by the reviewer and come through
+  `refusalCode` from error classes whose own tests cover them; no `--json` assertion each.
+  `project` is only `targetProject`'s, which the loader's engine check precedes; kept in the help
+  as the code that path would print.
 
 ### Task 3
 
@@ -471,8 +483,21 @@ Manual or live evaluation:
   `v` its refusal carries, and that stderr still says it. Its `PENDING` list holds rows that
   don't conform yet, silent or on an old word; a listed row that conforms fails, so the list can't
   go stale. A comment names the failures that aren't rows yet and the task each waits for.
+- Merge gate, for awf-chat too: its changes stay uncommitted in its working tree until this
+  branch reaches main, which its `@agentswf/contract` links.
 - Merge gate: the reference states the rule from task 1, so the branch reaches main only once
   task 5 makes it true; `docs` and `site` deploy from main.
+
+### Task 2
+
+- `loadWorkflowFile` throws `WorkflowFileError`, code `file`, for anything but `EngineRefused`,
+  and `emitToRun`'s two plain errors about a run's file are one too. A class of its own, not
+  `EmitError("file")`: `emit` exits 2 for an `EmitError`, and a file that won't load stays 1.
+- `internal-error` joins the table: the rule leaves no `--json` failure without a document, and
+  an I/O error isn't the caller's. It is `printRefusal`'s fallback, never a caller's mistake's,
+  which gets an error class `refusalCode` reads.
+- awf-chat's `toCode` reads the refusal first, as `code` marks one, and keeps reading stderr only
+  for an empty stdout from an engine before this story.
 
 ## Human review
 

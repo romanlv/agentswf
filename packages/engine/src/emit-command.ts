@@ -3,6 +3,7 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent, emitToRun } from "./emit";
 import { messageOf } from "./errors";
 import help from "./help/emit.txt" with { type: "text" };
+import { printRefusal } from "./refusals";
 import { type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef } from "./run-state";
 import type { Launch } from "./wake";
@@ -36,9 +37,10 @@ export async function emitCommand(
   try {
     parsed = parse(argv, shellCwd);
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}\n\n${emitUsage}`);
+    printRefusal(out, { json: argv.includes("--json"), v: 1 }, error, "usage", emitUsage);
     return 2;
   }
+  const json = { json: parsed.json, v: 1 };
   const event = {
     name: parsed.name,
     data: parsed.data,
@@ -53,7 +55,7 @@ export async function emitCommand(
     } else {
       const loaded = await loadWorkflowFile(parsed.target, shellCwd, context.home);
       if (!isEventWorkflow(loaded.workflow)) {
-        out.stderr(`awf: ${loaded.file} declares no events; awf run starts it`);
+        printRefusal(out, json, `${loaded.file} declares no events; awf run starts it`, "event");
         return 2;
       }
       result = await emitEvent(
@@ -63,7 +65,7 @@ export async function emitCommand(
       );
     }
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}`);
+    printRefusal(out, json, error, "internal-error");
     return error instanceof EmitError ? 2 : 1;
   }
   return printEmit(result, parsed.json, out);

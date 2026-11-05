@@ -16,7 +16,10 @@ arrive before the run connects the participant: it waits for the run's next wait
 takes only the workflow's own events.
 
 Prints what became of the event, and what was done to the run: accepted, duplicate or refused.
---json prints one document. Exits 0 for any of the three; 1 when <file> could not be loaded, or
-the run isn't found, and nothing is kept, or when the run's attempt could not be started (the
-event is kept, and the next event or awf tick tries again); 2 on a usage error, for a workflow
-with no events, or when the event is wrong for its target: its name, its data, or its id.
+--json prints one document: the result, or a refusal whose code says why it failed: usage,
+no-run, ambiguous, id, file, event, prepare, project, no-engine, other-engine, unreachable or
+internal-error. Exits 0 for any of the three; 1 when <file> could not be loaded, or the run
+isn't found or can't be read, and nothing is kept, or when the run's attempt could not be
+started (the event is kept, and the next event or awf tick tries again); 2 on a usage error, for
+a workflow with no events, or when the event is wrong for its target: its name, its data, or its
+id.
