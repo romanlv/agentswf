@@ -92,8 +92,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
       args.cases,
       async (item): Promise<ForkCheck> => {
         const name = caseName(item);
-        // A key is a name: the case's `:`, `>` and `+` become `-`.
-        const key = name.replace(/[^a-z0-9._@-]/g, "-");
+        const key = keyOf(name);
         const worker = await wf.agents.open({
           key: `worker-${key}`,
           runtime: RUNTIMES[item.runtime].execution,
@@ -171,6 +170,11 @@ function inventory(lines: number): string {
     (_, i) => `inventory line ${i + 1}: a clay pot, a rake, a bag of soil`,
   );
   return `Skim this inventory; nothing in it matters later. Answer noted: true.\n\n${rows.join("\n")}`;
+}
+
+/** A case's name as a key: `claude>headless` and `claude-headless` must stay apart. */
+export function keyOf(name: string): string {
+  return name.replace(":", ".").replace(">", ".to-").replace("+", ".");
 }
 
 function caseName(item: ForkCase): string {

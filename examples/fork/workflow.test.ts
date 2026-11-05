@@ -16,12 +16,12 @@ describe("fork", () => {
     const run = await testWorkflow(fork, {
       args: { ...args, cases: [{ runtime: "claude-headless", compact: true }] },
       agents: {
-        "worker-claude-headless-compact": [
+        "worker-claude-headless.compact": [
           noted,
           noted,
           answer(RECALLED, { codename: "V-1234", release: "G-5678" }),
         ],
-        "fork-claude-headless-compact": [
+        "fork-claude-headless.compact": [
           answer(RECALLED, { codename: "V-1234", release: "unknown" }),
         ],
       },
@@ -33,9 +33,9 @@ describe("fork", () => {
         worker: { codename: "V-1234", release: "G-5678" },
       },
     ]);
-    expect(run.compactionsOf("worker-claude-headless-compact")).toHaveLength(1);
-    expect(run.agentOf("fork-claude-headless-compact").forkedFrom).toEqual({
-      key: "worker-claude-headless-compact",
+    expect(run.compactionsOf("worker-claude-headless.compact")).toHaveLength(1);
+    expect(run.agentOf("fork-claude-headless.compact").forkedFrom).toEqual({
+      key: "worker-claude-headless.compact",
       turns: 1,
     });
   });
@@ -55,10 +55,10 @@ describe("fork", () => {
       },
     });
     expect(run.value.checks.map((check) => check.problem)).toEqual([undefined, undefined]);
-    expect(run.agentOf("fork-claude-headless").execution).toMatchObject({
+    expect(run.agentOf("fork-claude.to-headless").execution).toMatchObject({
       placement: "headless",
       metered: true,
     });
-    expect(run.agentOf("fork-codex-headless-tui").execution).not.toHaveProperty("placement");
+    expect(run.agentOf("fork-codex-headless.to-tui").execution).not.toHaveProperty("placement");
   });
 });
