@@ -5,8 +5,8 @@ import type {
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
 import { planPrice } from "./accounting/plans";
-import { messageOf } from "./errors";
 import help from "./help/allowance.txt" with { type: "text" };
+import { asksJson, printRefusal } from "./refusals";
 import type { Out } from "./run-commands";
 
 export const allowanceUsage = help.trimEnd();
@@ -35,7 +35,7 @@ export async function allowanceCommand(
   try {
     command = parseAllowanceCommand(argv);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${allowanceUsage}`);
+    printRefusal(io, { json: asksJson(argv), v: 1 }, error, "usage", allowanceUsage);
     return 2;
   }
   if (command === "help") {

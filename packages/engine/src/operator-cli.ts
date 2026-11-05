@@ -2,7 +2,16 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import type { HarnessAllowance } from "@agentswf/contract/records";
+import type {
+  AllowanceReport,
+  EmitResultJson,
+  HarnessAllowance,
+  InboxItemJson,
+  LogsJson,
+  ParticipantResultJson,
+  RunsJson,
+  TickResultJson,
+} from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
@@ -46,6 +55,7 @@ import {
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
+import { asksJson, printRefusal } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -156,7 +166,12 @@ export async function runOperatorCli(
   given: OperatorEnvironment = {},
 ): Promise<number> {
   const environment = takeLaunch(given);
-  const stdout = environment.stdout ?? ((text) => console.log(text));
+  const print = environment.stdout ?? ((text) => console.log(text));
+  let printed = false;
+  const stdout = (text: string) => {
+    printed = true;
+    print(text);
+  };
   const write = (text: string) => void process.stderr.write(text);
   const stderr =
     environment.stderr ??
@@ -253,10 +268,38 @@ export async function runOperatorCli(
     return 0;
   }
   if (word === "help" || word === "-h" || word === "--help") return help(rest, stdout, stderr);
-  if (isCommand(word)) return handlers[word]();
+  if (isCommand(word)) {
+    const v = JSON_VERSION[word as keyof typeof JSON_VERSION];
+    if (v === undefined || !asksJson(rest)) return handlers[word]();
+    // What a command didn't foresee still ends its stdout with a document, unless it printed one.
+    try {
+      return await handlers[word]();
+    } catch (error) {
+      if (!printed) printRefusal({ stdout, stderr }, { json: true, v }, error, "internal-error");
+      // The stack is the only clue to a failure no command foresaw.
+      if (error instanceof Error && error.stack) stderr(error.stack);
+      return 1;
+    }
+  }
   stderr(unknownCommand(word));
   return 2;
 }
+
+/**
+ * Each `--json` command's `"v"`, which a refusal carries, tied to its result's type so the two move
+ * together: `awf runs`'s list's, as `awf runs {run}` prints its own refusals.
+ */
+const JSON_VERSION = {
+  run: 1,
+  emit: 1 satisfies EmitResultJson["v"],
+  tick: 1 satisfies TickResultJson["v"],
+  runs: 1 satisfies RunsJson["v"],
+  logs: 1 satisfies LogsJson["v"],
+  inbox: 1 satisfies InboxItemJson["v"],
+  reply: 2 satisfies ParticipantResultJson["v"],
+  send: 2 satisfies ParticipantResultJson["v"],
+  allowance: 1 satisfies AllowanceReport["v"],
+} as const;
 
 /** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
 function help(

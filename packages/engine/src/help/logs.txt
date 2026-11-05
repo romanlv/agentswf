@@ -10,5 +10,7 @@ such as 90s (a bare number, seconds, is deprecated); --follow prints each event 
 the run ends. @<handle> names one event, and --full prints its text, with common credential
 shapes masked; --json carries it always.
 
-Exits 0 on any read that worked, 1 when there is no such run or the cursor or handle does not
-fit it, 2 on a usage error, 3 when the run's files could not be read.
+With --json, a failure prints a refusal whose code says why: usage, no-run, ambiguous, id,
+cursor, unreachable, no-engine, other-engine or internal-error. Exits 0 on any read that worked,
+1 when there is no such run or the cursor or handle does not fit it, 2 on a usage error, 3 when
+the run's files could not be read.

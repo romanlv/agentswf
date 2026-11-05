@@ -59,7 +59,7 @@ results, and both move together under the rule `awf.md` already states.
 throws the same word for the same failure.
 
 **Usage errors too.** `awf emit --json` with no run named prints `{"code":"usage",…}` and exits 2.
-`--json` anywhere in the argv counts, even when the rest can't be parsed.
+`--json` anywhere in the argv before `--` counts, even when the rest can't be parsed.
 
 ## Scope
 
@@ -69,8 +69,8 @@ In scope:
 - `RefusalJson` and the code table in `contract`, with `InboxErrorJson` and
   `ParticipantResultJson`'s refusal folded into it.
 - Every `--json` command brought into line: `emit`, `runs`, `logs`, `tick`, `run`, `allowance`;
-  the usage errors and exit 3 of `reply`, `send` and `inbox`; and `hand-over.ts`'s broken
-  install.
+  the usage errors and exit 3 of `reply`, `send` and `inbox`; and a broken install's
+  `no-engine`.
 - The holder commands on the shared words: `not-found` → `no-run`, `bad-cursor` → `cursor`, and
   `reply`/`send`'s success without `code`.
 - The client's `start` throwing `not-started` where `awf run` refuses with it.
@@ -81,6 +81,8 @@ In scope:
 Out of scope:
 
 - Human output without `--json`: unchanged.
+- A Bun too old to run awf, and an unknown command: refused on stderr before any command runs,
+  so before any `--json` is read as a command's.
 - Exit codes: unchanged. A host may keep reading them.
 - `wfa`'s refusals: the agent's wire has its own envelope and codes, and already reports every
   failure.
@@ -121,7 +123,10 @@ Out of scope:
   workflow that won't load or refuses its arguments (`loadAndPrepare`), a `--run-root` holding
   the sandboxes folder, a `--session` that can't be taken, Ctrl-C before the start, and a claimed
   run discarded before its agents started.
-- Fact: `hand-over.ts` reports a broken project install on stderr before any engine code runs.
+- Fact: a broken project install isn't handed over; the command's own engine check refuses it
+  with `EngineRefused`, which `no-engine` maps. `hand-over.ts` writes only a warning, before it
+  hands over to another installed version. (The draft said it reported a broken install; task
+  3 found it doesn't.)
 - Fact: the JSON section of `site/reference/awf.md` describes `"v"` and nothing else. The helps
   for `runs`, `tick` and `allowance` say "--json prints one document", which a failure breaks.
 - Constraint: `"v"` changes when a field is renamed or removed, and a renamed code counts: `stopped`
@@ -147,12 +152,11 @@ Out of scope:
 - `src/runs-command.ts`, `src/logs-command.ts`, `src/tick-command.ts`,
   `src/allowance-command.ts`: each command's failure returns.
 - `src/operator-cli.ts`: `awf run`'s pre-run failures (`runNamed`, `loadAndPrepare`'s refusal,
-  the run-root check, `takeCaller`, `cancelledBeforeStart`, `endUnstarted`); dispatch and usage
-  errors, printed once for every command.
+  the run-root check, `takeCaller`, `cancelledBeforeStart`, `endUnstarted`); at dispatch, a net
+  for an error a command throws.
 - `src/run-commands.ts`: `failed`, exit 3 for the holder commands.
 - `src/holder-command.ts` (`refused`), `src/inbox-command.ts` (`refuse`): the two helpers that
   print refusals today; they become the shared one.
-- `src/hand-over.ts`: the broken-install line.
 - `src/client/index.ts`, `src/client/locate.ts`, `src/client/runs.ts`: map engine errors to
   `ClientError`. The CLI uses the same mapping.
 - `src/help/*.txt`: each `--json` line; `reply.txt` covers `send`.
@@ -202,7 +206,7 @@ Out of scope:
   | `not-started` | a run that never started: Ctrl-C, a session not taken, a claim discarded | `run`; client |
   | `unreachable` | the run's files can't be read, or it doesn't answer | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle made for another run or filter | `logs`, `inbox`; client |
-  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `emit`, hand-over; client |
+  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `emit`, the run readers, `run`; client |
   | `project` | a workflow in no project | `emit`; client |
   | `no-id` | a start naming no run | client |
   | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | `emit`, then every command |
@@ -240,7 +244,7 @@ Alternatives rejected:
 
 - [x] 1. The contract, the code table, the shared mapping, the reference, and the guard
 - [x] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
-- [ ] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and the hand-over
+- [x] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and a broken install
 - [ ] 4. `awf run` refuses when no run comes of it, and the client says `not-started`
 - [ ] 5. The holder commands on the shared words, and awf-chat with them
 
@@ -249,7 +253,8 @@ Alternatives rejected:
 None. Decided with the human on 2026-11-05:
 
 - Q1. `no-run` replaces `not-found`.
-- Q2. A usage error is a refusal, `usage`; `--json` anywhere in the argv counts.
+- Q2. A usage error is a refusal, `usage`; `--json` anywhere in the argv counts (before `--`,
+  task 3).
 - Q3. `awf run --json` refuses when no run comes of it, with `file`, `prepare`, `usage` or
   `not-started`, rather than printing an `out.json` with no run behind it.
 - Q4. `code` marks a refusal, and no result carries it; `reply`/`send`'s success drops
@@ -312,20 +317,19 @@ Done when:
 - Each documented failure of `awf emit --json` prints its refusal, and awf-chat no longer parses
   stderr.
 
-### 3. `runs`, `logs`, `tick`, `allowance`, usage errors, and the hand-over
+### 3. `runs`, `logs`, `tick`, `allowance`, usage errors, and a broken install
 
-Outcome: these commands refuse as documents; every usage error does, printed once where
-`operator-cli.ts` dispatches; a broken install prints `no-engine` with `--json`.
+Outcome: these commands refuse as documents; every usage error does, each command printing its
+own; a broken install prints `no-engine` with `--json`.
 
 Execution:
 
-- [ ] Plan: each command's failure paths and codes; how dispatch knows `--json` before parsing.
-- [ ] Implement: the refusals and each help's `--json` line; `hand-over.ts` and a test of it
-  beside the guard, which can't reach it; whether `tick`'s exit 1, which prints its result,
-  needs anything.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: each command's test covers its codes; their rows leave the guard's list.
+- [x] Plan: each command's failure paths and codes; how dispatch knows `--json` before parsing.
+- [x] Implement: the refusals and each help's `--json` line; a broken install's rows; whether
+  `tick`'s exit 1, which prints its result, needs anything.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: each command's test covers its codes; their rows leave the guard's list.
 
 Done when:
 
@@ -431,8 +435,19 @@ Manual or live evaluation:
 
 ### Task 3
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: both deviations kept (each command prints its own usage; the
+  hand-over unchanged) and the story's four lines about the hand-over corrected; `--json` read
+  by one helper, `asksJson`, up to `--`, at every site; `JSON_VERSION` keyed by the `--json`
+  commands only and tied to each result type by `satisfies`, so task 5's bumps fail `tsc` there;
+  `awf tick`'s exit 1 with its result named in the reference and its help; `internal-error`
+  listed for every command; the net writes the stack to stderr. A Bun too old and an unknown
+  command put out of scope: they are refused before any command reads its `--json`. Kept:
+  `awf runs {run}`'s net `v` is the list's, as `runs` catches everything after parsing itself.
+- Correctness and proof: `runs`' usage `v` read from argv before the parse, not from how far it
+  got, with a row; the net skips its refusal when the command already printed; the guard checks
+  one document (one value, or `inbox`'s lines with only the last coded); rows for `ambiguous` and
+  `id` from `runs` and `logs`. Kept: the net test's `readAllowance` stub, so no change of order
+  ever asks a real harness.
 
 ### Task 4
 
@@ -498,6 +513,18 @@ Manual or live evaluation:
   which gets an error class `refusalCode` reads.
 - awf-chat's `toCode` reads the refusal first, as `code` marks one, and keeps reading stderr only
   for an empty stdout from an engine before this story.
+
+### Task 3
+
+- Each command prints its own usage refusal, as only it knows its usage text and `v`;
+  dispatch catches only what a command throws, as `internal-error` unless the error has a code,
+  and not when the command printed already. `asksJson` reads `--json` up to `--`.
+- A broken install needs no hand-over change: the command's engine check refuses it, and
+  `no-engine` comes through the mapping. Rows prove it for `emit`, `runs` and `logs`; `inbox`,
+  `reply` and `run` wait for their tasks.
+- `awf tick`'s exit 1 keeps printing its result: the runs it did wake, the others still woken. A
+  reason per project would be a new field, out of scope. A throw midway loses the list gathered
+  so far, as it did before, now as `internal-error`.
 
 ## Human review
 

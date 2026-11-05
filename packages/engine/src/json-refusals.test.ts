@@ -12,10 +12,9 @@ import { createTempRunDirs, eventProject, writeAttempt } from "./testing";
 // failure's is a refusal from the published codes, its sentence still on stderr. Each row is a
 // failure a command's help names.
 //
-// Not rows yet, each for the task that makes it reachable or decides it (story 043): `run`'s
-// `prepare` and `not-started` (task 4); `unreachable` from a run that doesn't answer, for `reply`
-// and `send` (task 5); `tick`'s exit 1, which still prints its result (task 3). A broken install's
-// `no-engine` is the hand-over's, before `runOperatorCli`, and has its own test (task 3).
+// Not rows yet, each for the task that makes it reachable (story 043): `run`'s `prepare` and
+// `not-started` (task 4); `unreachable` from a run that doesn't answer, for `reply` and `send`
+// (task 5). `tick`'s exit 1 is no row: it prints its result, the runs it woke despite the others.
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -38,18 +37,41 @@ export default defineWorkflow({
 });
 `;
 
-type Fixture = { root: string; file: string; plain: string; home: string };
+type Fixture = { root: string; file: string; plain: string; home: string; broken: string };
 let fixture: Fixture;
 
 beforeAll(async () => {
   const made = eventProject(dirs, "case.ts", EVENTS);
   const plain = join(made.root, "flows", "plain.ts");
   writeFileSync(plain, PLAIN);
-  fixture = { ...made, plain };
+  // A project that declares agentswf and has none installed, with a run of its own.
+  const broken = eventProject(dirs, "case.ts", EVENTS);
+  writeFileSync(
+    join(broken.root, "package.json"),
+    JSON.stringify({ devDependencies: { agentswf: "9.9.9" } }),
+  );
+  await createRun(join(broken.root, ".awf", "runs"), {
+    id: "r1",
+    workflow: "dd-case",
+    argv: [],
+    cwd: broken.root,
+    sandbox: null,
+    events: true,
+    file: broken.file,
+  });
+  fixture = { ...made, plain, broken: broken.root };
   const runRoot = join(fixture.root, ".awf", "runs");
   await createRun(runRoot, {
     id: "r1",
     workflow: "dd-case",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  // `r1` alone names a run of two workflows.
+  await createRun(runRoot, {
+    id: "r1",
+    workflow: "other",
     argv: [],
     cwd: fixture.root,
     sandbox: null,
@@ -192,6 +214,42 @@ const ROWS: Row[] = [
     exit: 1,
     v: 2,
     says: /no run dd-case\/nope/,
+  },
+  {
+    command: "runs",
+    failure: "a bad option after a run",
+    argv: () => ["--bogus", "dd-case/r1"],
+    code: "usage",
+    exit: 2,
+    v: 2,
+    says: /unknown option: --bogus/,
+  },
+  {
+    command: "runs",
+    failure: "a ref no run could have",
+    argv: () => ["dd-case/a b"],
+    code: "id",
+    exit: 1,
+    v: 2,
+    says: /no run dd-case\/a b/,
+  },
+  {
+    command: "runs",
+    failure: "an id two workflows have",
+    argv: () => ["r1"],
+    code: "ambiguous",
+    exit: 1,
+    v: 2,
+    says: /more than one workflow/,
+  },
+  {
+    command: "logs",
+    failure: "an id two workflows have",
+    argv: () => ["r1"],
+    code: "ambiguous",
+    exit: 1,
+    v: 1,
+    says: /more than one workflow/,
   },
   {
     command: "runs",
@@ -391,6 +449,60 @@ const ROWS: Row[] = [
     v: 2,
     says: /cursor nope/,
   },
+  {
+    command: "emit",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => ["dd-case/r1", "slack:reply", "{}", "--cwd", f.broken],
+    code: "no-engine",
+    exit: 1,
+    v: 1,
+    says: /declares agentswf/,
+  },
+  {
+    command: "runs",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => ["dd-case/r1", "--cwd", f.broken],
+    code: "no-engine",
+    exit: 3,
+    v: 2,
+    says: /declares agentswf/,
+  },
+  {
+    command: "logs",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => ["dd-case/r1", "--cwd", f.broken],
+    code: "no-engine",
+    exit: 3,
+    v: 1,
+    says: /declares agentswf/,
+  },
+  {
+    command: "inbox",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => ["dd-case/r1", "--cwd", f.broken],
+    code: "no-engine",
+    exit: 3,
+    v: 2,
+    says: /declares agentswf/,
+  },
+  {
+    command: "reply",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => ["dd-case/r1", "reviewer", "--as", "slack", "hi", "--cwd", f.broken],
+    code: "no-engine",
+    exit: 3,
+    v: 3,
+    says: /declares agentswf/,
+  },
+  {
+    command: "run",
+    failure: "a project whose agentswf isn't installed",
+    argv: (f) => [join(f.broken, "flows", "case.ts")],
+    code: "no-engine",
+    exit: 2,
+    v: 1,
+    says: /declares agentswf/,
+  },
 ];
 
 /**
@@ -398,18 +510,11 @@ const ROWS: Row[] = [
  * its commands' rows off, and the last removes the list; a listed row that conforms fails too.
  */
 const PENDING = new Set([
-  "runs: a bad option",
-  "runs: no such run",
-  "runs: a run it can't read",
-  "logs: a bad option",
-  "logs: no such run",
-  "logs: a run it can't read",
-  "logs: a cursor that isn't one",
-  "logs: a handle that isn't one",
-  "tick: a bad option",
+  "inbox: a project whose agentswf isn't installed",
+  "reply: a project whose agentswf isn't installed",
+  "run: a project whose agentswf isn't installed",
   "run: no workflow named",
   "run: a workflow file that isn't there",
-  "allowance: no such harness",
   "reply: no run named",
   "reply: no such run",
   "reply: a run it can't read",
@@ -454,7 +559,19 @@ async function attempt(row: Row) {
   } catch {
     document = last;
   }
-  return { exit, document, stderr: stderr.join("\n") };
+  return { exit, document, stdout, stderr: stderr.join("\n") };
+}
+
+/** One document: `inbox` prints a line per item and its refusal last; the rest, one value. */
+function oneDocument(command: CommandName, stdout: string[]): boolean {
+  try {
+    if (command !== "inbox") return JSON.parse(stdout.join("\n")) !== undefined;
+    const lines = stdout.flatMap((text) => text.split("\n")).filter((line) => line !== "");
+    const coded = lines.map((line) => "code" in (JSON.parse(line) as object));
+    return coded.slice(0, -1).every((each) => !each);
+  } catch {
+    return false;
+  }
 }
 
 function conforms(row: Row, got: Awaited<ReturnType<typeof attempt>>): boolean {
@@ -468,7 +585,8 @@ function conforms(row: Row, got: Awaited<ReturnType<typeof attempt>>): boolean {
     typeof refusal.error === "string" &&
     refusal.error !== "" &&
     !refusal.error.startsWith("awf: ") &&
-    got.stderr.includes(refusal.error)
+    got.stderr.includes(refusal.error) &&
+    oneDocument(row.command, got.stdout)
   );
 }
 
@@ -508,4 +626,30 @@ test("each row expects a word its command may print, under a name of its own", (
   const names = ROWS.map(nameOf);
   expect(new Set(names).size).toBe(names.length);
   for (const pending of PENDING) expect(names).toContain(pending);
+});
+
+test("a failure no command foresaw still ends stdout with a refusal, internal-error", async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exit = await runOperatorCli(["allowance", "claude", "--json"], {
+    cwd: fixture.root,
+    home: fixture.home,
+    environment: { PATH: process.env.PATH, HOME: fixture.home },
+    stdout: (text) => stdout.push(text),
+    stderr: (text) => stderr.push(text),
+    // Never reached, as the clock is read first: no harness is ever asked from a test.
+    readAllowance: async () => {
+      throw new Error("no harness is read here");
+    },
+    now: () => {
+      throw new Error("the clock broke");
+    },
+  });
+  expect({ exit, stdout, said: stderr[0] }).toEqual({
+    exit: 1,
+    stdout: [JSON.stringify({ v: 1, code: "internal-error", error: "the clock broke" })],
+    said: "awf: the clock broke",
+  });
+  // And its stack, the only clue to a failure no command foresaw.
+  expect(stderr[1]).toContain("the clock broke");
 });

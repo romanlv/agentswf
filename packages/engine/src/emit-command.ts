@@ -3,7 +3,7 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent, emitToRun } from "./emit";
 import { messageOf } from "./errors";
 import help from "./help/emit.txt" with { type: "text" };
-import { printRefusal } from "./refusals";
+import { asksJson, printRefusal } from "./refusals";
 import { type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef } from "./run-state";
 import type { Launch } from "./wake";
@@ -37,7 +37,7 @@ export async function emitCommand(
   try {
     parsed = parse(argv, shellCwd);
   } catch (error) {
-    printRefusal(out, { json: argv.includes("--json"), v: 1 }, error, "usage", emitUsage);
+    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", emitUsage);
     return 2;
   }
   const json = { json: parsed.json, v: 1 };

@@ -54,13 +54,23 @@ export function printRefusal(
   usage?: string,
 ): void {
   const sentence = messageOf(error);
-  if (json.json) {
-    const refusal: RefusalJson<RefusalCode | ParticipantCode> = {
-      v: json.v,
-      code: refusalCode(error) ?? otherwise,
-      error: sentence,
-    };
-    out.stdout(JSON.stringify(refusal));
-  }
+  if (json.json) out.stdout(refusalLine(json.v, refusalCode(error) ?? otherwise, sentence));
   out.stderr(`awf: ${sentence}${usage === undefined ? "" : `\n\n${usage}`}`);
 }
+
+/** A refusal as its one line on stdout, for a command whose stderr says it in its own words. */
+export function refusalLine(v: number, code: RefusalCode | ParticipantCode, error: string): string {
+  return JSON.stringify({ v, code, error } satisfies RefusalJson<RefusalCode | ParticipantCode>);
+}
+
+/**
+ * Whether `argv` asks for `--json`, anywhere before `--`: what follows is a message's text or a
+ * workflow's arguments, which can't ask for it, and a usage error counts it before any parse.
+ */
+export function asksJson(argv: readonly string[]): boolean {
+  const end = argv.indexOf("--");
+  return (end < 0 ? argv : argv.slice(0, end)).includes("--json");
+}
+
+/** No `--json`: the failure on stderr only. */
+export const NO_JSON = { json: false, v: 0 };

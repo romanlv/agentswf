@@ -37,9 +37,10 @@ result. When it failed, it is a refusal, and stderr still says why, for people:
 
 A document with `code` is a refusal; no result has one. Check for it first, as the exit code
 doesn't tell them apart: `awf emit` exits 1 with a full result when the run's attempt didn't
-start. A command that prints a line per item, as `awf inbox --json` does, ends with its refusal.
-A usage error is a refusal too, whenever `--json` is anywhere in the arguments. The exit codes
-are each command's own, as its help says.
+start, and `awf tick` exits 1 with the runs it woke when it couldn't wake some. A command that
+prints a line per item, as `awf inbox --json` does, ends with its refusal. A usage error is a
+refusal too, whenever `--json` is anywhere in the arguments before `--`. The exit codes are each
+command's own, as its help says.
 
 A code means the same in every command that prints it, and is the word
 [`ClientError`](/reference/client-api#clienterror) throws for the same failure:
@@ -58,7 +59,7 @@ A code means the same in every command that prints it, and is the word
 | `cursor` | a cursor or handle doesn't fit | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `emit`, and any command in a project whose install is broken |
 | `project` | the workflow isn't in a project | `emit` |
-| `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | `emit` |
+| `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | every command |
 
 `awf reply` and `awf send` also refuse for the [participant's reasons](#reply).
 
