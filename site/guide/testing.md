@@ -109,7 +109,8 @@ awf test --watch                        # rerun on a change
 ```
 
 `awf test` serves `agentswf/workflow`, `agentswf/testing` and `typebox` itself, so a folder of
-workflows needs no `bun install` to be tested. The runtime aliases `claude` and `codex` resolve
+workflows with no `package.json` of its own needs no `bun install` to be tested; one that declares
+`agentswf` runs on the one it installs. The runtime aliases `claude` and `codex` resolve
 as they do on `awf run`; `runtimes` in the options adds or replaces others.
 
 ## Catches

@@ -87,7 +87,8 @@ stale without a red check. Two sources:
 - **A page's own sample**, in `examples/site/`, at the page's path: `examples/site/guide/agents.ts`
   for `/guide/agents`. Root `tsc --noEmit`, Biome and the boundaries check it as they check every
   example. A runnable sample is a workflow with a `*.test.ts` beside it, written as an example's
-  test is (`agentswf/testing`); root `bun test` runs it, as `awf test` would.
+  test is (`agentswf/testing`); root `bun test` runs it, as `awf test` would. A program's sample is a
+  `*.driver.ts` (`agentswf/client`), tested with `fakeClient`.
 
 Show part of a file with a region, and the import picks out the lines between the markers:
 

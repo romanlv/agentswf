@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as workflowSurface from "@agentswf/contract/author";
 import {
@@ -14,6 +15,8 @@ import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
 import { realPath } from "./files";
+import { checkProjectEngine } from "./project-engine";
+import { projectOf } from "./projects";
 import { idProblem } from "./runs";
 
 /**
@@ -28,6 +31,11 @@ const AUTHOR_SURFACE: Record<string, Record<string, unknown>> = {
 };
 
 let surfaceServed = false;
+
+/** Whether this process serves the author surface: a program's client never does. */
+export function authorSurfaceServed(): boolean {
+  return surfaceServed;
+}
 
 /** Serves the author surface to whatever this process imports next. */
 export function serveAuthorSurface(): void {
@@ -51,7 +59,15 @@ export type EventWorkflow = Workflow<JsonValue, JsonValue, EventSchemas>;
 
 export type LoadedWorkflow = { file: string; workflow: AnyWorkflow };
 
-export async function loadWorkflowFile(file: string, cwd: string): Promise<LoadedWorkflow> {
+/**
+ * Imports the workflow `file` names, once its project is known to run on this engine (ADR 0014),
+ * and checks what `tsc` would have checked of it.
+ */
+export async function loadWorkflowFile(
+  file: string,
+  cwd: string,
+  home: string = homedir(),
+): Promise<LoadedWorkflow> {
   if (file.includes("://") || file.startsWith("file:")) {
     throw new Error("workflow must be an explicit local file path");
   }
@@ -66,6 +82,9 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
     throw new Error(`workflow file not found: ${absolute}`);
   }
   if (!info.isFile()) throw new Error(`workflow path is not a file: ${absolute}`);
+  // Before its import: another engine's workflow would get this one's author surface.
+  const project = await projectOf(absolute, home).catch(() => dirname(absolute));
+  checkProjectEngine(project, { file: absolute });
 
   serveAuthorSurface();
   const namespace: unknown = await import(pathToFileURL(absolute).href);
@@ -80,6 +99,13 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
     throw new Error(
       `meta.version: ${JSON.stringify(version)} is not a semver version such as 1.2.0`,
     );
+  }
+  if (given.events === undefined && given.file !== undefined) {
+    // A plain workflow's `file` says where a program finds it and its runs: it must be this one.
+    if (typeof given.file !== "string" || realPath(given.file) !== realPath(absolute))
+      throw new Error(
+        `file is ${JSON.stringify(given.file)}; a workflow gives file: import.meta.path, ${absolute}`,
+      );
   }
   if (given.events !== undefined) {
     // As `tsc` would have checked them, for a file it never saw.

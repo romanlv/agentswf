@@ -1,10 +1,11 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { constants } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/test.txt" with { type: "text" };
+import { checkProjectEngine } from "./project-engine";
 import type { Out } from "./run-commands";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
@@ -32,6 +33,19 @@ export async function testCommand(
   if (tests === "help") {
     io.stdout(testUsage);
     return 0;
+  }
+  try {
+    // Each test's workflow gets this engine's author surface: its project, and each path's, must
+    // run on it (ADR 0014).
+    for (const place of [cwd, ...tests.paths]) {
+      const dir = statSync(place, { throwIfNoEntry: false })?.isDirectory()
+        ? place
+        : dirname(place);
+      checkProjectEngine(dir);
+    }
+  } catch (error) {
+    io.stderr(`awf: ${messageOf(error)}`);
+    return 2;
   }
   return runWorkflowTests(tests, cwd, {
     ...(io.signal ? { signal: io.signal } : {}),

@@ -18,6 +18,7 @@ import {
   type AttemptRecord,
   type CallSpec,
   type Candidate,
+  RUN_RECORD_ARGS_VERSION,
   RUN_RECORD_VERSION,
   type RunLogLine,
   type RunPanes,
@@ -133,7 +134,11 @@ async function claimRun(
   checkIds(record.id);
   const other = await takenInCase(parent, record.id);
   if (other !== undefined) throw new RunTaken(takenMessage(other));
-  const full: RunRecord = { version: RUN_RECORD_VERSION, ...record, created: now.toISOString() };
+  const full: RunRecord = {
+    version: record.args === undefined ? RUN_RECORD_VERSION : RUN_RECORD_ARGS_VERSION,
+    ...record,
+    created: now.toISOString(),
+  };
   const pending = join(parent, `.new-${randomBytes(6).toString("hex")}`);
   await mkdir(pending, { mode: 0o700 });
   const dir = join(parent, record.id);
@@ -197,7 +202,7 @@ export async function openRun(root: string, workflow: string, id: string): Promi
       `no run ${id} of ${workflow} in ${root}; a run is kept under the directory it works in, which --cwd names`,
     );
   }
-  const record = await readRecord<RunRecord>(file, RUN_RECORD_VERSION);
+  const record = await readRecord<RunRecord>(file, RUN_RECORD_ARGS_VERSION);
   return { root, dir, record };
 }
 

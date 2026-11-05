@@ -3,6 +3,12 @@ import type { EventSchemas, JsonValue, Workflow, WorkflowMeta } from "@agentswf/
 import { runTest, type TestOptions, type TestRun, testCall } from "./run-test";
 
 export type { DecisionRequest, DecisionScript } from "./decisions";
+export {
+  type FakeClient,
+  type FakeClientCall,
+  type FakeClientScript,
+  fakeClient,
+} from "./fake-client";
 export type { TestTurn } from "./host";
 export type {
   EarlierAttempt,

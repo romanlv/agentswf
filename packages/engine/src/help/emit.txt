@@ -1,11 +1,12 @@
-usage: awf emit --target <file> --id <id> <event> [<json>] [--event-id <id>] [--json]
-       awf emit <run> <key>:reply '{"text": …, "author": …}' [--event-id <id>] [--cwd <directory>] [--run-root <directory>] [--json]
+usage: awf emit --target <file> --id <id> <event> [<json>] [--event-id <id>] [--source <name>] [--json]
+       awf emit <run> <key>:reply '{"text": …, "author": …}' [--event-id <id>] [--source <name>] [--cwd <directory>] [--run-root <directory>] [--json]
 
 Sends an event to the run of a workflow with events that --id names. That run starts if it has
 none and the event is one that starts one, and is woken if it has one: told while it runs,
 continued when it is parked or crashed. The run lives in the project of <file>, the nearest
 directory above it holding .awf/, whoever sends. --event-id names the occurrence: the same id
-again is a duplicate.
+again is a duplicate. --source names the integration that sent it, such as github, which the
+event a wait returns carries.
 
 The second form sends a participant's message to the code of a run that is there, <workflow>/<id>
 or an <id> only one workflow has, here or in a project awf knows: <key>:reply, which the workflow

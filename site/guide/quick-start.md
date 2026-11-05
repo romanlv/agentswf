@@ -43,8 +43,8 @@ next:
 
 With no directory it sets up the current one. It never overwrites: a file that exists is skipped,
 except that `package.json` gains the scripts and dev dependencies it lacks, and `.gitignore` the
-lines it lacks (`node_modules/` and `.awf/`). `--no-install` skips `bun install`; `awf` runs a
-workflow against its own copies of `agentswf/workflow` and `typebox` either way.
+lines it lacks (`node_modules/` and `.awf/`). `--no-install` skips `bun install`; until it runs,
+`awf` refuses the folder, which declares `agentswf` without having it installed.
 
 `AGENTS.md` tells a coding agent working in the folder how to write and test a workflow, so you
 can [ask one to write the next](#have-your-agent-write-the-next-one).

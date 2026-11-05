@@ -10,7 +10,7 @@ import { loadWorkflowFile } from "./workflow-loader";
 
 export const emitUsage = help.trimEnd();
 
-type Event = { name: string; data: JsonValue; id?: string };
+type Event = { name: string; data: JsonValue; id?: string; source?: string };
 
 /** `--target {file} --id {id}`, which may start the run; or a run that is there, by its ref. */
 type Parsed = Event & { json: boolean } & (
@@ -43,6 +43,7 @@ export async function emitCommand(
     name: parsed.name,
     data: parsed.data,
     ...(parsed.id === undefined ? {} : { id: parsed.id }),
+    ...(parsed.source === undefined ? {} : { source: parsed.source }),
   };
   let result: EmitResultJson;
   try {
@@ -50,7 +51,7 @@ export async function emitCommand(
       const status = await findRunByRef(parsed.ref, parsed.place, context.home);
       result = await emitToRun(status, event, context);
     } else {
-      const loaded = await loadWorkflowFile(parsed.target, shellCwd);
+      const loaded = await loadWorkflowFile(parsed.target, shellCwd, context.home);
       if (!isEventWorkflow(loaded.workflow)) {
         out.stderr(`awf: ${loaded.file} declares no events; awf run starts it`);
         return 2;
@@ -87,6 +88,7 @@ function parse(argv: readonly string[], shellCwd: string): Parsed {
   let target: string | undefined;
   let run: string | undefined;
   let id: string | undefined;
+  let source: string | undefined;
   const words: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const word = rest[i]!;
@@ -98,6 +100,7 @@ function parse(argv: readonly string[], shellCwd: string): Parsed {
     if (word === "--target") target = value();
     else if (word === "--id") run = value();
     else if (word === "--event-id") id = value();
+    else if (word === "--source") source = value();
     else if (word.startsWith("--")) throw new Error(`unknown option ${word}`);
     else words.push(word);
   }
@@ -129,5 +132,12 @@ function parse(argv: readonly string[], shellCwd: string): Parsed {
       throw new Error(`the event's data is not JSON: ${messageOf(error)}`);
     }
   }
-  return { ...form, name, data, ...(id === undefined ? {} : { id }), json };
+  return {
+    ...form,
+    name,
+    data,
+    ...(id === undefined ? {} : { id }),
+    ...(source === undefined ? {} : { source }),
+    json,
+  };
 }

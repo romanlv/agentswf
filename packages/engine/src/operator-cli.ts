@@ -30,6 +30,7 @@ import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { EmitError, emitEvent, openEventRun } from "./emit";
 import { emitCommand } from "./emit-command";
 import { messageOf } from "./errors";
+import { installedEngine } from "./hand-over";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { holderCommand } from "./holder-command";
 import { inboxCommand } from "./inbox-command";
@@ -222,6 +223,9 @@ export async function runOperatorCli(
       return 2;
     }
     stdout(describeVersion());
+    // Never handed over: what the project here would run on is said beside it.
+    const project = installedEngine(cwd);
+    if (project) stdout(`this project's agentswf ${project.version}, in ${project.dir}`);
     return 0;
   }
   if (word === "help" || word === "-h" || word === "--help") return help(rest, stdout, stderr);

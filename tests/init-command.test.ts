@@ -22,16 +22,17 @@ async function awf(argv: string[], cwd: string, install?: (dir: string) => Promi
 }
 
 describe("awf init", () => {
-  test("an empty folder passes awf test and tsc at once, and init a second time writes nothing", async () => {
+  test("an empty folder passes awf test and tsc once installed, and init a second time writes nothing", async () => {
     const dir = dirs.tempRunDir();
     const init = await awf(["init", "--no-install"], dir);
     expect(init.exitCode).toBe(0);
     expect(init.output).toContain("created  hello/workflow.test.ts");
     expect(init.output).toContain("  bun install\n");
 
-    const tests = await awf(["test"], dir);
-    expect(tests.output).toContain("2 pass");
-    expect(tests.exitCode).toBe(0);
+    // It declares agentswf, its engine, which isn't installed yet (ADR 0014).
+    const refused = await awf(["test"], dir);
+    expect(refused.output).toContain("run bun install there");
+    expect(refused.exitCode).toBe(2);
 
     // What bun install would give it, from this repository's copies.
     mkdirSync(join(dir, "node_modules/@types"), { recursive: true });
@@ -41,6 +42,9 @@ describe("awf init", () => {
       join(dir, "node_modules/typebox"),
     );
     symlinkSync(join(ROOT, "node_modules/@types/bun"), join(dir, "node_modules/@types/bun"));
+    const tests = await awf(["test"], dir);
+    expect(tests.output).toContain("2 pass");
+    expect(tests.exitCode).toBe(0);
     const tsc = Bun.spawnSync([join(ROOT, "node_modules/.bin/tsc"), "--noEmit", "-p", dir]);
     expect(tsc.stdout.toString()).toBe("");
     expect(tsc.exitCode).toBe(0);

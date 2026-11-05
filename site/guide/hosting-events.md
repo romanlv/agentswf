@@ -195,6 +195,8 @@ below). [Harnesses](/guide/harnesses#where-panes-go) covers panes and placement.
 
 ## See also
 
+- [Programs](/guide/programs): the same calls from a Bun program, typed from the workflow, with
+  no `awf` process per event.
 - [Events](/guide/events): the workflows these commands wake, their mailbox, timers and waits.
 - [Durability](/guide/durability): what a continue reuses and redoes.
 - [Following runs](/guide/following-runs): `awf runs` and `awf logs`.

@@ -398,6 +398,7 @@ function eventOf(record: EventRecord): WorkflowEvent<string, JsonValue> {
     name: record.name,
     data: record.data,
     from: record.from,
+    ...(record.source === undefined ? {} : { source: record.source }),
     at: record.at,
   });
 }

@@ -5,8 +5,10 @@ Wakes every run of a workflow with events under --cwd's .awf/runs, or --run-root
 runs lists there, as an event would: continues a parked run whose wait's timer is due, and a
 crashed or failed one until it has failed three times in a row. Runs of other workflows are left
 as they are. --all wakes them in every project awf has started one in, as ~/.awf/projects lists
-them. Run it on any schedule; a run is continued once however many wakers come at once.
+them. A project's runs are woken by its own agentswf: one at another version than this awf runs
+its own awf tick for them. Run it on any schedule; a run is continued once however many wakers
+come at once.
 
 Prints a line for each run it woke, and nothing when it woke none. --json prints one document.
-Exits 0; 1 when a project is gone or a run could not be woken, the others still woken; 2 on a
-usage error.
+Exits 0; 1 when a project is gone, declares agentswf without installing it, or its own agentswf
+failed, or a run could not be woken, the others still woken; 2 on a usage error.

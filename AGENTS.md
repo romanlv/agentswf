@@ -51,7 +51,7 @@ Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 3. `engine/src/agent-cli`, the `wfa` command, imports contract and itself only, and performs no run-directory I/O.
 4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`. `engine/src/workflow-testing/`, the second composition root a workflow's tests run on, imports the fakes, `@agentswf/harness/testing` and `@agentswf/sandbox/testing/fake`, and never `bun:test` (ADR 0006).
 5. `lab` imports contract only, and runs workflows through `awf run`, never by linking the engine or a harness; its review format stays pure outside the files that do I/O.
-6. `examples/` imports `agentswf/workflow` and approved pure schema libraries, as an author's workflow does — never an `@agentswf/*` package. A workflow's test beside it, `*.test.ts`, also imports `agentswf/testing` and may use runtime built-ins.
+6. `examples/` imports `agentswf/workflow` and approved pure schema libraries, as an author's workflow does — never an `@agentswf/*` package. A workflow's test beside it, `*.test.ts`, also imports `agentswf/testing` and may use runtime built-ins. A program that drives runs, `*.driver.ts`, imports `agentswf/client` and may use runtime built-ins.
 7. A cross-package import must be a declared dependency, not just a hoisted symlink.
 
 ## Working here

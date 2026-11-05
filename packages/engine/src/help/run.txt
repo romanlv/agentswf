@@ -13,7 +13,9 @@ A new run with --from-stage starts there. A stage before it with no record to re
 value from --values, a JSON object by stage name, checked by its result; one that returns
 nothing is passed. Without one the attempt stops, naming the stage and its schema.
 A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names another folder
-for .awf/runs.
+for .awf/runs. A workflow that gives file: import.meta.path keeps its runs in its file's project
+unless --run-root names another folder: the nearest directory at or above the file holding .awf/,
+else the file's own, so --continue finds a run a program started there from anywhere.
 A run has no deadline unless --timeout gives it one, per attempt: a duration, a decimal and s, m,
 h or d, such as 20m or 1d.
 A workflow that knows how to present its result prints that; --json prints the full result instead.

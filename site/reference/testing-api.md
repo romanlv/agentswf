@@ -455,6 +455,25 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 - an option `testWorkflow` doesn't take, or no `args` for a workflow whose `prepare` refuses none;
 - with events, a scripted event never sent.
 
+## `fakeClient` {#fakeclient}
+
+A [program](/guide/programs)'s handler takes a `Client`; its test passes `fakeClient(script?)`,
+which runs the real client's checks, throws the same `ClientError`, and keeps `calls`, every call
+in order, refused ones included. Unscripted, it answers as the real rules do: a run is started by
+an event that may start one, kept after a launch that failed, `duplicate` for an event id it has,
+`continued` at rest, `nudged` while running, `refused` once returned; a reply to no run throws
+`no-run`; a second `start` with the same args is `exists`, with others `other-args`. A script
+overrides what it names:
+
+```ts
+const runs = fakeClient({
+  emit: (call) => (call.eventId === "d-1" ? { did: "none", why: "launch-failed" } : undefined),
+  start: (call) => undefined, // { did, error } for this start
+  rests: { "release/v1": [{ state: "completed", final: true }] }, // what its waits come to, in order
+  inbox: (call) => [], // the items for this read
+});
+```
+
 ## `awf test` {#awf-test}
 
 ```sh
@@ -462,8 +481,8 @@ awf test                               # every *.test.ts and *.spec.ts under her
 awf test summarize.test.ts -t nudged   # one file, the tests whose names match
 ```
 
-`awf test` serves `agentswf/workflow`, `agentswf/testing` and `typebox` itself, so nothing needs
-installing, and takes paths, `-t`, `--watch` and `--timeout` (5 s a test by default). Its help is
+`awf test` serves `agentswf/workflow`, `agentswf/client`, `agentswf/testing` and `typebox` itself,
+so a folder that declares none of them needs nothing installed, and takes paths, `-t`, `--watch` and `--timeout` (5 s a test by default). Its help is
 on [the `awf` reference](/reference/awf#test).
 
 ## Deprecated

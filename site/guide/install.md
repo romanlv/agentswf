@@ -82,25 +82,30 @@ A run that opens no sandbox needs neither. Each sandbox names the one it uses:
 ## Editor types
 
 `awf init` sets a folder up for writing workflows, with `agentswf` and `typebox` as dev dependencies
-so your editor has types; [Quick start](/guide/quick-start) walks through it. `awf` runs a workflow
-against its own copies either way.
+so your editor has types; [Quick start](/guide/quick-start) walks through it. Once installed there,
+that `agentswf` is the folder's engine, as the next section says.
 
 ## Updating
 
-Run the install again:
+A folder with no `agentswf` of its own runs on the global `awf`. Run the install again to update
+it:
 
 ```sh
 bun add -g agentswf
 ```
 
-That updates `awf` and what it serves your workflows. The types in a workflow folder are that
-folder's own dev dependency; update them there with `bun add -d agentswf`, then run the `check`
-and `test` scripts [`awf init`](/guide/quick-start) wrote:
+A folder `awf init` set up has its own `agentswf`, and that is what runs its workflows: the global
+`awf` hands each command there over to it, with a warning when the two versions differ. Update it
+in the folder, then run the `check` and `test` scripts [`awf init`](/guide/quick-start) wrote:
 
 ```sh
+bun add -d agentswf
 bun run check   # tsc --noEmit
 bun run test    # awf test
 ```
+
+Until `bun install` has run, a folder that declares `agentswf` without installing it is refused,
+naming `bun install`.
 
 A release can improve the API. If it changed something your workflow uses, these show where,
 before any agent runs; hand the errors and the current [`llms.txt`](https://agents.wf/llms.txt)

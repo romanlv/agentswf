@@ -1,8 +1,10 @@
 // Checked by `tsc --noEmit`, never run: what `agentswf/testing` offers a workflow's test, and what
 // it doesn't. Each deprecated name compiles until story 039's last task removes it.
 
+import type { Client } from "./client";
 import {
   answer,
+  fakeClient,
   noAnswer,
   reply,
   type TestOptions,
@@ -161,3 +163,6 @@ export async function scriptedReplies(): Promise<void> {
     events: [{ during: "a#1", name: "participant:reply", from: "thread", data: { text: "hi" } }],
   });
 }
+
+// A handler takes a `Client`; its test passes the fake.
+export const fake: Client = fakeClient();

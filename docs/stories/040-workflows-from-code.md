@@ -228,7 +228,8 @@ Out of scope:
   clone runs and `detachedLaunch` spawns, already the project's engine; never in `runOperatorCli`,
   which tests and the lab call in-process.
 - `src/operator-cli.ts`: the project check where a command resolves its file or run; `--version`.
-- `src/workflow-runner.ts` `wf.emit`: the same check on its target's project.
+- `src/emit.ts` `targetProject`, which `emitEvent` and `openEventRun` call: the same check on a
+  `wf.emit` target's project, and on `awf emit --target`'s and `awf run --id`'s.
 - `src/tick-command.ts`: `--all` runs each project's engine with `--run-root --json` and merges.
 - `src/workflow-loader.ts`: checks a plain workflow's `file` against its path, as an event one's.
 - `src/emit.ts` `emitEvent`, `emitToRun`, `deliver`, `createEventRun`: the client's emit and reply
@@ -243,7 +244,8 @@ Out of scope:
 - `src/run-lock.ts`: a reader of the run lock's live holder, judged as `claim` judges one gone.
 - `src/run-state.ts` `statusOf`, `stuckOf`; `src/runs.ts` `readAttempts`; `src/attempt-output.ts`:
   `status` and `wait`.
-- `src/inbox-command.ts`: the reader `inbox()` shares.
+- `src/inbox-command.ts`: what `inbox()` runs in-process, `--workflow --run-root --json`, its
+  lines parsed: one reader, and the items the command lists.
 - `src/mailbox.ts`: `source` into the event a wait returns.
 - `src/client/`, new; `package.json` `exports` gains `./client` and `./hand-over`, the bin's
   import, so the hand-over loads none of the engine.
@@ -508,11 +510,11 @@ Alternatives rejected:
 
 - [x] 1. The surface and the two ADRs, approved: types in `@agentswf/contract/client`, the
   typecheck file, no behaviour.
-- [ ] 2. One engine per project.
-- [ ] 3. `emit`, replies, `source` and `inbox`.
-- [ ] 4. `start`, `get` and the `Run` handle, with recorded args and plain runs from code.
-- [ ] 5. The fake client.
-- [ ] 6. An example driver and the guide.
+- [x] 2. One engine per project.
+- [x] 3. `emit`, replies, `source` and `inbox`.
+- [x] 4. `start`, `get` and the `Run` handle, with recorded args and plain runs from code.
+- [x] 5. The fake client.
+- [x] 6. An example driver and the guide.
 
 ## Open questions
 
@@ -849,6 +851,124 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
   installed; a misplaced `biome-ignore`. Accepted as above: explicit type arguments on an events
   workflow, the `string | undefined` file, errors at the call. A union-typed event name accepts
   either event's data, as `wf.emit` always has; the schema check at run time refuses it.
+
+### Task 2, 2026-11-04
+
+- Built: `engine/src/hand-over.ts` (finding an installed or declared `agentswf`, the hand-over),
+  run first by `agentswf/src/awf.ts`; `engine/src/project-engine.ts` (`engineOf`,
+  `checkProjectEngine`, `EngineRefused`), called by `loadWorkflowFile` before the import (run,
+  test's paths, emit --target, a reply's check), `findRunByRef` and `awf logs` (with the run's last
+  file), `emit.ts` `targetProject` (`wf.emit`, `awf run --id`) and `awf test`; `awf tick` and
+  `--all` per project; `--version` prints the project's engine.
+- A deviation, from both reviews: a project's engine is the `agentswf` installed above it, else
+  the one its workflow files resolve. A workspace whose root holds `.awf/` and whose packages each
+  have a `node_modules`, as this repository's `examples/` under Bun's isolated linker, resolves
+  none from its root; refusing that layout would refuse this repository's own examples. One
+  definition, `engineOf(project, files)`, serves every check: the loader and `wf.emit` pass the
+  file, the run readers the run's last attempt's file, and `tick` the files of the project's event
+  runs. Files resolving two versions are refused. The refusal names the directory whose
+  `node_modules` holds the engine to run from.
+- Also from review: plain `awf tick` of a project's own `.awf/runs` runs on that project's engine,
+  as `--all` does, so a tick typed elsewhere never wakes a project's runs on another engine; the
+  `declared` walk stops at the nearest `package.json`; an install whose manifest gives no version
+  or `awf` is treated as declared and not installed; a child tick's JSON is checked; `tick`'s help.
+- `awf runs`/`logs` refusing another engine's run exit 3, as for a run whose files this engine
+  can't read.
+- `awf init --no-install` then `awf test` is now refused, naming `bun install`, as the story's rule
+  says of a project that declares `agentswf` without installing it; `tests/init-command.test.ts`
+  runs `awf test` after its simulated install.
+- Accepted: `awf test` checks its directory and the paths given, not each test file it discovers.
+- For the manual check: every package of this branch is still at the published beta.5's version,
+  so a global built from it is the same engine as beta.5. The check needs the global's copy at
+  another version.
+
+### Task 3, 2026-11-04
+
+- Built: `engine/src/client/` (`index.ts`: `client`, and `clientWith`, the tests' factory with a
+  fake launch, nudge and clock, which `agentswf/client` doesn't publish; `locate.ts`; `exported.ts`,
+  the `file` identity check, the one computed import, allowed in `boundary-paths.ts`);
+  `EmitError.code`, an `Extract` of `ClientErrorCode`; `source` on the mailbox event, `eventOf`,
+  `emitEvent` and `deliverReply`, and `awf emit --source`, on both forms.
+- Story 039's task 10 is not done; task 3 went ahead of it, as the client's reply typing reads
+  only declared `{key}:reply` names, and task 10 removes nothing on the reply path.
+- `source` is taken on a reply too, from the client and `awf emit {run} --source`: a reply reaches
+  the code as a `WorkflowEvent`, which carries it. Its grammar is the event id's.
+- `inbox()` runs `inboxCommand` in-process rather than a factored reader: one implementation, the
+  same items; its coupling is to argv and the `bad-cursor` code. An `after` that is empty or starts
+  with `-` is refused as `cursor` before it reaches argv.
+- Boundaries: the client's own files may not import the runtime, a decision provider or a sandbox
+  provider, nor name `serveAuthorSurface`; and `clientReachProblems` follows what
+  `agentswf/client` loads at run time, type-only imports erased, refusing `operator-runtime.ts` and
+  every provider. It loads the harness and `workflow-runner.ts` through `inbox-command.ts` and
+  `attempt-ending.ts`, which host nothing unless called.
+- From review: `deliver` refuses an event to a run without events (an `awf emit --target` to a
+  plain run of the same name used to start it) and to an id differing only in case from the run
+  there, which a disk that doesn't tell case apart opened instead; the client's reply, `start` and
+  `get` do the same; a non-string name, run id, event id or source is a `ClientError`.
+
+### Task 4, 2026-11-04
+
+- Built: `RUN_RECORD_ARGS_VERSION` (2) and `RunRecord.args`, written only by `createRun` given
+  args; `openRun` reads both versions; a continue of a run with args takes them and never calls
+  `prepare` (`run-prepare.ts`), which covers every attempt, a wake's included; a plain workflow
+  that gives `file` is checked by the loader and keeps its runs in its project's run root,
+  registered, unless `--run-root` names another, every other `awf run` option kept;
+  `detachedLaunch` waits for the socket only for a run with events; `lockHeld` in `run-lock.ts`;
+  `runStatus` reads every run's mailbox, and a run with no attempt that is past its minute, or
+  whose launch failed, is `running` only while a live process holds its lock; a plain run counts
+  only failed launches toward `stuck`. `client/runs.ts`: `start`, `get`, the `Run` handle,
+  `status` with `final` and `ending` (from the attempt record and, for the last, `output.json`),
+  and `wait`, read from the attempt records and the mailbox's `launch-failed` lines.
+- `RunRecord` is one type with `version: 1 | 2` and `args?`, not a union by version: `createRun`
+  alone writes it, and holds the invariant.
+- From review: `wait` reads the attempts before the status, so an attempt that rests and is
+  continued between the two reads is still seen; a rest it returns is `final` by the run kind's
+  rule; a failed launch it sees while a sender holds the lock is a rest only once the lock is free,
+  and is returned as `interrupted`; a generated id another caller drew the same minute is drawn
+  again under the lock, never taken as theirs; only a `RunRefused` from `createRun` is `id`, a disk
+  failure rejects as it is; the lock rule covers a first launch slower than a minute; the project
+  is registered only when its run root is used; an abort before the first poll rejects; the
+  ending's `continue` is quoted.
+- The test of a continue across a major version runs the continue in a process of its own: the
+  test's process holds the file's older module. An event run's continue across a major version is
+  `planStageByContent`'s existing rule, which a run's args don't reach; it has no test here.
+- Left for the live check: a detached plain run's question in `inbox()`, answered by `awf reply`.
+
+### Tasks 5 and 6, 2026-11-05
+
+- Built: `fakeClient` in `engine/src/workflow-testing/fake-client.ts`, published by
+  `agentswf/testing`; `examples/site/guide/programs/` (`pr-review.ts`, `release.ts`,
+  `handlers.driver.ts` and their tests); `site/guide/programs.md`, linked from Hosting events;
+  `fakeClient` on the Testing API reference; Install's Updating section; the `*.driver.ts` rule in
+  the boundaries, AGENTS.md's boundary 6 and `site/AGENTS.md`.
+- From review, the fake was reworked to answer as the real rules do in the cases the guide
+  teaches: a run whose launch failed is kept, and its next event is `started`; an event id it has
+  is a `duplicate`; a run at rest is `continued`, a live one `nudged`, a returned one `refused`; a
+  run named in `rests` is there; a wait on a run that isn't running answers at once, and one with
+  nothing scripted left ends with its signal; it runs the real client's checks that need no file
+  (`file` absolute, `meta.name`, `source`, JSON args, `id(args)`, run ids, cursors); every call is
+  kept, refused ones included; generated ids skip ids in use.
+- `awf test` now serves `agentswf/client` from its engine, as it serves `agentswf/testing`, so a
+  handler under test and the fake share one `ClientError`; `agentswf/client` is the engine's
+  `client/published.ts`.
+- The example's webhook hashes a delivery id that doesn't fit the grammar or starts `awf.`, logs
+  what came of an emit after answering, and the guide says a refusal after the answer is lost and
+  a launch that failed waits for the next event or `awf tick`; the relay's cursor must be kept
+  where a restart finds it. Pages that said an `awf init` folder needs no install (Quick start,
+  Testing, the Testing API) now say it runs on the `agentswf` it installs.
+
+### Verification, 2026-11-05
+
+- `bunx tsc --noEmit`, `bun run check` (Biome, tsc, boundaries) and the site build pass.
+- `bun test`: 2580 pass; one Herdr host test failed under load and passes alone, here and on main.
+- Live: `AWF_LIVE_EVAL=1 bun tests/client.eval.ts` passed on codex `gpt-6-luna`, in a project
+  pinned to `0.0.0-live` under the branch's global at `0.1.0-beta.5`: an event started a run, it
+  parked, a second event continued it to completion with its `source`; `start` of a plain run with
+  args completed with 42, `prepare` (which throws) never run; a detached run's agent asked a
+  person, the question showed in `inbox()`, and `awf reply` to the global `awf`, handed over with
+  its warning, delivered the codeword, which the run returned. Each run under $0.01 by awf's
+  records. Its first try failed on the eval's own workflow, which kept a count in memory across
+  attempts.
 
 ## Human review
 

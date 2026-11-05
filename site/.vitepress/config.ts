@@ -57,6 +57,7 @@ const SITE_MAP: { text: string; items: [link: string, text: string][] }[] = [
       ["/guide/timers", "Timers"],
       ["/guide/people", "People"],
       ["/guide/hosting-events", "Hosting events"],
+      ["/guide/programs", "Programs"],
       ["/guide/calling-session", "Calling session"],
     ],
   },

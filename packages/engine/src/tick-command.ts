@@ -1,12 +1,16 @@
+import { basename, dirname, resolve } from "node:path";
 import type { TickResultJson } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import { ENGINE_VARIABLE, type InstalledEngine, type ProjectEngine } from "./hand-over";
 import help from "./help/tick.txt" with { type: "text" };
+import { ENGINE_VERSION, EngineRefused, engineOf } from "./project-engine";
 import { listProjects, projectRunRoot } from "./projects";
 import type { Out } from "./run-commands";
 import { parsePlace } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
 import { listRuns } from "./run-state";
+import { readAttempts } from "./runs";
 import { type Launch, wake } from "./wake";
 
 export const tickUsage = help.trimEnd();
@@ -41,14 +45,42 @@ export async function tickCommand(
   const woke: TickResultJson["woke"] = [];
   let failed = false;
   const roots: string[] = [];
-  if (!parsed.rest.includes("--all")) roots.push(place.runRoot);
-  else
+  /** Each project's runs on its own engine (ADR 0014): this one, or its own in a child. */
+  const onItsEngine = async (project: string, root: string) => {
+    let engine: ProjectEngine;
+    try {
+      engine = engineOf(project, await runFiles(root));
+    } catch (error) {
+      if (!(error instanceof EngineRefused)) throw error;
+      failed = true;
+      out.stderr(`awf: ${error.message}; its runs are not woken`);
+      return;
+    }
+    if (engine.kind === "declared") {
+      failed = true;
+      out.stderr(
+        `awf: ${project} declares agentswf in ${engine.manifest} and has none installed, so its runs are not woken: run bun install there`,
+      );
+    } else if (engine.kind === "installed" && engine.version !== ENGINE_VERSION) {
+      const ticked = await tickElsewhere(project, root, engine, context.environment, out);
+      woke.push(...ticked.woke);
+      if (!ticked.ok) failed = true;
+    } else roots.push(root);
+  };
+  if (!parsed.rest.includes("--all")) {
+    // A project's own run root is its engine's to tick; any other, the operator's, this one's.
+    const root = resolve(place.runRoot);
+    if (basename(root) === "runs" && basename(dirname(root)) === ".awf")
+      await onItsEngine(dirname(dirname(root)), root);
+    else roots.push(root);
+  } else
     for (const project of await listProjects(context.home)) {
-      if (await exists(project)) roots.push(projectRunRoot(project));
-      else {
+      if (!(await exists(project))) {
         failed = true;
         out.stderr(`awf: ${project}, in ~/.awf/projects, is gone; its runs are not woken`);
+        continue;
       }
+      await onItsEngine(project, projectRunRoot(project));
     }
   for (const root of roots) {
     for (const run of await listRuns(root)) {
@@ -73,4 +105,50 @@ export async function tickCommand(
   if (json) out.stdout(JSON.stringify({ v: 1, woke } satisfies TickResultJson));
   else for (const each of woke) out.stdout(`${each.did} ${each.ref}: ${each.why}`);
   return failed ? 1 : 0;
+}
+
+/** The files the event runs under `root` last ran, by which a project with no engine finds one. */
+async function runFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const run of await listRuns(root)) {
+    if (!run.record.events) continue;
+    const file = (await readAttempts(run).catch(() => [])).at(-1)?.file ?? run.record.file;
+    if (file !== undefined) files.push(file);
+  }
+  return files;
+}
+
+/**
+ * `awf tick` of one project's runs on its own engine, as the hand-over runs it: in the project,
+ * with `AWF_ENGINE` naming it, so it never hands over by its directory.
+ */
+async function tickElsewhere(
+  project: string,
+  root: string,
+  engine: InstalledEngine,
+  environment: Readonly<Record<string, string | undefined>>,
+  out: Out,
+): Promise<{ ok: boolean; woke: TickResultJson["woke"] }> {
+  const child = Bun.spawn({
+    cmd: [process.execPath, "--no-env-file", engine.bin, "tick", "--run-root", root, "--json"],
+    cwd: project,
+    env: { ...environment, [ENGINE_VARIABLE]: engine.dir },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  for (const line of stderr.trimEnd().split("\n")) if (line) out.stderr(line);
+  try {
+    const result = JSON.parse(stdout) as Partial<TickResultJson>;
+    if (!Array.isArray(result.woke)) throw new Error("no woke");
+    return { ok: code === 0, woke: result.woke };
+  } catch {
+    out.stderr(
+      `awf: ${project}'s agentswf ${engine.version} did not say what it woke (exit ${code})`,
+    );
+    return { ok: false, woke: [] };
+  }
 }

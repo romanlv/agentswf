@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { isAbsolute, join } from "node:path";
+import type { ClientErrorCode } from "@agentswf/contract/client";
 import {
   type EmitResultJson,
   MAILBOX_RECORD_VERSION,
@@ -18,6 +19,7 @@ import {
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
+import { checkProjectEngine, EngineRefused } from "./project-engine";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
 import { prepareArgs } from "./run-prepare";
@@ -26,9 +28,21 @@ import { createRun, idProblem, openRun, panesChanged, type Run, readAttempts } f
 import { type WakeContext, type Woken, wake } from "./wake";
 import { type EventWorkflow, loadWorkflowFile } from "./workflow-loader";
 
+/**
+ * What an `EmitError` is about, as a program's `ClientError` names it: the event, an id, the
+ * target's `prepare` or `id(args)`, its file, its project, or the project's engine.
+ */
+export type EmitCode = Extract<
+  ClientErrorCode,
+  "event" | "id" | "prepare" | "file" | "project" | "other-engine" | "no-engine"
+>;
+
 /** An event awf refuses to take at all: a name, shape or id no run of the target could have. */
 export class EmitError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: EmitCode = "event",
+  ) {
     super(message);
     this.name = "EmitError";
   }
@@ -45,28 +59,35 @@ export type EmitContext = Omit<WakeContext, "file"> & {
  */
 export async function emitEvent(
   target: EventWorkflow,
-  event: { run: string; name: string; data: JsonValue; id?: string },
+  event: { run: string; name: string; data: JsonValue; id?: string; source?: string },
   context: EmitContext,
 ): Promise<EmitResultJson> {
   const workflow = target.meta.name;
-  const { name, data } = event;
+  const { name, data, source } = event;
   checkEvent(target, event);
+  const badSource = source === undefined ? undefined : nameProblem(source);
+  if (badSource) throw new EmitError(`the source ${JSON.stringify(source)}: ${badSource}`);
   const file = fileOf(target);
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
   const at = new Date(context.now?.() ?? Date.now()).toISOString();
   const runId = event.run;
   const problem = idProblem(runId);
-  if (problem) throw new EmitError(`the run's id: ${problem}`);
-  const project = await projectOf(file, context.home).catch((error: unknown) => {
-    throw new EmitError(messageOf(error));
-  });
+  if (problem) throw new EmitError(`the run's id: ${problem}`, "id");
+  const project = await targetProject(file, context.home);
   const starts = target.starts?.includes(name) ?? true;
   return deliver(
     {
       runRoot: projectRunRoot(project),
       workflow,
       runId,
-      event: { id, name, data, from: context.from, at },
+      event: {
+        id,
+        name,
+        data,
+        from: context.from,
+        ...(source === undefined ? {} : { source }),
+        at,
+      },
       deduplicate: event.id !== undefined,
       file,
       ...(starts ? { start: { project, target } } : {}),
@@ -83,7 +104,7 @@ export async function emitEvent(
  */
 export async function emitToRun(
   status: RunStatus,
-  event: { name: string; data: JsonValue; id?: string },
+  event: { name: string; data: JsonValue; id?: string; source?: string },
   context: Omit<WakeContext, "file">,
 ): Promise<EmitResultJson> {
   const { run, ref } = status;
@@ -99,7 +120,7 @@ export async function emitToRun(
     return deliverReply(status, reply.key, event, context);
   const file = status.attempts.at(-1)?.file ?? run.record.file;
   if (file === undefined) throw new Error(`${ref} has no file to check the event against`);
-  const { workflow } = await loadWorkflowFile(file, run.record.cwd);
+  const { workflow } = await loadWorkflowFile(file, run.record.cwd, context.home);
   if (!isEventWorkflow(workflow) || workflow.meta.name !== run.record.workflow)
     throw new Error(`${file} is no longer ${run.record.workflow} with events, which ${ref} ran`);
   checkEvent(workflow, event, true);
@@ -111,12 +132,14 @@ export async function emitToRun(
  * The caller has checked it.
  */
 export function deliverReply(
-  status: RunStatus,
+  status: Pick<RunStatus, "run">,
   key: string,
-  event: { data: JsonValue; id?: string },
+  event: { data: JsonValue; id?: string; source?: string },
   context: Omit<WakeContext, "file">,
 ): Promise<EmitResultJson> {
   const { run } = status;
+  const problem = event.source === undefined ? undefined : nameProblem(event.source);
+  if (problem) throw new EmitError(`the source ${JSON.stringify(event.source)}: ${problem}`);
   const at = new Date(context.now?.() ?? Date.now()).toISOString();
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
   return deliver(
@@ -124,7 +147,10 @@ export function deliverReply(
       runRoot: run.root,
       workflow: run.record.workflow,
       runId: run.record.id,
-      event: replyRecord(key, id, event.data, at),
+      event: {
+        ...replyRecord(key, id, event.data, at),
+        ...(event.source === undefined ? {} : { source: event.source }),
+      },
       deduplicate: event.id !== undefined,
     },
     context,
@@ -136,7 +162,7 @@ export type Delivery = {
   runRoot: string;
   workflow: string;
   runId: string;
-  event: { id: string; name: string; data: JsonValue; from: string; at: string };
+  event: { id: string; name: string; data: JsonValue; from: string; source?: string; at: string };
   /** False for an id awf made at random, which nothing repeats. */
   deduplicate: boolean;
   /** Given when the event may start the run: what a new run records, and the workflow it prepares. */
@@ -165,6 +191,14 @@ export async function deliver(
     const result = (outcome: EmitResultJson["outcome"], { cause: _, ...woken }: Woken) =>
       ({ v: 1, outcome, ref, eventId: event.id, ...woken }) satisfies EmitResultJson;
     if (run) {
+      // A disk that doesn't tell case apart opens another run for an id differing only in case.
+      if (run.record.id !== runId)
+        throw new EmitError(
+          `${ref} differs only in case from ${run.record.id}, which is there`,
+          "id",
+        );
+      if (!run.record.events)
+        throw new EmitError(`${ref} is a run of a workflow without events, which take none`);
       // Not appended again, but it still wakes the run: a sender retrying after a launch that failed
       // sends the same id.
       if (delivery.deduplicate && foldMailbox(await readMailbox(run.dir)).events.has(event.id))
@@ -198,6 +232,7 @@ function checkStartArgs(target: EventWorkflow, project: string): void {
   } catch (error) {
     throw new EmitError(
       `${target.meta.name}: a run an event starts has no arguments, which its prepare refuses: ${messageOf(error)}`,
+      "prepare",
     );
   }
 }
@@ -246,11 +281,9 @@ export async function openEventRun(
 ): Promise<Opened> {
   const workflow = target.meta.name;
   const problem = idProblem(id);
-  if (problem) throw new EmitError(problem);
+  if (problem) throw new EmitError(problem, "id");
   const file = fileOf(target);
-  const project = await projectOf(file, context.home).catch((error: unknown) => {
-    throw new EmitError(messageOf(error));
-  });
+  const project = await targetProject(file, context.home);
   const runRoot = projectRunRoot(project);
   const ref = `${workflow}/${id}`;
   return withRunLock(runLockFile(runRoot, workflow, id), async () => {
@@ -261,7 +294,7 @@ export async function openEventRun(
         return { run: ref, created: false, did: "none", why: "returned" };
       if (argv.length > 0 && JSON.stringify(argv) !== JSON.stringify(run.record.argv))
         throw new EmitError(
-          `${ref} is there already, started with ${run.record.argv.length > 0 ? "arguments of its own" : "none"}; awf run --id ${id} with none wakes it`,
+          `${ref} is there already, started with ${run.record.argv.length > 0 || run.record.args !== undefined ? "arguments of its own" : "none"}; awf run --id ${id} with none wakes it`,
         );
       const changed = panesChanged(run.record, panes);
       if (changed) throw new EmitError(changed);
@@ -270,11 +303,25 @@ export async function openEventRun(
     try {
       prepareArgs(target, argv, project);
     } catch (error) {
-      throw new EmitError(`prepare: ${messageOf(error)}`);
+      throw new EmitError(`prepare: ${messageOf(error)}`, "prepare");
     }
     const run = await createEventRun(runRoot, workflow, id, project, file, context, argv, panes);
     return { run: ref, created: true, ...(await wake(run, woken)) };
   });
+}
+
+/** The project `file`'s runs live in, which must run on this engine (ADR 0014). */
+async function targetProject(file: string, home: string): Promise<string> {
+  const project = await projectOf(file, home).catch((error: unknown) => {
+    throw new EmitError(messageOf(error), "project");
+  });
+  try {
+    checkProjectEngine(project, { file });
+  } catch (error) {
+    if (error instanceof EngineRefused) throw new EmitError(error.message, error.code);
+    throw error;
+  }
+  return project;
 }
 
 /**
@@ -286,6 +333,7 @@ function fileOf(target: EventWorkflow): string {
   if (target.file === undefined)
     throw new EmitError(
       `${target.meta.name} gives no file, by which a sender holding it finds it: file: import.meta.path`,
+      "file",
     );
   return target.file;
 }
@@ -316,7 +364,10 @@ export function checkEvent(
   const problem = eventWorkflowProblem(target);
   if (problem) throw new EmitError(`${workflow}: ${problem}`);
   if (target.file !== undefined && !isAbsolute(target.file))
-    throw new EmitError(`${workflow}: its file, ${target.file}, is import.meta.path, absolute`);
+    throw new EmitError(
+      `${workflow}: its file, ${target.file}, is import.meta.path, absolute`,
+      "file",
+    );
   const reply = awfEventOf(event.name)?.kind === "reply";
   if (event.name.includes(":") && !(replies && reply))
     throw new EmitError(
@@ -343,7 +394,7 @@ export function checkEvent(
       `${event.name}'s data does not fit its schema: ${errors.map((e) => `${e.path || "/"}: ${e.message}`).join("; ")}`,
     );
   const badId = event.id === undefined ? undefined : eventIdProblem(event.id);
-  if (badId) throw new EmitError(`the id ${JSON.stringify(event.id)}: ${badId}`);
+  if (badId) throw new EmitError(`the id ${JSON.stringify(event.id)}: ${badId}`, "id");
 }
 
 /** What is wrong with an id a sender gives an event, if anything: ids starting `awf.` are awf's. */

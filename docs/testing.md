@@ -90,6 +90,12 @@ What they cover between them:
   and 40 s on cursor, past the time each lets a shell command run, and its handler must run once,
   with no refusal. 7 agents, ~1 min; all but pi came to ~$0.11 at list prices; `slow` 2 more,
   ~2 min.
+- `client` — story 040's `agentswf/client`, from a program in a project that pins its own
+  `agentswf`, a copy at another version than the global `awf`: an event starts a run, which parks,
+  and a second wakes it to completion with its `source`; a plain run started with args completes,
+  `prepare` never run; a detached run's agent asks a person, the question shows in `inbox()`, and
+  `awf reply`, typed to the global `awf` and handed over, answers it. Codex `gpt-6-luna`, headless;
+  4 turns, under $0.01 each by awf's records, ~1 min.
 - `coordinator` — story 032's coordinator: each investigator reports to it and asks it for a
   codeword, the answer comes through the run's holder as an app's would, and the asker goes on in
   the same call. Claude and codex headless. `bun tests/coordinator.eval.ts --late` gives each

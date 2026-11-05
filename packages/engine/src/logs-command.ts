@@ -33,7 +33,7 @@ import {
   readRun,
   timeOf,
 } from "./run-read";
-import { findRun, findRunByRef, type RunStatus } from "./run-state";
+import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
 import { screenFile } from "./runs";
 
@@ -98,6 +98,7 @@ export async function logsCommand(
       options.ref === undefined
         ? await findRun(place.runRoot, undefined)
         : { status: await findRunByRef(options.ref, place, home), alsoRunning: [] };
+    checkRunEngine(status);
     const again = shellLine(command(place, "awf", "logs", status.ref));
     let after: Cursor | undefined;
     if (options.after !== undefined) {

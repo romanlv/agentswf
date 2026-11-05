@@ -6,7 +6,7 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { exists } from "./files";
-import { projectOf, projectRunRoot } from "./projects";
+import { projectOf, projectRunRoot, recordProject } from "./projects";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
@@ -64,7 +64,7 @@ export async function loadAndPrepare(
 > {
   let loaded: LoadedWorkflow;
   try {
-    loaded = await loadWorkflowFile(given.workflowFile, given.shellCwd);
+    loaded = await loadWorkflowFile(given.workflowFile, given.shellCwd, home);
   } catch (error) {
     return { refused: `load: ${messageOf(error)}` };
   }
@@ -107,6 +107,18 @@ export async function loadAndPrepare(
       }
     }
   }
+  if (!isEventWorkflow(loaded.workflow) && loaded.workflow.file !== undefined) {
+    // A plain workflow that gives `file` keeps its runs in its project, registered, so a run a
+    // program started is continued from anywhere (ADR 0015); only the run root moves.
+    try {
+      const project = await projectOf(loaded.file, home);
+      if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
+      if (command.continueId === undefined && !command.runRootGiven)
+        await recordProject(home, project);
+    } catch (error) {
+      return { refused: messageOf(error) };
+    }
+  }
   try {
     return { loaded, prepared: await prepareRun(command, loaded, now), command };
   } catch (error) {
@@ -145,7 +157,8 @@ async function prepareRun(
   }
   let args: JsonValue;
   try {
-    args = prepare(argv, cwd);
+    // A run a program started runs with the args it was given, never prepared (ADR 0015).
+    args = run.record.args !== undefined ? run.record.args : prepare(argv, cwd);
   } catch (error) {
     throw new RunRefused(
       `the recorded argv of ${id} no longer parses with ${file}: ${messageOf(error)}; start a new run`,

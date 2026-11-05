@@ -295,19 +295,33 @@ export type AgentSkillsRecord = {
 };
 
 export const RUN_RECORD_VERSION = 1 as const;
+/**
+ * A run started from code, with `args`: an engine that predates them refuses the run rather than
+ * prepare empty argv for it (ADR 0015). Every other run keeps `RUN_RECORD_VERSION`.
+ */
+export const RUN_RECORD_ARGS_VERSION = 2 as const;
 
 /**
  * `run.json`: what a run is, written once as its folder is claimed. A run's status, current stage
  * and last attempt are read off its other files, so none of them is here to go stale.
  */
 export type RunRecord = {
-  version: typeof RUN_RECORD_VERSION;
+  version: typeof RUN_RECORD_VERSION | typeof RUN_RECORD_ARGS_VERSION;
   /** Unique within its workflow; its folder's name. */
   id: string;
   /** The workflow's `meta.name`, never its file. */
   workflow: string;
-  /** As given, not as parsed: a continue prepares it again with the code as it is then. */
+  /**
+   * As given, not as parsed: a continue prepares it again with the code as it is then. Empty for a
+   * run started with `args`.
+   */
   argv: string[];
+  /**
+   * A run a program started with `client().start`: its args as given, which every attempt runs
+   * with, `prepare` never called; `null` for a workflow without args. Only at
+   * `RUN_RECORD_ARGS_VERSION`.
+   */
+  args?: JsonValue;
   /** Where every attempt works. */
   cwd: string;
   /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
@@ -315,9 +329,14 @@ export type RunRecord = {
   created: string;
   /** A run of a workflow with `events`: its `cwd` is its project, and its `argv` empty. */
   events?: true;
-  /** With `events`: the `PATH` it was first started with, which every attempt runs with. */
+  /**
+   * With `events`, or `args`: the `PATH` it was first started with, which every attempt runs with.
+   */
   env?: { PATH: string };
-  /** With `events`: the file it was first started from; later, its last attempt's `file` says. */
+  /**
+   * With `events`, or `args`: the file it was first started from; later, its last attempt's
+   * `file` says.
+   */
   file?: string;
   /** `awf run --workspace` and `--keep-panes`, which every attempt keeps; absent, neither was given. */
   panes?: RunPanes;
@@ -408,6 +427,8 @@ export type MailboxRecord = {
       data: JsonValue;
       /** As `WorkflowEvent.from`. */
       from: string;
+      /** As `WorkflowEvent.source`: the integration that sent it, absent for awf's own. */
+      source?: string;
       /** The event that created its run: `wf.started`. */
       starts?: true;
     }

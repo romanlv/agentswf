@@ -6,7 +6,7 @@
  * design; this is what makes breaking one an error rather than a note in a document.
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
@@ -168,8 +168,21 @@ const ISSUES_REFS = {
 
 const AGENT_CLI = "packages/engine/src/agent-cli";
 
+const CLIENT = "packages/engine/src/client";
+
 const RULES: Rule[] = [
   { dir: "packages/contract", allow: [], pure: true },
+  // A program's client hosts no run: it reaches the run record and the mailbox, never the
+  // operator's runtime, a provider or the author surface the loader serves (story 040). What it
+  // loads transitively is `clientReachProblems`'.
+  {
+    dir: CLIENT,
+    except: ["**/*.test.ts"],
+    forbid: [providerImport("the client launches attempts; it opens no sandbox")],
+    paths: (target) =>
+      target !== "packages/engine/src/operator-runtime.ts" &&
+      !target.startsWith("packages/engine/src/decisions/"),
+  },
   // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
   {
     dir: "packages/engine/src/accounting",
@@ -322,7 +335,7 @@ const RULES: Rule[] = [
   // An example imports what an author outside the repository does: `agentswf/workflow`.
   {
     dir: "examples",
-    except: ["**/*.test.ts", "nudges/ledger.ts"],
+    except: ["**/*.test.ts", "**/*.driver.ts", "nudges/ledger.ts"],
     forbid: [
       {
         pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
@@ -341,6 +354,18 @@ const RULES: Rule[] = [
       {
         pattern: /^@agentswf\//,
         reason: "the ledger is the workflow's own state, not a use of awf",
+      },
+    ],
+  },
+  // A program that drives a workflow's runs, as one outside the repository does: it imports the
+  // workflow and agentswf/client, and may use the runtime, as a webhook handler does (story 040).
+  {
+    dir: "examples",
+    files: "**/*.driver.ts",
+    forbid: [
+      {
+        pattern: /^(@agentswf\/|agentswf(?!\/(workflow|client)$))/,
+        reason: "a program drives runs through agentswf/client",
       },
     ],
   },
@@ -364,7 +389,7 @@ const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 /** Every violation under `root`, a checkout laid out like this one. */
 export async function boundaryProblems(root: string): Promise<string[]> {
-  const problems = reviewPlacementProblems(root);
+  const problems = [...reviewPlacementProblems(root), ...(await clientReachProblems(root))];
 
   for (const rule of rules(root)) {
     const abs = join(root, rule.dir);
@@ -382,6 +407,9 @@ export async function boundaryProblems(root: string): Promise<string[]> {
 
       if (rule.pure && ANY_BUN.test(source)) {
         problems.push(`${where}: uses the Bun global; ${rule.dir} is pure`);
+      }
+      if (rule.dir === CLIENT && /\bserveAuthorSurface\b/.test(source)) {
+        problems.push(`${where}: the client never serves the author surface to the program`);
       }
       if (rule.dir === AGENT_CLI && BUN_FILE_IO.test(source)) {
         problems.push(`${where}: wfa never performs run-directory I/O`);
@@ -495,4 +523,62 @@ if (import.meta.main) {
     process.exit(1);
   }
   console.log("boundaries ok");
+}
+
+/**
+ * What a program loads with `agentswf/client`, followed import by import: never the operator's
+ * runtime, or a sandbox or decision provider, which host runs (story 040).
+ */
+async function clientReachProblems(root: string): Promise<string[]> {
+  const entry = join(root, CLIENT, "published.ts");
+  if (!existsSync(entry)) return [];
+  const forbidden = (path: string) =>
+    path === "packages/engine/src/operator-runtime.ts" ||
+    path === "packages/engine/src/decisions/openrouter.ts" ||
+    path === "packages/engine/src/decisions/fake.ts" ||
+    /^packages\/sandbox\/src\/[^/]+\//.test(path);
+  const seen = new Map<string, string | undefined>([[entry, undefined]]);
+  const queue = [entry];
+  const problems: string[] = [];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    // What loads at run time: a type-only import or export is erased.
+    const source = (await Bun.file(file).text()).replace(
+      /\b(import|export)\s+type\s[^;]*?\bfrom\s*["'][^"']+["']/gs,
+      "",
+    );
+    for (const spec of extractImports(source)) {
+      const target = resolveWorkspaceImport(root, file, spec);
+      if (target === undefined || seen.has(target)) continue;
+      seen.set(target, file);
+      const where = relative(root, target);
+      if (forbidden(where)) {
+        const chain: string[] = [where];
+        for (let at = seen.get(target); at !== undefined; at = seen.get(at))
+          chain.unshift(relative(root, at));
+        problems.push(`agentswf/client reaches ${where}, which hosts runs: ${chain.join(" → ")}`);
+        continue;
+      }
+      queue.push(target);
+    }
+  }
+  return problems;
+}
+
+/** A workspace file `spec` names from `file`; undefined for a builtin or a third-party package. */
+function resolveWorkspaceImport(root: string, file: string, spec: string): string | undefined {
+  const withExtension = (path: string) =>
+    [path, `${path}.ts`, join(path, "index.ts")].find(
+      (candidate) => existsSync(candidate) && candidate.endsWith(".ts"),
+    );
+  if (spec.startsWith(".")) return withExtension(join(dirname(file), spec));
+  const match = /^@agentswf\/([^/]+)(\/.*)?$/.exec(spec);
+  if (!match) return undefined;
+  const manifest = join(root, "packages", match[1]!, "package.json");
+  if (!existsSync(manifest)) return undefined;
+  const exports = (
+    JSON.parse(readFileSync(manifest, "utf8")) as { exports?: Record<string, string> }
+  ).exports;
+  const target = exports?.[`.${match[2] ?? ""}`];
+  return target === undefined ? undefined : join(dirname(manifest), target);
 }

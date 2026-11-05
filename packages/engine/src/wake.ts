@@ -225,6 +225,8 @@ function detachedLaunch(context: WakeContext): Launch {
         // on that.
         const previous = claimed.at(-2);
         if (previous && sameProcess(previous.pid, previous.processStart)) return;
+        // A plain run opens its socket only when a participant connects: no sender nudges it.
+        if (!run.record.events) return;
         // Best effort: an event sent next nudges the run rather than waiting for its poll.
         const socket = coordinatorSocketPath(coordinatorDir(context.home, env), run.dir);
         const opened = Date.now() + SOCKET_MILLISECONDS;

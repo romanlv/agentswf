@@ -20,7 +20,9 @@
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
     "./workflow-testing": "./src/workflow-testing/index.ts",
-    "./cli": "./src/operator-cli.ts"
+    "./cli": "./src/operator-cli.ts",
+    "./hand-over": "./src/hand-over.ts",
+    "./client": "./src/client/published.ts"
   },
   "files": [
     "src",

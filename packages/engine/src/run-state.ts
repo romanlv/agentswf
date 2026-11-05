@@ -1,9 +1,11 @@
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
+import { checkProjectEngine } from "./project-engine";
 import { listProjects, projectRunRoot } from "./projects";
+import { lockHeld, runLockFile } from "./run-lock";
 import {
   entries,
   idProblem,
@@ -44,9 +46,23 @@ export async function runStatus(
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): Promise<RunStatus> {
-  const status = statusOf(run, await readAttempts(run), probe, at);
-  if (!run.record.events) return status;
+  let status = statusOf(run, await readAttempts(run), probe, at);
+  // A plain run's mailbox holds only the launches that failed, which only a run a program started
+  // has (story 040).
   const records = await readMailbox(run.dir);
+  const launchFailed = records.some((record) => record.kind === "launch-failed");
+  if (status.attempts.length === 0 && (launchFailed || status.state === "interrupted")) {
+    // Its launch failed, or is past the minute an attempt has to claim it: unless a live sender
+    // holds its lock, launching it, nothing runs it.
+    const { workflow, id } = run.record;
+    const launching = await lockHeld(runLockFile(run.root, workflow, id));
+    status = { ...status, state: launching ? "running" : "interrupted", checked: true };
+  }
+  if (!run.record.events) {
+    const stuck =
+      status.state !== "running" && launchesFailed(status.attempts, records) >= STUCK_AFTER;
+    return stuck ? { ...status, state: "stuck" } : status;
+  }
   const waiting = waitingOf(status, records);
   const stuck = status.state !== "running" && stuckOf(status.attempts, records);
   return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
@@ -160,6 +176,15 @@ export async function findRun(
 /** Failed or crashed attempts in a row, counted together, after which a run is `stuck` (Q13). */
 export const STUCK_AFTER = 3;
 
+/** Launches since the last attempt that never claimed one. */
+function launchesFailed(
+  attempts: readonly AttemptRecord[],
+  records: readonly MailboxRecord[],
+): number {
+  const since = attempts.at(-1)?.started ?? "";
+  return records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
+}
+
 /**
  * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
  * that never claimed one, counted together; any other ending resets them.
@@ -168,8 +193,7 @@ function failuresInARow(
   attempts: readonly AttemptRecord[],
   records: readonly MailboxRecord[],
 ): number {
-  const since = attempts.at(-1)?.started ?? "";
-  let n = records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
+  let n = launchesFailed(attempts, records);
   for (const attempt of [...attempts].reverse()) {
     const failed =
       attempt.outcome === undefined ||
@@ -200,6 +224,33 @@ export function stuckOf(
  * finds it here.
  */
 export async function findRunByRef(
+  ref: string,
+  place: { runRoot: string },
+  home: string,
+): Promise<RunStatus> {
+  const status = await findAnywhere(ref, place, home);
+  checkRunEngine(status);
+  return status;
+}
+
+/** Refuses a run this engine doesn't run: its project's, found with the file it last ran. */
+export function checkRunEngine(status: Pick<RunStatus, "run" | "attempts">): void {
+  const file = status.attempts.at(-1)?.file ?? status.run.record.file;
+  checkProjectEngine(runProject(status.run), file === undefined ? {} : { file });
+}
+
+/**
+ * The project a run belongs to: the folder holding the `.awf/runs` it is kept in, else, under a
+ * `--run-root` of the operator's, the directory it works in.
+ */
+export function runProject(run: Pick<Run, "root" | "record">): string {
+  const root = resolve(run.root);
+  return basename(root) === "runs" && basename(dirname(root)) === ".awf"
+    ? dirname(dirname(root))
+    : run.record.cwd;
+}
+
+async function findAnywhere(
   ref: string,
   place: { runRoot: string },
   home: string,

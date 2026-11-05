@@ -80,6 +80,15 @@ async function claim(file: string): Promise<Holder> {
 }
 
 /**
+ * Whether a live process holds the lock, read without taking it. A holder whose process is gone,
+ * a sender killed mid-launch, holds nothing; nor does a torn file, which `claim` takes over.
+ */
+export async function lockHeld(file: string): Promise<boolean> {
+  const holder = await readHolder(file);
+  return holder !== "gone" && holder !== undefined && !gone(holder);
+}
+
+/**
  * Whether a holder's process is gone. Where `ps` can't be asked, it is taken as alive: taking a
  * live holder's lock over would let two writers in.
  */

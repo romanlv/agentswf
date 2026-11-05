@@ -112,7 +112,7 @@ export type RunStatus<Result> = {
  * Why a client refused a call, by what the caller got wrong: `event`, a name the workflow doesn't
  * take or data its schema refuses; `id`, a run or event id the grammar refuses, or one `id(args)`
  * returns; `no-id`, a start of a workflow with `starts` naming no run; `prepare`, a starting event
- * whose `prepare` refuses no argv, or an `id(args)` that throws; `file`, a workflow whose `file`
+ * whose `prepare` refuses no argv, an `id(args)` that throws, or args that aren't JSON; `file`, a workflow whose `file`
  * isn't the path that exports it; `project`, a workflow directly in home; `no-engine`, a project
  * with no `agentswf`, or one declared and not installed; `other-engine`, a project whose `agentswf`
  * is another version than the client's; `no-run`; `other-args`, a start of a run there with other
