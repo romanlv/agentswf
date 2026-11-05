@@ -272,6 +272,9 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
 - [038 — the agents.wf site](stories/038-agents-wf-site.md): done. agents.wf, VitePress, serves
   the guide, patterns and reference for people and an `llms.txt` for agents; CI deploys it on a
   push to main that touches what it reads.
+- [040 — a program drives a workflow's runs, typed from the workflow](stories/040-workflows-from-code.md):
+  ready. `agentswf/client`: typed `emit` (events and replies), `start` with recorded args, `get`,
+  `inbox` and `wait`; one engine per project, the `agentswf` it depends on.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

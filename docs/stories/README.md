@@ -164,6 +164,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `in-progress` (tasks 1–9 done; task 10 waits a beta) — one context type for every workflow, participants routed to the code declared in
   `events`, one duration grammar, one `testWorkflow` signature, one word per state, and what is
   unbuilt or unused removed, each deprecated for one beta before 0.1.0.
+- [`040` — A program drives a workflow's runs, typed from the workflow](040-workflows-from-code.md) —
+  `ready` — an ordinary Bun program imports a workflow and emits events to it, starts runs and
+  waits on them in-process, typed from the workflow, on the engine the project depends on.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
