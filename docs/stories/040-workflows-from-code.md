@@ -3,7 +3,7 @@ id: "040"
 title: "A program drives a workflow's runs, typed from the workflow"
 summary: "An ordinary Bun program imports a workflow and emits events to it, starts runs, and waits on them in-process, each call checked by tsc from the workflow's own definition, on the engine the project depends on."
 type: story
-status: in-progress
+status: awaiting-human-review
 epic: authoring
 discovered_in: "a question about driving workflows from a webhook handler, 2026-11-04"
 depends_on: ["034", "039"]
@@ -712,14 +712,14 @@ Done when:
 
 Automated:
 
-- [ ] `client.typecheck.ts`.
-- [ ] `bun test`.
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`, with the client and example-driver rules.
+- [x] `client.typecheck.ts`.
+- [x] `bun test`.
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`, with the client and example-driver rules.
 
 Manual or live evaluation:
 
-- [ ] On a cheap model, a script emits to an event workflow, starting its run and then waking it
+- [x] On a cheap model, a script emits to an event workflow, starting its run and then waking it
   parked, and starts a plain workflow with args and waits for it to be final, in a project that
   pins a version the global `awf` isn't. Cost as in [[testing]].
 
@@ -957,6 +957,16 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
   where a restart finds it. Pages that said an `awf init` folder needs no install (Quick start,
   Testing, the Testing API) now say it runs on the `agentswf` it installs.
 
+- A targeted re-review of the reworked fake found it still diverged where it matters most: a
+  resent event id after a failed launch, which the real `deliver` wakes, relaunching it. The fake's
+  `emit` now follows the real `wake` step by step: a duplicate wakes the run without a nudge; a run
+  not launched is `started`, or `stuck` after three failed launches; a stopped, cancelled or stuck
+  run is left alone, `none` with its state; a parked, failed or crashed one is `continued` (a
+  parked run whose wait doesn't take the event is `nothing-due` to the real client, which a test
+  scripts). It checks `prepare` with no argv before an event makes a run; a scripted answer is
+  `outcome`, `did`, `why` and `error` only, `why` alone meaning `did: "none"`, and the fake then
+  knows what it said (a refusal leaves no run). Every `FakeClientCall` names its `workflow`.
+
 ### Verification, 2026-11-05
 
 - `bunx tsc --noEmit`, `bun run check` (Biome, tsc, boundaries) and the site build pass.
@@ -969,11 +979,19 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
   its warning, delivered the codeword, which the run returned. Each run under $0.01 by awf's
   records. Its first try failed on the eval's own workflow, which kept a count in memory across
   attempts.
+- Manual, the published beta.5 as a project's engine under a global built from this branch (a copy
+  at `0.1.0-beta.6-dev`, since every package here is still at beta.5's version): `--version` prints
+  both; `awf run`, `awf emit` and `awf runs` are handed over with the warning and run on beta.5;
+  `awf tick --all` from inside that project runs on the global, beta.5 accepting `tick --run-root
+  --json` for its project's tick.
+- Manual, beta.5 as an older global over a run started from code (record version 2): its `awf
+  runs` listing passes over it, and `awf runs add/a1` and `awf run add.ts --id a1 --continue` refuse
+  it, "version 2, newer than this awf reads"; it never prepares empty argv for it.
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.

@@ -25,6 +25,7 @@ import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
 export type FakeClientCall =
   | {
       kind: "emit";
+      workflow: string;
       /** `{workflow}/{id}`. */
       ref: string;
       name: string;
@@ -34,13 +35,20 @@ export type FakeClientCall =
     }
   /** `ref` names the run `id`, `id(args)` or the fake named; absent when none could be named. */
   | { kind: "start"; workflow: string; ref?: string; args: JsonValue }
-  | { kind: "get"; ref: string }
+  | { kind: "get"; workflow: string; ref: string }
   | { kind: "inbox"; workflow: string; after?: string };
 
 /** What a test scripts; anything it leaves out is answered as the real client's rules would. */
 export type FakeClientScript = {
-  /** An emit's result, for the call given; undefined answers by the rules. */
-  emit?: (call: Extract<FakeClientCall, { kind: "emit" }>) => Partial<EmitResultJson> | undefined;
+  /**
+   * What became of an emit, for the call given, in place of what the rules would say; undefined
+   * answers by the rules. `why` alone means nothing was done (`did: "none"`). What it says is what
+   * the fake then knows: a refused or duplicate event leaves no new run, a `launch-failed` a run
+   * not launched, a `stuck` one stuck.
+   */
+  emit?: (
+    call: Extract<FakeClientCall, { kind: "emit" }>,
+  ) => Partial<Pick<EmitResultJson, "outcome" | "did" | "why" | "error">> | undefined;
   /** A start's `did` and `error`, for the call given; undefined answers by the rules. */
   start?: (
     call: Extract<FakeClientCall, { kind: "start" }> & { ref: string },
@@ -48,7 +56,9 @@ export type FakeClientScript = {
   /**
    * By ref: the rests the run comes to, in order. A wait takes the next one, as the run's next rest
    * after the call; a run that isn't running, by the last one taken, is answered at once, as the
-   * real client does. Its status is the last one taken. A run named here is there.
+   * real client does. Its status is the last one taken, and moves only at a wait. A run named
+   * here is there: `get` and `emit` find it, and the first `start` of it is the one that made it,
+   * unless an emit reached it first.
    */
   rests?: Record<string, RunStatus<JsonValue>[]>;
   /** What `inbox` returns, for the call given. */
@@ -64,8 +74,10 @@ export type FakeClient = Client & {
 type Known = {
   /** The args it was started with; absent for one an event began. */
   args?: JsonValue;
-  /** False after a launch that failed, until one doesn't. */
+  /** False until an attempt is launched: after a launch that failed, or while it is stuck. */
   launched: boolean;
+  /** Launches that failed in a row: three make it stuck, as the real rule does. */
+  failed: number;
   /** Named only by `rests`: the first start of it is the one that made it. */
   scripted?: true;
   eventIds: Set<string>;
@@ -79,10 +91,11 @@ const RUNNING: RunStatus<JsonValue> = { state: "running", final: false };
  * A `Client` for a program's tests, as `testWorkflow` is for a workflow's: it runs the real
  * client's checks on what it is given, so a test sees the `ClientError` the real one throws, and
  * keeps its calls. Unscripted, it answers as the real rules do: an event to a new id is `started`
- * if it may start a run and refused `not-a-start` if not; to a run there, a `duplicate` for an
- * event id it has, `refused` `returned` for a run that completed, `started` for one whose launch
- * failed, `continued` for one at rest and `nudged` for a live one; a reply to no run throws
- * `no-run`; a start is `started` for a new id, `exists` for one there with the same args, and
+ * if it may start a run and refused `not-a-start` if not; to a run there, `refused` `returned` for
+ * one that completed, and otherwise woken as the real `wake` does, a `duplicate` for an event id it
+ * has: `started` for a run whose launch failed (`stuck` after three), `nudged` while running,
+ * `continued` once parked, failed or crashed, nothing for one stopped, cancelled or stuck; a reply
+ * to no run throws `no-run`; a start is `started` for a new id, `exists` for one there with the same args, and
  * `other-args` for other args, or a run an event began.
  */
 export function fakeClient(script: FakeClientScript = {}): FakeClient {
@@ -91,6 +104,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
   const fresh = (args?: JsonValue): Known => ({
     ...(args === undefined ? {} : { args }),
     launched: true,
+    failed: 0,
     eventIds: new Set(),
     status: RUNNING,
     rests: [],
@@ -124,6 +138,26 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
     return made as Run<never>;
   };
 
+  /** What the real `wake` does to a run in this state: start, nudge, continue, or nothing. */
+  const wake = (
+    run: Known,
+    duplicate: boolean,
+  ): Pick<EmitResultJson, "did"> & Partial<Pick<EmitResultJson, "why">> => {
+    if (!run.launched) return run.failed >= 3 ? { did: "none", why: "stuck" } : { did: "started" };
+    switch (run.status.state) {
+      case "running":
+        return duplicate ? { did: "none" } : { did: "nudged" };
+      case "stopped":
+      case "cancelled":
+      case "stuck":
+        return { did: "none", why: run.status.state };
+      default:
+        // Parked, failed, timed-out or interrupted: continued. A parked run whose wait doesn't take
+        // the event is `nothing-due` to the real client; script that.
+        return { did: "continued" };
+    }
+  };
+
   /** The real client's checks of a workflow it is given that need no file: its `file` and name. */
   const located = (workflow: AnyWorkflow): string => {
     const name = workflow?.meta?.name;
@@ -140,6 +174,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       const ref = `${target?.meta?.name}/${run}`;
       const call = {
         kind: "emit" as const,
+        workflow: target?.meta?.name,
         ref,
         name,
         data: data as JsonValue,
@@ -182,26 +217,57 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       let state = known.get(ref);
       if (!state && reply)
         throw new ClientError("no-run", `no run ${ref}: a reply never starts one`, ref);
-      if (state && given.eventId !== undefined && state.eventIds.has(given.eventId))
-        return result({ outcome: "duplicate", did: "none" });
-      if (state?.status.state === "completed")
-        return result({ outcome: "refused", did: "none", why: "returned" });
-      if (!state) {
-        if (!(target.starts?.includes(name) ?? true))
-          return result({ outcome: "refused", did: "none", why: "not-a-start" });
-        state = { ...fresh(), launched: false };
-        known.set(ref, state);
+      const duplicate =
+        state !== undefined && given.eventId !== undefined && state.eventIds.has(given.eventId);
+      let made = false;
+      let answer: Omit<EmitResultJson, "v" | "ref" | "eventId">;
+      if (!duplicate && state?.status.state === "completed")
+        answer = { outcome: "refused", did: "none", why: "returned" };
+      else if (!state && !(target.starts?.includes(name) ?? true))
+        answer = { outcome: "refused", did: "none", why: "not-a-start" };
+      else {
+        if (!state) {
+          // As the real client checks before it makes the run: what `prepare` makes of no argv.
+          try {
+            target.prepare({ argv: [], cwd: "/" });
+          } catch (error) {
+            throw new ClientError(
+              "prepare",
+              `${target.meta.name}: a run an event starts has no arguments, which its prepare refuses: ${String(error)}`,
+              ref,
+            );
+          }
+          state = { ...fresh(), launched: false };
+          made = true;
+        }
+        // A duplicate isn't appended, but wakes the run, as a retry after a failed launch does;
+        // a live run has it already, and isn't nudged.
+        answer = { outcome: duplicate ? "duplicate" : "accepted", ...wake(state, duplicate) };
       }
+      const scripted = script.emit?.(call);
+      if (scripted) {
+        answer = { ...answer, ...scripted };
+        if (scripted.why !== undefined && scripted.did === undefined) answer.did = "none";
+        if (scripted.why === undefined && scripted.did !== undefined && scripted.did !== "none")
+          delete answer.why;
+      }
+      if (!state || answer.outcome === "refused" || (made && answer.outcome === "duplicate"))
+        return result(answer);
+      if (made) known.set(ref, state);
+      delete state.scripted;
       if (given.eventId !== undefined) state.eventIds.add(given.eventId);
-      const did = !state.launched
-        ? "started"
-        : state.status.state === "running"
-          ? "nudged"
-          : "continued";
-      const answer = result({ outcome: "accepted", did, ...script.emit?.(call) });
-      state.launched = answer.why !== "launch-failed";
-      if (did === "continued" && state.launched) state.status = RUNNING;
-      return answer;
+      if (answer.did === "started" || answer.did === "continued") {
+        state.launched = true;
+        state.failed = 0;
+        state.status = RUNNING;
+      } else if (answer.why === "launch-failed") {
+        state.launched = false;
+        state.failed += 1;
+      } else if (answer.why === "stuck") {
+        state.launched = false;
+        state.failed = Math.max(state.failed, 3);
+      }
+      return result(answer);
     },
     start: async (workflow, args, given = {}) => {
       const target = workflow as unknown as AnyWorkflow;
@@ -255,6 +321,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
             ref,
           );
         if (there.launched) return { run: handle(ref), did: "exists" };
+        if (there.failed >= 3) return { run: handle(ref), did: "stuck" };
       } else if (!known.has(ref)) known.set(ref, fresh(call.args));
       const run = known.get(ref)!;
       const answer = {
@@ -262,12 +329,15 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         did: there ? "exists" : "started",
         ...script.start?.({ ...call, ref }),
       } as StartResult<never>;
-      run.launched = answer.did !== "launch-failed";
+      run.launched = answer.did !== "launch-failed" && answer.did !== "stuck";
+      if (answer.did === "launch-failed") run.failed += 1;
+      if (answer.did === "stuck") run.failed = Math.max(run.failed, 3);
+      if (run.launched) run.failed = 0;
       return answer;
     },
     get: async (workflow, run) => {
       const ref = `${(workflow as unknown as AnyWorkflow)?.meta?.name}/${run}`;
-      calls.push({ kind: "get", ref });
+      calls.push({ kind: "get", workflow: (workflow as unknown as AnyWorkflow)?.meta?.name, ref });
       located(workflow as unknown as AnyWorkflow);
       const problem = idProblem(run);
       if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);

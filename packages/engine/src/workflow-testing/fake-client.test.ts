@@ -65,6 +65,7 @@ test("records emits and starts in order, with their typed data, and scripts a la
   expect(runs.calls).toEqual([
     {
       kind: "emit",
+      workflow: "review",
       ref: "review/pr-1",
       name: "pr.pushed",
       data: { sha: "a" },
@@ -73,6 +74,7 @@ test("records emits and starts in order, with their typed data, and scripts a la
     },
     {
       kind: "emit",
+      workflow: "review",
       ref: "review/pr-1",
       name: "pr.pushed",
       data: { sha: "b" },
@@ -113,18 +115,22 @@ test("unscripted: not-a-start, no-run for a reply to an unseen id, and a second 
 });
 
 test("as the real rules: a retry after a launch that failed, a duplicate, a parked run continued, a returned one refused", async () => {
+  let retried = 0;
   const runs = fakeClient({
+    // The first launch fails; the script answers that once.
     emit: (call) =>
-      call.eventId === "d-1" ? { did: "none", why: "launch-failed", error: "no bun" } : undefined,
+      call.eventId === "d-1" && retried++ === 0
+        ? { did: "none", why: "launch-failed", error: "no bun" }
+        : undefined,
     rests: {
       "review/pr-2": [{ state: "parked", final: false }],
       "review/pr-3": [{ state: "completed", final: true }],
     },
   });
   expect(await onPush(runs, 1, "a", "d-1")).toMatchObject({ did: "none", why: "launch-failed" });
-  // The run is kept: the same delivery is a duplicate, and the next event launches it.
-  expect(await onPush(runs, 1, "a", "d-1")).toMatchObject({ outcome: "duplicate" });
-  expect(await onPush(runs, 1, "b", "d-2")).toMatchObject({ outcome: "accepted", did: "started" });
+  // The run is kept: the same delivery is a duplicate, which wakes it, launching it again.
+  expect(await onPush(runs, 1, "a", "d-1")).toMatchObject({ outcome: "duplicate", did: "started" });
+  expect(await onPush(runs, 1, "b", "d-2")).toMatchObject({ outcome: "accepted", did: "nudged" });
   expect(await runs.emit(review, "pr-1", "thread:reply", { text: "ok" })).toMatchObject({
     did: "nudged",
   });
@@ -174,3 +180,52 @@ test("generated ids are new; an id an event began is other-args to start; a wait
 function onPushWith(runs: ReturnType<typeof fakeClient>, options: { source: string }) {
   return runs.emit(review, "pr-1", "pr.pushed", { sha: "a" }, options);
 }
+
+test("from re-review: a run stopped stays stopped, a prepare that refuses no argv, scripted answers the fake then knows", async () => {
+  const runs = fakeClient({
+    rests: { "review/pr-1": [{ state: "stopped", final: true }], "review/pr-9": [] },
+    emit: (call) =>
+      call.eventId === "refuse"
+        ? { outcome: "refused", why: "not-a-start" }
+        : call.eventId === "stuck"
+          ? { why: "stuck" }
+          : undefined,
+  });
+  await (await runs.get(review, "pr-1")).wait();
+  expect(await runs.emit(review, "pr-1", "pr.closed", { sha: "a" })).toMatchObject({
+    did: "none",
+    why: "stopped",
+  });
+  expect(await (await runs.get(review, "pr-1")).status()).toMatchObject({ state: "stopped" });
+  // Refused by the script: no run is left.
+  expect(
+    await runs.emit(review, "pr-2", "pr.pushed", { sha: "a" }, { eventId: "refuse" }),
+  ).toMatchObject({ outcome: "refused", did: "none" });
+  await expect(runs.get(review, "pr-2")).rejects.toMatchObject({ code: "no-run" });
+  // why alone is did none; a stuck run launches nothing more.
+  expect(
+    await runs.emit(review, "pr-3", "pr.pushed", { sha: "a" }, { eventId: "stuck" }),
+  ).toMatchObject({ did: "none", why: "stuck" });
+  expect(await runs.emit(review, "pr-3", "pr.pushed", { sha: "b" })).toMatchObject({
+    did: "none",
+    why: "stuck",
+  });
+  // A run named only by rests that an emit reached first was begun by an event.
+  await runs.emit(review, "pr-9", "pr.pushed", { sha: "a" });
+  await expect(runs.start({ ...review, id: () => "pr-9" }, null)).rejects.toMatchObject({
+    code: "other-args",
+  });
+  const needs = defineWorkflow({
+    meta: { name: "needs", description: "Needs a ticket." },
+    file: "/flows/needs.ts",
+    events: { "pr.pushed": Pushed },
+    prepare: ({ argv }) => {
+      if (!argv[0]) throw new Error("a ticket");
+      return { ticket: argv[0] };
+    },
+    run: async () => null,
+  });
+  await expect(runs.emit(needs, "n", "pr.pushed", { sha: "a" })).rejects.toMatchObject({
+    code: "prepare",
+  });
+});

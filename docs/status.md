@@ -276,7 +276,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   the guide, patterns and reference for people and an `llms.txt` for agents; CI deploys it on a
   push to main that touches what it reads.
 - [040 — a program drives a workflow's runs, typed from the workflow](stories/040-workflows-from-code.md):
-  in progress, tasks 1–6 built and reviewed in the worktree, its live eval passed. `agentswf/client`:
+  built, awaiting human review, on branch `workflows-from-code`; its live eval passed. `agentswf/client`:
   typed `emit` (events and replies), `start` with recorded args, `get`, `inbox` and `wait`; the
   fake client; one engine per project, the `agentswf` it depends on, the global `awf` handing over.
 

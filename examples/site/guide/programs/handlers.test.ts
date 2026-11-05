@@ -32,6 +32,7 @@ test("a push is pr.pushed to the PR's run, named by the delivery, from github", 
   expect(runs.calls).toEqual([
     {
       kind: "emit",
+      workflow: "pr-review",
       ref: "pr-review/pr-7",
       name: "pr.pushed",
       data: { sha: "abc123", branch: "fix-login" },
@@ -40,6 +41,7 @@ test("a push is pr.pushed to the PR's run, named by the delivery, from github", 
     },
     {
       kind: "emit",
+      workflow: "pr-review",
       ref: "pr-review/pr-7",
       name: "pr.closed",
       data: { merged: true },
@@ -50,10 +52,12 @@ test("a push is pr.pushed to the PR's run, named by the delivery, from github", 
 });
 // #endregion test
 
-test("a launch that failed is the result, not a throw; the run is kept, and the next push launches it", async () => {
+test("a launch that failed is the result, not a throw; the run is kept, and a resent delivery launches it", async () => {
+  let failed = 0;
+  // The first launch fails; the script answers that once.
   const runs = fakeClient({
-    emit: (call) =>
-      call.eventId === "d-1"
+    emit: () =>
+      failed++ === 0
         ? { did: "none", why: "launch-failed", error: "bun: not found" }
         : undefined,
   });
@@ -69,11 +73,14 @@ test("a launch that failed is the result, not a throw; the run is kept, and the 
     outcome: "accepted",
     why: "launch-failed",
   });
-  // GitHub resends the delivery: a duplicate, never reviewed twice.
-  expect(await push("d-1")).toMatchObject({ outcome: "duplicate" });
+  // GitHub resends the delivery: a duplicate, never reviewed twice, which launches the run again.
+  expect(await push("d-1")).toMatchObject({
+    outcome: "duplicate",
+    did: "started",
+  });
   expect(await push("d-2")).toMatchObject({
     outcome: "accepted",
-    did: "started",
+    did: "nudged",
   });
 });
 

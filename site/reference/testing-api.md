@@ -460,10 +460,12 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 A [program](/guide/programs)'s handler takes a `Client`; its test passes `fakeClient(script?)`,
 which runs the real client's checks, throws the same `ClientError`, and keeps `calls`, every call
 in order, refused ones included. Unscripted, it answers as the real rules do: a run is started by
-an event that may start one, kept after a launch that failed, `duplicate` for an event id it has,
-`continued` at rest, `nudged` while running, `refused` once returned; a reply to no run throws
-`no-run`; a second `start` with the same args is `exists`, with others `other-args`. A script
-overrides what it names:
+an event that may start one, kept after a launch that failed and started by its next event or
+by the same event resent, a `duplicate` that wakes it; `nudged` while running, `continued` once
+parked, failed or crashed, left alone once stopped, cancelled or stuck, `refused` once returned; a reply to no run throws
+`no-run`; a second `start` with the same args is `exists`, with others `other-args`. Its runs
+move to a scripted rest only at a `wait`. A script overrides what it names, and the fake then
+knows what it said: a refused event leaves no run, `why` alone is `did: "none"`:
 
 ```ts
 const runs = fakeClient({

@@ -50,7 +50,8 @@ The handler takes the client as a parameter, so its test can pass a fake:
 The first push starts the PR's run; each later one wakes it. `emit` returns what became of the
 event, as `awf emit --json` prints it: `accepted`, `duplicate` or `refused`, and what was done to
 the run: `started`, `nudged`, `continued`, or `none` with why. A launch that failed is a result,
-not a throw: the event is kept, and the next event or `awf tick` tries again.
+not a throw: the event is kept, and the next event, the same event resent, or `awf tick` tries
+again.
 
 `eventId` names the occurrence, so a resent delivery is a `duplicate` and never reviewed twice.
 An event id is lowercase letters, digits, `.`, `_`, `@` and `-`, and never starts `awf.`; a
