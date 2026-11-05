@@ -80,6 +80,8 @@ export type ActivatedSessionBackend = {
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
   pane?(): PanePlacement | undefined;
+  /** See `HarnessTurn.screen`. */
+  screen?(): Promise<string | undefined>;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
   /** The harness's own fork of `sessionRef`, or its copy `into` another home; absent where none. */
   fork?(sessionRef: string, deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
@@ -437,6 +439,7 @@ function createSession(
     return {
       settled,
       ...(delivery ? { delivery } : {}),
+      ...(native.screen ? { screen: native.screen.bind(native) } : {}),
       deliver: (spec: HarnessDeliverySpec & HarnessTurnHooks) =>
         continueWith("deliver", {
           id: spec.id,

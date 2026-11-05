@@ -113,6 +113,8 @@ type Options = {
   messages?: OperationMessages;
   /** Once, when the harness first accepts the operation. */
   delivered?(at: number): void;
+  /** Keeps what its turn shows when it ends without an answer, before the turn is released. */
+  keepScreen?(turn: HarnessTurn): Promise<void>;
   policy?: LivenessPolicy;
   now?: () => number;
   schedule?: (at: number, action: () => void) => () => void;
@@ -608,6 +610,16 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       }
     }
     if (result.kind === "answered" && !held) result.cleanupUnresolved = true;
+    if (
+      held &&
+      options.keepScreen &&
+      result.kind !== "answered" &&
+      (stop?.kind ?? result.kind) !== "cancelled"
+    ) {
+      await options.keepScreen(held);
+      // The read took from the release's own time; it gets it back.
+      releaseDeadline = now() + Math.min(policy.releaseMs, 5000);
+    }
     if (held) {
       const stopping = stop !== undefined;
       if (stopping)

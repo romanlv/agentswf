@@ -9,6 +9,7 @@ import {
   rm,
   stat,
   unlink,
+  writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -591,6 +592,36 @@ export async function recordCandidate(
   const dir = callDir(runDir, callId);
   await mkdir(dir, { recursive: true });
   await appendLine(join(dir, "candidates.jsonl"), JSON.stringify(candidate));
+}
+
+/** The most of a screen kept: its last lines, where a pane's scrollback came with it. */
+const SCREEN_BYTES = 64 * 1024;
+
+/** An operation's `screen.txt`: what its pane showed as it ended without an answer. */
+export function screenFile(runDir: string, operationId: string): string {
+  return join(callDir(runDir, operationId), "screen.txt");
+}
+
+export async function writeScreen(
+  runDir: string,
+  operationId: string,
+  screen: string,
+): Promise<void> {
+  const bytes = Buffer.from(screen);
+  const kept = bytes.length <= SCREEN_BYTES ? screen : tailOf(bytes);
+  await mkdir(callDir(runDir, operationId), { recursive: true });
+  await writeFile(screenFile(runDir, operationId), kept, { mode: 0o600 });
+}
+
+/** Its last whole lines within the bound, or its last bytes where one line is longer. */
+function tailOf(bytes: Buffer): string {
+  const tail = bytes.subarray(bytes.length - SCREEN_BYTES);
+  const line = tail.indexOf(10);
+  const whole = line === -1 || line === tail.length - 1 ? tail : tail.subarray(line + 1);
+  // A cut inside a character drops its continuation bytes.
+  let start = 0;
+  while (start < whole.length && (whole[start]! & 0xc0) === 0x80) start += 1;
+  return whole.subarray(start).toString();
 }
 
 /** A call's candidates, as tests check them; a run never reads them back. */

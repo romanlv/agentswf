@@ -85,3 +85,33 @@ describe("a message operation awaiting an outside participant", () => {
     expect(outcome.settledAt).toBeGreaterThanOrEqual(started + 120);
   });
 });
+
+test("a message operation that times out keeps its screen; one that answers doesn't", async () => {
+  const kept: string[] = [];
+  const late = asking();
+  const lateEnd = Date.now() + 20;
+  const timedOut = await superviseMessageOperation({
+    deadline: () => lateEnd,
+    ceiling: lateEnd + 20,
+    start: late.start,
+    messages: late.messages,
+    onStop: () => () => {},
+    keepScreen: async () => {
+      kept.push("timed-out");
+    },
+  });
+  expect(timedOut.kind).toBe("timed-out");
+  const answering = asking(10);
+  const answeringEnd = Date.now() + 1_000;
+  const answered = await superviseMessageOperation({
+    deadline: () => answeringEnd,
+    start: answering.start,
+    messages: answering.messages,
+    onStop: () => () => {},
+    keepScreen: async () => {
+      kept.push("answered");
+    },
+  });
+  expect(answered.kind).toBe("answered");
+  expect(kept).toEqual(["timed-out"]);
+});

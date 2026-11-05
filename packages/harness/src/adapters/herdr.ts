@@ -544,6 +544,9 @@ async function untilDrawn(
   }
 }
 
+/** How long reading a pane's screen as evidence may take: it holds up a failed start's close. */
+const SCREEN_READ_MS = 5_000;
+
 /** How long each wait for a pane to draw runs before its screen is looked at for a login. */
 const DRAWN_STEP_MS = 5_000;
 
@@ -1354,6 +1357,18 @@ export function createHerdrRunHostFactory(
             turn = undefined;
           };
 
+          /** What its pane showed as a failed start closed it, until the next operation. */
+          let closedScreen: string | undefined;
+          const readScreen = async (signal?: AbortSignal): Promise<string | undefined> => {
+            if (!pane) return closedScreen;
+            const read = await herdr(
+              ["pane", "read", pane.paneId, "--source", "visible"],
+              Math.min(config.commandTimeoutMs, SCREEN_READ_MS),
+              signal,
+            );
+            return read.ok ? readable(read.stdout) : undefined;
+          };
+
           const closeCurrentPane = async (): Promise<void> => {
             const closing = pane;
             if (!closing) return;
@@ -1641,6 +1656,8 @@ export function createHerdrRunHostFactory(
                 signal.aborted || started.cancelled
                   ? undefined
                   : await loginShown(herdr, harness, paneId, config, signal);
+              if (!signal.aborted && !started.cancelled)
+                closedScreen = await readScreen(signal).catch(() => undefined);
               await closeCurrentPane().catch(() => undefined);
               // A pane that would not close holds no agent to drive.
               current = undefined;
@@ -1896,6 +1913,7 @@ export function createHerdrRunHostFactory(
                     return placed && { ...placed, ...fate };
                   },
                 }),
+            screen: () => readScreen(),
             ...(spec.forkSession ? { fork: forkPane } : {}),
             ...(spec.setPane && spec.interactiveResume ? { set: relaunchAt } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next
@@ -1915,6 +1933,7 @@ export function createHerdrRunHostFactory(
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
               released = false;
+              closedScreen = undefined;
               const controller = new AbortController();
               activeController = controller;
               let finish!: () => void;

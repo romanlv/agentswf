@@ -1186,6 +1186,81 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("a failed start keeps the screen its pane showed before it closed", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return errorResult("agent_exited");
+      }
+      if (verb(input) === "pane read" && input.argv.includes("visible")) {
+        calls.push(input);
+        return {
+          stdout: "\u001b[31mzsh: command not found\u001b[0m\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const host = await createHerdrRunHostFactory({ ...CONFIG, startAttempts: 1 }, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const agent = await host.openAgent({
+      key: "worker",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const turn = await agent.start(
+      { id: "one", prompt: "go", deadline: deadline() },
+      binding("op-1"),
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
+    const read = calls.findIndex(
+      (call) => verb(call) === "pane read" && call.argv.includes("visible"),
+    );
+    const closed = calls.findIndex((call) => verb(call) === "pane close");
+    expect(read).toBeGreaterThan(-1);
+    expect(closed).toBeGreaterThan(read);
+    expect(await turn.screen?.()).toBe("zsh: command not found\n");
+    await host.close();
+  });
+
+  test("a turn's screen is its pane's visible screen, read when asked", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "pane read" || !input.argv.includes("visible")) return baseRun(input);
+      calls.push(input);
+      return { stdout: "Allow this edit?\n", stderr: "", exitCode: 0, timedOut: false };
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const agent = await host.openAgent({
+      key: "worker",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const turn = await agent.start(
+      { id: "one", prompt: "go", deadline: deadline() },
+      binding("op-1"),
+    );
+    await turn.settled;
+
+    expect(await turn.screen?.()).toBe("Allow this edit?\n");
+    const read = calls.filter((call) => verb(call) === "pane read").at(-1);
+    expect(read?.argv).toEqual(expect.arrayContaining(["w1:p2", "--source", "visible"]));
+    await host.close();
+  });
+
   test("gives each peer agent a tab of its own in one run workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({

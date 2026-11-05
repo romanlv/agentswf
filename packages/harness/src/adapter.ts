@@ -160,6 +160,11 @@ export interface HarnessTurn {
   /** Native evidence only; the engine combines it with the atomically settled result slot. */
   readonly settled: Promise<HarnessTurnOutcome>;
   /**
+   * What its agent's pane shows now, or showed as it closed during this operation: kept as evidence
+   * of a turn that ended without an answer, never read to settle one. Absent where there is no pane.
+   */
+  screen?(): Promise<string | undefined>;
+  /**
    * Continues this operation at its next turn boundary, once this turn has settled: typed into an
    * idle pane, or a resumed turn once a headless one has exited. Returns the turn that carries it,
    * with native delivery evidence as `nudge` has; absent evidence leaves presentation unconfirmed.

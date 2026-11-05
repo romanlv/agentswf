@@ -53,6 +53,8 @@ export type FakeAdapterTurn = {
   login?: TurnLogin;
   /** Its record shows the model was given the prompt, as a headless harness's file would. */
   observed?: true;
+  /** What its pane shows once this turn has ended, as a pane harness's would. */
+  screen?: string;
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
@@ -121,6 +123,7 @@ export function createFakeAdapter(
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
       let firstPrompt: number | undefined;
+      let shown: string | undefined;
       // A copied session is forked in the new agent's home as it is activated.
       const sessionId = activation.continues
         ? `${activation.continues.sessionRef}${activation.continues.copied ? "/forked" : ""}`
@@ -183,6 +186,7 @@ export function createFakeAdapter(
             }
           : {}),
         promptedAt: () => firstPrompt,
+        screen: async () => shown,
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
           if (operation.deliverySignal?.aborted) {
@@ -198,6 +202,7 @@ export function createFakeAdapter(
             finish = resolve;
           });
           turn += 1;
+          shown = undefined;
           const context: FakeAdapterTurnContext = {
             activation,
             id: operation.id,
@@ -217,6 +222,7 @@ export function createFakeAdapter(
           try {
             const scripted = await options.script(context);
             await scripted.act?.(context);
+            shown = scripted.screen;
             // Script preparation and its response are one synthetic agent action.
             operation.onReceived?.();
             options.clock?.advance(scripted.durationMs ?? 0);

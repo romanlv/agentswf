@@ -51,7 +51,7 @@ values and paths. The JSON records written whole are also mode `0600`; the `.jso
         {stage}.{n}.json  a stage record a later attempt redid, moved here unchanged
       turns.jsonl         the run's event log
       calls/
-        {operationId}/    one per turn: call.json, candidates.jsonl, result.json
+        {operationId}/    one per turn: call.json, candidates.jsonl, result.json, screen.txt
       decisions/
         {n}.json          each decision the latest attempt asked
       skills/             the run's checked snapshot of each skill, when agents are given any
@@ -165,6 +165,10 @@ One folder per turn, named by its operation id, the `operationId` of its lines i
   refused it. A refused answer is kept as evidence.
 - `result.json`: the one accepted answer.
 - `liveness.jsonl`: diagnostics of the turn's delivery and nudges, which nothing decides on.
+- `screen.txt`: what the agent's pane showed when the turn or compaction ended without an
+  answer, or its agent failed to start: escape codes stripped, at most its last 64 KiB. Kept as
+  evidence, never read to settle anything. `awf logs` names it on the turn's line. A headless
+  agent has no pane and leaves none.
 
 ### decisions/{n}.json
 

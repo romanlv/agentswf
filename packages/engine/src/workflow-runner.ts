@@ -200,7 +200,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endTurnsLine, readAttempts, readStageRecords, readTurns } from "./runs";
+import { endTurnsLine, readAttempts, readStageRecords, readTurns, writeScreen } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -3929,6 +3929,7 @@ class LogicalAgent implements AgentRef {
       phase: (phase, reason, until) =>
         this.options.progress.turnPhase(this.key, phase, reason, until),
       delivered,
+      keepScreen: (turn) => keepScreen(this.options.runDir, operationId, turn),
     })
       .catch(
         (error: unknown): SupervisedOutcome => ({
@@ -4249,6 +4250,7 @@ class LogicalAgent implements AgentRef {
         phase: (phase, reason, until) =>
           this.options.progress.turnPhase(this.key, phase, reason, until),
         delivered: operation.delivered,
+        keepScreen: (turn) => keepScreen(this.options.runDir, operationId, turn),
         ...(this.options.livenessPolicy ? { policy: this.options.livenessPolicy } : {}),
       });
     } finally {
@@ -4366,8 +4368,14 @@ class LogicalAgent implements AgentRef {
           cancelTimer = scheduleAt(deadline, () => resolve("expired"));
         }),
       ]).finally(() => cancelTimer?.());
-      if (native === "expired") return settle(native, (await this.leaveFinishing(turn)).later);
-      return settle(native);
+      if (native === "expired") {
+        await keepScreen(this.options.runDir, operationId, turn);
+        return settle(native, (await this.leaveFinishing(turn)).later);
+      }
+      const outcome = settle(native);
+      if (!outcome.answered && outcome.kind !== "cancelled")
+        await keepScreen(this.options.runDir, operationId, turn);
+      return outcome;
     } finally {
       removeCanceller?.();
     }
@@ -4687,6 +4695,17 @@ async function executeParallel<Item, Result>(
     cancelTimer?.();
     removeFromParent?.();
   }
+}
+
+/** How long reading a pane for an operation's evidence may hold up its release. */
+const SCREEN_READ_MS = 5_000;
+
+/** Keeps what `turn`'s pane shows, the evidence of an operation that ended without an answer. */
+async function keepScreen(runDir: string, operationId: string, turn: HarnessTurn): Promise<void> {
+  if (!turn.screen) return;
+  const deadline = { unixMilliseconds: Date.now() + SCREEN_READ_MS };
+  const screen = await waitForDeadline(turn.screen(), deadline).catch(() => undefined);
+  if (screen?.trim()) await writeScreen(runDir, operationId, screen).catch(() => undefined);
 }
 
 /**

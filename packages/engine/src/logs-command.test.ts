@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import { type LogsClock, logsCommand } from "./logs-command";
-import { createRun, processStart, type Run } from "./runs";
+import { createRun, processStart, type Run, screenFile, writeScreen } from "./runs";
 import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -339,6 +339,21 @@ describe("awf logs", () => {
     }
     expect(seen).toHaveLength(53);
     expect(new Set(seen).size).toBe(53);
+  });
+
+  test("a turn that ended without an answer names its kept screen, in text and --json", async () => {
+    const f = await fixture();
+    addLines(f, { ...turnEnded(4), outcome: "blocked" });
+    const screen = screenFile(f.run.dir, "op-1");
+    const before = await awfLogs(f, ["--json"]);
+    expect(JSON.parse(before.stdout).events.at(-1).screen).toBeUndefined();
+    await writeScreen(f.run.dir, "op-1", "Allow this edit?\n");
+    const { stdout } = await awfLogs(f, []);
+    expect(strip(stdout).split("\n")).toContain(
+      `@e4 hh:mm:ss fix  fixer  turn ended  blocked  3m00s  screen: ${screen}`,
+    );
+    const json = JSON.parse((await awfLogs(f, ["--json"])).stdout);
+    expect(json.events.at(-1)).toMatchObject({ kind: "turn", outcome: "blocked", screen });
   });
 
   test("--agent and --limit, said in the header; one event by its handle, in full", async () => {

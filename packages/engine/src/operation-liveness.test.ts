@@ -17,6 +17,8 @@ function setup(
     nudge?: boolean;
     start?: (turn: HarnessTurn) => Promise<HarnessTurn>;
     release?: HarnessTurn["release"];
+    /** How long keeping the screen takes. */
+    screenMs?: number;
   } = {},
 ) {
   let time = 0;
@@ -118,6 +120,10 @@ function setup(
       };
     },
     event: (e) => events.push(e.kind),
+    keepScreen: async () => {
+      events.push("screen");
+      time += overrides.screenMs ?? 0;
+    },
   });
   const receive = (n: number) => {
     receipts[n]!.dispatch.resolve(time);
@@ -234,6 +240,56 @@ test("nudge false honours a proactive grant then ends idle unanswered", async ()
   await s.advance(20);
   expect((await s.run).kind).toBe("unanswered");
   expect(s.native).toHaveLength(1);
+});
+test("a turn that ends without an answer has its screen kept before it is released", async () => {
+  const s = setup({ nudge: false });
+  await flush();
+  s.receive(0);
+  s.native[0]!.resolve(completed);
+  await s.advance(20);
+  expect((await s.run).kind).toBe("unanswered");
+  expect(s.events.filter((kind) => kind === "screen" || kind === "release")).toEqual([
+    "screen",
+    "release",
+  ]);
+});
+test("a slow screen read leaves the release its whole time", async () => {
+  const releasing = Promise.withResolvers<Awaited<ReturnType<HarnessTurn["release"]>>>();
+  const s = setup({ nudge: false, screenMs: 1_000, release: () => releasing.promise });
+  await flush();
+  s.receive(0);
+  s.native[0]!.resolve(completed);
+  await s.advance(20);
+  await s.advance(10);
+  releasing.resolve({ kind: "released", outcome: completed });
+  const outcome = await s.run;
+  expect(outcome.kind).toBe("unanswered");
+  expect(outcome.cleanupUnresolved).toBe(false);
+});
+test("a timed-out turn has its screen kept; an answered or cancelled one doesn't", async () => {
+  const late = setup();
+  await flush();
+  late.receive(0);
+  await late.advance(100);
+  expect((await late.run).kind).toBe("timed-out");
+  expect(late.events).toContain("screen");
+
+  const answered = setup();
+  await flush();
+  answered.receive(0);
+  await answered.answer();
+  answered.native[0]!.resolve(completed);
+  await answered.advance(30);
+  expect((await answered.run).kind).toBe("answered");
+  expect(answered.events).not.toContain("screen");
+
+  const cancelled = setup();
+  await flush();
+  cancelled.receive(0);
+  await cancelled.stop();
+  await cancelled.advance(30);
+  expect((await cancelled.run).kind).toBe("cancelled");
+  expect(cancelled.events).not.toContain("screen");
 });
 test("admission starts native release and cancels answer deadline while persistence finishes", async () => {
   const writing = Promise.withResolvers<boolean>();

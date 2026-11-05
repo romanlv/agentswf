@@ -3,6 +3,7 @@ import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/co
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
+import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
 import {
   clockTime,
@@ -34,6 +35,7 @@ import {
 } from "./run-read";
 import { findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
+import { screenFile } from "./runs";
 
 export const logsUsage = help.trimEnd();
 
@@ -344,6 +346,7 @@ async function page(
     }
   }
   const stage = currentStage(status, read.log.lines);
+  const screens = await keptScreens(status.run.dir, shown);
   const filters = [
     ...(options.agent ? ["--agent", options.agent] : []),
     ...(options.stage ? ["--stage", options.stage] : []),
@@ -364,7 +367,7 @@ async function page(
         ambiguous: alsoRunning.length > 0,
         ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
       },
-      events: shown.map((event) => publish(event, stages, PAGE_TEXT)),
+      events: shown.map((event) => publish(event, stages, screens, PAGE_TEXT)),
       cursor: encodeCursor(cursor),
       more: { ...(older ? { older: true } : {}), ...(newer ? { newer: true } : {}) },
       ...(next ? { next } : {}),
@@ -389,7 +392,7 @@ async function page(
     const total = read.cut ? `the last ${events.length} read` : `${events.length}`;
     lines.push(`(showing ${shown.length} of ${total}${of}; ${more})`);
   }
-  lines.push(...shown.map((event) => describeEvent(event, stages)));
+  lines.push(...shown.map((event) => describeEvent(event, stages, screens)));
   lines.push(
     trailer(
       status,
@@ -418,7 +421,8 @@ async function follow(
     const { events, stages } = kept(read, options);
     // Without a cursor it starts from the last `--limit`, as a page would.
     const shown = first && !reader.from ? events.slice(-options.limit) : events;
-    for (const event of shown) out.stdout(describeEvent(event, stages));
+    const screens = await keptScreens(reader.status.run.dir, shown);
+    for (const event of shown) out.stdout(describeEvent(event, stages, screens));
     cursor = read.cursor;
     // A read that stopped short goes on at once.
     if (!read.more) {
@@ -460,16 +464,17 @@ async function oneEvent(
   const stages = operationPlaces(read.log.lines);
   const event = read.events.find((each) => each.handle === encodeHandle(handle));
   if (!event) throw missing;
+  const screens = await keptScreens(status.run.dir, [event]);
   if (json) {
     const document: LogsJson = {
       v: 1,
       run: { ref: status.ref, state: status.state, checked: status.checked },
-      events: [publish(event, stages)],
+      events: [publish(event, stages, screens)],
     };
     out.stdout(JSON.stringify(document, null, 2));
     return 0;
   }
-  const lines = [describeEvent(event, stages)];
+  const lines = [describeEvent(event, stages, screens)];
   if (options.full) {
     lines.unshift(
       `(${event.source === "activity" ? "native text" : "the log's line"}; common credential shapes are masked)`,
@@ -512,7 +517,12 @@ function trailer(
 }
 
 /** An event as `--json` publishes it: the line's own fields, or the activity, with its keys. */
-function publish(event: ReadEvent, stages: Places, limit = Number.POSITIVE_INFINITY): LogEventJson {
+function publish(
+  event: ReadEvent,
+  stages: Places,
+  screens: Screens,
+  limit = Number.POSITIVE_INFINITY,
+): LogEventJson {
   if (event.source === "activity") {
     const stage = event.operation ? stages.stage.get(event.operation) : undefined;
     return {
@@ -532,18 +542,49 @@ function publish(event: ReadEvent, stages: Places, limit = Number.POSITIVE_INFIN
     at: event.at,
     ...(masked(fields, limit) as typeof fields),
     ...("operationId" in fields ? { operation: fields.operationId } : {}),
+    ...screenOf(event, screens),
   };
 }
 
+/** The screens kept for the operations of the events shown, by operation id. */
+type Screens = ReadonlyMap<string, string>;
+
+/** A turn or compaction that ended without an answer, and the file its screen would be kept in. */
+function screenOf(event: ReadEvent, screens: Screens): { screen?: string } {
+  if (event.source === "activity") return {};
+  const { line } = event;
+  if (line.kind !== "turn" && line.kind !== "compact") return {};
+  const screen = screens.get(line.operationId);
+  return screen ? { screen } : {};
+}
+
+async function keptScreens(runDir: string, events: readonly ReadEvent[]): Promise<Screens> {
+  const screens = new Map<string, string>();
+  await Promise.all(
+    events.map(async (event) => {
+      if (event.source === "activity") return;
+      const { line } = event;
+      if (line.kind !== "turn" && line.kind !== "compact") return;
+      if (line.outcome === "answered" || line.outcome === "cancelled") return;
+      const file = screenFile(runDir, line.operationId);
+      if (await exists(file)) screens.set(line.operationId, file);
+    }),
+  );
+  return screens;
+}
+
 /** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
-function describeEvent(event: ReadEvent, stages: Places): string {
+function describeEvent(event: ReadEvent, stages: Places, screens: Screens): string {
   const agent = agentOf(event, stages);
   const where = [stageOf(event, stages), agent && said(agent, 60)].filter(Boolean).join("  ");
   const what =
     event.source === "activity"
       ? describeActivity(event.activity)
       : describeLine(event.line, stages);
-  return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}`;
+  const { screen } = screenOf(event, screens);
+  return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}${
+    screen ? `  screen: ${screen}` : ""
+  }`;
 }
 
 function describeLine(line: RunLogLine, places: Places): string {

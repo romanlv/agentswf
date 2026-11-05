@@ -31,6 +31,8 @@ export async function superviseMessageOperation(options: {
   event?(event: LivenessEvent): void;
   phase?(phase: OperationPhase, reason?: string, until?: number): void;
   delivered?(at: number): void;
+  /** Keeps what its turn shows when it ends without an answer, before the turn is released. */
+  keepScreen?(turn: HarnessTurn): Promise<void>;
   policy?: LivenessPolicy;
   now?: () => number;
 }): Promise<SupervisedOutcome> {
@@ -251,6 +253,7 @@ export async function superviseMessageOperation(options: {
   emit("releasing");
   if (turn) {
     const answered = result.kind === "answered";
+    if (!answered && result.kind !== "cancelled") await options.keepScreen?.(turn);
     const until = bound(answered);
     const release = await Promise.race([
       turn.release(stop?.reason ?? result.reason, until, { answered }).catch(() => undefined),

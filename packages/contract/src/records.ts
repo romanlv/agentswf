@@ -966,7 +966,11 @@ export type LogEventJson = { handle: string; at: string } & (
       /** The native text: the message, the tool's whole argument, or its output. */
       text?: string;
     }
-  | (DistributiveOmit<RunLogLine, "version"> & { operation?: string })
+  | (DistributiveOmit<RunLogLine, "version"> & {
+      operation?: string;
+      /** A turn or compaction that ended without an answer: the file holding what its pane showed. */
+      screen?: string;
+    })
 );
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
