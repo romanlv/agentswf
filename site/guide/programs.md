@@ -7,7 +7,8 @@ description: "Drive a workflow's runs from your own Bun program, typed from the 
 
 A webhook handler, a chat bot or a release script reaches a workflow's runs through
 `agentswf/client`, in its own process: no `awf` command per call, no JSON to build, and `tsc`
-checks every call against the workflow you import.
+checks every call against the workflow you import. [Client API](/reference/client-api) lists every
+call, what it returns and what it throws.
 
 ```ts
 import { client } from "agentswf/client";
@@ -136,4 +137,5 @@ run whose launch failed is kept), or as the test scripts:
 
 - [Hosting events](/guide/hosting-events): the same runs, woken by `awf emit` and `awf tick`.
 - [Events](/guide/events): declaring a workflow's events, `starts` and `file`.
+- [Client API](/reference/client-api): every call, its results and `ClientError`'s codes.
 - [Testing API](/reference/testing-api#fakeclient): `fakeClient`'s script and its calls.

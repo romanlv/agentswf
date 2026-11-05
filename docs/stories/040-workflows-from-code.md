@@ -1105,6 +1105,13 @@ concern; `nudge-failed` and a resend's `returned` are ok too. An added field, so
 stays `v: 1`. The fake derives `ok` from what it answers; a script never gives it. Live, the
 example with a term sent twice: the second a `duplicate`, ok, defined once.
 
+### A Client API reference page, 2026-11-05
+
+Asked for in review: the client deserves its own page. `/guide/programs` teaches it; the new
+`/reference/client-api`, beside Workflow API and Testing API, lists every call, its options,
+results (emit's `ok` by `why`, start's by `did`), a `Run`'s status and waits, and `ClientError`'s
+codes. Its samples are `examples/site/reference/client-api.driver.ts`, tested with `fakeClient`.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

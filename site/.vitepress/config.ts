@@ -82,6 +82,7 @@ const SITE_MAP: { text: string; items: [link: string, text: string][] }[] = [
     items: [
       ["/reference/workflow-api", "Workflow API"],
       ["/reference/testing-api", "Testing API"],
+      ["/reference/client-api", "Client API"],
       ["/reference/awf", "awf"],
       ["/reference/wfa", "wfa"],
       ["/reference/data", "Data"],
