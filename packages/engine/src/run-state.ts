@@ -3,7 +3,7 @@ import type { AttemptRecord, ClaimedAttempt, WaitingJson } from "@agentswf/contr
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { listProjects, projectRunRoot } from "./projects";
-import { nextTimer, type WaitState } from "./run-policy/waits";
+import { nextTimer, untakenAtReturn, type WaitState } from "./run-policy/waits";
 import {
   claimedOf,
   entries,
@@ -39,6 +39,11 @@ export type RunStatus = {
   checked: boolean;
   /** A run of a workflow with `events` at its wait, live or parked: what its last `wait` line says. */
   waiting?: WaitingJson;
+  /**
+   * A completed run of a workflow with `events`: how many events no wait took by when it returned,
+   * from its lines. Its last batch taken was handled, as the code returned after it.
+   */
+  unacknowledged?: number;
 };
 
 /** How long a run folder with no attempt yet may be an `awf run` still starting. */
@@ -59,8 +64,18 @@ export async function runStatus(
           () => undefined,
         )
       : undefined;
+  const returned = status.state === "completed" ? status.attempts.at(-1)?.ended : undefined;
+  const unacknowledged =
+    returned === undefined
+      ? undefined
+      : await readWaits(run.dir, Date.parse(returned)).then(untakenAtReturn, () => undefined);
   const stuck = status.state !== "running" && stuckOf(status.files);
-  return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
+  return {
+    ...status,
+    ...(waiting ? { waiting } : {}),
+    ...(unacknowledged === undefined ? {} : { unacknowledged }),
+    ...(stuck ? { state: "stuck" } : {}),
+  };
 }
 
 /** An event run's wait, while it is running or parked there: its label and `until`. */

@@ -42,20 +42,46 @@ import type { StageOutcome } from "./workflow/workflow";
 /**
  * `ops/{id}/op.json`: what one operation is. `id` is `{key}.{n}`, the `n`th operation of the agent
  * or decision keyed `{key}` in the run, counted from 1 across its attempts, so it is never reused.
- * The format only; the engine does the I/O. Tier: public, stable.
+ * `at` is when its id was drawn, as it started. The format only; the engine does the I/O.
+ * Tier: public, stable.
  */
-export type OpRecord = { id: string; attempt: number; stage?: string } & (
-  | {
+export type OpRecord = { id: string; attempt: number; at: string; stage?: string } & (
+  | ({
       /** A workflow's turn: its prompt, which its answers are checked against with `schema`. */
       kind: "turn";
-      agent: string;
       question: string;
       schema?: JsonSchema;
-    }
-  | { kind: "message" | "compact"; agent: string }
+    } & AgentOp)
+  | ({ kind: "message" | "compact" } & AgentOp)
   /** A decision's: its key is the id's. */
   | { kind: "decision" }
 );
+
+/**
+ * An agent's operation: whose it is, the settings it ran at and where, which is what its spend is
+ * read with, by the attempt that ran it or, for one that attempt never settled, the next.
+ * Tier: public, stable.
+ */
+export type AgentOp = { agent: string; execution: AgentExecution; cwd: string };
+
+/**
+ * `ops/{id}/spend.json`: an agent operation's usage, as measured once its sessions were read. It
+ * holds no price: a run's cost is priced when its operations are summed, with `op.json`'s attempt
+ * and stage. Written once: by the attempt as it ends, or, for an operation it left without one, by
+ * the next attempt as it starts. Tier: public, stable.
+ */
+export type SpendRecord = {
+  billing: Billing;
+  /** Absent means unknown: its sessions could not be read. */
+  spend?: ModelSpend[];
+  /** Only what was actually billed per token; decided with `billing`. */
+  charged?: Money;
+  /** When it reached its agent and when it settled, as the attempt that ran it knew them. */
+  deliveredAt?: string;
+  settledAt?: string;
+  /** The attempt that read it, when not the attempt that ran it. */
+  settledBy?: number;
+};
 
 /**
  * Which channel carried a candidate value — `control-plane` in production. A string, because
@@ -525,20 +551,13 @@ export type ClaimedAttempt = {
   stage?: string;
   /** Why it did not complete. */
   reason?: string;
-  /** Each stage it entered that ran or was reused, in order. */
-  stages?: AttemptStage[];
   /**
-   * What it cost, as far as a run's total needs: `output.json` holds the last attempt's in full,
-   * and turns carry no spend, so an earlier attempt's is kept here. Absent for an interrupted one.
+   * A completed attempt's: the run's return value. Its stages are `run.jsonl`'s, what no wait
+   * took is counted from its `took` and `wait` lines, and its cost is its operations' `spend.json`.
    */
-  accounting?: AttemptAccounting;
+  value?: JsonValue;
   /** The messaging ceilings in force; absent on attempts an earlier awf ran. */
   messageLimits?: MessageLimits;
-  /**
-   * A completed run of a workflow with `events`: how many events no wait took; the
-   * last batch taken was handled, as the code returned after it. The run refuses every later event.
-   */
-  unacknowledged?: number;
 };
 
 /**
@@ -562,7 +581,7 @@ export type FailedLaunch = {
 };
 
 /**
- * What an attempt's file keeps of its accounting: what a run's total sums.
+ * What a run's total sums of each attempt's accounting: the totals and stages, not who spent it.
  * Tier: public, stable.
  */
 export type AttemptAccounting = Pick<
@@ -571,7 +590,7 @@ export type AttemptAccounting = Pick<
 >;
 
 /**
- * A stage an attempt entered, as its files record it: no value, which its stage line holds.
+ * A stage an attempt entered, as `out.json` shows it: no value, which its stage line holds.
  * Tier: public, stable.
  */
 export type AttemptStage = Omit<StageSummary, "value">;
@@ -1275,9 +1294,10 @@ export function runLogLine(value: object): RunLogLine | undefined {
 export const OUTPUT_RECORD_VERSION = 5 as const;
 
 /**
- * An attempt, as the operator CLI keeps it in `output.json` and prints it with `--json`, in the
- * words of its attempt file. One that didn't complete keeps what it spent too; only a completed one
- * has a value. Tier: public, stable.
+ * An attempt, as the operator CLI keeps it in `out.json` and prints it with `--json`, in the
+ * words of its attempt file: a view, written from what the attempt held, its `accounting` priced
+ * with the table it ran with. One that didn't complete keeps what it spent too; only a completed
+ * one has a value. Tier: public, stable.
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
@@ -1285,7 +1305,7 @@ export type OutputRecord = {
   ref?: string;
   /** The run's id, the same in every attempt. */
   runId: string;
-  /** The attempt that wrote this record: `output.json` is the last ended attempt's. */
+  /** The attempt that wrote this record: `out.json` is the last ended attempt's. */
   attempt: number;
   workflow: { name: string; file: string };
   accounting: RunAccounting;
@@ -1303,7 +1323,7 @@ export type OutputRecord = {
   panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];
-  /** Each stage the attempt entered, as its attempt file has them; absent when none. */
+  /** Each stage the attempt entered, in order, ran or reused; absent when none. */
   stages?: AttemptStage[];
   /** The workflow's Markdown report, when it wrote one. */
   report?: string;

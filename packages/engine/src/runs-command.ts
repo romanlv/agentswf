@@ -76,7 +76,9 @@ export async function runsCommand(
 }
 
 /** A run listed, or why it could not be read: one bad run does not hide the others. */
-type Listed = { status: RunStatus } | { ref: string; unreadable: string };
+type Listed =
+  | { status: RunStatus; estimate?: number; unknown: number }
+  | { ref: string; unreadable: string };
 
 async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
   const runs = await listRuns(place.runRoot);
@@ -84,7 +86,9 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
       runStatus(run, undefined, now).then(
-        (status) => ({ status }),
+        async (status) => {
+          return { status, ...(await estimateOf(status)) };
+        },
         (error: unknown) => ({
           ref: `${run.record.workflow}/${run.record.id}`,
           unreadable: said(messageOf(error), 400),
@@ -96,9 +100,8 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
   if (json) {
     const runsJson: RunsJson["runs"] = listed.map((each) => {
       if (!("status" in each)) return each;
-      const { status } = each;
+      const { status, estimate } = each;
       const { started, ended } = span(status, now);
-      const estimate = estimateOf(status.attempts);
       return {
         ref: status.ref,
         state: status.state,
@@ -127,16 +130,15 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
   const stateWidth = Math.max(13, ...states.map((each) => each.length + 2));
   const lines = listed.map((each, index) => {
     if (!("status" in each)) return `${each.ref.padEnd(width)}unreadable: ${each.unreadable}`;
-    const { status } = each;
+    const { status, estimate, unknown } = each;
     const { started, ms } = span(status, now);
-    const estimate = estimateOf(status.attempts);
     const waiting = waitingText(status);
     return [
       status.ref.padEnd(width),
       states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
       formatDuration(ms).padEnd(8),
-      money(estimate)
+      money(estimate, unknown)
         .join("")
         .concat(waiting ? "  " : ""),
       waiting,
@@ -152,7 +154,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
 /** A run at its wait: its label, and until when; a returned one, the events it never took. */
 function waitingText(status: RunStatus): string {
   const { waiting } = status;
-  const never = status.attempts.at(-1)?.unacknowledged;
+  const never = status.unacknowledged;
   if (!waiting) return never ? `${never} event${never === 1 ? "" : "s"} never taken` : "";
   const until = waiting.until ? `until ${dayTime(Date.parse(waiting.until))}` : "";
   return [waiting.label, until].filter(Boolean).join(" · ") || "waiting";
@@ -241,7 +243,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       status.state === "interrupted" && view.lastEventAt
         ? `last event ${clockTime(view.lastEventAt)}`
         : formatDuration(span(status, now).ms),
-      ...money(view.estimate),
+      ...money(view.estimate, view.unknownCost),
     ].join("  "),
   ];
   // Every other attempt file, a launch that never claimed its number included.
@@ -297,7 +299,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
   if (status.state === "interrupted") return go ? [`continue: ${go}`] : [];
   const lines: string[] = [];
   if (view.attempt?.reason) lines.push(`reason: ${said(view.attempt.reason, 400)}`);
-  lines.push(`records: ${status.run.dir} (report.md, output.json)`);
+  lines.push(`records: ${status.run.dir} (report.md, out.json)`);
   if (status.state === "failed") {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
     const look = command(place, "awf", "logs", status.ref);

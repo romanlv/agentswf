@@ -12,7 +12,7 @@ you, an agent or `cat` can read any of it. [How it works](/guide/how-it-works#th
 the short version; this page is the full layout.
 
 You rarely need to open the files: `awf runs` and `awf logs` read them for you, and
-`awf run --json` prints `output.json` ([awf commands](/reference/awf)).
+`awf run --json` prints `out.json` ([awf commands](/reference/awf)).
 
 ## Where a run is kept
 
@@ -50,19 +50,20 @@ the `.jsonl` files get your default mode.
       log.jsonl           the run's event log
       ops/
         {key}.{n}/        one per turn, message, compaction or decision: op.json, answers.jsonl,
-                          result.json, decision.json, live.jsonl, screen.txt
-      skills/             the run's checked snapshot of each skill, when agents are given any
-      agents/{uuid}/      the skills placed for an agent on the host; a codex agent's own home
-      staging/            where a harness home is built before it moves into place
-      forks/              a forked session's files, copied out of a parent with a home of its own
-      output.json         the last ended attempt's result and accounting
+                          result.json, decision.json, spend.json, live.jsonl, screen.txt
+      out.json            the last ended attempt's result and accounting, as --json prints it
       report.md           the last ended attempt's report, when the workflow writes one
+      work/               the harness's scratch, which only the attempt that made it uses:
+        skills/           the run's checked snapshot of each skill, when agents are given any
+        agents/{uuid}/    the skills placed for an agent on the host; a codex agent's own home
+        staging/          where a harness home is built before it moves into place
+        forks/            a forked session's files, copied out of a parent with a home of its own
       launches/
         {launch}.log      with events only: the output of an attempt awf started in the background
     {id}.lock             with events only: held while an event is added to the run
 ```
 
-`run.json`, the attempt files and `output.json` each have a `version`, as does each line of
+`run.json`, the attempt files and `out.json` each have a `version`, as does each line of
 `log.jsonl`; a call's files, the decision files, and `run.jsonl`'s and `in.jsonl`'s lines have
 none. A newer awf may add fields and kinds of line; a reader of the log skips a line of a kind it
 doesn't know, and refuses a record whose `version` is newer than it reads rather than misread it.
@@ -107,10 +108,11 @@ when it ends.
 | `launch` | the background launch that started it, which named its output `launches/{launch}.log` |
 | `started`, `ended` | its times; no `ended` while it runs, or after a crash |
 | `outcome`, `stage`, `reason` | how it ended: `completed`, `parked`, `stopped`, `failed`, `timed-out` or `cancelled`; the stage it ended in, and why, when it didn't complete |
-| `stages` | each stage it entered, `ran` or `reused`, with its outcome, the attempt that ran it, its time and its summary |
-| `accounting` | its totals and a row per stage; absent for an attempt that never ended |
+| `value` | with `completed`: what `run` returned, the run's result |
 | `messageLimits` | the [messaging](/guide/messaging) limits it ran under |
-| `unacknowledged` | a completed run with `events` only: how many events no wait took |
+
+Its stages are `run.jsonl`'s lines, what a run with events never took is counted from its `took`
+and `wait` lines, and what it used is its operations' `spend.json`.
 
 An attempt with no `ended` whose process is gone is `interrupted`
 ([Durability](/guide/durability#after-a-crash)). An attempt that `awf emit` or `awf tick` started in
@@ -181,8 +183,9 @@ is its operation id, the `operationId` of its lines in `log.jsonl` (a decision's
 attempts, so no attempt writes over another's. A nudge is part of the operation it nudges. Agents
 and decisions share the keys, so a decision can't take an agent's key, nor an agent a decision's.
 
-- `op.json`: what it is: its `id`, `kind` (`turn`, `message`, `compact` or `decision`), the
-  `attempt` and `stage` it ran in, and the `agent`, but for a decision; for a turn, the prompt the
+- `op.json`: what it is: its `id`, `kind` (`turn`, `message`, `compact` or `decision`), when it
+  started (`at`), the `attempt` and `stage` it ran in, and, but for a decision, the `agent`, the
+  settings it ran at (`execution`) and the folder it worked in (`cwd`); for a turn, the prompt the
   agent was given and its schema. Written as the operation starts, before any line names it, so
   its number is never used again, however it ends. A message operation whose message was
   withdrawn before it opened keeps its folder, so a key's numbers may skip.
@@ -192,17 +195,25 @@ and decisions share the keys, so a decision can't take an agent's key, nor an ag
 - `decision.json`: a [decision](/guide/decisions)'s record (model, outcome, tokens), the state and
   questions sent, and the answers, so a threshold can be fitted again later without asking the
   model. Its record's `artifact` names this file.
+- `spend.json`: what an agent's operation used, as read from its sessions: its `billing`, its
+  tokens by model (`spend`, absent when they couldn't be read), and what was billed per token,
+  when the harness reports it. It holds no price: `awf runs` and a later attempt's closing line
+  price it when they add it up, with today's table. The attempt writes it as it ends; for one that
+  was interrupted, or whose read a second Ctrl-C cut short, the next attempt writes it as it
+  starts, with `settledBy`, while the sessions are still there. Written once.
 - `live.jsonl`: diagnostics of the operation's delivery and nudges, which nothing decides on.
 - `screen.txt`: what the agent's pane showed when the turn or compaction ended without an
   answer, or its agent failed to start: escape codes stripped, at most its last 64 KiB. Kept as
   evidence, never read to settle anything. `awf logs` names it on the turn's line. A headless
   agent has no pane and leaves none.
 
-### output.json
+### out.json
 
 The last ended attempt's result: what `awf run --json` prints. Each attempt that ends replaces it,
 so its `attempt` says whose it is. An attempt that fails before its workflow starts removes the
-earlier one.
+earlier one. It is a view, a second copy of what the other files keep: the value is the attempt
+file's, what was used the operations', the stages `run.jsonl`'s. Deleting it, or `report.md`,
+changes nothing a continue does. Its `accounting` is priced with the table the attempt ran with.
 
 | Field | Meaning |
 | --- | --- |
@@ -214,7 +225,7 @@ earlier one.
 | `value` | with `completed`: what `run` returned |
 | `reason`, `stage`, `needs` | with the last four: why, the stage it ended in, and the stages whose values `--values` must give to start part-way |
 | `label`, `until` | with `parked`: its wait's label, and when its earliest timer is due |
-| `stages` | each stage entered, as in the attempt file |
+| `stages` | each stage it entered, `ran` or `reused`, with its outcome, the attempt that ran it, its time and its summary |
 | `report` | the workflow's report, when it wrote one |
 | `accounting` | time, tokens and estimated cost: totals, `byStage`, `byModel`, `byAgent`, the price table (`basis`), billing, and the models it has no price for ([Cost](/guide/cost)) |
 | `usage` | every turn, with its agent, settings, times, sessions, billing and tokens by model |
@@ -224,7 +235,7 @@ earlier one.
 | `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it (or a deprecated `layout` and `keepPane`), and in `placed` where it landed and whether it was kept |
 | `decisions` | every decision asked |
 
-A run that failed or was cancelled once its agents started keeps an `output.json` too, with what
+A run that failed or was cancelled once its agents started keeps an `out.json` too, with what
 it used and why it ended.
 
 ### report.md
@@ -247,14 +258,16 @@ A run of a workflow with `events` keeps more files:
 
 ### Skills given to agents
 
-An agent given [skills](/guide/agents#instructions-and-skills) gets a copy, made in the run's folder:
-`skills/sources/` holds the run's checked snapshot of each, and `agents/{uuid}/` the copy placed
-for an agent on the host, while `staging/` is where a harness home is built before it is moved
-into place. What each agent was given is in `output.json`'s `skills`.
+An agent given [skills](/guide/agents#instructions-and-skills) gets a copy, made in the run's
+`work/`: `work/skills/sources/` holds the run's checked snapshot of each, and `work/agents/{uuid}/`
+the copy placed for an agent on the host, while `work/staging/` is where a harness home is built
+before it is moved into place. What each agent was given is in `out.json`'s `skills`, and on its
+`agent-opened` line.
 
 A codex agent on the host given skills runs with a harness home of its own,
-`agents/{uuid}/home`, seeded with copies of your codex login. Its sessions are kept there, not in
-`~/.codex`, so `awf logs` and the run's usage read them from the run's folder.
+`work/agents/{uuid}/home`, seeded with copies of your codex login. Its sessions are kept there, not
+in `~/.codex`, where its `session` line's `home` says, so `awf logs` and the run's usage read them
+from the run's folder.
 
 ## Per machine: `~/.awf`
 
@@ -279,8 +292,8 @@ holds `~/.awf/sandboxes` is refused.
 - **Each agent's socket and `wfa` launcher**, in a folder of its own under `/tmp/awf-*`, which the
   run removes when it closes.
 - **The agents' own sessions**: a harness on the host keeps its session files in its own home, such
-  as `~/.claude/projects` or `~/.codex/sessions`. awf doesn't copy them; `awf logs` and the usage
-  in `output.json` are read from them.
+  as `~/.claude/projects` or `~/.codex/sessions`. awf doesn't copy them; `awf logs` and each
+  operation's `spend.json` are read from them.
 
 ## What is safe to delete
 
@@ -289,7 +302,10 @@ lose is the run itself:
 
 - **A run's folder**, once `awf runs` doesn't show it `running`. You lose its record and the
   chance to continue it. A run whose host codex agents were given skills holds copies of your
-  codex login in `agents/`, so delete its folder, or that folder, once you are done with it. A parked run of a workflow with `events` is not running, but deleting it
+  codex login in `work/agents/`, so delete its folder, or that folder, once you are done with it.
+- **A run's `work/`, `out.json` or `report.md`**, once no attempt of it is running: a continue
+  needs none of them. Deleting `work/` loses its codex agents' activity in `awf logs`, and what
+  they used if no attempt has read it yet. A parked run of a workflow with `events` is not running, but deleting it
   drops the events it is waiting on; a starting event for its id later makes a new run. A run with
   `events` that has returned refuses every later event, so deleting its folder is how its id
   starts again.

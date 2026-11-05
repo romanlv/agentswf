@@ -83,9 +83,9 @@ export function problems(
     const recorded = record.skills?.find((entry) => entry.agent === name)?.skills;
     const entry = Array.isArray(recorded) ? recorded[0] : undefined;
     if (entry?.name !== probes[mine].name || !entry.digest) {
-      found.push(`${name}: output.json does not record ${probes[mine].name}`);
+      found.push(`${name}: out.json does not record ${probes[mine].name}`);
     } else if (mine === "b" && !entry.commit) {
-      found.push(`${name}: output.json records no commit for ${entry.name}`);
+      found.push(`${name}: out.json records no commit for ${entry.name}`);
     }
   }
   const box = record.sandboxes?.find((sandbox) => sandbox.key === "box");

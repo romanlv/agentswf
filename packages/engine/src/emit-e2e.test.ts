@@ -5,6 +5,7 @@ import { emitCommand } from "./emit-command";
 import { appendIn } from "./in-lines";
 import { runOperatorCli } from "./operator-cli";
 import { readRunLines } from "./run-lines";
+import { runStatus } from "./run-state";
 import { createRun, launchLog, openRun, previousGone, processStart, readAttempts } from "./runs";
 import { stopCrashed } from "./stop-crashed";
 import { createTempRunDirs, eventProject, lastLines, until, writeAttempt } from "./testing";
@@ -70,7 +71,9 @@ test("an event starts a detached run, which parks; the next continues it, from a
   expect(out).toEqual(["accepted e2e-case/k: started", "accepted e2e-case/k: continued"]);
   expect((await readAttempts(run)).map((a) => a.outcome)).toEqual(["parked", "completed"]);
   // It returned having taken every event; its output went to the run's log, not a terminal.
-  expect((await readAttempts(run)).at(-1)?.unacknowledged).toBe(0);
+  expect((await runStatus(run)).unacknowledged).toBe(0);
+  // Its return value is its attempt file's; out.json is a view of it.
+  expect((await readAttempts(run)).at(-1)?.value).toEqual({ seen: [1, 2] });
   // Each launch has its own log, named by the launch its attempt records.
   const attempts = await readAttempts(run);
   const launches = attempts.map((each) => each.launch);
@@ -79,7 +82,7 @@ test("an event starts a detached run, which parks; the next continues it, from a
   expect(await Bun.file(launchLog(run.dir, launches[0] as string)).text()).toContain(
     "◇ parked: 1 seen",
   );
-  const output = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+  const output = JSON.parse(await Bun.file(join(run.dir, "out.json")).text()) as {
     ref: string;
     value: unknown;
   };
@@ -156,9 +159,8 @@ test("awf run starts a run of a workflow with events with args, and an event for
   const output = async (id: string) => {
     const opened = await openRun(join(root, ".awf", "runs"), "e2e-args", id);
     await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "completed");
-    return (
-      JSON.parse(await Bun.file(join(opened.dir, "output.json")).text()) as { value: unknown }
-    ).value;
+    return (JSON.parse(await Bun.file(join(opened.dir, "out.json")).text()) as { value: unknown })
+      .value;
   };
   // `id(args)` names it, so no --id is needed; prepare runs where the run works, its project.
   expect(await run("--", "kombo")).toBe(0);
@@ -281,12 +283,6 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   expect(await outcomes()).toEqual(["parked", "parked", "parked"]);
   expect((await readAttempts(run))[2]?.flags).toEqual({ fromStage: "build" });
   // It ran its stage.
-  expect((await readAttempts(run))[2]?.stages?.map(({ stage, source }) => [stage, source])).toEqual(
-    [
-      ["plan", "reused"],
-      ["build", "ran"],
-    ],
-  );
   expect([await stage("plan"), await stage("build")]).toMatchObject([
     { attempt: 1, value: 1 },
     { attempt: 3, value: 3 },
@@ -294,7 +290,7 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   // What marks it a redo for the attempts after it: its stage's line.
   expect(await stage("build")).toMatchObject({ redo: true });
   expect(await attemptsOf("build")).toEqual([2, 3]);
-  const summaries = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+  const summaries = JSON.parse(await Bun.file(join(run.dir, "out.json")).text()) as {
     stages: { stage: string; source: string; attempt: number }[];
   };
   expect(summaries.stages.map(({ stage, source, attempt }) => [stage, source, attempt])).toEqual([
@@ -314,7 +310,7 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   // The next wake reuses what the redo wrote, by content, and runs what comes after.
   expect(await go()).toBe(0);
   await until(async () => (await outcomes()).at(-1) === "completed");
-  const output = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
+  const output = JSON.parse(await Bun.file(join(run.dir, "out.json")).text()) as {
     value: unknown;
   };
   expect(output.value).toEqual({ plan: 1, build: 3, ship: 4 });

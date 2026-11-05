@@ -64,6 +64,8 @@ export type RunView = {
   decisions: DecisionView[];
   /** Over the attempts that kept one, at list prices: never what was billed. */
   estimate?: number;
+  /** How many agent operations' usage isn't known: `estimate` is a floor. */
+  unknownCost: number;
   lastEventAt?: number;
   lines: { number: number; line: RunLogLine }[];
   cursor: Cursor;
@@ -188,7 +190,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
       files: (files.get(session.n)?.files ?? []).map((file) => file.path),
     });
   }
-  const estimate = estimateOf(attempts);
+  const { estimate, unknown } = await estimateOf(status);
   const lastLine = read.log.lines.at(-1)?.line;
   return {
     status,
@@ -199,6 +201,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
     agents: [...agents.values()],
     decisions,
     ...(estimate === undefined ? {} : { estimate }),
+    unknownCost: unknown,
     ...(lastLine ? { lastEventAt: Date.parse(timeOf(lastLine)) } : {}),
     lines: read.log.lines,
     cursor: read.cursor,

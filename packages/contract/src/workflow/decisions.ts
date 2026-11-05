@@ -124,7 +124,7 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
   deadline?: AbsoluteDeadline;
 }
 
-/** One `decide` call, as the run keeps it in `output.json`. */
+/** One `decide` call, as the run keeps it in its `decision.json` and `out.json` shows it. */
 export type DecisionRecord = {
   callPath: string[];
   key: string;

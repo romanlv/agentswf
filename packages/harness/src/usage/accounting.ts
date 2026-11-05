@@ -18,6 +18,8 @@ export interface SessionAccounting {
     /** The agent's own harness home, when it ran in a sandbox. */
     home?: string,
   ): Promise<SessionRead | undefined>;
+  /** Whether its harness's sessions can be read at all; absent means they can be tried. */
+  canRead?(execution: AgentExecution): boolean;
   /** Asked once per agent per run, since the answer can run a status command. */
   billing(execution: AgentExecution, records: readonly UsageRecord[] | undefined): Promise<Billing>;
   /** How often to read again while a turn is still being written. */
@@ -42,6 +44,7 @@ export function createSessionAccounting(run: RunProcess = runProcess): SessionAc
     pollMs: 1_000,
     stalledMs: 10_000,
     statusMs: STATUS_TIMEOUT_MS,
+    canRead: (execution) => findHarness(execution.harness)?.readSessionUsage !== undefined,
     async read(execution, sessions, cwd, home) {
       const spec = findHarness(execution.harness);
       // A sandboxed agent's home is its own: every session there is read as its, and only those,

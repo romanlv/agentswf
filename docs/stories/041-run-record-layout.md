@@ -312,7 +312,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 - [x] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
 - [x] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
 - [x] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
-- [ ] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
+- [x] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
 - [ ] 8. Readers, site and docs; old runs are `unreadable`
 
 ## Open questions
@@ -1449,6 +1449,19 @@ ends:
   (2655 tests, 201 files); focused
   (`waits`, `run-lines`, `emit`, `runs`, `time-read`, `turns`, `run-policy`) 167 pass, 0 fail;
   `bun run check` clean but for the existing Biome info; the site builds, every link resolving.
+- **Review, round 2.** Nothing material; four findings, all applied. `estimateOf` doesn't count a
+  running attempt's operations without `spend.json` as unknown (test: a running run with a settled
+  and an unsettled operation lists `$2.00`, no `?`). `settleEarlier` reads only agents with an
+  operation to settle, so a slow settled one can't use up the deadline; the window's `from` keeps a
+  fork's copied rows out (the fork test logs the parent's row before the fork's first operation).
+  `SessionAccounting` gains optional `canRead(execution)` (the harness table's: a harness with a
+  session reader), and `keepSpend` takes `reads(execution)`: an unread operation whose harness can
+  never be read is written without `spend` at once, not left to every continue (tests: `canRead`
+  for claude and an unknown harness; `keepSpend` with `reads: () => false`). `money` prints nothing
+  when nothing is known, never a bare `?` (test: a finished run whose only spend is unknown).
+- **Verification**, after review round 2: the whole `bun test` 2662 pass, 2 skip, 4 todo, 0 fail
+  (2668 tests, 202 files); `spend`, `runs-command`, `run-usage` 57 pass, 0 fail; `bun run check`
+  clean but for the existing Biome info.
 - **Verification**, after review round 1: the whole `bun test` 2648 pass, 2 skip, 4 todo, 0 fail
   (2654 tests, 201 files); `bun test examples` 179 pass, 4 todo, 0 fail; `bun run check` clean but
   for the existing Biome info; `cd site && bun run build` passes, every link and anchor resolving;
@@ -1461,6 +1474,177 @@ ends:
   the last edit (`runStatus` shows no wait when `run.jsonl` can't be read): `run-state`,
   `runs-command`, `emit`, `inbox-command` 76 pass. No subagent review was run in this task's pass:
   that and the live evals are the reviewer's.
+
+### Task 7
+
+- **The attempt file.** `ClaimedAttempt` gains `value` (a completed attempt's return value, which
+  `endAttempt` writes) and loses `stages`, `accounting` and `unacknowledged`. `AttemptAccounting`
+  and `AttemptStage` stay, as what a run's total sums and what `out.json` shows. `awf emit`
+  already refused a returned run from the attempt file's `outcome` (task 5); nothing there changed.
+- **Readers moved off the attempt file.**
+  - *Removed stages* (task 4's two reads): `upcomingStages(view)` (`run-policy/stages.ts`) takes no
+    list. A stage the last redo left behind is one whose latest line is older than the redo's
+    attempt and which started after the redo stage in the attempt that wrote it: the redo's attempt
+    runs every stage after its start point again, so it wrote such a stage no line. A stage reused
+    before the redo point has no line from that attempt either, so lines alone can't tell it from
+    a stage dropped from before the redo point: that one is kept. The completed run's
+    `--from-stage` choices are `upcomingStages(view)` too (`attemptRefusal`). `StageLedger` loses
+    `redoEntered`. The design's "Redo" says so.
+  - *`unacknowledged`*: `runStatus` counts it for a completed run with events, `untakenAtReturn`
+    over `readWaits` at the attempt's `ended`, as `RunStatus.unacknowledged`; `awf runs` reads it
+    there.
+- **`spend.json`** (`contract`'s `SpendRecord`): `{ billing, spend?, charged?, deliveredAt?,
+  settledAt?, settledBy? }`, unpriced. `engine/src/spend.ts` owns it:
+
+  ```ts
+  function writeSpend(runDir: string, op: string, record: SpendRecord): Promise<boolean>; // linkNew
+  function keepSpend(runDir: string, attempt: number, usage: readonly SettledOperation[]): Promise<string[]>;
+  function settleEarlier(runDir: string, options: { attempt; attempts; lines; accounting; now }): Promise<{ settled: number; failed: string[] }>;
+  function readOps(runDir: string): Promise<RecordedOp[]>;   // op.json, spend.json, a decision's record
+  function readSpent(runDir: string, attempts: readonly ClaimedAttempt[]): Promise<AttemptSpent[]>;
+  ```
+
+  - *As an attempt ends*, `runWorkflow` writes one per agent operation it drew, after
+    `ledger.settle`: the settled record's usage, or `spend: []` for one that never reached its agent
+    (a message withdrawn before it opened). When the read was cut (`reading` aborted: a second stop
+    during the read), it writes none, and the next attempt reads them ([[interrupted-accounting-read]]
+    folded in: a Ctrl-C during the read no longer loses the spend for good).
+  - *As the next attempt starts*, `settleEarlier` settles every earlier agent operation still
+    without one. Per attempt and agent: the agent's `session` lines of that attempt plus its latest
+    line before it (a resumed session a crash kept it from writing again), its `home` from them;
+    `accounting.read(op.execution, ids, op.cwd, home)` once; records between the attempt's
+    `started` and its `ended`, the next claimed attempt's `started` or now; a request claimed once
+    across the attempt's agents; billing asked once; shared by `op.json`'s `at`, each operation
+    owning what came from its start to the next's, the first what came before. Written with
+    `settledBy`. A runtime with no session reader writes `{ billing: "unknown", settledBy }`, as an
+    ending attempt without one writes `unknown`. Failures are said through `onLog` and fail nothing.
+  - *Decisions* have no `spend.json`: their usage is already their `decision.json` record
+    (`SettledDecision`: tokens, `charged`), which readers sum.
+- **Priced at read.** `engine/src/accounting/spent.ts`, pure: `attemptsSpent(ops, attempts,
+  prices)` builds each attempt's `SettledOperation`s from `op.json` and `spend.json` and its
+  decisions from `decision.json`, and prices them with `summarizeRun`; `earlierSpent` sums the
+  attempts before one for the closing line's `run:` total, counting one with an operation still
+  unsettled as of unknown cost (interrupted or not); `runEstimate` is `awf runs`' figure. Readers:
+  `printEnding`'s run total (`operator-cli.ts` reads `readSpent` in `close`, as `spentBefore`),
+  `awf runs`' list and `--json` estimate and the single run's (`estimateOf(status)`, now async).
+  An attempt still running, or one with no `ended`, is timed to its last settled operation.
+- **`out.json`** is `output.json` renamed (`outFile`), its shape and `OUTPUT_RECORD_VERSION` (5)
+  unchanged, `accounting` priced with the table the attempt ran with, for the lab. `report.md` as
+  before. `keepRecords` writes the views, then the ending with `value`.
+- **`work/`** (`runs.ts`' `workDir`): `RunSkills`' root is `work/skills`; a host agent's bundle
+  `work/agents/{uuid}` (so a codex agent's own home, which its `session` lines' `home` name, and
+  which `awf logs` and accounting read from there as task 6 left them); `work/staging/{uuid}`;
+  `work/forks/{uuid}`.
+- **Deviations, for review.**
+  - *`op.json` gains `at`, and an agent's operation `execution` and `cwd`* (`AgentOp`): the next
+    attempt reads an interrupted operation's spend with them, since nothing else on record says
+    which harness, model and folder it ran at, or when it started. `draw` stamps `at`; `opWhere`
+    gives the agent's current settings and `AgentLedger.cwd()` (its sandbox's folder once seated).
+  - *Settled at the attempt's start, not inside `claimNext`*: the session reader is the runtime's
+    (`options.runtime.host.accounting`), which isn't installed when the claim runs. `runWorkflow`
+    calls `settleEarlier` first, after reading `run.jsonl` and before its clock starts or any agent
+    opens; every claim path reaches it. The design's "Its files" and "Who changes" say so.
+  - *Removed stages before the redo point* now stay in `upcoming` and the completed run's choices
+    (above).
+  - *`describeAttempts`' "cost unknown" counts* now only an attempt whose operations couldn't be
+    settled (a failed write), since the next attempt settles the rest.
+  - *Comments and the CLI's help* naming `output.json` follow the rename now (`help/run.txt`,
+    `index.ts`, `runs-command.ts`' `records:` line, `decisions.ts`, the lab's typecheck comment,
+    the live evals' globs), since the file is renamed here; task 8 keeps the rest of the list.
+- **Site.** `reference/data.md`: the folder lists `spend.json`, `out.json` and `work/` with its four
+  folders; the attempt file's `value`, and where its stages, unacknowledged and cost went; `op.json`'s
+  new fields; `spend.json`; `out.json` as a view, deletable; `work/` among what is safe to delete.
+  `guide/cost.md`: spend kept unpriced and priced when shown, an interrupted attempt read by the
+  next. `guide/how-it-works.md`: `out.json` and `report.md` are views. Every other page naming
+  `output.json` says `out.json` (`decisions`, `following-runs`, `harnesses`, `quick-start`, `runs`,
+  `sandboxes`, `workflows`, `reference/configuration`, `reference/workflow-api`, `site/AGENTS.md`).
+- **Tests.**
+  - `spend.test.ts`: an ending attempt writes `worker.1/spend.json`, unpriced, with its times and
+    no `settledBy`, and a second `writeSpend` doesn't land; priced at read to $0.01. An interrupted
+    attempt 1 (two drawn turns, a `session` line, no ending, no spend) is settled by attempt 2:
+    each turn's share by its `at` (100 and 200 output tokens), a request from before attempt 1
+    began left out, `settledBy: 2`, its cost then known; attempt 3 reads nothing again. A stop
+    during the end-of-run read writes no `spend.json`, and the next attempt settles it.
+  - `tests/operator-cli.test.ts`: "deleting out.json and work/ between attempts changes nothing a
+    continue does": two runs of a two-stage workflow whose first stage opens a pi agent with a
+    skill (so `work/skills` and `work/agents` exist), failed in the second; one has `out.json` and
+    `work/` deleted; both continues complete with the same value, the first stage reused with no
+    agent asked again, the same stages and the same `run:` total (attempt 1 priced from
+    `spend.json`). "A later attempt totals the run": an interrupted attempt's `op.json` without
+    `spend.json` is settled by the third attempt (`billing: unknown`, `settledBy: 3`, the runtime
+    reading no sessions) and the total counts no attempt unknown. The attempt file has no
+    `stages`, `accounting`, `unacknowledged` or (when failed) `value`.
+  - `tests/review-lab.test.ts`: "awf run --json, as the lab parses it": a one-agent run through
+    `runOperatorCli --json`; the lab's `parseRecord` takes it (version 5, completed), `summaryOf`
+    gives `models: ["gpt-6-sol"]`, `estimate: 2` (1M input tokens at $2/M), `subscription`,
+    complete; `out.json` equals the printed record.
+  - Changed: `run-policy/stages.test.ts` (the ordering rule, a stage dropped before the redo point
+    kept), `runs.test.ts` (the completed run's choices from lines), `tests/run-progress.test.ts`
+    (no attempt-file stages), `runs-command.test.ts` (the estimate from a `spend.json`; "never
+    taken" from `in.jsonl` and `run.jsonl`), `emit-e2e.test.ts` (`unacknowledged` from
+    `runStatus`, `value` on the attempt file), `ops.test.ts` (`op.json`'s new fields), and every
+    test naming `output.json`.
+- **Review, round 1.** Two reviews; all findings accepted.
+  - *`settleEarlier`'s windows*: an agent's records count from its first operation's `at`, which
+    keeps a fork's copied rows out; a calling session (`execution.caller`) isn't read, and its
+    operations are written `{ billing: "unknown", settledBy }`, since nothing on record bounds its
+    run's turns; agents are read in the order of their first operation, not `readdir`'s; a request
+    is claimed by the first agent to log it, an agent whose operations were already settled
+    included, so a fork never takes its settled parent's rows. The upper bound stays the earliest
+    of the attempt's `ended`, the next claim and now (safe: nothing of the settling attempt has
+    opened). Each operation is read with its own `execution` and `cwd` (one read per distinct
+    pair, records merged by key), billing asked per distinct `execution`; `home` also from the
+    latest `session` line before the attempt; lines go through `unfenced`. Tests: the fork case,
+    the caller, the window's edges (a record 1 ms before the first operation is out, one at it the
+    first's, one at the attempt's end the second's, one after out).
+  - *An interrupted metered operation's charge*: charges are reported as a turn ends and can't be
+    read later, so `attemptsSpent` marks a `settledBy` metered record `chargeUnread`, and
+    `summarizeRun`'s `figuresOf` counts its agent not billed (`PricedOperation`, internal to
+    `accounting`). Test: two metered operations, one charged as it ended and one settled by the
+    next attempt, give `billed: 1` of 2.
+  - *Unknown cost*: an operation whose `spend.json` has no `spend` counts as unknown
+    (`AttemptSpent.unread`), as one with no `spend.json` does; the closing line's `run:` total
+    says "(1 interrupted, cost unknown)" again (`tests/operator-cli.test.ts` asserts it), and
+    every earlier attempt's known part is now summed into it. `awf runs` marks a floor with `?`
+    after the estimate (`$6.10?`), in the list and a single run's line (`unknownOps`;
+    `RunView.unknownCost`); `--json`'s `estimate` is unchanged, with no new field. Test in
+    `runs-command.test.ts`.
+  - *`upcomingStages`*: where the line's attempt reused the redo stage (no line of it there), the
+    redo stage's latest line from before that attempt stands in. The reviewer's case (a, b, c failed;
+    attempt 2 reuses a and b, redoes c, runs d; attempt 3 `--from-stage b` without d) leaves d out
+    (`run-policy/stages.test.ts`). The trade-off left, a stage first run before the redo stage in
+    an attempt that reused the redo stage is taken for one after it and left out, is in the
+    design's "Redo"; both remaining cases change only what is shown.
+  - *A read that timed out or failed*: `keepSpend` takes `{ reader }` and, when a reader exists,
+    writes no `spend.json` for a settled operation without `spend`, leaving it for the next
+    attempt; with no reader it writes `unknown`, as before. It now runs on a cut read too, so a
+    withdrawn message's `spend: []` is still written. Test: a failed read leaves no file, a
+    withdrawn message gets `{ billing: "unknown", spend: [] }`, and with no reader the unread one
+    is written `unknown`.
+  - *A bound*: `settleEarlier` takes `signal` (the run's) and a deadline of the end-of-run read's
+    grace, `statusMs` and its slack (`ACCOUNTING_GRACE_MILLISECONDS`, `STATUS_SLACK_MILLISECONDS`
+    exported from `run-usage.ts`); a read or billing call past it stops the settling, and what isn't
+    written is left. Test: an aborted signal writes nothing; a later settle writes it.
+  - Nits, all applied: `run:` is still printed, every earlier attempt of unknown cost, when
+    `readSpent` fails (`unreadEarlier`); an attempt with no `ended` is timed to the last of its
+    operations' `at`s and settle times; the design says totals are summed from `spend.json` "or a
+    decision's `decision.json`"; `awf runs` reads no `decision.json` (`readOps(dir, { decisions:
+    false })`), since its estimate counts agents only. Parallel operations of one agent share by
+    `at` as sequential ones do; the window test covers the boundary between two.
+- **Verification**, after review round 1: the whole `bun test` 2661 pass, 2 skip, 4 todo, 0 fail
+  (2667 tests, 202 files); focused (`spend`, `runs-command`, `run-policy`, `tests/operator-cli`,
+  `tests/review-lab`) pass, 0 fail; `bun test examples` 179 pass, 4 todo, 0 fail; `bun test
+  packages/lab` 146 pass, 0 fail; `bun run check` clean but for the existing Biome info; `cd site
+  && bun run build` passes, every link and anchor resolving. In `tests/operator-cli.test.ts`, the
+  continue's `fixed.js` is now written before the run's first attempt: written after it, Bun's
+  loader failed to find it when the test ran alone.
+- **Verification**, in the worktree, before review: the whole `bun test` 2655 pass, 2 skip, 4 todo,
+  0 fail (2661 tests, 202 files); `bun test examples` 179 pass, 4 todo, 0 fail; `bun test
+  packages/lab` 146 pass, 0 fail; `bun run check` clean (Biome, `tsc --noEmit`, "boundaries ok")
+  but for the existing Biome info in `experiments/e9-messaging-protocol`; `cd site && bun run build`
+  passes, every link and anchor resolving. No subagent review was run in this pass, and no live
+  eval: the evals that glob `out.json` (`tests/calling-session.eval.ts`, `failed-run.eval.ts`,
+  `skills.eval.ts`, `run-sandbox.ts`) follow the rename and were not run.
 
 ## Human review
 

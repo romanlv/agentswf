@@ -101,8 +101,6 @@ export class StageLedger {
       run?: Pick<RunView, "stages" | "redo">;
       /** Each earlier attempt's `meta.version`, which a line it wrote was written under. */
       versions?: ReadonlyMap<number, string>;
-      /** The stages the last redo's attempt entered, from its attempt file, when it has them. */
-      redoEntered?: readonly string[];
       workflowVersion?: string;
       /** `--from-stage`: the stage the attempt starts at. */
       fromStage?: string;
@@ -122,7 +120,7 @@ export class StageLedger {
     this.#attempt = options.lines.attempt;
     this.#reuse = new StageReuse(run, this.#attempt);
     this.#recorded = recordedStages(run);
-    this.#upcoming = upcomingStages(run, options.redoEntered).map((line) => line.name);
+    this.#upcoming = upcomingStages(run).map((line) => line.name);
   }
 
   /** The stage open now, if one is. */

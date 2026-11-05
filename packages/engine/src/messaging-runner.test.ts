@@ -524,7 +524,7 @@ describe("messaging through the runner", () => {
     );
     // The architect's message operation ran inside the stage, before it ended.
     expect(outcome).toEqual({ ok: true, value: [null, "planner", null] });
-    // As the run's record keeps it, output.json's `usage`.
+    // As the run's record keeps it, out.json's `usage`.
     expect(usage.map(({ agent, cause }) => [agent, cause ?? null])).toEqual([
       ["planner", null],
       ["architect", { message: { from: "planner" } }],

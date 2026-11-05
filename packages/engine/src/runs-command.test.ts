@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENT_STATES,
@@ -161,9 +161,7 @@ describe("awf runs", () => {
     expect(lines[0]).toBe("implement-ticket/r2  failed  stage review  9m00s");
     expect(lines).toContain("reason: turn deadline exceeded (worker, turn 6)");
     expect(
-      lines.some(
-        (line) => line.startsWith("records: ") && line.endsWith("(report.md, output.json)"),
-      ),
+      lines.some((line) => line.startsWith("records: ") && line.endsWith("(report.md, out.json)")),
     ).toBe(true);
     expect(lines.at(-2)).toBe("see: awf logs implement-ticket/r2 --agent worker --limit 30");
     expect(lines.at(-1)).toBe("continue: awf run review.ts --id r2 --continue");
@@ -228,20 +226,39 @@ describe("awf runs", () => {
       exitCode: 0,
       stdout: `no runs under ${join(cwd, ".awf", "runs")}; started elsewhere? awf runs --cwd {dir}`,
     });
-    await makeRun(cwd, "review", "old", [
-      {
-        started: T(0),
-        ended: T(5),
-        outcome: "completed",
-        accounting: { totals: { estimate: 6.1 } } as never,
-      },
+    const old = await makeRun(cwd, "review", "old", [
+      { started: T(0), ended: T(5), outcome: "completed" },
     ]);
-    await makeRun(cwd, "review", "new", [{ started: T(10), ...ALIVE }]);
+    // Priced as it is read, from what its operation measured: 3.05M input tokens at $2/M.
+    spent(old, "fixer.1", 1, 3_050_000);
+    const running = await makeRun(cwd, "review", "new", [{ started: T(10), ...ALIVE }]);
+    // A running attempt's operation has no spend.json until it ends: not an unknown cost yet.
+    spent(running, "fixer.1", 1, 1_000_000);
+    mkdirSync(join(running.dir, "ops", "fixer.2"), { recursive: true });
+    writeFileSync(
+      join(running.dir, "ops", "fixer.2", "op.json"),
+      readFileSync(join(running.dir, "ops", "fixer.1", "op.json"), "utf8"),
+    );
     const listed = (await awfRuns(cwd)).stdout.split("\n");
     expect(listed[0]).toMatch(/^review\/new {2}running {6}\d\d-\d\d \d\d:\d\d {2}\S+/);
+    expect(listed[0]).toMatch(/\$2\.00$/);
     expect(listed[1]).toMatch(
       /^review\/old {2}completed {4}\d\d-\d\d \d\d:\d\d {2}5m00s {3}\$6\.10$/,
     );
+    // An operation whose usage isn't known makes the estimate a floor, marked so.
+    mkdirSync(join(old.dir, "ops", "fixer.2"), { recursive: true });
+    writeFileSync(
+      join(old.dir, "ops", "fixer.2", "op.json"),
+      readFileSync(join(old.dir, "ops", "fixer.1", "op.json"), "utf8").replace(
+        "fixer.1",
+        "fixer.2",
+      ),
+    );
+    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ {3}\$6\.10\?$/);
+    expect((await awfRuns(cwd, "review/old")).stdout.split("\n")[0]).toContain("$6.10?");
+    // Nothing known: no figure, and no bare mark.
+    rmSync(join(old.dir, "ops", "fixer.1", "spend.json"));
+    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ 5m00s$/);
     const missing = await awfRuns(cwd, "nope");
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toBe(
@@ -645,6 +662,30 @@ describe("awf runs", () => {
   });
 });
 
+/** An agent operation of `run` that measured `input` tokens of claude-sonnet-5, settled. */
+function spent(run: Run, id: string, attempt: number, input: number): void {
+  mkdirSync(join(run.dir, "ops", id), { recursive: true });
+  const op = {
+    id,
+    attempt,
+    at: T(1),
+    kind: "turn",
+    agent: id.split(".")[0],
+    question: "Fix it.",
+    execution: { harness: "claude", model: "claude-sonnet-5" },
+    cwd: run.record.cwd,
+  };
+  writeFileSync(join(run.dir, "ops", id, "op.json"), JSON.stringify(op));
+  const tokens = { input, cacheRead: 0, cacheWrite: 0, output: 0 };
+  writeFileSync(
+    join(run.dir, "ops", id, "spend.json"),
+    JSON.stringify({
+      billing: "subscription",
+      spend: [{ model: "claude-sonnet-5", delegated: false, tokens }],
+    }),
+  );
+}
+
 /** A line attempt 1 of `run` settled, appended to its `run.jsonl`. */
 function settle(run: Run, line: Record<string, unknown>, at = T(3)): void {
   appendFileSync(runLinesFile(run.dir), `${JSON.stringify({ attempt: 1, at, ...line })}\n`);
@@ -687,12 +728,20 @@ test("an event run at its wait shows the wait's label and next timer, live or pa
   expect(text).toMatch(/30 unseen · until /);
 });
 
-test("an event run that returned says how many events no wait took", async () => {
+test("an event run that returned says how many events no wait took, from its lines", async () => {
   const cwd = runDirs.tempRunDir();
   const run = await makeRun(cwd, "dd-case", "done", [
-    { started: T(2), ended: T(3), outcome: "completed", unacknowledged: 2 },
+    { started: T(2), ended: T(3), outcome: "completed" },
   ]);
   await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
+  // The starting event, which the run's start takes, and two none took.
+  const event = (id: string, at: string, starts = false) =>
+    `${JSON.stringify({ at, id, name: "ping", data: null, from: "test", ...(starts ? { starts: true } : {}) })}\n`;
+  writeFileSync(
+    join(run.dir, "in.jsonl"),
+    event("e0", T(2), true) + event("e1", T(2)) + event("e2", T(2)),
+  );
+  settle(run, { kind: "claimed" }, T(2));
   expect((await awfRuns(cwd)).stdout).toContain("2 events never taken");
 });
 

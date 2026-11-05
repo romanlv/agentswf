@@ -56,7 +56,7 @@ A refusal, such as an id that's taken or a flag a continue can't take, exits 2 a
 attempt.
 
 A completed attempt prints what the workflow's `present` makes of its value; a workflow without
-`present` prints the whole `output.json` record. Any other ending prints the stage it ended in,
+`present` prints the whole `out.json` record. Any other ending prints the stage it ended in,
 why, and the exact command to go on.
 
 `awf runs` and `awf logs`, which read runs rather than start them, exit 0 on any read that worked,
@@ -153,7 +153,7 @@ with no `result` needs no value. `--values` goes only with `--from-stage`.
 
 ## The record
 
-A run's record, `output.json` and the rest, is kept in `.awf/runs/{workflow}/{id}`:
+A run's record, `out.json` and the rest, is kept in `.awf/runs/{workflow}/{id}`:
 [How it works](/guide/how-it-works#the-record) says what's in it, and [Data](/reference/data) has
 the layout. A new run whose first attempt ends before its workflow starts, such as a harness that
 fails to install, leaves no folder, so the same command starts it again.

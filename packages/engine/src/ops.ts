@@ -137,7 +137,7 @@ export class OpIds {
     const n = (this.#last.get(key) ?? 0) + 1;
     this.#last.set(key, n);
     const id = `${key}.${n}`;
-    const record = { id, attempt: this.attempt, ...what } as OpRecord;
+    const record = { id, attempt: this.attempt, at: new Date().toISOString(), ...what } as OpRecord;
     try {
       mkdirSync(opDir(this.runDir, id), { recursive: true });
       writeWholeSync(opFile(this.runDir, id), `${JSON.stringify(record, null, 2)}\n`);
@@ -148,10 +148,10 @@ export class OpIds {
   }
 }
 
-/** What an operation is, as it is drawn: its `op.json` but its id and attempt. */
+/** What an operation is, as it is drawn: its `op.json` but its id, attempt and time. */
 export type OpStart = OpRecord extends infer Each
   ? Each extends OpRecord
-    ? Omit<Each, "id" | "attempt">
+    ? Omit<Each, "id" | "attempt" | "at">
     : never
   : never;
 

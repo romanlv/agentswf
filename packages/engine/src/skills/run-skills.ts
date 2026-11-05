@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentSkillsRecord, SkillRecord } from "@agentswf/contract/records";
 import type { SkillSource } from "@agentswf/contract/workflow";
+import { workDir } from "../runs";
 import { cachedRepository, extract, fetchCommit, findSkill } from "./fetch";
 import { parseSkillFile, repositoryUrl } from "./sources";
 import { copySkillTree, digestTree } from "./tree";
@@ -38,7 +39,7 @@ export class RunSkills {
   constructor(options: { runDir: string; cacheRoot?: string; environment?: Environment }) {
     this.#environment = options.environment ?? process.env;
     // Absolute: git runs in the cache's repository, and a harness is pointed at these paths.
-    this.#root = resolve(options.runDir, "skills");
+    this.#root = resolve(workDir(options.runDir), "skills");
     this.#cache = resolve(options.cacheRoot ?? defaultCacheRoot(this.#environment));
   }
 

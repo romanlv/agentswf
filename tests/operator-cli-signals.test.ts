@@ -63,7 +63,7 @@ test("a cancelled run exits as the signal would, having written its record", asy
   expect(await child.exited).toBe(129);
   expect(stderr).toMatch(/^■ cancelled/m);
   const runs = join(root, "runs", "waits");
-  expect([...new Bun.Glob("*/output.json").scanSync({ cwd: runs })]).toHaveLength(1);
+  expect([...new Bun.Glob("*/out.json").scanSync({ cwd: runs })]).toHaveLength(1);
   const [attempt] = [...new Bun.Glob("*/attempts/1.json").scanSync({ cwd: runs })];
   expect(JSON.parse(readFileSync(join(runs, attempt!), "utf8"))).toMatchObject({
     outcome: "cancelled",

@@ -7,6 +7,7 @@ import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
+import { earlierSpent, unreadEarlier } from "./accounting/spent";
 import { allowanceCommand } from "./allowance-command";
 import {
   type AttemptEnd,
@@ -57,6 +58,7 @@ import {
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
+import { readSpent } from "./spend";
 import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
 import { tickCommand } from "./tick-command";
@@ -498,12 +500,23 @@ async function runAttempt(
     now,
     ...(!run.record.events ? {} : { locked }),
   };
-  const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
-    printEnding(end, kept, {
+  const close = async (end: AttemptEnd, kept: Kept, cleanupAlso?: string) => {
+    const earlier = prepared.continued?.attempts ?? [];
+    // Priced now, from what each earlier attempt's operations recorded, its claim's settling included.
+    const spentBefore =
+      n > 1
+        ? await readSpent(run.dir, earlier).then(
+            (spent) => earlierSpent(spent, earlier, n),
+            // Still a total, with every earlier attempt's cost unknown.
+            () => unreadEarlier(earlier, n),
+          )
+        : undefined;
+    return printEnding(end, kept, {
       workflow,
       run: { id, dir: run.dir },
       n,
-      earlier: prepared.continued?.attempts ?? [],
+      earlier,
+      ...(spentBefore ? { spentBefore } : {}),
       json: command.json,
       fromStage: command.fromStage !== undefined,
       now: now(),
@@ -515,6 +528,7 @@ async function runAttempt(
       stderr,
       notice,
     });
+  };
   // Timed from here: finding the calling session can take minutes the run itself never had.
   const startedAt = now();
   // Every way out from here writes the attempt's ending, before the hand-back: a session told the

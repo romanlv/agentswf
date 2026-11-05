@@ -355,30 +355,26 @@ describe("runs", () => {
   });
 });
 
-test("a completed run is redone from the stages its last attempt entered, a removed one left out", () => {
-  const stage = (name: string, attempt: number) => ({
+test("a completed run is redone from its recorded stages, one its last redo left behind left out", () => {
+  const stage = (name: string, attempt: number, second: number, redo = false) => ({
     kind: "stage",
     attempt,
-    at: `2026-11-0${attempt}T00:00:01Z`,
+    at: `2026-11-0${attempt}T00:00:5${second}Z`,
     name,
     outcome: "succeeded",
-    started: `2026-11-0${attempt}T00:00:00Z`,
+    started: `2026-11-0${attempt}T00:00:0${second}Z`,
+    ...(redo ? { redo: true } : {}),
   });
+  // Attempt 2 reused plan and started at build; gone, after build in attempt 1, its code dropped.
   const view = readRun([
     { kind: "claimed", attempt: 1, at: "2026-11-01T00:00:00Z" },
-    stage("plan", 1),
-    stage("gone", 1),
+    stage("plan", 1, 1, true),
+    stage("build", 1, 2),
+    stage("gone", 1, 3),
     { kind: "claimed", attempt: 2, at: "2026-11-02T00:00:00Z" },
-    stage("build", 2),
+    stage("build", 2, 1, true),
   ]);
-  const completed = {
-    attempt: 2,
-    outcome: "completed",
-    stages: [
-      { stage: "plan", source: "reused", outcome: "succeeded", attempt: 1, spanMs: 0 },
-      { stage: "build", source: "ran", outcome: "succeeded", attempt: 2, spanMs: 0 },
-    ],
-  } as unknown as ClaimedAttempt;
+  const completed = { attempt: 2, outcome: "completed" } as unknown as ClaimedAttempt;
   const refused = attemptRefusal([completed], view, { fromStage: false, probe: () => undefined });
   expect(refused?.kind === "completed" && refused.stages.map(({ name }) => name)).toEqual([
     "plan",

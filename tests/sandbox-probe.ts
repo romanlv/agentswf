@@ -156,7 +156,7 @@ export function problems(evidence: ProbeEvidence): string[] {
     (sandbox) => `${sandbox.key}:${sandbox.agents.map((agent) => agent.agent).join(",")}`,
   );
   if (members.join(" ") !== "shared:coder,tester agent:reviewer:reviewer") {
-    say(`output.json lists sandboxes ${members.join(" ") || "none"}`);
+    say(`out.json lists sandboxes ${members.join(" ") || "none"}`);
   }
   for (const sandbox of sandboxes) {
     if (sandbox.provider !== environment) say(`${sandbox.key} ran under ${sandbox.provider}`);

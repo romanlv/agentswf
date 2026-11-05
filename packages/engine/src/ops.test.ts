@@ -66,8 +66,12 @@ describe("operation ids", () => {
       id: "worker.2",
       kind: "compact",
       attempt: 1,
+      at: expect.any(String),
       stage: "work",
       agent: "worker",
+      // What its spend is read with, by the next attempt when this one never settles it.
+      execution: expect.objectContaining({ harness: "codex" }),
+      cwd: expect.any(String),
     });
     expect(await opOf(runDir, "worker.4")).toMatchObject({
       id: "worker.4",
@@ -81,6 +85,7 @@ describe("operation ids", () => {
       id: "triage.2",
       kind: "decision",
       attempt: 2,
+      at: expect.any(String),
     });
     for (const [n, attempt] of [
       [1, 1],
@@ -130,7 +135,7 @@ describe("operation ids", () => {
     });
     expect(first.value).toBe("failed failed");
     const runDir = join(runRoot, "staged", "r1");
-    expect(await opOf(runDir, "worker.1")).toEqual({
+    expect(await opOf(runDir, "worker.1")).toMatchObject({
       id: "worker.1",
       attempt: 1,
       kind: "turn",
@@ -138,7 +143,7 @@ describe("operation ids", () => {
       question: "Fail.",
       schema: expect.any(Object),
     });
-    expect(await opOf(runDir, "triage.1")).toEqual({
+    expect(await opOf(runDir, "triage.1")).toMatchObject({
       id: "triage.1",
       attempt: 1,
       kind: "decision",
@@ -292,12 +297,14 @@ describe("listOps", () => {
       ]),
     );
     const ids = new OpIds(runDir, 2, await listOps(runDir));
-    expect(ids.draw("worker", { kind: "compact", agent: "worker" })).toEqual({ id: "worker.11" });
+    const where = { agent: "worker", execution: { harness: "codex", model: "m" }, cwd: "/w" };
+    expect(ids.draw("worker", { kind: "compact", ...where })).toEqual({ id: "worker.11" });
     expect(await opOf(runDir, "worker.11")).toEqual({
       id: "worker.11",
       attempt: 2,
+      at: expect.any(String),
       kind: "compact",
-      agent: "worker",
+      ...where,
     });
     expect(ids.draw("fresh", { kind: "decision" }).id).toBe("fresh.1");
     // Whose a key is is unknown without its op.json: either may take it.

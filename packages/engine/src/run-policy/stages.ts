@@ -74,22 +74,25 @@ export function recordedStages(view: Pick<RunView, "stages">): StageLine[] {
 
 /**
  * The stages a continue may still come to, in the order they started: each recorded stage but
- * those the redo left behind, whose latest line is older than the redo's attempt and which that
- * attempt never entered (`redoEntered`, from its attempt file), such as a stage the code no longer
- * has. Without `redoEntered`, as for a redo's attempt that crashed, none is left behind.
+ * those the last redo left behind, such as a stage the code no longer has. The redo's attempt ran
+ * every stage it entered after its start point again, so a stage whose latest line is older than
+ * that attempt, and which started after the redo's stage in the attempt that wrote it, was never
+ * entered there. Where that attempt reused the redo's stage, and so wrote it no line, the redo
+ * stage's latest line from before it stands in: what that attempt ran came after the stage it
+ * reused. A stage before the redo's stage was reused, and is kept; so is one whose order can't be
+ * told, and a removed stage that came before it. A stage first run before the redo's stage, in an
+ * attempt that reused the redo's stage, is taken for one after it, and left out.
  */
-export function upcomingStages(
-  view: Pick<RunView, "stages" | "redo">,
-  redoEntered: readonly string[] | undefined,
-): StageLine[] {
+export function upcomingStages(view: Pick<RunView, "stages" | "redo">): StageLine[] {
   const { redo } = view;
-  return recordedStages(view).filter(
-    (line) =>
-      redo === undefined ||
-      redoEntered === undefined ||
-      line.attempt >= redo.attempt ||
-      redoEntered.includes(line.name),
-  );
+  return recordedStages(view).filter((line) => {
+    if (redo === undefined || line.attempt >= redo.attempt) return true;
+    const history = view.stages[redo.stage]?.history ?? [];
+    const start =
+      history.find((earlier) => earlier.attempt === line.attempt) ??
+      history.findLast((earlier) => earlier.attempt < line.attempt);
+    return start === undefined || Date.parse(line.started) <= Date.parse(start.started);
+  });
 }
 
 /**

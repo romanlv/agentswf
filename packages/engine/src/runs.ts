@@ -24,15 +24,15 @@ import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
 import type { EarlierOps } from "./ops";
 import { type RunLines, readRunLines } from "./run-lines";
-import { recordedStages } from "./run-policy/stages";
+import { upcomingStages } from "./run-policy/stages";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
- * `run.jsonl` (`run-lines.ts`), `log.jsonl`, `ops/` (`ops.ts`), and the last ended attempt's
- * `output.json` and `report.md`. With those two modules, the only one that knows where a run's
- * records are; what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
- * that work places. Only the live attempt writes, and the two claims, a run's folder renamed into
- * place and an attempt's file linked into place, are the only locks.
+ * `run.jsonl` (`run-lines.ts`), `log.jsonl`, `ops/` (`ops.ts`), the last ended attempt's
+ * `out.json` and `report.md`, and `work/`. With those two modules, the only one that knows where a
+ * run's records are; what the harness keeps in `work/`, such as agents' bundles and skills, the
+ * module doing that work places. Only the live attempt writes, and the two claims, a run's folder
+ * renamed into place and an attempt's file linked into place, are the only locks.
  */
 
 /** Where a project's runs are kept, unless `--run-root` says otherwise. */
@@ -324,8 +324,8 @@ export function sameStart(now: string, started: string): boolean {
 export type AttemptRefusal =
   | { kind: "running"; attempt: ClaimedAttempt }
   /**
-   * `stages`, those the completed attempt entered, each by its latest line in the order entered,
-   * are what `--from-stage` redoes.
+   * `stages`, each recorded stage's latest line in the order they started, but those the last
+   * redo left behind, are what `--from-stage` redoes.
    */
   | { kind: "completed"; stages: StageLine[] };
 
@@ -335,21 +335,15 @@ export type AttemptRefusal =
  */
 export function attemptRefusal(
   attempts: readonly ClaimedAttempt[],
-  run: Pick<RunView, "stages">,
+  run: Pick<RunView, "stages" | "redo">,
   options: { fromStage: boolean; probe?: ProcessProbe },
 ): AttemptRefusal | undefined {
   const live = attempts.find((attempt) => isLive(attempt, options.probe));
   if (live) return { kind: "running", attempt: live };
   const last = attempts.at(-1);
   if (last?.outcome !== "completed" || options.fromStage) return undefined;
-  // A stage the code no longer has keeps its line, but the completed attempt never entered it.
-  const stages = last.stages
-    ? last.stages.flatMap(({ stage }) => {
-        const line = run.stages[stage]?.last;
-        return line ? [line] : [];
-      })
-    : recordedStages(run);
-  return { kind: "completed", stages };
+  // A stage the code no longer has keeps its line, but the last redo left it behind.
+  return { kind: "completed", stages: upcomingStages(run) };
 }
 
 /**
@@ -459,21 +453,17 @@ export async function recordFailedLaunch(
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
   attempt: AttemptFile,
-  ending: Pick<ClaimedAttempt, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
-    outcome: AttemptOutcome;
-  },
+  ending: Pick<ClaimedAttempt, "stage" | "reason" | "value"> & { outcome: AttemptOutcome },
   now: Date = new Date(),
 ): Promise<ClaimedAttempt> {
-  const { stage, reason, stages, accounting, unacknowledged } = ending;
+  const { stage, reason, value } = ending;
   const record: ClaimedAttempt = {
     ...attempt.record,
     ended: now.toISOString(),
     outcome: ending.outcome,
     ...(stage === undefined ? {} : { stage }),
     ...(reason === undefined ? {} : { reason }),
-    ...(stages === undefined ? {} : { stages }),
-    ...(accounting === undefined ? {} : { accounting }),
-    ...(unacknowledged === undefined ? {} : { unacknowledged }),
+    ...(ending.outcome === "completed" && value !== undefined ? { value } : {}),
   };
   await writeJson(attempt.file, record);
   attempt.record = record;
@@ -591,9 +581,14 @@ export async function readTurns(runDir: string): Promise<TurnRecord[]> {
   );
 }
 
-/** The last ended attempt's `output.json`. */
-export function outputFile(runDir: string): string {
-  return join(runDir, "output.json");
+/** The last ended attempt's `out.json`, a view: what `awf run --json` printed. */
+export function outFile(runDir: string): string {
+  return join(runDir, "out.json");
+}
+
+/** Harness scratch: `skills/`, `agents/`, `staging/` and `forks/`. Only the attempt that made it uses it. */
+export function workDir(runDir: string): string {
+  return join(runDir, "work");
 }
 
 /** The last ended attempt's `report.md`. */

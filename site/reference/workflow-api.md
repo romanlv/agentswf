@@ -149,7 +149,7 @@ The guide: [Workflows](/guide/workflows).
 | `run(wf, args)` | The workflow. `args` and the result are JSON. |
 | `prepare({ argv, cwd })` | Turns the command line (`argv` after `--`, and `cwd`) into `args`. Required when `run` takes arguments: a workflow whose `args` aren't `null` without `prepare` fails `tsc`. Left out, the workflow takes none: its args are `null`, and any argv is refused. A throw ends the run before any agent opens. A run an event starts has no argv, and gets what `prepare` makes of none. |
 | `id(args)` | Optional. The run's id, such as a ticket's key: letters (either case), digits, `.`, `_`, `@` and `-`, starting with a letter or digit, at most 128 characters; an id differing from another only in case is refused. `awf run --id` overrides it. With neither, awf makes one, except for a workflow with `starts`, whose run is then refused: its senders name its runs. A run's ref is `{workflow}/{id}`. |
-| `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `output.json`; `--json` always prints the record. |
+| `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `out.json`; `--json` always prints the record. |
 | `report(value, ending)` | Optional. Markdown saved as `report.md` beside the run. Called however the attempt ended, so a stopped run can still hand off what its stages found: `value` is `undefined` unless it completed. `undefined` writes no report. |
 | `file`, `events`, `starts` | A workflow whose runs take events: see [Events](#events). |
 
@@ -163,7 +163,7 @@ attempt entered: `stage`, `source` (`"ran"` or `"reused"`), `outcome` (`succeede
 | `parked` | `label?`, its last wait's label, and `until?`, an ISO time: a workflow with events waiting with nothing to do. |
 | `stopped`, `failed`, `timed-out`, `cancelled` | `stage?`, the stage it ended in; `reason`; `continue`, the command that goes on; `needs?`, the stages whose values `--values` must give to start part-way, each `{ stage, schema }`, when it stopped for them. |
 
-The result, every agent's usage and how the attempt ended are kept in `output.json`, in
+The result, every agent's usage and how the attempt ended are kept in `out.json`, in
 `.awf/runs/{workflow}/{id}` under the working directory, for failed and cancelled runs too.
 [The record](/guide/how-it-works#the-record) says what else a run keeps.
 
@@ -949,7 +949,7 @@ takes, and `awf tick` continues it once that is due: [`awf tick` on a schedule](
 `wf.usage()` returns this scope's finished operations and its descendants', in the order they were
 dispatched: each one's agent, settings, times, sessions, stage and label, and for one a message
 started, `cause`. Costs are priced after the run, from each agent's tokens: each stage's line gains
-what its agents cost, and one summary closes the run. `output.json` keeps the tokens, each stage's
+what its agents cost, and one summary closes the run. `out.json` keeps the tokens, each stage's
 share and the price table used.
 
 <a id="plan-allowance"></a>

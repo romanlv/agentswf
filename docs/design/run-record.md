@@ -189,6 +189,15 @@ attempt 3   (a continue, no flag)
 
 Whether a stage is entered after the redo stage is known only while the code runs, so no reader of
 the file can say what a continue will reuse, only what it may: each stage's `settled`, and the redo.
+What a reader can say is which stages the redo left behind, such as one the code no longer has: a
+stage whose latest line is older than the redo's attempt, and which started after the redo stage
+in the attempt that wrote it, since the redo's attempt runs every stage after its start point
+again. Where the attempt that wrote a stage's line reused the redo stage, so wrote it no line, the
+redo stage's line before it stands in, as what that attempt ran came after what it reused. A
+continue's stages to come, and a completed run's `--from-stage` choices, leave those out. Two cases
+the lines can't tell: a stage dropped from before the redo stage looks reused there, and is kept;
+a stage first run before the redo stage, in an attempt that reused the redo stage, looks as if it
+came after it, and is left out. Both only change what is shown, never what a continue runs.
 A crash inside the redone stage writes no line. In a run without events, the next continue sees the
 attempt that died without an ending, its `flags.fromStage` and no line of that stage from it, says
 so, and starts at that stage again, as `--from-stage`, as 018 promised. A wake carries no flag, so
@@ -371,20 +380,32 @@ run, or `{decision}.{n}`, the `n`th asking of the decision keyed `{decision}`. S
 
 | File | Holds |
 | --- | --- |
-| `op.json` | what it is: `id`, `kind`, `attempt`, `stage`, `agent`; a turn's question and `schema` (today's `call.json`) |
+| `op.json` | what it is: `id`, `kind`, `at`, `attempt`, `stage`; an agent's operation's `agent`, `execution` and `cwd`, what its spend is read with; a turn's question and `schema` (today's `call.json`) |
 | `answers.jsonl`, `result.json` | each answer offered, refused ones with why, and the one accepted (today's `candidates.jsonl`) |
 | `decision.json` | a decision's request and answers, today's `DecisionArtifact` |
-| `spend.json` | its settled usage: billing, spend per model, charge |
+| `spend.json` | an agent operation's settled usage: billing, spend per model, charge, its delivery and settle times, and `settledBy` when the next attempt read it; a decision's is its `decision.json` record |
 | `live.jsonl` | delivery and nudge diagnostics (today's `liveness.jsonl`) |
 | `screen.txt` | what the pane showed when it ended without an answer or its agent failed to start ([[non-answered-evidence]]; built, in today's `calls/`) |
 
 `spend.json` is a measurement taken once, while the native session files exist, so it is recorded,
-not derived; every total is summed from it with `op.json`'s attempt and stage, without the
-log, and priced at read. It is written with `link`, so only one write ever lands, and only by a
-claimed attempt: the attempt as it ends; or, for any earlier operation still without one (an attempt
-interrupted, or one whose read a Ctrl-C cut, [[interrupted-accounting-read]]), the next attempt as it
-claims the run, while the sessions are there to read. A run never continued keeps its unread spend
-in the agents' session files, and `work/` for a codex agent with a home of its own.
+not derived; every total is summed from it, or a decision's `decision.json`, with `op.json`'s
+attempt and stage, without the log, and priced at read. It is written with `link`, so only one
+write ever lands, and only by a claimed attempt: the attempt as it ends, for every agent operation it drew, one that never reached
+its agent with nothing spent; or, for any earlier operation still without one (an attempt
+interrupted, or one whose read a Ctrl-C cut, [[interrupted-accounting-read]]), the next attempt as
+it starts, while the sessions are there to read. That is the attempt's first act once claimed,
+before any agent opens: the session reader is the runtime's, which the claim doesn't have yet.
+Its agents are read in the order they first started an operation, each request counted once, by
+the first to log it, so a fork's copy of its parent's rows stays the parent's, settled or not. An
+agent's sessions are its `session` lines of that attempt and the one before it, read with each
+operation's own `execution` and `cwd`; what they logged from its first operation's start until the
+attempt ended, the next claimed, or now (nothing of the settling attempt has opened yet), is shared
+out by `op.json`'s `at`. A calling session isn't read: nothing on record says where the run's turns
+on it ended, so its spend is written unknown. A metered operation read this way has an unknown
+charge, which the run's figures count as not billed. The read is bounded as a run's end is; what it
+doesn't reach, and an ending attempt's read cut short by a stop or its deadline, is left for a later
+attempt. A run never continued keeps its unread spend in the agents' session files, and `work/`
+for a codex agent with a home of its own.
 
 ## Views
 
@@ -437,7 +458,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | the stage plan and `attemptRefusal` (`stage-plan.ts`, `stage-ledger.ts`, `run-prepare.ts`, `runs.ts`) | the engine's pure reading of `run.jsonl`, where `stages/` was; `replaced/`, `replaceStale` and `sessionsOf` go; `lastRedo` reads `redo` lines |
 | the waits (`waits.ts`, was `mailbox.ts`; their policy in `run-policy/waits.ts`) | the engine's merge of `in.jsonl`, `turn-ended` lines and due timers; writes `took`, `wait`, `race`, `timer`, `turn-started` and `turn-ended` to `run.jsonl`; no longer appends `timer:due`, `at:due` or `agent:ended` |
 | resuming a kept session | `session` lines, never the log |
-| claiming an attempt (`run-prepare.ts`) | waits for `previousGone` for every run, truncates, writes `claimed`, ends a crashed attempt's turns, settles missing `spend.json` |
+| claiming an attempt (`run-prepare.ts`) | waits for `previousGone` for every run, truncates, writes `claimed`, ends a crashed attempt's turns; the attempt's start (`spend.ts`, `settleEarlier`) settles missing `spend.json` before any agent opens |
 | `wake`, `awf tick`, `awf emit`, 040's client (`wake.ts`, `tick-command.ts`, `emit.ts`) | read the attempt files, `in.jsonl` (to dedupe and match the wait) and `readRun`'s wait and timers; `emit` writes a starting event into `.new-*/in.jsonl`; `wake` links a failed launch's attempt file, writes `launches/{launch}.log` and passes `AWF_LAUNCH` |
 | `run-state.ts` (`waiting`, `stuck`) | `readRun`, and the attempt files |
 | `awf runs`, `awf logs` (`run-view.ts`, `run-read.ts`, `runs-command.ts`, `logs-command.ts`) | the log for the story and the current stage; `run.jsonl` for stages' outcomes and values, waits and sessions; a stage's `value` in `awf runs --json`; the cursor spans the two files; cost from `spend.json` |
@@ -446,7 +467,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | the end of an attempt (`attempt-output.ts`) | writes the attempt's ending with `value`, `out.json` and `report.md`; no `stages`, `accounting` or `unacknowledged` |
 | result slots and operations (`result-slots.ts`, `runs.ts` `writeCall`…`readAccepted`, `writeScreen`, `operation-events.ts`) | `ops/{op}/`; the engine numbers operations per key where it now draws a UUID (`workflow-runner.ts`) |
 | opening an agent, asking a decision | refuse a key that isn't a name, or that the other already uses |
-| accounting (`run-usage.ts`, `run-commands.ts`, `attempt-view.ts`) | `spend.json` with `op.json`, priced at read |
+| accounting (`run-usage.ts`, `run-commands.ts`, `attempt-view.ts`) | `spend.json` with `op.json`, and a decision's `decision.json`, priced at read (`accounting/spent.ts`) |
 | decisions (`decisions/directory.ts`) | `ops/{decision}.{n}/decision.json`, written whole; `DecisionRecord.artifact` names it |
 | the harness's scratch (`run-skills.ts`, `workflow-runner.ts`) | `work/` |
 | workflow tests (`run-test.ts`, `testing.ts`) | `earlier: { stages, events, run }` (below); `TestRun.stages` becomes stage lines, a new type: each stage the attempt entered, in order, a reused one by the line it reused; `TestRun.mailbox` becomes `run` and `events`; due timers are no longer appended |

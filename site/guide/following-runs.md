@@ -40,12 +40,12 @@ awf: check-readme/20261101-0930-a1b2 started · watch: awf logs check-readme/202
 
 All of that goes to standard error. Standard output carries only the result: what the workflow's
 `present` makes of it or, for a workflow without `present` such as `check-readme`, the run's whole
-record from `output.json`. So `awf run check-readme.ts > result.json` keeps the record, with the
+record from `out.json`. So `awf run check-readme.ts > result.json` keeps the record, with the
 verdict as its `value`, and none of the progress.
 
 | Flag | What it changes |
 | --- | --- |
-| `--json` | Standard output gets the run's whole record, its `output.json`, even when the workflow has `present`. A run that doesn't complete prints its record too, once its agents have started. Questions for [a person](/guide/people) are not asked at the terminal. |
+| `--json` | Standard output gets the run's whole record, its `out.json`, even when the workflow has `present`. A run that doesn't complete prints its record too, once its agents have started. Questions for [a person](/guide/people) are not asked at the terminal. |
 | `--no-watch` | Leaves out the tab a docker sandbox's panes get in the run's workspace ([Sandboxes](/guide/sandboxes)). |
 
 When a run has TUI agents, `awf run` prints once, as the first one opens, a line starting

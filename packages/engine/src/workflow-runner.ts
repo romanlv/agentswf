@@ -10,6 +10,7 @@ import {
   RESERVED_PARTICIPANT_KEYS,
 } from "@agentswf/contract/participant";
 import type {
+  AgentOp,
   AgentPaneRecord,
   AgentSkillsRecord,
   RunAccounting,
@@ -197,7 +198,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endLogLine, readAttempts } from "./runs";
+import { endLogLine, readAttempts, workDir } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -209,6 +210,7 @@ import { SessionLines } from "./session-lines";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { asSource, branchValue, isSignal, presented, signalOf, source, takeOf } from "./sources";
+import { keepSpend, settleEarlier } from "./spend";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
@@ -495,21 +497,32 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     );
   const { dir: runDir, id: runId } = options.run;
   const { attempt } = options.run.lines;
-  const startedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
   // Before anything opens: a line this awf can't read refuses the attempt.
-  const { view: recorded } = await readRunLines(runDir);
+  const { lines: written, view: recorded } = await readRunLines(runDir);
   // The version each earlier attempt ran, which a line it wrote is reused under.
   const earlier = await readAttempts({ dir: runDir });
+  // While no agent of this attempt can resume a session an earlier one's spend is still in.
+  await settleEarlier(runDir, {
+    attempt,
+    attempts: earlier,
+    lines: written,
+    accounting: options.runtime.host.accounting,
+    now: Date.now(),
+    ...(options.signal ? { signal: options.signal } : {}),
+  }).then(
+    ({ failed }) => {
+      for (const each of failed) options.onLog?.(`awf: spend.json not written for ${each}`);
+    },
+    (error: unknown) =>
+      options.onLog?.(`awf: earlier attempts' spend was not settled: ${messageOf(error)}`),
+  );
+  const startedAt = Date.now();
   const versions = new Map(
     earlier.flatMap(({ attempt: n, workflowVersion }) =>
       workflowVersion === undefined ? [] : [[n, workflowVersion] as const],
     ),
   );
-  // What the last redo's attempt entered, so a stage it left behind isn't shown as to come.
-  const redoEntered = earlier
-    .find(({ attempt: n }) => n === recorded.redo?.attempt)
-    ?.stages?.map(({ stage }) => stage);
   // The log is observation: one that cannot be written says so as it is, and fails nothing.
   await endLogLine(runDir).catch(() => undefined);
   const slots = createResultSlotRegistry({
@@ -579,7 +592,6 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     lines: options.run.lines,
     run: recorded,
     versions,
-    ...(redoEntered === undefined ? {} : { redoEntered }),
     ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
@@ -805,6 +817,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     await events.close();
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
+    // What a stop or the read's deadline left unread is the next attempt's to read again.
+    const reader = options.runtime.host.accounting;
+    const failedSpend = await keepSpend(runDir, attempt, usage, {
+      reads: (execution) => reader !== undefined && (reader.canRead?.(execution) ?? true),
+    }).catch((error: unknown) => [messageOf(error)]);
+    for (const each of failedSpend) options.onLog?.(`awf: spend.json not written for ${each}`);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
     const given = skills.records();
@@ -2430,7 +2448,7 @@ class WorkflowOwner {
     const given = skillsLayout(
       execution.harness,
       resolved.map((skill) => skill.name),
-      { bundle: join(runDir, "agents", id), cwd: realCwd },
+      { bundle: join(workDir(runDir), "agents", id), cwd: realCwd },
     );
     this.options.skills.record(key, resolved, given.ownHome);
     const { ownHome } = given;
@@ -2441,7 +2459,7 @@ class WorkflowOwner {
     await mkdir(dirname(ownHome), { recursive: true });
     const seeded = await seedHome(
       ownHome,
-      join(runDir, "staging", id),
+      join(workDir(runDir), "staging", id),
       hostHome(execution.harness, ownHome, this.options.environment),
       realCwd,
       this.options.locks,
@@ -2684,7 +2702,7 @@ class WorkflowOwner {
     // child's home: anything added to the parent's would be read as the parent's.
     const copy =
       sandboxed || opening.accounted.home !== undefined
-        ? join(this.options.runDir, "forks", randomUUID())
+        ? join(workDir(this.options.runDir), "forks", randomUUID())
         : undefined;
     const execution = withKnownEffort(forkExecution(parentSettings, forkSpec.runtime));
     // A fork of the calling session is an agent the run opened, on the model the session's files
@@ -3534,9 +3552,17 @@ class LogicalAgent implements AgentRef {
     return tracked;
   }
 
-  /** Whose an operation is and where it runs, as its `op.json` says. */
-  private opWhere(tags: OperationTags): { agent: string; stage?: string } {
-    return { agent: this.key, ...(tags.stage === undefined ? {} : { stage: tags.stage }) };
+  /**
+   * Whose an operation is, the settings it runs at and where, as its `op.json` says: what its spend
+   * is read with, by the next attempt when this one never settles it.
+   */
+  private opWhere(tags: { stage?: string }): AgentOp & { stage?: string } {
+    return {
+      agent: this.key,
+      execution: this.#execution,
+      cwd: this.options.ledger.cwd(),
+      ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+    };
   }
 
   /**
@@ -4205,8 +4231,7 @@ class LogicalAgent implements AgentRef {
     const { messaging } = this.options;
     const { id: operationId, lost } = this.options.ops.draw(this.key, {
       kind: "message",
-      agent: this.key,
-      ...(stage?.stage === undefined ? {} : { stage: stage.stage }),
+      ...this.opWhere(stage?.stage === undefined ? {} : { stage: stage.stage }),
     });
     const ceiling = this.deadlineCeiling(stage)?.unixMilliseconds;
     let deadline = Math.min(Date.now() + messaging.limits.operationMs, ceiling ?? Infinity);

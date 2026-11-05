@@ -71,15 +71,43 @@ test("recordedStages lists each stage's latest line in the order they started", 
 });
 
 test("upcomingStages leaves out what the redo's attempt left behind, and keeps what it reused", () => {
-  // Attempt 2 reused a and started at b; c it ran; gone it never entered: the code dropped it.
+  const at = (second: number) => `2026-11-01T00:00:0${second}Z`;
+  // Attempt 2 reused a and started at b, then ran c; gone, after b in attempt 1, it never entered:
+  // the code dropped it.
   const view = viewOf(
-    [line("a", 1), line("gone", 1), line("b", 1), line("c", 1)],
+    [
+      line("a", 1, { started: at(1) }),
+      line("b", 1, { started: at(2) }),
+      line("gone", 1, { started: at(3) }),
+      line("c", 1, { started: at(4) }),
+    ],
     [line("b", 2, { redo: true }), line("c", 2)],
   );
-  const names = (entered?: string[]) => upcomingStages(view, entered).map(({ name }) => name);
-  expect(names(["a", "b", "c"])).toEqual(["a", "b", "c"]);
-  // A redo's attempt that crashed left no list: nothing is left out.
-  expect(names()).toEqual(["a", "gone", "b", "c"]);
+  expect(upcomingStages(view).map(({ name }) => name)).toEqual(["a", "b", "c"]);
+  // A stage dropped before the redo's stage can't be told from one it reused: it is kept.
+  const before = viewOf(
+    [line("old", 1, { started: at(1) }), line("b", 1, { started: at(2) })],
+    [line("b", 2, { redo: true })],
+  );
+  expect(upcomingStages(before).map(({ name }) => name)).toEqual(["old", "b"]);
+  // Attempt 2 reused a and b, redid c and ran d; attempt 3 redoes b, and its code has no d. Attempt
+  // 2 wrote b no line, so b's line before it says where d stood: after b, so left behind.
+  const at2 = (second: number) => `2026-11-02T00:00:0${second}Z`;
+  const reused = viewOf(
+    [
+      line("a", 1, { started: at(1) }),
+      line("b", 1, { started: at(2) }),
+      line("c", 1, { started: at(3), outcome: "failed" }),
+    ],
+    [line("c", 2, { started: at2(1), redo: true }), line("d", 2, { started: at2(2) })],
+    [line("b", 3, { redo: true }), line("c", 3)],
+  );
+  expect(upcomingStages(reused).map(({ name }) => name)).toEqual(["a", "b", "c"]);
+  // Without a redo, nothing is left out.
+  expect(upcomingStages(viewOf([line("a", 1), line("b", 1)])).map(({ name }) => name)).toEqual([
+    "a",
+    "b",
+  ]);
 });
 
 describe("crashedRedo", () => {

@@ -344,7 +344,7 @@ describe("run progress by stage", () => {
     expect(upcoming).toEqual([]);
   });
 
-  test("a stage the last redo's attempt never entered is not upcoming", async () => {
+  test("a stage the last redo's attempt left behind is not upcoming", async () => {
     const runRoot = runDirs.tempRunDir();
     const run = await createRun(runRoot, {
       id: "r1",
@@ -353,28 +353,24 @@ describe("run progress by stage", () => {
       cwd: runRoot,
       sandbox: null,
     });
-    const line = (name: string, attempt: number, redo = false) => ({
+    const line = (name: string, attempt: number, minute: number, redo = false) => ({
       kind: "stage" as const,
       attempt,
-      at: `2026-10-0${attempt}T16:10:00Z`,
+      at: `2026-10-0${attempt}T16:1${minute}:00Z`,
       name,
       outcome: "succeeded" as const,
-      started: `2026-10-0${attempt}T16:00:00Z`,
+      started: `2026-10-0${attempt}T16:0${minute}:00Z`,
       ...(redo ? { redo: true as const } : {}),
     });
     const { lines: one } = await claimLines(run.dir, 1);
-    for (const each of [line("a", 1, true), line("gone", 1), line("b", 1)]) await one.append(each);
-    // Attempt 2 started at b, after reusing a; its code no longer has gone.
-    await (await claimLines(run.dir, 2)).lines.append(line("b", 2, true));
+    for (const each of [line("a", 1, 0, true), line("b", 1, 1), line("gone", 1, 2)])
+      await one.append(each);
+    // Attempt 2 started at b, after reusing a, and ran every stage after it; its code no longer
+    // has gone, which came after b, so wrote it no line.
+    await (await claimLines(run.dir, 2)).lines.append(line("b", 2, 0, true));
     const ended = { ended: "2026-10-02T16:20:00Z", outcome: "completed" as const };
-    await writeAttempt(run, { ...ended, stages: [] });
-    await writeAttempt(run, {
-      ...ended,
-      stages: [
-        { stage: "a", source: "reused", outcome: "succeeded", attempt: 1, spanMs: 0 },
-        { stage: "b", source: "ran", outcome: "succeeded", attempt: 2, spanMs: 0 },
-      ],
-    });
+    await writeAttempt(run, ended);
+    await writeAttempt(run, ended);
     const handle = await startWorkflow(
       { meta: { name: "staged", description: "stages" }, run: async () => null },
       null,
