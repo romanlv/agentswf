@@ -1047,6 +1047,22 @@ Left: a non-final `wait()` returns the last of several rests within one 500 ms p
 an attempt takes seconds to start. `bun run check` passes; `bun test` 2600 pass, 0 fail, before the
 last two client fixes, whose suites pass (289).
 
+### Final review, round 3, 2026-11-05
+
+Two fresh reviewers; the engine and client side came back clean but for one item. Folded in:
+
+- The fake client: the first event to a run only `rests` names, before a wait takes one of its
+  rests, makes the run, as a first `start` does: `started`, or `not-a-start`, and a reply to it is
+  `no-run`. It answered `nudged`, so a handler's `did === "started"` branch went untested.
+- `awf tick --all` passes over a project whose runs are all plain: a plain workflow with `file`
+  registers its project (ADR 0015), and tick has nothing there to wake, so a declared, an
+  uninstalled or another version's engine there is no failure.
+- README.md says the global `awf` hands over only at another version.
+
+Left: the fake runs an event-made run's `prepare` in the workflow file's folder, where the real
+client runs it in the project; and a registered project that is gone still fails `tick --all`, as
+it did for event projects, though a plain run may be what registered it.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

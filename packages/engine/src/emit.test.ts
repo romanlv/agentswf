@@ -864,6 +864,26 @@ describe("awf tick", () => {
     expect(err.join("\n")).toContain("is gone");
   });
 
+  test("tick --all passes over a project only plain runs registered, whatever its engine", async () => {
+    const p = project();
+    const plainOnly = dirs.tempRunDir();
+    // Declared and not installed: a project with event runs would be refused.
+    await Bun.write(
+      join(plainOnly, "package.json"),
+      JSON.stringify({ devDependencies: { agentswf: "9.9.9" } }),
+    );
+    await createRun(join(plainOnly, ".awf", "runs"), {
+      id: "p1",
+      workflow: "plain",
+      argv: [],
+      args: null,
+      cwd: plainOnly,
+      sandbox: null,
+    });
+    await Bun.write(join(p.home, ".awf", "projects"), `${plainOnly}\n`);
+    expect(await tick(p, fakeLaunch(), ["--all"])).toMatchObject({ code: 0, err: [] });
+  });
+
   test("awf runs shows an event run that keeps failing as stuck", async () => {
     const p = project();
     await keyedRun(p, "k", [ended("failed"), ended("failed"), { ...GONE }]);

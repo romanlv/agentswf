@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ENGINE_VERSION } from "./project-engine";
+import { createRun } from "./runs";
 
 const PACKAGES = join(import.meta.dir, "../..");
 const AWF = join(PACKAGES, "agentswf/src/awf.ts");
@@ -234,6 +235,15 @@ test("awf tick --all from a third project wakes each project on its own engine",
     join(declared, "package.json"),
     JSON.stringify({ dependencies: { agentswf: "*" } }),
   );
+  // An event run there, which a tick would wake: a project with none is passed over.
+  await createRun(join(declared, ".awf/runs"), {
+    id: "d1",
+    workflow: "events",
+    argv: [],
+    cwd: declared,
+    sandbox: null,
+    events: true,
+  });
   writeFileSync(
     join(home, ".awf/projects"),
     `${readFileSync(join(home, ".awf/projects"), "utf8")}${declared}\n`,

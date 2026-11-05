@@ -478,7 +478,8 @@ others `other-args`. A run moves to its next scripted rest at a `wait`, to `runn
 launched, and after a launch that fails stays at its last rest, or is `interrupted` (`stuck` after
 three) if it has none; its `final` is the real client's, from its state and whether the workflow
 takes events. A `start` with no id and no `id(args)` names its run `fake-1`, `fake-2`, and so on,
-which `rests` can name. A script overrides what it names, and the fake then knows what it said: a
+which `rests` can name. The first `start` or event to reach a run `rests` names, before a wait
+takes one of its rests, is the one that makes it. A script overrides what it names, and the fake then knows what it said: a
 refused event leaves no run, `why` alone is `did: "none"`.
 
 ## `awf test` {#awf-test}

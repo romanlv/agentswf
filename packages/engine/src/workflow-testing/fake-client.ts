@@ -1,5 +1,5 @@
 // A program's tests' `Client`: keeps the calls it is given and answers as the real one's rules do,
-// or as the test scripts. No run, file or process is touched.
+// or as the test scripts. It makes no run and starts no process.
 import { dirname, isAbsolute } from "node:path";
 import {
   type Client,
@@ -63,8 +63,8 @@ export type FakeClientScript = {
    * after three) if it has none. Its `final` is the real client's, from its state and whether the
    * workflow takes events, whatever the rest scripted says. A start with no id names its run
    * `fake-1`, `fake-2`, and so on, which this can name. Attempts that fail or crash count toward `stuck` only as the rests
-   * scripted say. A run named here is there: `get` and `emit` find it, and the first `start` of it is the one that made it,
-   * unless an emit reached it first.
+   * scripted say. A run named here is there for `get`; the first `start` or event to
+   * reach it, before a wait takes one of its rests, is the one that made it.
    */
   rests?: Record<string, RunStatus<JsonValue>[]>;
   /** What `inbox` returns, for the call given. */
@@ -256,6 +256,10 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         ...fields,
       });
       let state = known.get(ref);
+      // A run only `rests` names, no wait having taken a rest: its first event is the one that
+      // makes it, as a first start is, and its rests are kept.
+      const unclaimed = state?.scripted && state.rest === undefined ? state : undefined;
+      if (unclaimed) state = undefined;
       if (!state && reply)
         throw new ClientError("no-run", `no run ${ref}: a reply never starts one`, ref);
       if (reply) sourceProblem();
@@ -279,7 +283,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
               ref,
             );
           }
-          state = { ...fresh(), attempted: false };
+          state = { ...fresh(), attempted: false, rests: unclaimed?.rests ?? [] };
           made = true;
         }
         // A duplicate isn't appended, but wakes the run, as a retry after a failed launch does;

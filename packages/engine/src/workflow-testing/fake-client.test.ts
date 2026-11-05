@@ -311,3 +311,23 @@ test("event data that isn't JSON is the ClientError event, as the real client th
     code: "event",
   });
 });
+
+test("the first event to a run only rests names starts it, with its rests, or is not-a-start", async () => {
+  const runs = fakeClient({ rests: { "review/pr-1": [{ state: "parked", final: false }] } });
+  expect(await runs.emit(review, "pr-1", "pr.closed", { sha: "a" })).toMatchObject({
+    outcome: "refused",
+    why: "not-a-start",
+  });
+  await expect(runs.emit(review, "pr-1", "thread:reply", { text: "hi" })).rejects.toMatchObject({
+    code: "no-run",
+  });
+  expect(await runs.emit(review, "pr-1", "pr.pushed", { sha: "a" })).toMatchObject({
+    outcome: "accepted",
+    did: "started",
+  });
+  const run = await runs.get(review, "pr-1");
+  expect(await run.wait()).toEqual({ state: "parked", final: false });
+  expect(await runs.emit(review, "pr-1", "pr.pushed", { sha: "b" })).toMatchObject({
+    did: "continued",
+  });
+});

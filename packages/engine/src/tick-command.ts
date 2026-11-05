@@ -90,7 +90,10 @@ export async function tickCommand(
         out.stderr(`awf: ${project}, in ~/.awf/projects, is gone; its runs are not woken`);
         continue;
       }
-      await onItsEngine(project, projectRunRoot(project));
+      // A project a plain run registered (ADR 0015) has nothing for a tick to wake.
+      const root = projectRunRoot(project);
+      if (!(await listRuns(root)).some((run) => run.record.events)) continue;
+      await onItsEngine(project, root);
     }
   for (const root of roots) {
     for (const run of await listRuns(root)) {
