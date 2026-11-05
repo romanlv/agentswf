@@ -3,12 +3,11 @@ import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:f
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
-  ATTEMPT_RECORD_VERSION,
   type AttemptRecord,
   type ClaimedAttempt,
   type EventLine,
   type FailedLaunch,
-  RUN_RECORD_VERSION,
+  RUN_FORMAT,
   type RunLogLine,
   type RunPanes,
   type RunRecord,
@@ -103,7 +102,7 @@ export function generateId(
  */
 export async function createRun(
   root: string,
-  record: Omit<RunRecord, "version" | "created" | "id"> & { id?: string },
+  record: Omit<RunRecord, "format" | "created" | "id"> & { id?: string },
   now: Date = new Date(),
   /** The event that starts the run, in its `in.jsonl` before the run is in place. */
   first?: EventLine,
@@ -129,14 +128,14 @@ class RunTaken extends RunRefused {}
 async function claimRun(
   root: string,
   parent: string,
-  record: Omit<RunRecord, "version" | "created">,
+  record: Omit<RunRecord, "format" | "created">,
   now: Date,
   first: EventLine | undefined,
 ): Promise<Run> {
   checkIds(record.id);
   const other = await takenInCase(parent, record.id);
   if (other !== undefined) throw new RunTaken(takenMessage(other));
-  const full: RunRecord = { version: RUN_RECORD_VERSION, ...record, created: now.toISOString() };
+  const full: RunRecord = { format: RUN_FORMAT, ...record, created: now.toISOString() };
   const pending = join(parent, `.new-${randomBytes(6).toString("hex")}`);
   await mkdir(pending, { mode: 0o700 });
   const dir = join(parent, record.id);
@@ -205,9 +204,60 @@ export async function openRun(root: string, workflow: string, id: string): Promi
       `no run ${id} of ${workflow} in ${root}; a run is kept under the directory it works in, which --cwd names`,
     );
   }
-  const record = await readRecord<RunRecord>(file, RUN_RECORD_VERSION);
+  const record = await readRecord<RunRecord>(file);
+  if (record.format !== RUN_FORMAT || missingField(record)) {
+    throw new RunUnreadable(`${workflow}/${id}`, record);
+  }
   return { root, dir, record };
 }
+
+/**
+ * A run this awf does not read: its `run.json` has no `format`, made by an awf before the record
+ * had one, or one this awf doesn't know. Nothing else of it is read.
+ */
+export class RunUnreadable extends RunRefused {
+  /** `run.json`'s `created`, when it has one: where `awf runs` lists it. */
+  readonly created?: string;
+  /** Whether it is a run with events, which `awf tick` would have woken. */
+  readonly events: boolean;
+  readonly why: string;
+  constructor(
+    readonly ref: string,
+    record: { format?: unknown; created?: unknown; events?: unknown },
+  ) {
+    const why = unreadableWhy(record);
+    super(`${ref} is unreadable: ${why}`);
+    this.why = why;
+    this.name = "RunUnreadable";
+    if (typeof record.created === "string") this.created = record.created;
+    this.events = record.events === true;
+  }
+}
+
+function unreadableWhy(record: { format?: unknown }): string {
+  const { format } = record;
+  if (format === undefined) {
+    return "an earlier awf made it, before run.json had a format; this awf does not read it";
+  }
+  if (format !== RUN_FORMAT) {
+    return `its run.json is format ${said(format)}; this awf reads format ${RUN_FORMAT} only`;
+  }
+  return `its run.json has no ${missingField(record)} of the right type`;
+}
+
+/** The first field format 1 requires of `run.json` that `record` lacks, or has of another type. */
+function missingField(record: object): string | undefined {
+  const fields = record as Record<string, unknown>;
+  const strings = ["id", "workflow", "cwd", "created"] as const;
+  const string = strings.find((field) => typeof fields[field] !== "string");
+  if (string) return string;
+  const { argv } = fields;
+  if (!Array.isArray(argv) || !argv.every((each) => typeof each === "string")) return "argv";
+  if (!("sandbox" in fields)) return "sandbox";
+  return undefined;
+}
+
+const said = (value: unknown) => JSON.stringify(value)?.slice(0, 40) ?? String(value);
 
 /**
  * What a continue may be given: nothing that changes the run. argv is the run's, and its working
@@ -279,18 +329,30 @@ export function claimedOf(attempts: readonly AttemptRecord[]): ClaimedAttempt[] 
 
 /**
  * Every attempt file, in order, a failed launch's included: what `stuck` counts and the next
- * number follows. One that doesn't parse, or is newer than this awf, refuses; one gone since the
- * folder was listed was a refused attempt removing its own claim.
+ * number follows. One that doesn't parse refuses, and `run.json`'s `format` is their version; one
+ * gone since the folder was listed was a refused attempt removing its own claim.
  */
 export async function readAttemptFiles(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
   const dir = attemptsDir(run.dir);
   const numbered = await attemptNames(run);
   const records = await Promise.all(
-    numbered.map((name) =>
-      readRecord<AttemptRecord>(join(dir, name), ATTEMPT_RECORD_VERSION, { missing: true }),
-    ),
+    numbered.map(async (name) => {
+      const file = join(dir, name);
+      const record = await readRecord<AttemptRecord>(file, { missing: true });
+      const problem = record && attemptProblem(record);
+      if (problem) throw new RunRefused(`${file} could not be read: ${problem}`);
+      return record;
+    }),
   );
   return records.filter((record) => record !== undefined).sort((a, b) => a.attempt - b.attempt);
+}
+
+/** Why `record` isn't an attempt file this awf reads: its number and kind are what it relies on. */
+function attemptProblem(record: AttemptRecord): string | undefined {
+  const { attempt, kind } = record as { attempt?: unknown; kind?: unknown };
+  if (!Number.isSafeInteger(attempt) || (attempt as number) < 1) return "no positive attempt";
+  if (kind !== "attempt" && kind !== "failed-launch") return `kind ${said(kind)} is unknown`;
+  return undefined;
 }
 
 /** No ending, and its process still the one that started it. */
@@ -378,7 +440,6 @@ export async function claimAttempt(
   let n = (earlier.at(-1)?.attempt ?? 0) + 1;
   for (;;) {
     const record: ClaimedAttempt = {
-      version: ATTEMPT_RECORD_VERSION,
       attempt: n,
       kind: "attempt",
       file: fields.file,
@@ -435,7 +496,6 @@ export async function recordFailedLaunch(
   const dir = attemptsDir(run.dir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const record: FailedLaunch = {
-    version: ATTEMPT_RECORD_VERSION,
     attempt: failed.attempt,
     kind: "failed-launch",
     launch: failed.launch,
@@ -609,29 +669,23 @@ export function logFile(runDir: string): string {
   return join(runDir, "log.jsonl");
 }
 
-async function readRecord<T extends { version: number }>(file: string, known: number): Promise<T>;
-async function readRecord<T extends { version: number }>(
+async function readRecord<T>(file: string): Promise<T>;
+async function readRecord<T>(file: string, options: { missing: true }): Promise<T | undefined>;
+async function readRecord<T>(
   file: string,
-  known: number,
-  options: { missing: true },
-): Promise<T | undefined>;
-async function readRecord<T extends { version: number }>(
-  file: string,
-  known: number,
   options: { missing?: true } = {},
 ): Promise<T | undefined> {
-  let record: T;
+  let record: unknown;
   try {
-    record = JSON.parse(await readFile(file, "utf8")) as T;
+    record = JSON.parse(await readFile(file, "utf8"));
   } catch (error) {
     if (options.missing && isCode(error, "ENOENT")) return undefined;
     throw new RunRefused(`${file} could not be read: ${(error as Error).message}`);
   }
-  if (typeof record?.version !== "number") throw new RunRefused(`${file} has no version`);
-  if (record.version > known) {
-    throw new RunRefused(`${file} is version ${record.version}, newer than this awf reads`);
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new RunRefused(`${file} could not be read: not a JSON object`);
   }
-  return record;
+  return record as T;
 }
 
 /** So no run is committed by accident, as pytest and ruff keep their caches. */

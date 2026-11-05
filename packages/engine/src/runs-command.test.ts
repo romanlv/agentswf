@@ -40,7 +40,7 @@ async function makeRun(
   mkdirSync(join(run.dir, "attempts"), { recursive: true });
   for (const [index, fields] of attempts.entries()) {
     await writeJson(join(run.dir, "attempts", `${index + 1}.json`), {
-      version: 1,
+      kind: "attempt",
       attempt: index + 1,
       file: join(cwd, "review.ts"),
       flags: { timeout: "1h" },
@@ -129,7 +129,7 @@ describe("awf runs", () => {
         new Date(T(13)).toTimeString().slice(0, 5),
       ),
     );
-    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90s$/);
+    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c2\.\S+ --wait 90s$/);
   });
 
   test("a failed run says why, where its records are, and where to look", async () => {
@@ -161,7 +161,11 @@ describe("awf runs", () => {
     expect(lines[0]).toBe("implement-ticket/r2  failed  stage review  9m00s");
     expect(lines).toContain("reason: turn deadline exceeded (worker, turn 6)");
     expect(
-      lines.some((line) => line.startsWith("records: ") && line.endsWith("(report.md, out.json)")),
+      lines.some(
+        (line) =>
+          line.startsWith("records: ") &&
+          line.endsWith("(run.jsonl, log.jsonl, ops/, out.json, report.md)"),
+      ),
     ).toBe(true);
     expect(lines.at(-2)).toBe("see: awf logs implement-ticket/r2 --agent worker --limit 30");
     expect(lines.at(-1)).toBe("continue: awf run review.ts --id r2 --continue");

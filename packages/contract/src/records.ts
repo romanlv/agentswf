@@ -358,9 +358,10 @@ export type AgentSkillsRecord = {
   home?: string;
 };
 
-export const RUN_RECORD_VERSION = 1 as const;
-
-/** The version of `run.json`, `run.jsonl`, `in.jsonl` and the attempt files together. */
+/**
+ * The version of `run.json`, `run.jsonl`, `in.jsonl` and the attempt files together. A run without
+ * it, or with another, is not read.
+ */
 export const RUN_FORMAT = 1 as const;
 
 /**
@@ -369,9 +370,8 @@ export const RUN_FORMAT = 1 as const;
  * Tier: public, stable.
  */
 export type RunRecord = {
-  version: typeof RUN_RECORD_VERSION;
   /** A reader that doesn't know it refuses the run. */
-  format?: typeof RUN_FORMAT;
+  format: typeof RUN_FORMAT;
   /** Unique within its workflow; its folder's name. */
   id: string;
   /** The workflow's `meta.name`, never its file. */
@@ -512,8 +512,6 @@ export {
   type TimerView,
 } from "./run-lines";
 
-export const ATTEMPT_RECORD_VERSION = 1 as const;
-
 /**
  * `attempts/{attempt}.json`: an attempt of a run. Most are a `ClaimedAttempt`; a background launch
  * that never claimed its number is a `FailedLaunch`, its `kind` the one field to tell them
@@ -526,7 +524,6 @@ export type AttemptRecord = ClaimedAttempt | FailedLaunch;
  * with its ending. Tier: public, stable.
  */
 export type ClaimedAttempt = {
-  version: typeof ATTEMPT_RECORD_VERSION;
   attempt: number;
   kind: "attempt";
   /**
@@ -567,7 +564,6 @@ export type ClaimedAttempt = {
  * it as an attempt that ran. Tier: public, stable.
  */
 export type FailedLaunch = {
-  version: typeof ATTEMPT_RECORD_VERSION;
   attempt: number;
   kind: "failed-launch";
   /** The launch, whose output is `launches/{launch}.log`. */
@@ -1090,6 +1086,8 @@ export type LogEventJson = { handle: string; at: string } & (
       /** A turn or compaction that ended without an answer: the file holding what its pane showed. */
       screen?: string;
     })
+  /** A `run.jsonl` line that first names a session, its handle `r{n}`. */
+  | Extract<RunLine, { kind: "session" }>
 );
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -1230,6 +1228,8 @@ export type TickResultJson = {
     did: "started" | "continued";
     why: "event" | "timer" | "crashed" | "failed";
   }[];
+  /** Runs with events whose record can't be read, so not woken; `awf runs` says why. */
+  unreadable?: string[];
 };
 
 /** `awf inbox --json` when it read nothing. */

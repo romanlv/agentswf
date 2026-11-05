@@ -16,7 +16,9 @@ narrower case, a run continued from its stages, and leaves the journal shelved.
 - **A continue reuses what succeeded and runs the rest.** Until the attempt reaches its start point,
   `--from-stage` or else the first stage with no succeeded record, a stage's work isn't called and
   its recorded value is returned. From the start point on, every stage runs, and the records it
-  makes stale move to `replaced/`. A record that no longer fits (its schema rejects it, another
+  makes stale move to `replaced/`. *Amended by [[0014-a-run-settles-its-facts-as-lines|ADR 0014]]:*
+  nothing moves; the start point's `stage` line carries `redo`, and a later stage whose line is
+  older runs again. A record that no longer fits (its schema rejects it, another
   major `meta.version`) stops the attempt with the command to go on; it never reruns on its own.
 - **State moves into the project,** from `~/.awf/runs` to `.awf/runs/{workflow}/{id}/` in the
   run's working directory, as files: `run.json` once, an attempt file each, one record per stage.

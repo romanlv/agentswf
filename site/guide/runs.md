@@ -113,11 +113,10 @@ that succeeded. Use it when a stage's record is wrong, after a fix you want this
 on a completed run: a plain continue of a completed run is refused, with its recorded stages
 listed to choose from.
 
-A run with [events](/guide/events) redoes the same way, on a continue, and its record differs
-from a plain run's only in when the later records move: each as the code reaches its stage, not
-all at once. The stages before it are reused by content. After it, in this attempt and every later
-one, a stage whose record is older than the redo runs again when the code enters it, so an attempt
-that parks partway still leaves the next wake to redo the rest. A race keeps the answer it
+A run with [events](/guide/events) redoes the same way, on a continue. The stages before it are
+reused by content. After it, in this attempt and every later one, a stage whose record is older
+than the redo runs again when the code enters it, so an attempt that parks partway still leaves
+the next wake to redo the rest. A race keeps the answer it
 recorded, so a stage after one runs on the same event; an event `receive` or `select` took and
 acknowledged isn't taken again, so a stage that handled one isn't reached, keeps its record and
 isn't redone. An attempt that would park before it reaches the stage stops instead, as one that

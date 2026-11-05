@@ -11,6 +11,7 @@ import {
   openRun,
   probeProcess,
   type Run,
+  RunUnreadable,
   readAttemptFiles,
   sameStart,
 } from "./runs";
@@ -130,16 +131,33 @@ export async function listRuns(
   runRoot: string,
   known?: (dir: string) => Run | undefined,
 ): Promise<Run[]> {
-  const runs: Run[] = [];
+  return (await listRunEntries(runRoot, known)).filter(
+    (each): each is Run => !(each instanceof RunUnreadable),
+  );
+}
+
+/**
+ * The same, with each run of a `format` this awf does not read in its place by `created`, the
+ * last when it has none: `awf runs` lists them `unreadable`.
+ */
+export async function listRunEntries(
+  runRoot: string,
+  known?: (dir: string) => Run | undefined,
+): Promise<(Run | RunUnreadable)[]> {
+  const runs: (Run | RunUnreadable)[] = [];
   for (const workflow of await entries(runRoot).catch(() => [])) {
     for (const id of await entries(join(runRoot, workflow)).catch(() => [])) {
       const run =
         known?.(join(runRoot, workflow, id)) ??
-        (await openRun(runRoot, workflow, id).catch(() => undefined));
+        (await openRun(runRoot, workflow, id).catch((error: unknown) =>
+          error instanceof RunUnreadable ? error : undefined,
+        ));
       if (run) runs.push(run);
     }
   }
-  return runs.sort((a, b) => b.record.created.localeCompare(a.record.created));
+  const created = (each: Run | RunUnreadable) =>
+    each instanceof RunUnreadable ? (each.created ?? "") : each.record.created;
+  return runs.sort((a, b) => created(b).localeCompare(created(a)));
 }
 
 /**
@@ -176,8 +194,16 @@ export async function findRun(
     const run = await openRun(runRoot, workflow, id);
     return { status: await runStatus(run, probe), alsoRunning: [] };
   }
-  const found = (await listRuns(runRoot)).filter((run) => run.record.id === ref);
-  if (found.length === 0) throw new RunNotFound(`no run ${ref} under ${runRoot}`);
+  const listed = await listRunEntries(runRoot);
+  const found = listed.filter(
+    (run): run is Run => !(run instanceof RunUnreadable) && run.record.id === ref,
+  );
+  if (found.length === 0) {
+    // A run of an earlier format says so, as it does named by its workflow.
+    const old = listed.find((run) => run instanceof RunUnreadable && run.ref.endsWith(`/${ref}`));
+    if (old) throw old;
+    throw new RunNotFound(`no run ${ref} under ${runRoot}`);
+  }
   if (found.length > 1) {
     const refs = found.map((run) => `${run.record.workflow}/${ref}`).join(", ");
     throw new RunNotFound(`${ref} names a run of more than one workflow: ${refs}`);
@@ -225,12 +251,15 @@ export async function findRunByRef(
   place: { runRoot: string },
   home: string,
 ): Promise<RunStatus> {
-  // Here first: what `--cwd` names wins.
-  let here: RunNotFound;
+  // Here first: what `--cwd` names wins. A run an earlier awf made is said only where no run
+  // that reads has the ref.
+  let here: RunNotFound | RunUnreadable;
+  let old: RunUnreadable | undefined;
   try {
     return (await findRun(place.runRoot, ref)).status;
   } catch (error) {
-    if (!(error instanceof RunNotFound)) throw error;
+    if (error instanceof RunUnreadable) old = error;
+    else if (!(error instanceof RunNotFound)) throw error;
     here = error;
   }
   const found: RunStatus[] = [];
@@ -238,7 +267,8 @@ export async function findRunByRef(
     try {
       found.push((await findRun(projectRunRoot(project), ref)).status);
     } catch (error) {
-      if (!(error instanceof RunNotFound)) throw error;
+      if (error instanceof RunUnreadable) old ??= error;
+      else if (!(error instanceof RunNotFound)) throw error;
     }
   }
   // Workflows of one name in two projects make the same ref: naming the project is the caller's.
@@ -247,6 +277,7 @@ export async function findRunByRef(
       `${ref} is a run in ${found.length} projects, ${found.map((each) => each.run.record.cwd).join(" and ")}; --cwd names one`,
     );
   if (found[0]) return found[0];
+  if (old) throw old;
   // Nowhere: a ref that can't name a run, malformed or naming two workflows, says why.
   if (malformedRef(ref) || here.message.includes("more than one workflow")) throw here;
   throw new RunNotFound(`no run ${ref} under ${place.runRoot}, or in a project awf knows`);

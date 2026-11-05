@@ -59,8 +59,8 @@ release, a support case. The id is that thing's own key, `212` here, and the run
 workflow, `wf.runId` is the id.
 
 An event for an id with no run starts one if `starts` lists it, and is refused if not. An event for
-a run that exists lands in its **mailbox**, whether the run is working or parked, and wakes it if
-it is parked.
+a run that exists is kept with the run until a wait takes it, whether the run is working or
+parked, and wakes it if it is parked.
 
 ## Sending events
 
@@ -94,15 +94,15 @@ What sends events on a schedule or from a webhook, and what wakes a run whose ti
 
 ## Taking events
 
-`wf.receive()` returns every event waiting in the mailbox, in the order they arrived; the first
+`wf.receive()` returns every event waiting for the run, in the order they arrived; the first
 call returns the event that started the run. Each call acknowledges what the last one returned.
 Events that arrive while the run is busy, as two failures did during a fix, wait and come back
 together from the next call, so the code can act on the latest and skip the rest.
 [`select`](#race-and-select) takes one at a time. `label` is what `awf runs` shows while the run
 waits there.
 
-A run parks when it waits with nothing else of it working: no agent turn, no stage, and nothing in
-the mailbox for the wait to take. Waiting while a turn runs keeps the process, so an agent can work
+A run parks when it waits with nothing else of it working: no agent turn, no stage, and no event
+waiting for the wait to take. Waiting while a turn runs keeps the process, so an agent can work
 while the code goes on taking events: `agent.start()` launches a turn without awaiting it, and its
 end arrives at a wait as `fixer:ended`, which the workflow declares, with the outcome. The race
 below uses one.
@@ -110,8 +110,8 @@ below uses one.
 
 ## Race and select
 
-`receive` takes whatever is in the mailbox. Two waits take only what you name, each branch a
-source of events.
+`receive` takes whatever is waiting. Two waits take only what you name, each branch a source of
+events.
 
 **`race`** waits for the first of its branches. Here the fix runs as a started turn, so the run
 can take events while the agent works, and a pull request closing mid-fix cuts it short:
@@ -134,9 +134,9 @@ Both samples are checked and tested, in
 
 ## Timers
 
-A timer is an event the run sends itself. `wf.timer("review-due", "2d")` records a time, and when
-it comes due a `timer:due` event lands in the mailbox, which `receive`, `race` and `select` take
-like any other. A race's branch can also be a duration, such as `quiet: "1d"`, and `wf.sleep`
+A timer is an event the run sends itself. `wf.timer("review-due", "2d")` records a time, and once
+it is due a wait takes it as a `timer:due` event: `receive`, `race` and `select` take it like any
+other. A race's branch can also be a duration, such as `quiet: "1d"`, and `wf.sleep`
 waits until a time and goes on. A parked run's timer fires at the next `awf tick`.
 
 [Timers](/guide/timers) has the examples, how to move a timer, and when a due one fires.
@@ -153,7 +153,7 @@ waits until a time and goes on. A parked run's timer fires at the next `awf tick
   name throws. In a loop, name it `approval-{round}`, as
   [`examples/approval-reminders`](https://github.com/romanlv/agentswf/tree/main/examples/approval-reminders)
   does.
-- **A race takes only what it names.** Other events stay in the mailbox for a later wait, and don't
+- **A race takes only what it names.** Other events stay for a later wait, and don't
   wake a run parked at the race: a second `ci.failed` during the fix above waits there unread.
 - **Work beside a wait is cut off.** Code running alongside a wait, outside any awf call, stops
   when the run parks and runs again on the next wake. Work that must finish goes in a stage or

@@ -106,7 +106,7 @@ test("an event during a turn is taken before the turn ends", async () => {
   expect(run.value).toEqual(["triage", "investigator"]);
 });
 
-test("cancel returns once the cancelled end is in the mailbox, and at once on an ended turn", async () => {
+test("cancel returns once the cancelled end is recorded for a wait, and at once on an ended turn", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();

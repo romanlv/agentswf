@@ -1,14 +1,14 @@
 ---
 title: A run's record
 type: design
-story: "[[run-record-layout]]"
+story: "[[041-run-record-layout]]"
 ---
 
 # A run's record
 
-The layout a run's folder should have, designed as a whole, answering [[run-record-layout]].
-Nothing here is built, and it ignores compatibility on purpose: a run made before it is listed
-`unreadable` and not read. It keeps [[0011-a-run-continues-from-its-stages|ADR 0011]]'s model
+The layout a run's folder has, designed as a whole, and built by
+[[041-run-record-layout|story 041]]. It ignores compatibility on purpose: a run made before it is
+listed `unreadable` and not read. It keeps [[0011-a-run-continues-from-its-stages|ADR 0011]]'s model
 (stages reused by name, code run again from the top, no replay of calls) and 037's and 039's rules
 for waits, timers, races, acknowledgements and redos as they are built; it changes where their
 facts are kept, and how a reader finds them.
@@ -27,12 +27,12 @@ facts are kept, and how a reader finds them.
 Three rules make the split hold:
 
 - **Nothing reads the log to decide what the run reuses, takes or wakes for.** Stories 028 and
-  039 say this of `turns.jsonl` ("`--continue` never reads it"), and the engine breaks it: a run
-  with events resumes its agents' sessions from turn lines (`workflow-runner.ts`,
-  `keptSessionsOf(readTurns(…))`). Here a session is a settled fact. The log may still be read to
+  039 said this of `turns.jsonl` ("`--continue` never reads it"), and before 041 the engine broke
+  it: a run with events resumed its agents' sessions from turn lines
+  (`keptSessionsOf(readTurns(…))`). Here a session is a settled fact. The log may still be read to
   present a run, or to choose a default the live run then checks, as `awf reply` picks the
-  question a participant answers (`holder-command.ts`, `awaitedBy`). `awf send --event-id` gates
-  on the log today; 039's task 10 removes it.
+  question a participant answers (`holder-command.ts`, `awaitedBy`). `awf send --event-id` still
+  gates on the log; 039's task 10 removes it.
 - **A settled fact is written once, in one place.** The log may *name* what settled ("stage `plan`
   succeeded") so it reads as a whole story, but never carries a value a continue reads.
 - **`run.jsonl` is a closed set of lines with a published reading.** Its line types and
@@ -68,15 +68,17 @@ Harness working space is none of these: it moves under `work/`.
 
 Gone: `stages/`, `replaced/`, `mailbox.jsonl`, `turns.jsonl`, `calls/`, `decisions/`,
 `process.log`, and `output.json`, renamed `out.json`. `agents/`, `staging/`, `forks/` and `skills/`
-move under `work/`. Every run has this folder, with events or without: 037 already gave every run a mailbox for its timers, so "with events
-only" stops being a layout distinction (`data.md` says it still is, which is already out of date).
+move under `work/`. Every run has this layout, with events or without; only `in.jsonl`,
+`launches/` and `{id}.lock` belong to a run with events: they are made by a sender, a background
+launch and the lock a sender takes.
 
 ## run.json: identity
 
-As today, written into `.new-{random}/` and claimed by renaming the folder to `{id}`, plus
-`format`, the version of the whole record, and 040's `args`. A run an event starts has that event
-written into `.new-{random}/in.jsonl` before the rename, so no run exists without the event
-that made it (today a crash between making the run and appending its event leaves one, `emit.ts`).
+Written into `.new-{random}/` and claimed by renaming the folder to `{id}`, with `format`, the
+version of the whole record, and `args`, typed for 040 and not yet written. A run an event starts
+has that event written into `.new-{random}/in.jsonl` before the rename, so no run exists without
+the event that made it (before 041, a crash between making the run and appending its event left
+one).
 
 ```ts
 type RunRecord = {
@@ -88,7 +90,7 @@ type RunRecord = {
 
 `format` versions `run.json`, `run.jsonl`, `in.jsonl` and the attempt files
 together: a reader that doesn't know it refuses the run. The log and the operation files keep a
-`version` per kind or file, as today, since they are read only to present.
+`version` per kind or file where they had one, since they are read only to present.
 
 ## run.jsonl: what the run settled
 
@@ -119,7 +121,7 @@ type RunLine = { attempt: number; at: string } & (
       acks?: EventId[]; state?: Saved; returns?: true }
   // a turn that outlives the call that began it, start(); its end is an event a wait takes
   | { kind: "turn-started"; agent: AgentKey; turn: TurnId; meta: JsonValue; execution: AgentExecution }
-  | { kind: "turn-ended"; id: EventId; agent: AgentKey; turn: TurnId; began: number; end: TurnEnd }
+  | { kind: "turn-ended"; id: EventId; agent: AgentKey; turn: TurnId; began: number; end: AgentEnded }
   // an agent's native session, as soon as it is known
   | { kind: "session"; agent: AgentKey; harness: HarnessKind; session: string;
       operation?: string; home?: string }
@@ -127,7 +129,7 @@ type RunLine = { attempt: number; at: string } & (
 ```
 
 Nine kinds, `claimed` among them. Each has one moment it is written and a reader that needs it; a
-timer's cancelling is the timer's own line again, so every key is one kind. Names are run-wide, as they are today: a
+timer's cancelling is the timer's own line again, so every key is one kind. Names are run-wide: a
 child call's scope (`wf.call`, designed and unbuilt) is a field it adds with a new `format`.
 
 A turn has three records, each a different fact: its operation's folder is what it was asked and
@@ -152,14 +154,14 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
 - **A timer is `due` at its time.** Whether it has fired is the reader's to say against its own
   clock: `wake`, `awf tick` and a wait compare `due` with now; `awf runs` shows a finished run's
   untaken timer as due and untaken, which is true. A fired timer is never written as an event: a wait
-  that takes it names it in its `took` by today's id, `awf.timer.{hash}` of its name, with the
+  that takes it names it in its `took` by its derived id, `awf.timer.{hash}` of its name, with the
   name beside it as `timer`, and a `workflow.at` time read from state by `awf.at.{hash}` of its
   branch and time, with `branch` and `due` beside the id, so a reader can say what each was without
   deriving an id. That removes 037's appended event whose `at` is
   earlier than the lines above it, and the run's only reason to write its own inbox.
 - **A turn is (agent, turn, began).** `began` is the attempt that started it: code rerun from the
   top begins the same turn id again in a later attempt, and that is a turn of its own. Its end's id is
-  `awf.end.{hash}` of the three, as today, so one end is ever kept. `turn-ended.end` is the `TurnEnd`
+  `awf.end.{hash}` of the three, so one end is ever kept. `turn-ended.end` is the `AgentEnded`
   the code was handed (`{ turn, meta, outcome }`), so a held end returned after a crash is the event
   the code saw; its usage is what the code saw, and `spend.json` stays the account.
 - **An operation's sessions**, which accounting and `awf logs` read, are its agent's `session` line
@@ -206,7 +208,7 @@ never parks short of the redo stage (`FromStageUnreached`).
 
 ### Taking and acknowledging
 
-Today's rules, made explicit as fields:
+037's and 039's rules, made explicit as fields:
 
 | Wait | Takes | Acknowledges | Writes |
 | --- | --- | --- | --- |
@@ -234,10 +236,10 @@ Today's rules, made explicit as fields:
 
 - **One writer, fenced by a claim.** Only the attempt that holds the run appends, so no lock. Before
   it reads the file, a new attempt waits until the previous attempt's process is gone, for every run
-  (today `previousGone` waits only for runs with events, `run-prepare.ts`); truncates the file to its
+  (before 041 `previousGone` waited only for runs with events); truncates the file to its
   last newline, so a torn line a crash left never merges with the next; and appends `claimed`. Then
   it reads. Waiting for attempt *N−1* alone is enough because a refused claim unlinks its own file, so
-  no attempt below it can still be live. The wait is bounded as today (five minutes, then `SIGTERM`,
+  no attempt below it can still be live. The wait is bounded (five minutes, then `SIGTERM`,
   then `SIGKILL`), with the lock free meanwhile, so a sender's event waits in `in.jsonl`; a kill
   mid-close can leave panes or sandboxes, which is [[crash-leftovers-reaper]]'s to clean.
 - **The fence** is there because that `SIGKILL` isn't confirmed (`runs.ts`, `previousGone`): any line
@@ -258,7 +260,7 @@ Today's rules, made explicit as fields:
   an end is seen by its live attempt, or its attempt ended with the turn in flight (crashed, stopped,
   timed out or failed). Then the next attempt writes, right after its `claimed` and before any wait or
   `spend.json`, a `turn-ended` for every `turn-started` with none, matched on the turn's three parts.
-  Only the live attempt and this recovery write ends today too (`mailbox.ts`, `recoverTurns`).
+  Only the live attempt and this recovery write ends.
 
 ### What is published
 
@@ -303,9 +305,8 @@ lock sees both what the run waits for and whether it has ended.
 
 `attempts/{n}.json` is still claimed by one `link` and still says whether an attempt is live (`pid`
 and `processStart`). It keeps what only an attempt knows: `file`, `workflowVersion`, `flags`,
-`messageLimits`, `launch`, `started`, `ended`, `outcome`, `reason`, `stage`; a parked attempt's
-`label` and `until`; a stopped one's `needs`; and a completed one's `value`, the run's return value,
-which today only `output.json` keeps. `awf emit` refuses a returned run, and 040's `run.ended()`
+`messageLimits`, `launch`, `started`, `ended`, `outcome`, `reason`, `stage`; and a completed one's
+`value`, the run's return value, which before 041 only `output.json` kept. `awf emit` refuses a returned run, and 040's `run.ended()`
 reads its ending, from here. It loses `stages`, which `run.jsonl` has; `unacknowledged`, which the
 engine counts from the `took` and `wait` lines; and `accounting`, a priced total: foundation §8 prices a run when it is summed, never
 when it is written, so a run's cost is its operations' `spend.json` priced at read, and only
@@ -315,8 +316,7 @@ processes belongs in this file when it is designed.
 A start or continue that `awf emit` or `awf tick` launched in the background and that died before
 its attempt claimed a number, such as a file that no longer loads, is an attempt file too, linked by
 the launcher once the child has exited, or was stopped when it gave up on it: `{ attempt,
-kind: "failed-launch", launch, file, started, ended, outcome: "failed", reason }` (and `version`
-until `format` replaces it), with no `pid`; a claimed attempt's `kind` is `"attempt"`, and the
+kind: "failed-launch", launch, file, started, ended, outcome: "failed", reason }`, with no `pid`; a claimed attempt's `kind` is `"attempt"`, and the
 contract's `AttemptRecord` is the union of the two. If the child did claim that number first, the launcher's `link` fails, which is the
 right answer. So `stuck`, three failed or crashed attempts in a row, reads attempt files only.
 Everything else reads the attempts that claimed their number: a run's state and wait, what a wake
@@ -330,36 +330,35 @@ spawns and hands the child its id (`AWF_LAUNCH`), which the attempt records as `
 
 ## log.jsonl: what happened
 
-`turns.jsonl` renamed for what it is: every `RunEvent` kind and every settled turn's line, as
-today, with these changes:
+`turns.jsonl` renamed for what it is: every `RunEvent` kind and every settled turn's line, with
+these changes from before 041:
 
 - `session-known`, and the `sessions` on turn and `operation-started` lines, go: they are
   `run.jsonl`'s `session`.
-- What only `output.json` holds today gets a line as it happens: `sandbox-opened` (a
+- What only `output.json` held gets a line as it happens: `sandbox-opened` (a
   `SandboxRecord`), the agent's skills and its pane's placement on `agent-opened`, and a pane's
   `kept` or `notKept` on `agent-stopped`, decided at close.
 - A decision's lines carry its `operation`.
 
 `attempt-started` and `attempt-ended` stay, as the story's narration: `awf logs` prints them, and
-`run-read.ts` closes each agent's window of native activity on `attempt-ended`. Written best effort,
-as today: a failed write is warned about and the run goes on. That is why nothing that acts on the
+`run-read.ts` closes each agent's window of native activity on `attempt-ended`. Written best effort: a failed write is warned about and the run goes on. That is why nothing that acts on the
 run reads it, and why `out.json` isn't built from it.
 
 ## ops/{op}/: one folder per operation
 
-Today's `calls/{operationId}/` for turns and `decisions/{n}.json` for decisions become one folder per
-operation: a turn, a message operation, a compaction, a decision, or an agent's start that failed,
+Before 041, `calls/{operationId}/` held turns and `decisions/{n}.json` decisions; now there is one
+folder per operation: a turn, a message operation, a compaction, a decision, or an agent's start that failed,
 which already has an operation id (`operation-failed` "may have no start").
 
 ### Op ids
 
 An operation's id names whose it is and which: `{agent}.{n}`, the agent's `n`th operation in the
 run, or `{decision}.{n}`, the `n`th asking of the decision keyed `{decision}`. So a path reads
-`ops/reviewer.3/screen.txt`, where today it reads `calls/e5277958-d7a5-4f6a-954a-714d16371a2a/`, and
+`ops/reviewer.3/screen.txt`, where it read `calls/e5277958-d7a5-4f6a-954a-714d16371a2a/`, and
 `awf logs` and the log's lines show the same id.
 
 - **`n` counts from 1 across the run's attempts**, so an id is never reused and an earlier attempt's
-  decisions are no longer overwritten (today they are, and written without a rename). An attempt
+  decisions are no longer overwritten (before 041 they were, and written without a rename). An attempt
   learns each key's last `n` by listing `ops/` once as it claims the run, once the previous attempt
   is gone; it is the only writer, so nothing else takes a number meanwhile. An operation's folder
   and `op.json` are written as its id is drawn, before any line names it; one that can't be
@@ -374,18 +373,18 @@ run, or `{decision}.{n}`, the `n`th asking of the decision keyed `{decision}`. S
   as a decision already asked, is refused, so `{key}.{n}` is one operation. An earlier attempt's
   key is the kind its highest-numbered readable `op.json` says.
 - A message operation, a nudge's turn and a compaction are their agent's operations and take its
-  next `n`; a nudge within an operation is that operation's, as today.
+  next `n`; a nudge within an operation is that operation's.
 
 ### Its files
 
 | File | Holds |
 | --- | --- |
-| `op.json` | what it is: `id`, `kind`, `at`, `attempt`, `stage`; an agent's operation's `agent`, `execution` and `cwd`, what its spend is read with; a turn's question and `schema` (today's `call.json`) |
-| `answers.jsonl`, `result.json` | each answer offered, refused ones with why, and the one accepted (today's `candidates.jsonl`) |
-| `decision.json` | a decision's request and answers, today's `DecisionArtifact` |
+| `op.json` | what it is: `id`, `kind`, `at`, `attempt`, `stage`; an agent's operation's `agent`, `execution` and `cwd`, what its spend is read with; a turn's question and `schema` (before 041, `call.json`) |
+| `answers.jsonl`, `result.json` | each answer offered, refused ones with why, and the one accepted (before 041, `candidates.jsonl`) |
+| `decision.json` | a decision's request and answers, a `DecisionArtifact` |
 | `spend.json` | an agent operation's settled usage: billing, spend per model, charge, its delivery and settle times, and `settledBy` when the next attempt read it; a decision's is its `decision.json` record |
-| `live.jsonl` | delivery and nudge diagnostics (today's `liveness.jsonl`) |
-| `screen.txt` | what the pane showed when it ended without an answer or its agent failed to start ([[non-answered-evidence]]; built, in today's `calls/`) |
+| `live.jsonl` | delivery and nudge diagnostics (before 041, `liveness.jsonl`) |
+| `screen.txt` | what the pane showed when it ended without an answer or its agent failed to start ([[non-answered-evidence]]) |
 
 `spend.json` is a measurement taken once, while the native session files exist, so it is recorded,
 not derived; every total is summed from it, or a decision's `decision.json`, with `op.json`'s
@@ -409,8 +408,8 @@ for a codex agent with a home of its own.
 
 ## Views
 
-`out.json` is the attempt's published result, today's `output.json` renamed, written at its end
-from what the attempt holds in memory, as today, and printed by `awf run --json`, which the lab
+`out.json` is the attempt's published result, `output.json` renamed, written at its end from what
+the attempt holds in memory, and printed by `awf run --json`, which the lab
 parses. Its shape stays the published `OutputRecord`, priced with the table the attempt ran with. It is a full second copy, as a
 view is, and nothing in it is only there any more: the value is the attempt file's, spend the
 operations', stages `run.jsonl`'s, and sandboxes, skills and panes the log's, best effort. `report.md` is the workflow's own text. Delete either and
@@ -438,7 +437,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 
 ## Reading it
 
-| Question | Read | Today |
+| Question | Read | Before 041 |
 | --- | --- | --- |
 | Is an attempt live? | its file: no `ended`, and its `pid` with its `processStart` | same |
 | The run's status | the attempt files; `readRun`'s last wait for `waiting` | the attempt files, and the mailbox for `stuck` and `waiting` |
@@ -453,26 +452,26 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 
 ## Who changes
 
-| Reader or writer | Changes to |
+| Reader or writer | Now reads or writes |
 | --- | --- |
-| the stage plan and `attemptRefusal` (`stage-plan.ts`, `stage-ledger.ts`, `run-prepare.ts`, `runs.ts`) | the engine's pure reading of `run.jsonl`, where `stages/` was; `replaced/`, `replaceStale` and `sessionsOf` go; `lastRedo` reads `redo` lines |
+| the stage plan and `attemptRefusal` (`stage-plan.ts`, `stage-ledger.ts`, `run-prepare.ts`, `runs.ts`) | the engine's pure reading of `run.jsonl`, where `stages/` was; `replaced/`, `replaceStale`, `sessionsOf` and `lastRedo` went: the redo is `readRun`'s |
 | the waits (`waits.ts`, was `mailbox.ts`; their policy in `run-policy/waits.ts`) | the engine's merge of `in.jsonl`, `turn-ended` lines and due timers; writes `took`, `wait`, `race`, `timer`, `turn-started` and `turn-ended` to `run.jsonl`; no longer appends `timer:due`, `at:due` or `agent:ended` |
 | resuming a kept session | `session` lines, never the log |
 | claiming an attempt (`run-prepare.ts`) | waits for `previousGone` for every run, truncates, writes `claimed`, ends a crashed attempt's turns; the attempt's start (`spend.ts`, `settleEarlier`) settles missing `spend.json` before any agent opens |
 | `wake`, `awf tick`, `awf emit`, 040's client (`wake.ts`, `tick-command.ts`, `emit.ts`) | read the attempt files, `in.jsonl` (to dedupe and match the wait) and `readRun`'s wait and timers; `emit` writes a starting event into `.new-*/in.jsonl`; `wake` links a failed launch's attempt file, writes `launches/{launch}.log` and passes `AWF_LAUNCH` |
 | `run-state.ts` (`waiting`, `stuck`) | `readRun`, and the attempt files |
 | `awf runs`, `awf logs` (`run-view.ts`, `run-read.ts`, `runs-command.ts`, `logs-command.ts`) | the log for the story and the current stage; `run.jsonl` for stages' outcomes and values, waits and sessions; a stage's `value` in `awf runs --json`; the cursor spans the two files; cost from `spend.json` |
-| `awf inbox`, `awf reply` (`inbox-command.ts`, `holder-command.ts`) | the log, as today; wait labels from `readRun` |
+| `awf inbox`, `awf reply` (`inbox-command.ts`, `holder-command.ts`) | the log, as before; wait labels from `readRun` |
 | a continue's "interrupted in stage …" notice (`run-prepare.ts`) | the log's last `stage-started`: it presents, it doesn't decide |
 | the end of an attempt (`attempt-output.ts`) | writes the attempt's ending with `value`, `out.json` and `report.md`; no `stages`, `accounting` or `unacknowledged` |
-| result slots and operations (`result-slots.ts`, `runs.ts` `writeCall`…`readAccepted`, `writeScreen`, `operation-events.ts`) | `ops/{op}/`; the engine numbers operations per key where it now draws a UUID (`workflow-runner.ts`) |
+| result slots and operations (`result-slots.ts`, `ops.ts`, `operation-events.ts`) | `ops/{op}/`; the engine numbers operations per key where it drew a UUID (`workflow-runner.ts`) |
 | opening an agent, asking a decision | refuse a key that isn't a name, or that the other already uses |
 | accounting (`run-usage.ts`, `run-commands.ts`, `attempt-view.ts`) | `spend.json` with `op.json`, and a decision's `decision.json`, priced at read (`accounting/spent.ts`) |
 | decisions (`decisions/directory.ts`) | `ops/{decision}.{n}/decision.json`, written whole; `DecisionRecord.artifact` names it |
 | the harness's scratch (`run-skills.ts`, `workflow-runner.ts`) | `work/` |
 | workflow tests (`run-test.ts`, `testing.ts`) | `earlier: { stages, events, run }` (below); `TestRun.stages` becomes stage lines, a new type: each stage the attempt entered, in order, a reused one by the line it reused; `TestRun.mailbox` becomes `run` and `events`; due timers are no longer appended |
 | the lab | nothing: it parses `awf run --json` and globs run folders, and reads no `output.json` |
-| the site and `runs-command.ts`'s `records:` line | every page that names `output.json`, `calls/` or `turns.jsonl`, once built (`grep -rl output.json site`) |
+| the site and `runs-command.ts`'s `records:` line | the new files' names |
 
 ## How it fits the stories in progress
 
@@ -488,9 +487,10 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 - **037, timers.** Behaviour unchanged; a fired timer and a time read from state stop being written
   events and become ids a `took` names.
 - **[[workflow-state]].** Its record format is `state` on a wait or stage line, its save moment
-  today's acknowledging wait; it needs no store of its own, and its open "where people read it" has
+  the acknowledging wait; it needs no store of its own, and its open "where people read it" has
   an answer: `awf runs`, through `readRun`.
-- **040, a program drives runs.** Its `args` and `source` are in `run.json` and the event line; its
+- **040, a program drives runs.** Its `args` and `source` are typed in `run.json` and the event
+  line, and not yet written; its
   client takes the lock as `awf emit` does, and reads an ending from the attempt files.
 - **036, keep-alive.** A run parks only with no turn running, which is what lets a turn's end be
   the run's own fact.
@@ -542,7 +542,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
   adds a scope to every name-keyed line and derived id, and a settled call result under its id: a new
   `format`, which is what `format` is for. Reserving the field now would publish a shape for an
   interface nobody has used.
-- **`returns` and the first-wait rule** are carried over from today's waits as built. If either
+- **`returns` and the first-wait rule** are carried over from the waits as 037 built them. If either
   exists only by accident, dropping it is a behaviour change for 037's waits, and cheaper before this
   format is published than after.
 - **`awf runs`'s cost over many runs.** Priced at read, a listing reads every operation's `spend.json`

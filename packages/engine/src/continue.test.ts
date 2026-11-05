@@ -431,7 +431,7 @@ describe("a continue's lines", () => {
     // attempt with no ending, and no line for its stage.
     const dir = join(root, "staged", "r1");
     await writeJson(join(dir, "attempts", "2.json"), {
-      version: 1,
+      kind: "attempt",
       attempt: 2,
       file: "staged",
       flags: { fromStage: "implement" },

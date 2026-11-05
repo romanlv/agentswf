@@ -25,7 +25,8 @@ designs. Each fact has one home, chosen by who writes it and who relies on it:
 
 Why now: record formats are what everything else builds on: `awf logs`, `awf runs`, 040's client, an
 agent reading a run, a dashboard, the optimizer. Today's layout grew one story at a time, and
-[[run-record-layout]] measured seven places where it has drifted, on 2026-11-04:
+the todo `run-record-layout`, now folded in here, measured seven places where it has drifted, on
+2026-11-04:
 
 - a step's answer has three stores;
 - the mailbox holds the run's own lines;
@@ -117,7 +118,7 @@ Out of scope:
 ## Context and evidence
 
 - **Fact:** the design, its measurements and the alternatives it set aside are
-  `docs/design/run-record.md`. The drift list is [[run-record-layout]].
+  `docs/design/run-record.md`. The drift list is the Outcome's, from the todo `run-record-layout`.
 - **Fact:** today a continue reads the log. A run with events resumes its agents' sessions through
   `keptSessionsOf(await readTurns(runDir))` and recovers turns through `recoverTurns`, both called
   from `workflow-runner.ts:633-637`.
@@ -313,7 +314,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 - [x] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
 - [x] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
 - [x] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
-- [ ] 8. Readers, site and docs; old runs are `unreadable`
+- [x] 8. Readers, site and docs; old runs are `unreadable`
 
 ## Open questions
 
@@ -572,7 +573,7 @@ Work:
 - A run without `format`, or with an unknown one, is listed `unreadable`.
 - The docs: the site pages, `runs-and-stages.md`, `docs/status.md`, the lab's `reference.md`, the
   comments and messages in the code map, and 039's line 723.
-- The todos this story finished are folded in: [[run-record-layout]], and the record parts of
+- The todos this story finished are folded in: `run-record-layout`, and the record parts of
   [[non-answered-evidence]] and [[interrupted-accounting-read]].
 
 Done when:
@@ -1645,6 +1646,134 @@ ends:
   passes, every link and anchor resolving. No subagent review was run in this pass, and no live
   eval: the evals that glob `out.json` (`tests/calling-session.eval.ts`, `failed-run.eval.ts`,
   `skills.eval.ts`, `run-sandbox.ts`) follow the rename and were not run.
+
+### Task 8
+
+- **`format`.** `createRun` writes `format: 1` (`RUN_FORMAT`); `RunRecord.format` is required and
+  `version` is gone, with `RUN_RECORD_VERSION`. `ClaimedAttempt` and `FailedLaunch` lose `version`,
+  with `ATTEMPT_RECORD_VERSION`: `run.json`'s `format` covers them. `runs.ts`' `readRecord` checks
+  only that a file parses to an object.
+- **Unreadable runs.** `openRun` refuses a `run.json` whose `format` isn't 1 with `RunUnreadable`
+  (a `RunRefused`, carrying `ref`, `why`, `created` and whether it has `events`): `{ref} is
+  unreadable: an earlier awf made it, before run.json had a format; this awf does not read it`, or
+  `its run.json is format {n}; this awf reads format 1 only`. Nothing else of the run is read.
+  `listRunEntries` (`run-state.ts`) lists runs and unreadable ones, by `created`; `listRuns` filters
+  them out, as it passed over a `run.json` that didn't read before. Who says what:
+  - `awf runs` lists it `{ref}  unreadable: {why}`, and `--json` as `{ ref, unreadable }`, the
+    shape a run whose status couldn't be read already had;
+  - `awf runs {ref}`, `awf logs {ref}` (by `{workflow}/{id}` or a bare id) and `awf emit` print
+    the message, as for a run whose files can't be read (exit 3, 3 and 1);
+  - a continue refuses it, exit 2, before claiming anything;
+  - `awf tick` names those with `events` in one line, `awf: {n} runs with events can't be read and
+    are not woken; awf runs says why` (worded so in round 2), and in `--json` as `unreadable`, and still exits 0 (review, round
+    1); one without events it never woke, so it says nothing of it.
+- **`awf logs`' cursor spans both files.** `Cursor` is `{ log, run, files }`, encoded `c2.`; a `c1.`
+  cursor no longer fits ("start again"), as does one past either file's end, unless `run.jsonl`
+  can't be read. `run-read.ts` reads `run.jsonl`'s lines with the log's: each `session` line that
+  first names a session (the fence applied, so the one `NativeSession.n` counts) is an event, handle
+  `@r{n}`, `{n}` its line in `run.jsonl`, merged by time like the log's lines, which keep their
+  `@e{n}`. Its text is `session {harness} {id}` under its stage (by its operation) and agent, as
+  `session-known`'s was; `--agent` and `--stage` filter it; `@r{n} --full` prints the line, and
+  `--json` publishes it as the line (`LogEventJson` gains the `session` line). `awf runs`' `next:`
+  carries the new cursor. Waits and sessions were already `readRun`'s in `awf logs`, `awf runs` and
+  `awf tick` (tasks 5 and 6); this task changed none of their reads.
+- **Which session lines text shows** (review, round 1): a fork's session, and one that isn't its
+  agent's first, a session it moved to. An agent's first session is left out of text, as its
+  opening and first turn stand for it; `--json` and `@r{n}` keep every first-naming line. Before
+  task 6 the log had `session-known` only for a fork's session and one named after delivery;
+  `run.jsonl` doesn't tell the second from one named at delivery, so the rule is by agent instead.
+- **Records line.** `awf runs {ref}`' is `records: {dir} (run.jsonl, log.jsonl, ops/, out.json,
+  report.md)`.
+- **Docs.** The site: `reference/data.md` (`format`, what is versioned and what a run without it
+  gets, a new run's first stage line carrying `redo`); `guide/following-runs.md` (the `@r` handle in
+  the sample and its prose, the `c2.` cursor, `unreadable` in `awf runs`); `guide/runs.md` (a run
+  with events redoes as a plain run does: no records move); the word "mailbox" for the events a run
+  waits on, in `guide/events.md`, `guide/timers.md`, `guide/hosting-events.md` and
+  `reference/workflow-api.md`, said as events kept for a wait, and a due timer as one a wait takes,
+  not one that lands anywhere. Task 4's two notes were already on the site from task 6
+  (`durability.md`: the resumed attempt doesn't carry `--values`; `data.md`: every start point a
+  redo), and `data.md` now says a new run's first stage is one. `docs/design/runs-and-stages.md`:
+  "The files", "Why it is shaped like this", "Reading it", the stage plan, `--values`, the breakage
+  list and "Where things are deliberately simple" describe `run.jsonl` and the redo line, not
+  `stages/`, `replaced/` or `turns.jsonl`; `format` replaces "`version` in every file".
+  `docs/design/run-record.md` says it is built, by this story. `docs/status.md`: what 041 built, and
+  that it awaits human review, with the paths and words of earlier entries brought up to date.
+  ADR 0012's session line names `run.jsonl`'s `session` lines (ADR 0014); `messaging.md:829`
+  `log.jsonl`; 039's line ("the mailbox's record names") the event names awf records; the lab's
+  `reference.md:528` `out.json`; `foundation.md`'s link to the todo now the design's. The code
+  map's comments and messages were already current (tasks 5–7). Three test names that said
+  "mailbox" say what is kept instead.
+- **Todos.** `run-record-layout` is deleted, as the todo README says of a todo a story took up;
+  its drift list is this story's Outcome, and links to it in the design, the foundation, the todo
+  README and this story now point here or are plain text. `non-answered-evidence` keeps M1 and M2,
+  its screen now `ops/{key}.{n}/screen.txt`; `interrupted-accounting-read` keeps what is left, the
+  cut attempt still showing its spend unknown until a continue, with what 041 built. The links in
+  `038:900` and `040:193`, `:581` point at `[[run-record]]` (review, round 1).
+- **Tests added.** `runs.test.ts`: a `run.json` with `version` and no `format`, one with `format:
+  2`, and one that isn't an object: the first two `RunUnreadable` with their messages, the third a
+  plain refusal; `run.json` has `format: 1` and no `version`, an attempt file no `version`.
+  `emit.test.ts`: an event run made before format 1, beside a current one: `awf tick` says it isn't
+  woken and exits 1 while waking the other, `emit` refuses it, `awf runs --json` and the text list
+  it `unreadable` after the current run, and `awf runs` and `awf logs` by ref and by bare id print
+  the message. `tests/operator-cli.test.ts`: a continue of such a run exits 2 with the message and
+  claims no attempt. `logs-command.test.ts`: a session named mid-turn shows as `@r2` under
+  `--agent`, `@r2 --full` and `--json` give the line, `@r3` is no event; cursors past either file
+  and a `c1.` one don't fit, one at the end does; the fake-harness run's log lines read as before
+  and its four session lines in order, the fork's after the fork. `run-read.test.ts`: the merge
+  holds the session lines, `c2.` round-trips, `c1.` and negative fields are refused, `r{n}`
+  handles round-trip. Changed for the new events: the page counts and the first page's lines in
+  `logs-command.test.ts`, the cursor prefix in `runs-command.test.ts`.
+- **The grep.** `git grep -n -E 'output\.json|calls/\{|turns\.jsonl|mailbox\.jsonl|process\.log|liveness\.jsonl|stages/|replaced/|decisions/\{' -- site packages examples`
+  finds nothing. Words that remain and are not files: `mailbox` in `earlier.mailbox`'s refusal and
+  `agentswf`'s typecheck that it is refused.
+- **Verification**, before review: the whole `bun test` 2663 pass, 2 skip, 4 todo, 0 fail (2669 tests, 202 files), run before the last edit (the cursor check skipped when `run.jsonl` can't be read, and its test), after which the six files it touches (`logs-command`, `run-read`, `runs`, `runs-command`, `emit`, `tests/operator-cli`) pass 229, 0 fail; `bun test examples` 179 pass, 4
+  todo, 0 fail; `bun test packages/lab` 146 pass, 0 fail; `bun run check` clean (Biome, `tsc
+  --noEmit`, "boundaries ok") but for the existing Biome info in `experiments/e9-messaging-protocol`;
+  `cd site && bun run build` passes, every link and anchor resolving. No subagent review and no live
+  eval was run in this pass.
+- **Review, round 1.** Two reviews, code and docs; all findings accepted.
+  - *`awf tick`* failed for good while an old event run was there: it now names them in one line
+    and in `--json`'s `unreadable` (a new optional `TickResultJson` field), exit 0; 1 stays for a
+    run that couldn't be woken. Test (`emit.test.ts`), text and `--json`.
+  - *`findRunByRef`* threw an old run found here before looking in the projects: it now remembers
+    it and throws it only when no run that reads has the ref. Test: an old `dd-case/shared` under
+    the shell's folder and a current one in a known project; `awf runs` by both refs shows the
+    current one, and with no project the old one's message.
+  - *Attempt files and `run.json`*: an attempt file is refused (`could not be read: no positive
+    attempt`, `kind "…" is unknown`) unless `attempt` is a safe positive integer and `kind` is
+    `attempt` or `failed-launch`; a format-1 `run.json` missing `id`, `workflow`, `cwd`,
+    `created`, `argv` or `sandbox` is unreadable (`its run.json has no {field} of the right
+    type`), listed as such, not sorted on. Test (`runs.test.ts`). Test fixtures that wrote attempt
+    files without `kind` now write it.
+  - *Session lines in text*: an agent's first session left out, above. The fake-harness test's
+    text is the pre-task-6 text but for one line: its log lines as before, and of `run.jsonl`'s
+    the fork's (`@r3`, where `@e9` was) and the named agent's `fake-named` (`@r6`), a session the
+    fake reports as it closes, which the log never recorded. So "the text before task 6, exactly"
+    doesn't hold; `--json` has all four first-naming lines. Earlier test counts went back to their
+    values before this task. The site's `following-runs.md` sample drops the reviewer's first
+    session and says what `@r` shows. Nit: a session line an earlier attempt wrote after a later
+    one's `claimed` isn't shown in text or `--json`, and its handle is no event (test).
+  - *Docs*: `durability.md` says the next attempt reads an interrupted attempt's usage, linking
+    Cost; `data.md` says the first-stage-not-reused redo is a run without events', words the
+    events no wait took, and lists `turn-started`'s and `turn-ended`'s fields and `spend.json`'s
+    `deliveredAt` and `settledAt`; `run-record.md` reads as built: no `label`/`until`/`needs` on the
+    attempt file (the code writes none), no `version` on a failed launch, the entries only a run
+    with events has (`in.jsonl`, `launches/`, the lock), "before 041" where it described older
+    code and as the reading table's column, `AgentEnded` for `TurnEnd`, `args` and `source` typed
+    for 040 and not yet written; ADR 0011's `replaced/` bullet has an amended-by note; the links in
+    `038:900` and `040:193`, `:581` point at `[[run-record]]`.
+- **Review, round 2.** Wording only, applied: `awf tick`'s line and `TickResultJson.unreadable`'s
+  doc say a run can't be read, not who made it, since a format-1 run missing a field is one too;
+  `help/tick.txt` says what the line and `--json`'s `unreadable` are; `data.md` names a format-1
+  `run.json` missing a required field as unreadable. `quietSessions` stays as it is. It assumes
+  `run.jsonl`'s session lines come in file order, so an agent's first is the first of its lines
+  read; a line a fence drops is never its first, and handles count lines, not sessions.
+- **Verification**, after review round 2: the whole `bun test` 2665 pass, 2 skip, 4 todo, 0 fail (2671 tests, 202 files); `emit.test.ts` 47 pass, 0 fail; `bun run check` clean but for the existing Biome info; `cd site && bun run build` passes, every link and anchor resolving.
+- **Verification**, after review round 1: the whole `bun test` 2665 pass, 2 skip, 4 todo, 0 fail (2671 tests, 202 files); focused (`logs-command`,
+  `run-read`, `runs`, `runs-command`, `emit`, `continue`, `tests/operator-cli`) 260 pass, 0 fail;
+  `bun test examples` 179 pass, 4 todo, 0 fail; `bun test packages/lab` 146 pass, 0 fail; `bun run
+  check` clean but for the existing Biome info; `cd site && bun run build` passes, every link and
+  anchor resolving; the Done-when grep finds nothing.
 
 ## Human review
 

@@ -84,7 +84,6 @@ export async function writeAttempt(run: Run, fields: Partial<AttemptRecord>): Pr
   const n = (await readAttemptFiles(run)).length + 1;
   mkdirSync(join(run.dir, "attempts"), { recursive: true });
   await writeJson(join(run.dir, "attempts", `${n}.json`), {
-    version: 1,
     attempt: n,
     kind: "attempt",
     file: "/flows/case.ts",
@@ -215,7 +214,6 @@ export async function runAttempt<Result extends JsonValue>(
   const lines = await claimRunLines(run.dir, attempt, started);
   const ended = (outcome: AttemptRecord["outcome"]) =>
     writeJson(join(run.dir, "attempts", `${attempt}.json`), {
-      version: 1,
       attempt,
       kind: "attempt",
       file: name,

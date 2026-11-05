@@ -7,6 +7,8 @@ crashed or failed one until it has failed three times in a row. Runs of other wo
 as they are. --all wakes them in every project awf has started one in, as ~/.awf/projects lists
 them. Run it on any schedule; a run is continued once however many wakers come at once.
 
-Prints a line for each run it woke, and nothing when it woke none. --json prints one document.
+Prints a line for each run it woke, and nothing when it woke none, and one line on stderr counting
+runs with events it can't read, which it doesn't wake; --json prints one document, those runs
+under unreadable.
 Exits 0; 1 when a project is gone or a run could not be woken, the others still woken; 2 on a
 usage error.

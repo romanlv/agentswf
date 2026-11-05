@@ -190,7 +190,7 @@ Out of scope:
   `environment` say only whose runs it reaches and what a launched attempt inherits.
 - Constraint: boundary 6. A workflow imports `agentswf/workflow` only; a program may import
   `agentswf/client`. An example driver needs its own boundary rule.
-- Constraint: [[run-record-layout]] is redesigning the run's folder (`design/run-record.md`, its
+- Constraint: [[run-record]] is redesigning the run's folder (`design/run-record.md`, its
   `created` line). Recorded args go into whichever record ships first; whichever lands second
   carries them over.
 - Assumption: the program runs as the operator: the same user, `HOME`, and a `PATH` that holds the
@@ -578,7 +578,7 @@ Every task runs this checklist:
 ### 1. The surface and the ADRs
 
 Outcome: the types written in `@agentswf/contract/client`; the ADRs for one
-engine per project and recorded args drafted, the second placed against [[run-record-layout]]; the
+engine per project and recorded args drafted, the second placed against [[run-record]]; the
 user approves all three.
 
 Done when:

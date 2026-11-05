@@ -65,6 +65,8 @@ check-readme/20261031-1650-9d1f  stopped      10-31 16:50  2m05s   $0.06
 A row per run, newest first: its name, its status, when it started, how long it took, and an
 estimate at list prices where its agents reported usage. It lists 20; `--limit {n}` lists another
 number. A run of a workflow with [events](/guide/events) that is waiting shows what it waits for.
+A run an earlier awf made, before its record had a format, is listed `unreadable`, and nothing
+else of it is read ([Data](/reference/data)).
 
 Name a run to see it in depth: its attempts, the stages of the last one, and each agent's state,
 turns and last activity. Under it is what to run next.
@@ -74,7 +76,7 @@ $ awf runs check-readme/20261101-0930-a1b2
 check-readme/20261101-0930-a1b2  running  stage review  14s
   stage review   running    12s
     reviewer          working         turn 1  9s  last: tool Bash  grep -n "awf " README.md (09:30:09)
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90s
+next: awf logs check-readme/20261101-0930-a1b2 --after c2.WzQsMix7ImExIjozMTg3fV0 --wait 90s
 ```
 
 A running run ends with a `next:` line, the `awf logs` command that waits for what comes next.
@@ -94,7 +96,7 @@ check-readme/20261101-0930-a1b2  running  stage review
 @e4 09:30:05 review  reviewer  turn started
 @a1.4b1 09:30:06 review  reviewer  prompt  412 chars
 @a1.9e2 09:30:09 review  reviewer  tool Bash  grep -n "awf " README.md
-next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d --wait 90s
+next: awf logs check-readme/20261101-0930-a1b2 --after c2.WzQsMix7ImExIjozMTg3fV0 --wait 90s
 ```
 
 `awf logs` merges two sources by time: the run's own events (stages, turns, messages, tool calls,
@@ -102,8 +104,10 @@ next: awf logs check-readme/20261101-0930-a1b2 --after c1.WzQseyJhMSI6MzE4N31d -
 its prompts, its tool calls and their results, its messages. Without a run named it reads the
 newest run here, and notes any other that is running. It shows the last 40 events.
 
-Each line starts with a handle: `@e…` for the run's events, `@a…` for an agent's activity. A
-line is cut short; `awf logs {run} @{handle} --full` prints it whole.
+Each line starts with a handle: `@e…` for the run's events, `@r…` for a fork's session or one an
+agent moved to, from `run.jsonl`, and `@a…` for an agent's activity; `--json` has every agent's
+first session too. A line is cut short;
+`awf logs {run} @{handle} --full` prints it whole.
 
 ```sh
 awf logs {run} --agent reviewer       # one agent, and the messages to and from it

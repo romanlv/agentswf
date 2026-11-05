@@ -8,6 +8,7 @@ import { EmitError, emitEvent } from "./emit";
 import { emitCommand } from "./emit-command";
 import { writeJson } from "./files";
 import { readIn } from "./in-lines";
+import { logsCommand } from "./logs-command";
 import { listProjects, projectOf } from "./projects";
 import { runLinesFile } from "./run-lines";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -423,7 +424,7 @@ test("an attempt gets who and where the engineer is and the recorded PATH; .env 
 });
 
 describe("the run's lock", () => {
-  test("two events for one key at once start one run, and the other lands in its mailbox", async () => {
+  test("two events for one key at once start one run, and the other is kept in its in.jsonl", async () => {
     const p = project();
     const launch = fakeLaunch();
     const nudge = async () => true;
@@ -848,6 +849,113 @@ describe("awf tick", () => {
     ]);
     expect(code).toBe(1);
     expect(err.join("\n")).toContain("is gone");
+  });
+
+  test("a run an earlier awf made is unreadable: listed so, never woken, sent to or read", async () => {
+    const p = project();
+    const old = await keyedRun(p, "old", [ended("parked")]);
+    const current = await keyedRun(p, "current", [ended("parked")]);
+    // As an awf before format 1 left it: run.json with a version and no format.
+    const { format: _format, ...record } = old.record;
+    await writeJson(join(old.dir, "run.json"), { version: 1, ...record });
+    const why = "an earlier awf made it, before run.json had a format; this awf does not read it";
+    const launch = fakeLaunch();
+    const ticked = await tick(p, launch);
+    // Not an error: it is named, and the run beside it, parked with its event untaken, is woken.
+    expect(ticked).toMatchObject({ code: 0, err: [] });
+    expect(ticked.woke.map((each) => each.ref)).toEqual(["dd-case/current"]);
+    const out: string[] = [];
+    const err: string[] = [];
+    const json = await tickCommand(
+      ["--json"],
+      p.root,
+      { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
+      { home: p.home, environment: {}, launch },
+    );
+    expect(json).toBe(0);
+    expect((JSON.parse(out[0]!) as TickResultJson).unreadable).toEqual(["dd-case/old"]);
+    err.length = 0;
+    const text = await tickCommand(
+      [],
+      p.root,
+      { stdout: () => undefined, stderr: (t) => err.push(t) },
+      { home: p.home, environment: {}, launch },
+    );
+    expect(text).toBe(0);
+    expect(err).toEqual([
+      "awf: 1 run with events can't be read and is not woken; awf runs says why",
+    ]);
+    await expect(emit(p, "dd.changes", { case: "old" }, { launch })).rejects.toThrow(
+      `dd-case/old is unreadable: ${why}`,
+    );
+    const runs = async (argv: string[]) => {
+      const out: string[] = [];
+      await runsCommand(
+        argv,
+        p.root,
+        { stdout: (t) => out.push(t), stderr: (t) => out.push(t) },
+        Date.now(),
+        p.home,
+      );
+      return out.join("\n");
+    };
+    // Listed where it was made, among the runs that read.
+    expect((JSON.parse(await runs(["--json"])) as RunsJson).runs).toEqual([
+      expect.objectContaining({ ref: "dd-case/current" }),
+      { ref: "dd-case/old", unreadable: why },
+    ]);
+    expect((await runs([])).split("\n")).toContainEqual(`dd-case/old      unreadable: ${why}`);
+    for (const ref of ["dd-case/old", "old"]) {
+      expect(await runs([ref])).toBe(`awf: dd-case/old is unreadable: ${why}`);
+      const err: string[] = [];
+      const code = await logsCommand(
+        [ref],
+        p.root,
+        { stdout: () => undefined, stderr: (t) => err.push(t) },
+        undefined,
+        p.home,
+      );
+      expect({ code, err }).toEqual({ code: 3, err: [`awf: dd-case/old is unreadable: ${why}`] });
+    }
+    expect(current.record.format).toBe(1);
+  });
+
+  test("a ref an earlier awf's run holds here finds a current run of it in another project", async () => {
+    const p = project();
+    await keyedRun(p, "shared", [ended("parked")]);
+    // Here, under the shell's folder: an old run with the same ref.
+    const here = dirs.tempRunDir();
+    const old = await createRun(join(here, ".awf", "runs"), {
+      id: "shared",
+      workflow: "dd-case",
+      argv: [],
+      cwd: here,
+      sandbox: null,
+    });
+    const { format: _format, ...record } = old.record;
+    await writeJson(join(old.dir, "run.json"), { version: 1, ...record });
+    for (const ref of ["dd-case/shared", "shared"]) {
+      const out: string[] = [];
+      const code = await runsCommand(
+        [ref, "--json"],
+        here,
+        { stdout: (t) => out.push(t), stderr: (t) => out.push(t) },
+        Date.now(),
+        p.home,
+      );
+      expect(code).toBe(0);
+      expect(JSON.parse(out[0]!).attempts).toMatchObject([{ attempt: 1, state: "parked" }]);
+    }
+    // With no current run anywhere, the old one says why it isn't read.
+    const err: string[] = [];
+    await runsCommand(
+      ["dd-case/shared"],
+      here,
+      { stdout: () => undefined, stderr: (t) => err.push(t) },
+      Date.now(),
+      dirs.tempRunDir(),
+    );
+    expect(err.join("\n")).toContain("dd-case/shared is unreadable");
   });
 
   test("awf runs shows an event run that keeps failing as stuck", async () => {

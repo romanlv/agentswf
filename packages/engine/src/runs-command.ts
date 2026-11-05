@@ -22,9 +22,9 @@ import {
   stateWord,
 } from "./run-commands";
 import { encodeCursor } from "./run-read";
-import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
+import { findRunByRef, listRunEntries, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
-import { isClaimed } from "./runs";
+import { isClaimed, RunUnreadable } from "./runs";
 
 export const runsUsage = help.trimEnd();
 
@@ -81,19 +81,21 @@ type Listed =
   | { ref: string; unreadable: string };
 
 async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
-  const runs = await listRuns(place.runRoot);
+  const runs = await listRunEntries(place.runRoot);
   const shown = runs.slice(0, limit);
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
-      runStatus(run, undefined, now).then(
-        async (status) => {
-          return { status, ...(await estimateOf(status)) };
-        },
-        (error: unknown) => ({
-          ref: `${run.record.workflow}/${run.record.id}`,
-          unreadable: said(messageOf(error), 400),
-        }),
-      ),
+      run instanceof RunUnreadable
+        ? { ref: run.ref, unreadable: run.why }
+        : runStatus(run, undefined, now).then(
+            async (status) => {
+              return { status, ...(await estimateOf(status)) };
+            },
+            (error: unknown) => ({
+              ref: `${run.record.workflow}/${run.record.id}`,
+              unreadable: said(messageOf(error), 400),
+            }),
+          ),
     ),
   );
   const older = runs.length - shown.length;
@@ -299,7 +301,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
   if (status.state === "interrupted") return go ? [`continue: ${go}`] : [];
   const lines: string[] = [];
   if (view.attempt?.reason) lines.push(`reason: ${said(view.attempt.reason, 400)}`);
-  lines.push(`records: ${status.run.dir} (report.md, out.json)`);
+  lines.push(`records: ${status.run.dir} (run.jsonl, log.jsonl, ops/, out.json, report.md)`);
   if (status.state === "failed") {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
     const look = command(place, "awf", "logs", status.ref);

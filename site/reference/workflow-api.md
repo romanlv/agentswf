@@ -708,7 +708,7 @@ The fields `defineWorkflow` adds:
   run, each as the code reaches it. The stages before it are reused by content. After it, in this
   attempt and every later one, a stage first entered after it whose record an attempt before the
   redo wrote runs again, writing a new one; one never entered keeps its record. So an attempt
-  that parks partway leaves the next wake, which carries no flag, to redo the rest. The mailbox is
+  that parks partway leaves the next wake, which carries no flag, to redo the rest. The events are
   untouched: a race keeps its recorded answer, but an event a `receive` or `select` took and
   acknowledged isn't taken again, so a stage that handled one isn't reached and keeps its record.
   An attempt that would park, or return, before reaching the stage stops instead, `never reached`.
@@ -754,7 +754,7 @@ again by the wake's rerun.
 `agent.turn` is the started turn until a wait takes its end, restored on a continue for an end no
 wait took, and `null` otherwise. Meanwhile the agent refuses `start`, `run`, `compact`, `set`,
 `fork` and messages from other agents. `agent.turn.cancel(reason?)` stops it, and resolves once
-its `cancelled` end is in the mailbox, or `false` at once when it had ended already; a tool call
+its `cancelled` end is recorded for a wait to take, or `false` at once when it had ended already; a tool call
 it has running is aborted through `call.signal`, and the end waits for the handler, at most 5 s
 more. A wait takes its end by naming the agent, `{ done: agent }`: an agent has at most one
 started turn.
@@ -802,8 +802,8 @@ having an agent take it. Connect the participant as any other, without `to`:
 `awf emit {ref} {key}:reply '{"text":"approved","author":"dana"}' --event-id {message id}`
 delivers one, and continues a parked run: the id is the message's own, so a resend is a
 duplicate. An undeclared `{key}:reply`, or data that doesn't fit `ParticipantReply`, is refused. It
-is checked against the definition alone: one sent before the run connects the participant waits in
-the mailbox for the run's next wait. Only a run that is there takes one; `awf emit --target` refuses it.
+is checked against the definition alone: one sent before the run connects the participant waits
+for the run's next wait. Only a run that is there takes one; `awf emit --target` refuses it.
 A race or select takes them as `wf.signal("{key}:reply")`, the whole event. A participant whose
 reply isn't declared still answers the agents that ask it; its messages never reach the code. A
 parked run keeps it connected.
@@ -841,7 +841,7 @@ What a branch hands back: a reply as its `text` and `author`, a turn's end as it
 | `branches` | Required, at least one, none named `key`. Each is a [source](#waiting-on-time) or a duration. |
 | `options.label` | What `awf runs` shows while the run waits here: a string, or a function asked when the wait begins. |
 
-- **It takes only what it names:** the rest stays in the mailbox for a later wait, and doesn't wake
+- **It takes only what it names:** the rest stays for a later wait, and doesn't wake
   a run parked at the race.
 - **Recorded under `name`**, so a rerun gets the same answer back and walks on: a race in a loop is
   named per round, and a name answers once an attempt. Races and sleeps share their names.
@@ -862,7 +862,7 @@ one at a time, as `{ key, [key]: … }`, until the loop returns or breaks.
 | `options.label` | A string, or a function asked at each wait: what `awf runs` shows. |
  An event is acknowledged
 when the loop asks for the next; after a crash, the one taken and not acknowledged comes back once.
-What no branch names stays in the mailbox. A branch is a source, not a duration: a timer in a loop is `wf.timer()`'s. It throws in a stage or a tool's
+What no branch names stays for a later wait. A branch is a source, not a duration: a timer in a loop is `wf.timer()`'s. It throws in a stage or a tool's
 handler.
 
 ### wf.timer {#timer}
@@ -924,7 +924,7 @@ hand.
 
 `wf.emit(target, run, name, data, { eventId? })` sends an event to the run `run` of the workflow
 `target`, imported from its file, so a wrong name or shape fails `tsc`; `awf emit --target {file}`
-checks the same at run time ([Sending events with `awf emit`](/guide/hosting-events#sending-events-with-awf-emit)). Either returns `accepted`; `duplicate`, the id is in the run's mailbox
+checks the same at run time ([Sending events with `awf emit`](/guide/hosting-events#sending-events-with-awf-emit)). Either returns `accepted`; `duplicate`, the run has an event of that id
 already; or `refused`, the run returned, or it has none and `starts` doesn't list the event. A name
 `target` doesn't declare, or data its schema refuses, throws. An id
 names one occurrence for good; without one, nothing deduplicates the event. A sender is refused

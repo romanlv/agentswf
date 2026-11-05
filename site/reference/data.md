@@ -63,13 +63,15 @@ the `.jsonl` files get your default mode.
     {id}.lock             with events only: held while an event is added to the run
 ```
 
-`run.json`, the attempt files and `out.json` each have a `version`, as does each line of
-`log.jsonl`; a call's files, the decision files, and `run.jsonl`'s and `in.jsonl`'s lines have
-none. A newer awf may add fields and kinds of line; a reader of the log skips a line of a kind it
-doesn't know, and refuses a record whose `version` is newer than it reads rather than misread it.
-A reader of `run.jsonl` refuses a line of a kind it doesn't know: a continue acts on every line.
+`run.json`'s `format` is the version of `run.json`, the attempt files, `run.jsonl` and `in.jsonl`
+together. This awf reads format 1: a run whose `run.json` has no `format`, made by an earlier awf,
+or another one, or format 1 without a field it requires, is listed `unreadable` by `awf runs`, and
+nothing else of it is read; continuing it, sending it an event or reading its log is refused. `out.json` has a `version`, as does each line of
+`log.jsonl`; an operation's files have none. A newer awf may add fields and kinds of line; a reader
+of the log skips a line of a kind it doesn't know. A reader of `run.jsonl` refuses a line of a kind
+it doesn't know: a continue acts on every line.
 
-The versioned JSON records are replaced whole, never edited in place: a crash leaves the old file
+The JSON records are replaced whole, never edited in place: a crash leaves the old file
 or the new one. The `.jsonl` files are appended to. Temporary files and folders (`.tmp-*`,
 `.new-*`) that a crash leaves in a workflow's folder or in `attempts/` are ignored, and removed
 once they are a day old.
@@ -81,6 +83,7 @@ What the run is, fixed for its life. A continue, and a wake, take its arguments,
 
 | Field | Meaning |
 | --- | --- |
+| `format` | the version of the run's record, `1` |
 | `id`, `workflow` | the run's id and the workflow's `meta.name` |
 | `argv` | the workflow arguments as given, not as parsed: a continue parses them again with the code as it is then |
 | `cwd` | where every attempt works |
@@ -111,8 +114,8 @@ when it ends.
 | `value` | with `completed`: what `run` returned, the run's result |
 | `messageLimits` | the [messaging](/guide/messaging) limits it ran under |
 
-Its stages are `run.jsonl`'s lines, what a run with events never took is counted from its `took`
-and `wait` lines, and what it used is its operations' `spend.json`.
+Its stages are `run.jsonl`'s lines, the events no wait took are counted from its `took` and `wait`
+lines, and what it used is its operations' `spend.json`.
 
 An attempt with no `ended` whose process is gone is `interrupted`
 ([Durability](/guide/durability#after-a-crash)). An attempt that `awf emit` or `awf tick` started in
@@ -137,15 +140,15 @@ after it is ignored. Each line is written whole and synced before the step it se
 | `wait` | a wait: its `label`, what it `takes`, its `stage` or `race`, and outside those the event ids it `acks`, or `returns` when an attempt's first wait hands back what an earlier one took |
 | `took` | what a wait returned, by id, with a `stage` when it was in one; held until a later wait acknowledges it |
 | `race` | a race's winning `branch`, and what it `took` |
-| `turn-started`, `turn-ended` | a turn `start()` began, and its end, which a wait takes as `agent:ended`; the next attempt writes a failed end for a turn a crash left running |
+| `turn-started`, `turn-ended` | a turn `start()` began: `agent`, `turn`, `meta` and `execution`; and its end, which a wait takes as `agent:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
 
 A timer that comes due is never written as an event: a wait or race that takes it names it in its
 `took` by the id awf derives from its name, with `timer` beside it, and a time `wf.at()` read by
 its `branch` and `due`.
 
 A stage's current record is its latest `stage` line, and a continue reuses it when it
-`succeeded`. Every start point is a redo: the stage `--from-stage` names, or the first stage a
-continue doesn't reuse, gets `redo`, and from then on a stage entered after it whose line is from
+`succeeded`. Every start point is a redo: the stage `--from-stage` names, or, in a run without
+events, the first stage an attempt doesn't reuse, a new run's first stage included, gets `redo`, and from then on a stage entered after it whose line is from
 an earlier attempt runs again. Nothing is deleted, so a redone stage's old value, such as a branch
 it named, is still in its earlier line. An agent's latest `session` line is the session a
 [wake](/reference/workflow-api#events) reopens it on, where it can be: one given skills or a
@@ -196,8 +199,8 @@ and decisions share the keys, so a decision can't take an agent's key, nor an ag
   questions sent, and the answers, so a threshold can be fitted again later without asking the
   model. Its record's `artifact` names this file.
 - `spend.json`: what an agent's operation used, as read from its sessions: its `billing`, its
-  tokens by model (`spend`, absent when they couldn't be read), and what was billed per token,
-  when the harness reports it. It holds no price: `awf runs` and a later attempt's closing line
+  tokens by model (`spend`, absent when they couldn't be read), what was billed per token, when
+  the harness reports it, and `deliveredAt` and `settledAt`, its times. It holds no price: `awf runs` and a later attempt's closing line
   price it when they add it up, with today's table. The attempt writes it as it ends; for one that
   was interrupted, or whose read a second Ctrl-C cut short, the next attempt writes it as it
   starts, with `settledBy`, while the sessions are still there. Written once.

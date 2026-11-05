@@ -195,7 +195,7 @@ below). [Harnesses](/guide/harnesses#where-panes-go) covers panes and placement.
 
 ## See also
 
-- [Events](/guide/events): the workflows these commands wake, their mailbox, timers and waits.
+- [Events](/guide/events): the workflows these commands wake, their events, timers and waits.
 - [Durability](/guide/durability): what a continue reuses and redoes.
 - [Following runs](/guide/following-runs): `awf runs` and `awf logs`.
 - [Workflow API: Events](/reference/workflow-api#events): `wf.emit`, `awf tick` and parking, in full.

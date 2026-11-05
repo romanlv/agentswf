@@ -503,7 +503,6 @@ test("a continue after a crash stops what is left of the crashed attempt's group
   const home = dirs.tempRunDir();
   await stopCrashed(
     {
-      version: 1,
       attempt: 1,
       kind: "attempt",
       file: "/f.ts",

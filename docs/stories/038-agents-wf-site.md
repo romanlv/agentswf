@@ -897,7 +897,7 @@ Manual or live evaluation:
 
 - 2026-11-01, documenting the data reference: a run's folder grew a story at a time, with replay
   answers in three stores and the run's own records split between `mailbox.jsonl` and
-  `turns.jsonl`. Filed as [[run-record-layout]], to settle before leaving evaluation.
+  `turns.jsonl`. Filed as [[run-record]], to settle before leaving evaluation.
 - 2026-11-01, task 13: CI deploys. `.github/workflows/site.yml` runs only when a push to main
   touches what the build reads (`site/`, `examples/`, the engine's help files and `AGENTS.md`
   template, `packages/agentswf/package.json`, the workflow itself), not on every push; by hand

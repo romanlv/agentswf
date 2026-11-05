@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { type ClaimedAttempt, readRun } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import { readAccepted, writeAcceptedExclusive } from "./ops";
+import { listRunEntries } from "./run-state";
 import {
   attemptRefusal,
   checkContinue,
@@ -21,6 +22,7 @@ import {
   processStart,
   type Run,
   RunRefused,
+  RunUnreadable,
   readAttemptFiles,
   readAttempts,
   recordFailedLaunch,
@@ -61,8 +63,10 @@ describe("runs", () => {
     const at = root();
     const created = await createRun(at, run());
     expect(created.dir).toBe(join(at, "implement-ticket", "PROJ-1515"));
-    expect(JSON.parse(await readFile(join(created.dir, "run.json"), "utf8"))).toMatchObject({
-      version: 1,
+    const written = JSON.parse(await readFile(join(created.dir, "run.json"), "utf8"));
+    expect(written).not.toHaveProperty("version");
+    expect(written).toMatchObject({
+      format: 1,
       id: "PROJ-1515",
       workflow: "implement-ticket",
       argv: ["PROJ-1515"],
@@ -283,20 +287,45 @@ describe("runs", () => {
     );
   });
 
-  test("a record newer than this awf, or one that doesn't parse, refuses", async () => {
+  test("a run without format 1 is unreadable, and an attempt file that doesn't parse refuses", async () => {
     const at = root();
     const created = await createRun(at, run());
     const attempts = join(created.dir, "attempts");
     await mkdir(attempts);
-    await writeFile(join(attempts, "1.json"), JSON.stringify({ version: 2, attempt: 1 }));
-    await expect(readAttempts(created)).rejects.toThrow("is version 2, newer than this awf reads");
     await writeFile(join(attempts, "1.json"), "{");
     await expect(readAttempts(created)).rejects.toThrow("could not be read");
-    await writeFile(
-      join(created.dir, "run.json"),
-      JSON.stringify({ ...created.record, version: 9 }),
+    await writeFile(join(attempts, "1.json"), JSON.stringify({ attempt: 0, kind: "attempt" }));
+    await expect(readAttempts(created)).rejects.toThrow("could not be read: no positive attempt");
+    await writeFile(join(attempts, "1.json"), JSON.stringify({ attempt: 1, kind: "launch" }));
+    await expect(readAttempts(created)).rejects.toThrow(
+      'could not be read: kind "launch" is unknown',
     );
-    await expect(openRun(at, "implement-ticket", "PROJ-1515")).rejects.toBeInstanceOf(RunRefused);
+    await rm(attempts, { recursive: true });
+    // Format 1 without a field it requires is unreadable too, not a run to sort by its `created`.
+    const { created: _created, ...uncreated } = created.record;
+    await writeFile(join(created.dir, "run.json"), JSON.stringify(uncreated));
+    await expect(openRun(at, "implement-ticket", "PROJ-1515")).rejects.toThrow(
+      "implement-ticket/PROJ-1515 is unreadable: its run.json has no created of the right type",
+    );
+    expect(await listRunEntries(at)).toMatchObject([{ ref: "implement-ticket/PROJ-1515" }]);
+    // A run an awf before the format made: `version`, no `format`.
+    const { format: _format, ...old } = created.record;
+    await writeFile(join(created.dir, "run.json"), JSON.stringify({ ...old, version: 1 }));
+    const refused = await openRun(at, "implement-ticket", "PROJ-1515").catch((error) => error);
+    expect(refused).toBeInstanceOf(RunUnreadable);
+    expect(refused).toBeInstanceOf(RunRefused);
+    expect(refused).toMatchObject({ ref: "implement-ticket/PROJ-1515", created: old.created });
+    expect(refused.message).toBe(
+      "implement-ticket/PROJ-1515 is unreadable: an earlier awf made it, before run.json had a format; this awf does not read it",
+    );
+    await writeFile(join(created.dir, "run.json"), JSON.stringify({ ...old, format: 2 }));
+    await expect(openRun(at, "implement-ticket", "PROJ-1515")).rejects.toThrow(
+      "implement-ticket/PROJ-1515 is unreadable: its run.json is format 2; this awf reads format 1 only",
+    );
+    await writeFile(join(created.dir, "run.json"), "[]");
+    const broken = await openRun(at, "implement-ticket", "PROJ-1515").catch((error) => error);
+    expect(broken).not.toBeInstanceOf(RunUnreadable);
+    expect(broken.message).toContain("could not be read: not a JSON object");
   });
 
   test("a write that fails leaves the old file whole and no temp file beside it", async () => {
@@ -335,7 +364,7 @@ describe("runs", () => {
     expect(probeProcess(Bun.spawnSync(["true"]).pid)).toBe("gone");
   });
 
-  test("an attempt's file names its version and flags", async () => {
+  test("an attempt's file names its flags, and no version: run.json's format is its", async () => {
     const created = await createRun(root(), run());
     const { attempt } = await claim(
       created,
@@ -345,9 +374,10 @@ describe("runs", () => {
     const written = JSON.parse(await readFile(attempt.file, "utf8")) as ClaimedAttempt;
     // Records are the operator's alone.
     expect((await stat(attempt.file)).mode & 0o777).toBe(0o600);
+    expect(written).not.toHaveProperty("version");
     expect(written).toMatchObject({
-      version: 1,
       attempt: 1,
+      kind: "attempt",
       workflowVersion: "1.2.1",
       flags: fields.flags,
     });

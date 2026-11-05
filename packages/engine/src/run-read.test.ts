@@ -31,7 +31,6 @@ async function run(root: string, workflow: string, id: string, created?: string)
 
 async function attempt(made: Run, fields: Partial<ClaimedAttempt> = {}): Promise<void> {
   const record: ClaimedAttempt = {
-    version: 1,
     attempt: 1,
     kind: "attempt",
     file: "flow.ts",
@@ -108,13 +107,22 @@ describe("a run reference", () => {
 
 describe("cursors and handles", () => {
   test("round-trip, and anything else is refused", () => {
-    const cursor = { log: 12, files: { a1: 4096, "a2-9b2e00aa11cc": 17 } };
+    const cursor = { log: 12, run: 3, files: { a1: 4096, "a2-9b2e00aa11cc": 17 } };
     expect(decodeCursor(encodeCursor(cursor))).toEqual(cursor);
-    for (const bad of ["c1.zzz", "c2.e30", "", encodeCursor({ log: -1, files: {} })]) {
+    const old = `c1.${Buffer.from(JSON.stringify([12, {}])).toString("base64url")}`;
+    for (const bad of [
+      "c2.zzz",
+      "c3.e30",
+      "",
+      old,
+      encodeCursor({ log: -1, run: 0, files: {} }),
+      encodeCursor({ log: 0, run: -1, files: {} }),
+    ]) {
       expect(decodeCursor(bad)).toBeUndefined();
     }
     for (const handle of [
       { kind: "event" as const, line: 216 },
+      { kind: "run" as const, line: 4 },
       { kind: "activity" as const, file: "a3", offset: 0x1f4c, index: 0 },
       { kind: "activity" as const, file: "a3-9b2e00aa11cc", offset: 7, index: 2 },
     ]) {
@@ -124,7 +132,9 @@ describe("cursors and handles", () => {
     expect(encodeHandle({ kind: "activity", file: "a3", offset: 0x1f4c, index: 0 })).toBe(
       "a3.1f4c",
     );
-    for (const bad of ["e0", "a.1", "a3", "x1", "a3.zz"]) expect(decodeHandle(bad)).toBeUndefined();
+    for (const bad of ["e0", "r0", "a.1", "a3", "x1", "a3.zz"]) {
+      expect(decodeHandle(bad)).toBeUndefined();
+    }
   });
 });
 
@@ -243,17 +253,19 @@ describe("reading a run", () => {
     const { made } = await setUp();
     const read = await readRun(made.dir, "/repo");
     const shown = read.events.map((each) =>
-      each.source === "log"
-        ? `${each.handle} ${each.line.kind}`
-        : `${each.handle} ${each.agent} ${each.operation} ${each.activity.type}`,
+      each.source === "activity"
+        ? `${each.handle} ${each.agent} ${each.operation} ${each.activity.type}`
+        : `${each.handle} ${each.line.kind}`,
     );
     expect(shown).toEqual([
       "e1 agent-opened",
       "e2 agent-opened",
       "e3 operation-started",
+      "r1 session",
       "a1.74 worker op-1 message",
       "e4 turn",
       "e5 operation-started",
+      "r3 session",
       "a2.76 author op-2 message",
       "e6 turn",
       "e7 agent-stopped",

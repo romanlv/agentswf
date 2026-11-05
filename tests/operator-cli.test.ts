@@ -1515,6 +1515,18 @@ describe("awf run's runs and attempts", () => {
     const done = await awfRun(cwd, ["flow.js", "--id", "r2", "--continue"]);
     expect(done).toMatchObject({ exitCode: 2, installed: false });
     expect(done.stderr).toBe("awf: r2 completed; there is nothing to continue");
+
+    // A run an awf before format 1 made: its run.json has a version and no format.
+    const file = join(runs(cwd), "r1", "run.json");
+    const { format: _format, ...old } = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify({ version: 1, ...old }));
+    rmSync(join(runs(cwd), "r1", "run.jsonl"));
+    const before = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
+    expect(before).toMatchObject({ exitCode: 2, installed: false });
+    expect(before.stderr).toBe(
+      "awf: fixture/r1 is unreadable: an earlier awf made it, before run.json had a format; this awf does not read it",
+    );
+    expect(readdirSync(join(runs(cwd), "r1", "attempts"))).toEqual(["1.json"]);
   });
 
   test("a continue names an earlier attempt that was interrupted", async () => {

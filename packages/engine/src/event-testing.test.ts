@@ -231,7 +231,7 @@ test("a scripted reply is checked as awf emit checks one: declared, and fitting 
   );
 });
 
-test("an undeclared participant's message goes to the agent that asked, and none to the mailbox", async () => {
+test("an undeclared participant's message goes to the agent that asked, and none to the code", async () => {
   const run = await testWorkflow(
     declaring(async (workflow) => {
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
