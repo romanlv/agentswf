@@ -67,7 +67,7 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
   // first wake: live, so nudged.
   await until(async () =>
     (
-      await Bun.file(join(run.dir, "turns.jsonl"))
+      await Bun.file(join(run.dir, "log.jsonl"))
         .text()
         .catch(() => "")
     ).includes('"participant-connected"'),
@@ -117,7 +117,7 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
     { id: "2.p1", text: "got: never mind", labels: { title: "kombo" } },
   ]);
   // The continue connected the same participant to its code again.
-  const connected = (await Bun.file(join(run.dir, "turns.jsonl")).text())
+  const connected = (await Bun.file(join(run.dir, "log.jsonl")).text())
     .split("\n")
     .filter((line) => line.includes('"participant-connected"'))
     .map((line) => JSON.parse(line) as { attempt: number; to?: string });
@@ -189,7 +189,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     cli(["e2e-declared/k", "thread:reply", JSON.stringify(data), "--event-id", id]);
   await until(async () =>
     (
-      await Bun.file(join(run.dir, "turns.jsonl"))
+      await Bun.file(join(run.dir, "log.jsonl"))
         .text()
         .catch(() => "")
     ).includes('"participant":"lead"'),
@@ -218,7 +218,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     ],
   );
   // Its replies go to the code; lead's, undeclared, to agents.
-  const connected = (await Bun.file(join(run.dir, "turns.jsonl")).text())
+  const connected = (await Bun.file(join(run.dir, "log.jsonl")).text())
     .split("\n")
     .filter((line) => line.includes('"participant-connected"'))
     .map((line) => JSON.parse(line) as { attempt: number; participant: string; to?: string });
@@ -307,7 +307,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
   // send --event-id to a participant connected to agents is refused, as it always was, even when
   // the file it would be checked against is gone: the moved run, given k's connections.
   const moved = await openRun(join(root, ".awf", "runs"), "e2e-declared", "moved");
-  await Bun.write(join(moved.dir, "turns.jsonl"), Bun.file(join(run.dir, "turns.jsonl")));
+  await Bun.write(join(moved.dir, "log.jsonl"), Bun.file(join(run.dir, "log.jsonl")));
   const toLead: string[] = [];
   expect(
     await runOperatorCli(

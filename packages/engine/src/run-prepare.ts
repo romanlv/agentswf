@@ -18,7 +18,7 @@ import {
   checkContinue,
   checkFree,
   claimAttempt,
-  endTurnsLine,
+  endLogLine,
   generateId,
   idProblem,
   openRun,
@@ -300,7 +300,7 @@ export async function claimNext(
   }
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
-  await endTurnsLine(run.dir)
+  await endLogLine(run.dir)
     .then(() =>
       appendEvent(run.dir, {
         version: RUN_EVENT_VERSIONS["attempt-started"],

@@ -80,7 +80,7 @@ async function run<T extends JsonValue>(
 async function logOf(runRoot: string): Promise<RunLogLine[]> {
   const dir = join(runRoot, "messaging");
   const [id] = await import("node:fs/promises").then((fs) => fs.readdir(dir));
-  const text = await readFile(join(dir, id!, "turns.jsonl"), "utf8");
+  const text = await readFile(join(dir, id!, "log.jsonl"), "utf8");
   return text
     .split("\n")
     .filter(Boolean)

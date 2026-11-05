@@ -43,7 +43,7 @@ export async function problems(
       found.push(`${name}: ${result?.outcome ?? "no result"}, codeword ${result?.codeword}`);
     }
   }
-  const text = await readFile(join(record.artifacts, "turns.jsonl"), "utf8").catch(() => undefined);
+  const text = await readFile(join(record.artifacts, "log.jsonl"), "utf8").catch(() => undefined);
   if (text === undefined) return [...found, "the run's event log could not be read"];
   const lines = text
     .split("\n")

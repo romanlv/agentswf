@@ -306,7 +306,7 @@ describe("workflow.stage", () => {
   });
 });
 
-describe("turns.jsonl", () => {
+describe("log.jsonl", () => {
   test("each settled turn is appended with its attempt and stage", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
@@ -381,7 +381,7 @@ describe("turns.jsonl", () => {
       );
     await attempt(1);
     // As a crash mid-append leaves it: no newline.
-    await appendFile(join(dir, "turns.jsonl"), '{"version":1,"attempt":1,"ag');
+    await appendFile(join(dir, "log.jsonl"), '{"version":1,"attempt":1,"ag');
     await attempt(2);
     expect((await readTurns(dir)).map((record) => record.attempt)).toEqual([1, 2]);
     expect(await readTurns(join(dir, "none"))).toEqual([]);

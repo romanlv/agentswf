@@ -159,6 +159,33 @@ describe("reading a run", () => {
       settledAt,
       sessions: [{ harness: "claude", id: session }],
     });
+  /**
+   * Writes `lines` as the run's log, each line's `sessions` as `run.jsonl`'s `session` lines in
+   * their place, as the engine records them.
+   */
+  const writeLog = (dir: string, lines: readonly string[]) => {
+    const log: string[] = [];
+    const sessions: string[] = [];
+    for (const text of lines) {
+      const { sessions: named, ...line } = JSON.parse(text);
+      for (const { harness, id } of named ?? []) {
+        sessions.push(
+          JSON.stringify({
+            kind: "session",
+            attempt: line.attempt,
+            at: line.at ?? line.settledAt,
+            agent: line.agent,
+            harness,
+            session: id,
+            operation: line.operationId,
+          }),
+        );
+      }
+      log.push(JSON.stringify(line));
+    }
+    writeFileSync(join(dir, "log.jsonl"), `${log.join("\n")}\n`);
+    writeFileSync(join(dir, "run.jsonl"), sessions.map((line) => `${line}\n`).join(""));
+  };
   const said = (at: string, text: string) =>
     `${JSON.stringify({ type: "assistant", timestamp: at, message: { content: [{ type: "text", text }] } })}\n`;
   const T = (minute: number) => `2026-10-11T09:${String(minute).padStart(2, "0")}:00.000Z`;
@@ -207,7 +234,7 @@ describe("reading a run", () => {
       turn("author", "op-2", T(3), T(5), caller),
       event({ kind: "agent-stopped", at: T(8), agent: "worker", callPath: [], harness: "claude" }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     return { made, project, worker };
   }
 
@@ -238,7 +265,7 @@ describe("reading a run", () => {
 
   test("the calling session is known by its operations, should its opening line be lost", async () => {
     const { made } = await setUp();
-    const log = join(made.dir, "turns.jsonl");
+    const log = join(made.dir, "log.jsonl");
     const lines = readFileSync(log, "utf8")
       .split("\n")
       .filter(Boolean)
@@ -267,7 +294,7 @@ describe("reading a run", () => {
     const line = said(T(8), "late");
     appendFileSync(file, line.slice(0, 30));
     appendFileSync(
-      join(made.dir, "turns.jsonl"),
+      join(made.dir, "log.jsonl"),
       event({ kind: "log", at: T(8), text: "x" }).slice(0, 10),
     );
     const torn = await readRun(made.dir, "/repo", first.cursor);
@@ -329,7 +356,7 @@ describe("reading a run", () => {
         home,
       }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     const read = await readRun(made.dir, "/repo");
     const activity = read.events.flatMap((each) =>
       each.source === "activity"
@@ -377,7 +404,7 @@ describe("reading a run", () => {
         sessions,
       }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     const read = await readRun(made.dir, "/repo", undefined, { ended: true });
     expect(read.log.sessions).toHaveLength(2);
     expect(
@@ -389,8 +416,8 @@ describe("reading a run", () => {
     const { made } = await setUp();
     const before = (await readRunLog(made.dir)).sessions;
     appendFileSync(
-      join(made.dir, "turns.jsonl"),
-      `${event({ kind: "session-known", at: T(6), session: { harness: "codex", id: "thread-9" }, operationId: "op-1" })}\n`,
+      join(made.dir, "run.jsonl"),
+      `${JSON.stringify({ kind: "session", attempt: 1, at: T(6), agent: "worker", harness: "codex", session: "thread-9", operation: "op-1" })}\n`,
     );
     const after = (await readRunLog(made.dir)).sessions;
     expect(after.slice(0, before.length)).toEqual(before);

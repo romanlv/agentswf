@@ -311,7 +311,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 - [x] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
 - [x] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
 - [ ] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
-- [ ] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
+- [x] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
 - [ ] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
 - [ ] 8. Readers, site and docs; old runs are `unreadable`
 
@@ -830,6 +830,14 @@ ends:
     later attempt's `claimed`; the design's "Whole lines, durably" is rewrapped. After them: `bun
     test packages/engine/src/run-lines.test.ts` 12 pass, 0 fail; `bunx tsc --noEmit` clean; `bunx
     biome check` on `run-lines.ts` clean.
+- **Review, round 2.** Clean. Nits applied: `flushed()` tries once more any session a failed
+  write dropped and nothing has seen since, so a failure during close gets a second try, and a
+  second failure stays a warning (two `session-lines.test.ts` cases); `data.md` says a wake
+  reopens an agent on its latest session where it can be (skills, a sandbox or another harness
+  start it anew), names `sandbox` and `domains` on `agent-opened`, and its log paragraph is
+  rewrapped. After them: `session-lines.test.ts` 4 pass, 0 fail; the whole `bun test` 2624 pass,
+  2 skip, 4 todo, 0 fail (2630 tests, 199 files); `bun run check` clean but for the existing Biome
+  info; the site builds, every link resolving.
 - **Verification**, in the worktree, after review round 1: `bun test
   packages/engine/src/run-lines.test.ts packages/engine/src/run-panes.test.ts
   packages/engine/src/runs.test.ts packages/engine/src/inbox-command.test.ts` 55 pass, 0 fail;
@@ -959,12 +967,162 @@ ends:
   After them: focused (`run-policy`, `stage-ledger`, `continue`, `runs-command`,
   `tests/operator-cli`, `tests/run-progress`) 230 pass, 0 fail; `bun run check` clean but for the
   existing Biome info; the whole `bun test` 2616 pass, 2 skip, 4 todo, 0 fail (2622 tests).
+- **Review, round 2.** Clean. Nits applied: `flushed()` tries once more any session a failed
+  write dropped and nothing has seen since, so a failure during close gets a second try, and a
+  second failure stays a warning (two `session-lines.test.ts` cases); `data.md` says a wake
+  reopens an agent on its latest session where it can be (skills, a sandbox or another harness
+  start it anew), names `sandbox` and `domains` on `agent-opened`, and its log paragraph is
+  rewrapped. After them: `session-lines.test.ts` 4 pass, 0 fail; the whole `bun test` 2624 pass,
+  2 skip, 4 todo, 0 fail (2630 tests, 199 files); `bun run check` clean but for the existing Biome
+  info; the site builds, every link resolving.
 - **Verification**, in the worktree, after review round 1: focused (`run-policy`, `stage-ledger`,
   `continue`, `stages`, `receive`, `runs-command`, `runs`, `emit-e2e`, `tests/operator-cli`,
   `tests/run-progress`) 310 pass, 0 fail; `bun test examples` 179 pass, 4 todo, 0 fail; `bun run
   check` clean (Biome, `tsc --noEmit`, "boundaries ok"), but for an existing Biome info in
   `experiments/e9-messaging-protocol`; the whole `bun test` 2615 pass, 2 skip, 4 todo, 0 fail (2621
   tests, 198 files).
+
+### Task 6
+
+- **Sessions are `run.jsonl`'s.** `engine/src/session-lines.ts`, `SessionLines`, writes an
+  attempt's `session` lines through its writer, `run.lines`:
+
+  ```ts
+  class SessionLines {
+    constructor(options: { lines: RunLines; failed(message: string): void });
+    /** `operation`: the operation they were seen in; `home`: a sandboxed agent's own. */
+    known(agent: string, sessions: readonly NativeSessionRef[], fields?: { operation?: string; home?: string }): void;
+    /** Once every line asked for is written, or has failed. */
+    flushed(): Promise<void>;
+  }
+  ```
+
+  A session is written once per agent per attempt, the first time the attempt sees it, so a later
+  attempt writes the sessions it resumes again. It is called where the log named sessions until
+  now: an operation's delivery and failure (its agent's sessions as of then, `operation` its id),
+  a session the harness names mid-operation, a turn's or compaction's settling, and a fork's
+  opening (no `operation`); and, after review, an agent's `wfa` reporting one, and every agent's
+  sessions once the owner has closed them. A line that fails to write is a warning, and it is
+  tried again when the session is next seen; meanwhile a continue reopens the agent on its last
+  session recorded, or anew if none was. The run awaits `flushed()` after the close-time sweep,
+  before its stage lines close and the attempt ends.
+- **The writer while closing.** `RunLines` has no lifetime: it opens `run.jsonl` per line and
+  refuses only another attempt's line, so a `session` line an agent's close produces after the
+  attempt's ending is still appended, until the next claim's fence. Nothing else changed in it.
+- **Resuming** reads `readRun`'s `sessions.latest`, each agent's latest line, from the view the
+  attempt reads as it starts (after its claim): `keptSessionsOf(view.sessions)`, never the log.
+  Before, it was the last session on each root agent's last turn line; the two differ only where an
+  agent's newest-seen session isn't last in `reportedSessions`' order (launcher reports, then the
+  harness's), and the newest seen is the one it moved to. `callPath` isn't on a `session` line:
+  `wf.call` is unbuilt.
+- **The log is `log.jsonl`** (`runs.ts` `logFile`; `endTurnsLine` is `endLogLine`). Its types:
+  `session-known` and `TURN_OPERATION_FIELDS`' `sessions` go, so turn, compaction,
+  `operation-started` and `operation-failed` lines carry none; new, `sandbox-opened`
+  (`{ kind } & SandboxRecord`); `agent-opened` gains `skills` (`Pick<AgentSkillsRecord, "skills" |
+  "home">`) and `pane` (`Omit<AgentPaneRecord, "callPath" | "agent">`); `agent-stopped` gains
+  `kept` and `notKept`, read from the session's `pane()` once its close settled; `decision-asked`
+  and `decision-ended` gain `operation`. After review, `agent-opened` also gains `sandbox` (the key
+  it was admitted to) and `domains` (its harness's model domains), so the log alone says what
+  `output.json`'s `sandboxes` do.
+- **Readers.** `run-read.ts` numbers native sessions from `run.jsonl`'s `session` lines, in order,
+  each with its line's agent (and `home`, used when the log lost the agent's opening); the agents'
+  operations and windows still come from the log. `awf runs`' agent sessions read it through
+  `run-read.ts`. When `run.jsonl` can't be read, `awf logs` still reads the log and says `note:
+  run.jsonl could not be read, so no agent's activity shows: {why}`. The interrupted-in-stage notice
+  reads `log.jsonl` (`readTurns`). Accounting reads no session from any file: the ledger counts
+  each agent's sessions in the process, and `output.json`'s `usage[].sessions` is unchanged, so
+  accounting's results are identical by construction. No reader yet needs an operation's own
+  sessions from the record; the design's rule (the agent's line current at the operation's start,
+  plus every line naming it) is what such a reader computes.
+- **Turn recovery** (`recoverTurns`) reads the mailbox, not the log, so deleting `log.jsonl` doesn't
+  touch it; it moves into the claim with task 5.
+- **Deviations, for review.**
+  - *A decision's `operation` is a UUID* minted as it is asked, the scheme turns use today; task 2
+    makes it `{decision}.{n}`.
+  - *`sandbox-opened` is the record as the sandbox opened*: `agents` empty and `domains` the
+    spec's `network`. Each admitted agent's `agent-opened` carries its `home`, `sandbox` and
+    `domains`, which together give the record.
+  - *No version changed*: `RUN_EVENT_VERSIONS` and `TURN_RECORD_VERSION` keep their numbers for
+    the kinds whose shape changed (`sessions` removed; `skills`, `pane`, `kept`, `notKept` and
+    `operation` added), since task 8's `format` makes a run before this story `unreadable`.
+    `awf logs --json` stops carrying `sessions` and `session-known` events at `v: 1`.
+  - *`awf logs` no longer prints a session line*: a fork's `session-known` line was shown as
+    `@e{n} … {agent}  session {harness} {id}`, and the handles after it were one higher. Its
+    `session` line is in `run.jsonl`, which task 8's cursor spans.
+- **Event runs parked before this change** have no `session` lines, so their agents start new
+  sessions at the next wake. No compatibility is kept (beta).
+- **Left for task 8**, naming `turns.jsonl` or `session-known`: `docs/design/runs-and-stages.md` (`:190`, `:208`, `:242-244`,
+  `:472`); `docs/design/messaging.md:829`; `docs/status.md:33`; ADR 0012's context line
+  (`docs/adr/0012-a-kept-session-and-its-window.md:11`, a continue reopens from `turns.jsonl`).
+  Stories and findings record history and stay. `awf logs` showing `session` lines, with handles
+  over both files, is task 8's cursor.
+- **Tests.**
+  - `receive.test.ts`: an event run whose turn names its session parks; `log.jsonl` is deleted; the
+    continue opens the agent on its `session` line (`activations[0].continues`). It fails with
+    `keptSessions` emptied, as reading the deleted log would leave it. `keptSessionsOf` is tested
+    over `readRun`: the latest line per agent, a fenced line ignored.
+  - `logs-command.test.ts`: a fake-harness run of two attempts (stages, turns, a compaction, a
+    fork, a session named mid-turn, a log line, a `--from-stage` continue). Its `awf logs` text was
+    captured from the engine before this task and is asserted after it: the same text, times and
+    the fork's id masked, but for the fork's session line and the handles after it, which the test
+    derives. `awf runs --json`'s agent sessions are the same as before (`named-session`,
+    `fake-named`, in that order); `run.jsonl` holds each attempt's lines. Every existing `awf logs`
+    and `run-read` test keeps its expected text with its sessions moved to `run.jsonl` lines
+    (`run-read.test.ts`'s `writeLog` writes a line's `sessions` as `session` lines). New: a session
+    named mid-turn reads its activity under `--agent`; an unreadable `run.jsonl` is said once and
+    the log still reads.
+  - `run-event-log.test.ts`: no log line has `sessions`; a fork's and a worker's `session` lines,
+    the worker's naming its first operation; a session named mid-turn names its operation; a
+    decision's two lines share `operation`; `agent-opened` carries `skills`.
+  - `sandboxes.test.ts`: `sandbox-opened` is the run sandbox's record as opened, and each
+    `agent-opened` names its home. `workflow-runner.test.ts`: `agent-opened` carries the pane as
+    written and placed, `agent-stopped` `kept`.
+- **Review, round 1.** Two reviews; all findings accepted.
+  - A session that moved at close, or that the agent reported after its last turn, was never
+    recorded, so a continue resumed an older one: the owner now records every agent's sessions
+    once it has closed them, before `flushed()`, and a `wfa` session report is recorded as it
+    arrives (`launcherReported`, filtered through `reportedSessions` as accounting is). The
+    ledger's read at settle (`run-usage.ts`) learns no session the close-time sweep misses: it
+    reads the same `reportedSessions`. Test (`receive.test.ts`): a session the agent reports after
+    its turn settled is the one the continue resumes; it fails with both paths removed.
+  - A failed session write was never retried: it, and every session written after it for that
+    agent, is now dropped from the written set, so the next sighting writes them again in order
+    and the latest line stays the newest. The doc comment and this note say what a continue does
+    meanwhile. Tests (`session-lines.test.ts`): once per attempt with `operation` and `home`; a
+    failure is warned of and retried in order.
+  - `agent-opened` lacked what a sandbox's record says of its agents: `sandbox` and `domains`
+    added (`RunSandboxes.admitted`). Test (`sandboxes.test.ts`): the openings' homes and sandbox
+    match the record's agents, and network plus their domains is the record's `domains`.
+  - The site described `stages/`, `replaced/` and `turns.jsonl`, and is deployed from main:
+    `site/reference/data.md` (`run.jsonl` with its `claimed`, `stage` and `session` lines, every
+    start point a redo; `log.jsonl` without sessions, with `sandbox-opened`),
+    `site/guide/durability.md` (old lines stay in `run.jsonl`; a crash inside a `--from-stage`
+    stage starts there again, without `--values`) and `site/reference/workflow-api.md`'s
+    `--from-stage` paragraph. Task 8 still owns the pages naming files not yet moved (`calls/`,
+    `mailbox.jsonl`, `output.json`, `process.log`, `decisions/`): `site/guide/cost.md`,
+    `decisions.md`, `following-runs.md`, `harnesses.md`, `how-it-works.md`, `quick-start.md`,
+    `runs.md`, `sandboxes.md`, `workflows.md`, `site/reference/configuration.md`, `data.md` and
+    `workflow-api.md`.
+  - Nits, all applied: `agent-stopped` `notKept` tested; `agent-opened`'s `placed` has no `kept`;
+    a session named mid-turn is the worker's only line and is written before its turn settles;
+    `continues` pinned to `fake-worker`; a fork's `home` comes from `homeOf`, as every other
+    session line's; the note on parked event runs above.
+- **Review, round 2.** Clean. Nits applied: `flushed()` tries once more any session a failed
+  write dropped and nothing has seen since, so a failure during close gets a second try, and a
+  second failure stays a warning (two `session-lines.test.ts` cases); `data.md` says a wake
+  reopens an agent on its latest session where it can be (skills, a sandbox or another harness
+  start it anew), names `sandbox` and `domains` on `agent-opened`, and its log paragraph is
+  rewrapped. After them: `session-lines.test.ts` 4 pass, 0 fail; the whole `bun test` 2624 pass,
+  2 skip, 4 todo, 0 fail (2630 tests, 199 files); `bun run check` clean but for the existing Biome
+  info; the site builds, every link resolving.
+- **Verification**, in the worktree, after review round 1: focused (`session-lines`, `receive`,
+  `run-event-log`, `logs-command`, `run-read`, `runs-command`, `sandboxes`, `workflow-runner`,
+  `fork`, `run-usage`) 260 pass, 0 fail; the whole `bun test` 2622 pass, 2 skip, 4 todo, 0 fail
+  (2628 tests, 199 files); `bun test examples` 179 pass, 4 todo, 0 fail; `bun run check` clean
+  (Biome, `tsc --noEmit`, "boundaries ok") but for the existing Biome info in
+  `experiments/e9-messaging-protocol`; `cd site && bun run build` passes, every link resolving. The
+  live evals that read the log (`tests/coordinator.eval.ts`, `tests/messaging.eval.ts`) follow the
+  rename and were not run.
 
 ## Human review
 

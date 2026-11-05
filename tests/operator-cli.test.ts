@@ -1529,8 +1529,8 @@ describe("awf run's runs and attempts", () => {
     reopenAttempt(join(runs(cwd), "r1"), 1, { pid: 999_999_999 });
     // Its last turn, in qa.
     writeFileSync(
-      join(runs(cwd), "r1", "turns.jsonl"),
-      `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered", sessions: [] })}\n`,
+      join(runs(cwd), "r1", "log.jsonl"),
+      `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered" })}\n`,
     );
     rmSync(join(cwd, "fail"));
     const continued = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
@@ -1549,11 +1549,11 @@ describe("awf run's runs and attempts", () => {
     const line = (fields: object) =>
       `${JSON.stringify({ version: 1, attempt: 1, at, ...fields })}\n`;
     writeFileSync(
-      join(runs(cwd), "r1", "turns.jsonl"),
+      join(runs(cwd), "r1", "log.jsonl"),
       [
         line({ kind: "attempt-started" }),
         line({ kind: "stage-started", stage: "qa" }),
-        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered", sessions: [] }),
+        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered" }),
         line({ kind: "stage-ended", stage: "qa", outcome: "succeeded" }),
         line({ kind: "stage-started", stage: "fix" }),
         line({ kind: "log", text: "fixing", stage: "fix" }),
@@ -1581,7 +1581,7 @@ describe("awf run's runs and attempts", () => {
     const dir = join(runs(cwd), "r1");
     // A line the stage files contradict, and a torn last line: the continue goes by the files.
     appendFileSync(
-      join(dir, "turns.jsonl"),
+      join(dir, "log.jsonl"),
       `${JSON.stringify({ version: 1, attempt: 1, at: "", kind: "stage-ended", stage: "qa", outcome: "succeeded" })}\n{"version":1,"att`,
     );
     rmSync(join(cwd, "fail"));

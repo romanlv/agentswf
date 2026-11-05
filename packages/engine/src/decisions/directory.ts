@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DecisionArtifact, Money, SettledDecision } from "@agentswf/contract/records";
@@ -46,6 +46,8 @@ type PreparedCall = {
   provider: DecisionProvider;
   deadline: AbsoluteDeadline | undefined;
   slot: number;
+  /** Its operation's id, on both its lines. */
+  operation: string;
 };
 
 type Ending =
@@ -138,23 +140,25 @@ export class RunDecisions {
     assertDeadline(deadline);
     const slot = this.#slots.length;
     this.#slots.push(undefined);
+    const operation = randomUUID();
     this.options.event?.({
       kind: "decision-asked",
       decision: slot + 1,
+      operation,
       ...(scope.stage === undefined ? {} : { stage: scope.stage }),
       key: spec.key,
       alias: spec.model,
       provider: resolved.provider,
       model: resolved.model,
     });
-    return { spec, ids, resolved, provider, deadline, slot };
+    return { spec, ids, resolved, provider, deadline, slot, operation };
   }
 
   async #run(
     call: PreparedCall,
     scope: DecisionScope,
   ): Promise<{ answers: Record<string, unknown>; record: DecisionRecord }> {
-    const { spec, ids, resolved, provider, deadline, slot } = call;
+    const { spec, ids, resolved, provider, deadline, slot, operation } = call;
     const startedAt = new Date().toISOString();
     const controller = new AbortController();
     let ending: Ending | undefined;
@@ -284,6 +288,7 @@ export class RunDecisions {
     this.options.event?.({
       kind: "decision-ended",
       decision: slot + 1,
+      operation,
       ...(settled.stage === undefined ? {} : { stage: settled.stage }),
       outcome: settled.outcome,
       ...(settled.error === undefined ? {} : { error: settled.error }),

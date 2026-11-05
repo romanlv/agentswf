@@ -1405,7 +1405,7 @@ describe("tool records and awf logs", () => {
     });
     expect(result.value).toBeNull();
     expect(JSON.parse(envelope)).toMatchObject({ kind: "rejected", code: "invalid-request" });
-    const text = await Bun.file(join(runRoot, "records", result.runId, "turns.jsonl")).text();
+    const text = await Bun.file(join(runRoot, "records", result.runId, "log.jsonl")).text();
     const lines = text
       .split("\n")
       .filter(Boolean)

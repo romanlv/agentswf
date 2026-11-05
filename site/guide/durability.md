@@ -52,6 +52,10 @@ again. A test shows it, with no agents and no cost:
 | You change the code between attempts | | every stage record | runs the new code, reusing the records that still fit it ([below](#when-the-code-changes)) |
 | The run completed | `completed` | everything | refused, unless `--from-stage` names a stage to redo |
 
+In a run without events, a crash inside the stage `--from-stage` named leaves that redo to the
+next continue: it starts at that stage again, and says so. It doesn't carry the crashed attempt's
+`--values`, so a stage before it with no record to reuse stops for its value.
+
 A stage is the unit: nothing finer is kept. Two agent turns in one stage are redone together, so
 a step worth keeping on its own is a stage of its own. A workflow with no stages keeps nothing to
 reuse, and a continue runs all of it again.
@@ -70,8 +74,8 @@ As the workflow enters each stage, the continue decides:
   against the stage's `result` schema as it is now, and handed back; its work is never called.
 - **The start point** is the first stage entered with no succeeded record, or the stage
   `--from-stage` names. From there, every stage runs, even those that succeeded before: a review
-  of an implementation that is being redone is stale. Their old records move to `replaced/` in
-  the run's folder; nothing is deleted.
+  of an implementation that is being redone is stale. Their old records stay in the run's
+  `run.jsonl`; nothing is deleted.
 - **Agents start fresh.** A continue opens its agents anew, and they remember nothing of the
   stages it reused. That is why the `review` prompt names the commit and the branch.
 
@@ -90,7 +94,7 @@ what it reuses, from coarse to fine:
 | `meta.version`'s major (under `0.x`, its minor), when both the record and the code have one | the attempt stops at the first stage recorded by the other version |
 | A stage's `result` schema rejects its recorded value, or the stage gained or lost a `result` | the attempt stops at that stage, saying why |
 | A stage was added or renamed | it has no record, so a plain continue starts there; after `--from-stage`, the attempt stops, listing the recorded stages it never reached |
-| A stage was removed | its record is never asked for, and moves to `replaced/` at the next start point |
+| A stage was removed | its record is never asked for, and stays in `run.jsonl` |
 | A prompt, a model or anything else | records are reused as they are |
 
 Each stop names the stage, and the command it prints goes on with `--from-stage {stage}`, which

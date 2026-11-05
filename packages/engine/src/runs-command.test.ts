@@ -51,7 +51,7 @@ async function makeRun(
     });
   }
   writeFileSync(
-    join(run.dir, "turns.jsonl"),
+    join(run.dir, "log.jsonl"),
     lines.map((line) => `${JSON.stringify({ version: 1, attempt: 1, ...line })}\n`).join(""),
   );
   return run;
@@ -77,7 +77,6 @@ const turnFields = (agent: string, id: string, stage: string, from: number, to?:
   stage,
   deliveredAt: T(from),
   ...(to === undefined ? {} : { settledAt: T(to) }),
-  sessions: [],
   callPath: [],
 });
 
@@ -217,7 +216,6 @@ describe("awf runs", () => {
           harness: "codex",
           state: "working",
           turns: 0,
-          sessions: [],
           live: { observedAt: T(14) },
         },
       ],
@@ -556,13 +554,11 @@ describe("awf runs", () => {
           cwd: "/box",
           home,
         },
-        {
-          kind: "session-known",
-          at: T(1),
-          agent: "coder",
-          session: { harness: "claude", id: "s-1" },
-        },
       ],
+    );
+    writeFileSync(
+      join(cwd, ".awf", "runs", "review", "s1", "run.jsonl"),
+      `${JSON.stringify({ kind: "session", attempt: 1, at: T(1), agent: "coder", harness: "claude", session: "s-1" })}\n`,
     );
     const json = JSON.parse((await awfRuns(cwd, "review/s1", "--json")).stdout);
     expect(json.agents[0].sessions).toEqual([{ harness: "claude", id: "s-1", files: [file] }]);

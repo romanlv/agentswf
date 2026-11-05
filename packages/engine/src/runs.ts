@@ -35,7 +35,7 @@ import { recordedStages } from "./run-policy/stages";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
- * `run.jsonl` (`run-lines.ts`), `turns.jsonl`, each operation's
+ * `run.jsonl` (`run-lines.ts`), `log.jsonl`, each operation's
  * `calls/{id}/` with its `call.json`, `candidates.jsonl` and `result.json`, and the last ended
  * attempt's `output.json` and `report.md`. The only module that knows where a run's records are;
  * what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
@@ -420,14 +420,14 @@ export async function endAttempt(
   return record;
 }
 
-/** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
+/** Appends a line to the run's event log, `log.jsonl`, which only the live attempt writes. */
 export async function appendEvent(runDir: string, line: RunLogLine): Promise<void> {
-  await appendLine(turnsFile(runDir), JSON.stringify(line));
+  await appendLine(logFile(runDir), JSON.stringify(line));
 }
 
 /** Ends a line a crash left torn, so the next line appended starts a line of its own. */
-export async function endTurnsLine(runDir: string): Promise<void> {
-  await endTornLine(turnsFile(runDir));
+export async function endLogLine(runDir: string): Promise<void> {
+  await endTornLine(logFile(runDir));
 }
 
 /** The run's event log in the order written, less a line a crash tore and the kinds this awf does not know. */
@@ -458,7 +458,7 @@ export async function readEventsFrom(
 ): Promise<{ lines: { number: number; line: RunLogLine }[]; mark: LogMark }> {
   let bytes: Buffer;
   try {
-    const file = await open(turnsFile(runDir), "r");
+    const file = await open(logFile(runDir), "r");
     try {
       const { size } = await file.stat();
       bytes = Buffer.alloc(Math.max(0, size - from.offset));
@@ -499,7 +499,7 @@ export async function readEventsFrom(
 
 /** The event log's size in bytes, 0 before it is written. */
 export async function logSize(runDir: string): Promise<number> {
-  return (await stat(turnsFile(runDir)).catch(() => undefined))?.size ?? 0;
+  return (await stat(logFile(runDir)).catch(() => undefined))?.size ?? 0;
 }
 
 async function attemptNames(run: Pick<Run, "dir">): Promise<string[]> {
@@ -628,8 +628,9 @@ function attemptsDir(runDir: string): string {
   return join(runDir, "attempts");
 }
 
-function turnsFile(runDir: string): string {
-  return join(runDir, "turns.jsonl");
+/** The run's event log, `log.jsonl`: read, never acted on. */
+export function logFile(runDir: string): string {
+  return join(runDir, "log.jsonl");
 }
 
 function callDir(runDir: string, callId: string): string {

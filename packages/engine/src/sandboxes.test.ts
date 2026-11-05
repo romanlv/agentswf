@@ -615,7 +615,7 @@ const installed = await installSandboxes(process.env);
 
 describe("the operator's sandbox for the whole run", () => {
   test("every agent runs in it, at the run's cwd, without the workflow asking", async () => {
-    const { events, run } = setup({}, undefined, { srt: {}, read: [join(work, "src")] });
+    const { events, run, runRoot } = setup({}, undefined, { srt: {}, read: [join(work, "src")] });
     const result = await run(async (context) => {
       const answers: string[] = [];
       for (const key of ["reviewer", "verifier"]) {
@@ -633,6 +633,28 @@ describe("the operator's sandbox for the whole run", () => {
     });
     expect(kinds(events, "run").filter((kind) => kind === "open")).toHaveLength(1);
     expect(kinds(events, "run").at(-1)).toBe("close");
+    // The log has it as it opened, before any agent and so any harness's domains.
+    const logged = await readEvents(join(runRoot, "sandboxes", result.runId));
+    const {
+      kind: _kind,
+      version: _version,
+      attempt: _attempt,
+      at: _at,
+      ...opened
+    } = logged.find((line) => line.kind === "sandbox-opened") as Record<string, unknown>;
+    const [recorded] = result.sandboxes!;
+    expect(opened).toEqual({ ...recorded!, agents: [], domains: recorded!.spec.network });
+    // With the agents' openings, the log says what the record does.
+    const admitted = logged.flatMap((line) => (line.kind === "agent-opened" ? [line] : []));
+    expect(admitted.map(({ home, sandbox }) => [home, sandbox])).toEqual(
+      recorded!.agents.map(({ home }) => [home, "run"]),
+    );
+    const domains = new Set([
+      ...(recorded!.spec.network ?? []),
+      ...admitted.flatMap((line) => line.domains ?? []),
+    ]);
+    expect([...domains].sort()).toEqual(recorded!.domains);
+    expect(recorded!.domains.length).toBeGreaterThan(0);
   });
 
   test.each<[string, (context: WorkflowContext) => Promise<unknown>]>([

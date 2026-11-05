@@ -67,6 +67,12 @@ export class RunSkills {
     return this.#records.map((record) => structuredClone(record));
   }
 
+  /** What `agent` was given, as last recorded. */
+  of(agent: string): AgentSkillsRecord | undefined {
+    const found = this.#records.findLast((record) => record.agent === agent);
+    return found && structuredClone(found);
+  }
+
   #one(source: SkillSource): Promise<ResolvedSkill> {
     const key = JSON.stringify(source);
     let resolving = this.#resolved.get(key);

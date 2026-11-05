@@ -12,7 +12,6 @@ import type {
   AgentKey,
   HarnessKind,
   KeepPane,
-  NativeSessionRef,
   OperationRecord,
   PaneLayout,
   PaneSpec,
@@ -607,7 +606,7 @@ export type MailboxRecord = {
   | { kind: "timer-cancelled"; attempt: number; name: string }
   /**
    * A turn `start()` began, written before its agent is launched; the rest of it is in
-   * `turns.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
+   * `log.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
    * agent's key, the turn's id and this attempt, so one end is ever kept, and a turn the code
    * begins again under its id in a later attempt is a turn of its own.
    */
@@ -631,7 +630,7 @@ export type { StageNeed } from "./workflow/executable";
 
 export const TURN_RECORD_VERSION = 1 as const;
 
-/** What a line of `turns.jsonl` keeps of its operation's record. */
+/** What a line of `log.jsonl` keeps of its operation's record: not its sessions, which are `run.jsonl`'s. */
 export const TURN_OPERATION_FIELDS = [
   "agent",
   "operationId",
@@ -640,14 +639,14 @@ export const TURN_OPERATION_FIELDS = [
   "label",
   "deliveredAt",
   "settledAt",
-  "sessions",
   "cause",
 ] as const satisfies readonly (keyof OperationRecord)[];
 
 /**
- * A line of `turns.jsonl`: a turn, nudges included, or a compaction, as it settled, with the attempt
- * it was in. Its `sessions` are its agent's as of then: the last is the one it ran on. What it spent
- * is read from its sessions once the attempt ends, so a line has none. Tier: public, for reading.
+ * A line of `log.jsonl`: a turn, nudges included, or a compaction, as it settled, with the attempt
+ * it was in. The sessions it ran on are `run.jsonl`'s `session` lines: its agent's current at its
+ * start, and every one naming it. What it spent is read from its sessions once the attempt ends, so
+ * a line has none. Tier: public, for reading.
  */
 export type TurnRecord = {
   version: typeof TURN_RECORD_VERSION;
@@ -680,18 +679,15 @@ export type RunEvent = {
   | { kind: "stage-started"; stage: string }
   /** A stage not run in this attempt, its value reused or given, writes only its end. */
   | { kind: "stage-ended"; stage: string; outcome: StageOutcome; source?: "reused" | "provided" }
-  /** Written at delivery; its `sessions` name the native session when it is known by then. */
+  /** Written at delivery. */
   | ({ kind: "operation-started" } & OperationEvent)
   /** May have no start: an operation can fail before it is delivered. */
   | ({ kind: "operation-failed"; error: string } & OperationEvent)
-  | {
-      kind: "session-known";
-      session: NativeSessionRef;
-      /** A headless turn whose harness named its session while it ran. */
-      operationId?: string;
-      /** A fork, once its session exists. */
-      agent?: AgentKey;
-    }
+  /**
+   * A sandbox opened, as its record stood then: the agents it admits later, and the domains their
+   * harnesses add, are on their own `agent-opened` lines.
+   */
+  | ({ kind: "sandbox-opened" } & SandboxRecord)
   | {
       kind: "agent-opened";
       agent: AgentKey;
@@ -701,10 +697,21 @@ export type RunEvent = {
       cwd: string;
       /** A sandboxed agent's own harness home; absent for the operator's. */
       home?: string;
+      /** The sandbox it was admitted to, by key, and the model domains its harness added to it. */
+      sandbox?: SandboxKey;
+      domains?: Domain[];
       /** The calling session (ADR 0010). */
       caller?: true;
+      /** The skills it was given, as `AgentSkillsRecord` has them, with their own home, if any. */
+      skills?: Pick<AgentSkillsRecord, "skills" | "home">;
+      /** A TUI agent's pane, as its workflow wrote it and where it was placed. */
+      pane?: Omit<AgentPaneRecord, "callPath" | "agent">;
     }
-  | { kind: "agent-stopped"; agent: AgentKey; callPath: string[]; harness: HarnessKind }
+  /** With whether its pane was kept, decided as it closed. */
+  | ({ kind: "agent-stopped"; agent: AgentKey; callPath: string[]; harness: HarnessKind } & Pick<
+      PanePlacement,
+      "kept" | "notKept"
+    >)
   | {
       kind: "agent-forked";
       agent: AgentKey;
@@ -714,12 +721,15 @@ export type RunEvent = {
       after: string | null;
     }
   | { kind: "log" | "warning"; text: string; fields?: JsonObject; stage?: string }
-  /** `decision` numbers it in the order asked within the attempt. */
-  | ({ kind: "decision-asked"; decision: number } & Pick<
+  /**
+   * `decision` numbers it in the order asked within the attempt; `operation` is its operation's id,
+   * which its end carries too.
+   */
+  | ({ kind: "decision-asked"; decision: number; operation: string } & Pick<
       DecisionRecord,
       "stage" | "key" | "alias" | "provider" | "model"
     >)
-  | ({ kind: "decision-ended"; decision: number } & Pick<
+  | ({ kind: "decision-ended"; decision: number; operation: string } & Pick<
       DecisionRecord,
       "stage" | "outcome" | "error"
     >)
@@ -949,7 +959,7 @@ export type Activity =
   | { type: "background-ended" }
   | { type: "compaction" };
 
-/** A line of `turns.jsonl`, the run's event log. Tier: public, for reading. */
+/** A line of `log.jsonl`, the run's event log. Tier: public, for reading. */
 export type RunLogLine = TurnRecord | RunEvent;
 
 /**
@@ -1264,7 +1274,7 @@ export const RUN_EVENT_VERSIONS = {
   "stage-ended": 1,
   "operation-started": 1,
   "operation-failed": 1,
-  "session-known": 1,
+  "sandbox-opened": 1,
   "agent-opened": 1,
   "agent-stopped": 1,
   "agent-forked": 1,

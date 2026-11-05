@@ -14,6 +14,7 @@ import type {
   AgentSkillsRecord,
   RunAccounting,
   RunPanes,
+  RunView,
   SandboxRecord,
   SettledDecision,
   SettledOperation,
@@ -56,12 +57,14 @@ import {
   type EventLike,
   type ForkRuntime,
   type HarnessAllowance,
+  type HarnessKind,
   isEventWorkflow,
   isJsonValue,
   type JsonObject,
   type JsonValue,
   type KeepPane,
   type MessageAccess,
+  type NativeSessionRef,
   type Next,
   nameProblem,
   type OperationRecord,
@@ -201,7 +204,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endTurnsLine, readAttempts, readTurns, writeScreen } from "./runs";
+import { endLogLine, readAttempts, writeScreen } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -209,6 +212,7 @@ import {
   type RunSandboxOptions,
   type SeatedAgent,
 } from "./sandboxes";
+import { SessionLines } from "./session-lines";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import {
@@ -520,7 +524,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     .find(({ attempt: n }) => n === recorded.redo?.attempt)
     ?.stages?.map(({ stage }) => stage);
   // The log is observation: one that cannot be written says so as it is, and fails nothing.
-  await endTurnsLine(runDir).catch(() => undefined);
+  await endLogLine(runDir).catch(() => undefined);
   const slots = createResultSlotRegistry({
     runDir,
     ...(options.livenessPolicy
@@ -567,6 +571,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       });
     };
   const warn = say("warning");
+  const sessionLines = new SessionLines({ lines: options.run.lines, failed: (text) => warn(text) });
   const deprecations = new RunDeprecations((text) => warn(text));
   if (definition.meta.whenToUse !== undefined) deprecations.used("whenToUse");
   if ((definition as { [DEPRECATED_DEFINITION]?: unknown })[DEPRECATED_DEFINITION])
@@ -605,6 +610,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     cwd,
     deadline: options.deadline,
     log: (message) => warn(message),
+    opened: (record) => events.event({ kind: "sandbox-opened", ...record }),
   });
   if (sandboxes.hasRunSandbox) {
     try {
@@ -635,10 +641,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
   // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
   const restoredTurns = withEvents ? await recoverTurns(runDir, attempt, locked, now) : undefined;
-  // An event run's agents reopen on the sessions its earlier attempts' turns ran on.
+  // An event run's agents reopen on the sessions its earlier attempts recorded.
   const keptSessions =
     withEvents && options.run.resumeSessions !== false
-      ? keptSessionsOf(await readTurns(runDir))
+      ? keptSessionsOf(recorded.sessions)
       : undefined;
   // Every run's timers live in a mailbox; a run of a workflow with events takes its events there too.
   // A plain run without `park` waits for its timers in its process.
@@ -676,6 +682,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(mailbox ? { mailbox } : {}),
     waits,
     ...(keptSessions ? { keptSessions } : {}),
+    sessionLines,
     ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
@@ -799,6 +806,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 
     // Before the wait for session files, which is bookkeeping rather than the run's own time.
     const finishedAt = new Date().toISOString();
+    // A session that moved as its agent closed is recorded before the attempt ends.
+    owner.recordSessions();
+    await sessionLines.flushed();
     await stages
       .close()
       .catch((error) => warn(`awf: a stage's line was not written: ${messageOf(error)}`));
@@ -1007,8 +1017,10 @@ class WorkflowOwner {
       now: () => number;
       /** Its timers: the mailbox for a run with `events`, one of its own for a plain run. */
       waits: RunMailbox;
-      /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
+      /** With `mailbox`: each agent's latest session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
+      /** Where each session an agent is seen with is recorded, as it is. */
+      sessionLines: SessionLines;
       /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
       restoredTurns?: ReadonlyMap<string, RestoredTurn>;
       emit: Emitter;
@@ -2245,7 +2257,9 @@ class WorkflowOwner {
     };
     const ledger = this.options.ledger.agent(accounted);
     this.options.skills.record(key, "operator");
-    const opened = this.options.control.openChannel(key, (id) => sessions.launcher.add(id));
+    const opened = this.options.control.openChannel(key, (id) =>
+      this.launcherReported(key, execution.harness, sessions, id),
+    );
     const state = opened.then(async (channel) => {
       try {
         const launcher = await installAgentLauncher(
@@ -2341,7 +2355,9 @@ class WorkflowOwner {
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const opened = placed.then((skills) => {
       if (skills?.given.ownHome) accounted.home = skills.given.ownHome;
-      return this.options.control.openChannel(spec.key, (id) => sessions.launcher.add(id));
+      return this.options.control.openChannel(spec.key, (id) =>
+        this.launcherReported(spec.key, execution.harness, sessions, id),
+      );
     });
     const reachable = opened.then(async (channel) => ({
       channel,
@@ -2483,7 +2499,7 @@ class WorkflowOwner {
       let channel: ResultChannel | undefined;
       try {
         channel = await this.options.control.openChannel(spec.key, (id) =>
-          sessions.launcher.add(id),
+          this.launcherReported(spec.key, execution.harness, sessions, id),
         );
         const door = await installSandboxedDoor(
           dirname(channel.endpoint),
@@ -2554,6 +2570,11 @@ class WorkflowOwner {
       progress: this.options.progress,
       recordTurn: this.options.recordTurn,
       events: this.options.events,
+      sessionsKnown: (sessions, operation) =>
+        this.options.sessionLines.known(key, sessions, {
+          ...(operation === undefined ? {} : { operation }),
+          ...this.homeOf(key),
+        }),
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed || this.#cleanupFailures.length > 0,
       checkOperation: () => this.options.stages.checkOperation(),
@@ -2814,6 +2835,10 @@ class WorkflowOwner {
   ): void {
     state.then(
       () => {
+        const entry = this.#agents.get(accounted.key);
+        const skills = this.options.skills.of(accounted.key);
+        const pane = entry && paneOf(entry);
+        const seat = this.options.sandboxes.admitted(accounted.key);
         this.options.events.event({
           kind: "agent-opened",
           agent: accounted.key,
@@ -2821,17 +2846,26 @@ class WorkflowOwner {
           harness: accounted.execution.harness,
           cwd: accounted.cwd,
           ...(accounted.home === undefined ? {} : { home: accounted.home }),
+          ...(seat ? { sandbox: seat.sandbox, domains: seat.domains } : {}),
           ...(as && "caller" in as ? { caller: true } : {}),
+          ...(skills
+            ? {
+                skills: {
+                  skills: skills.skills,
+                  ...(skills.home === undefined ? {} : { home: skills.home }),
+                },
+              }
+            : {}),
+          ...(pane ? { pane } : {}),
         });
         // A fork's session is made before its first operation names it.
         if (!as || !("fork" in as)) return;
-        for (const id of accounted.sessions()) {
-          this.options.events.event({
-            kind: "session-known",
-            session: { harness: accounted.execution.harness, id },
-            agent: accounted.key,
-          });
-        }
+        const { harness } = accounted.execution;
+        this.options.sessionLines.known(
+          accounted.key,
+          accounted.sessions().map((id) => ({ harness, id })),
+          this.homeOf(accounted.key),
+        );
       },
       () => undefined,
     );
@@ -2880,20 +2914,46 @@ class WorkflowOwner {
   /** Where each TUI agent's pane went, as its host reported it, in the order opened. */
   panes(): AgentPaneRecord[] {
     return [...this.#agents].flatMap(([agent, entry]) => {
-      const placed = entry.opening?.sessions.harness?.pane?.();
-      if (!placed) return [];
-      const { pane, layout, keepPane } = entry.identity;
-      return [
-        {
-          callPath: [],
-          agent,
-          ...(pane === undefined ? {} : { pane }),
-          ...(layout === undefined ? {} : { layout }),
-          ...(keepPane === undefined ? {} : { keepPane }),
-          placed,
-        },
-      ];
+      const pane = paneOf(entry);
+      return pane ? [{ callPath: [], agent, ...pane }] : [];
     });
+  }
+
+  /** A sandboxed agent's own harness home, where its sessions are, once it is known. */
+  private homeOf(key: string): { home?: string } {
+    const home = this.#agents.get(key)?.opening?.accounted.home;
+    return home === undefined ? {} : { home };
+  }
+
+  /** A session an agent's `wfa` named: recorded at once, less one a fork or parent holds. */
+  private launcherReported(
+    key: string,
+    harness: HarnessKind,
+    sessions: AgentSessions,
+    id: string,
+  ): void {
+    sessions.launcher.add(id);
+    this.options.sessionLines.known(
+      key,
+      reportedSessions(sessions).map((session) => ({ harness, id: session })),
+      this.homeOf(key),
+    );
+  }
+
+  /**
+   * Every agent's sessions as its close left them: one that moved in a compaction or fork at close,
+   * or that its harness saw after its last operation, is what the next continue resumes.
+   */
+  recordSessions(): void {
+    for (const [key, entry] of this.#agents) {
+      if (!entry.opening) continue;
+      const { harness } = entry.opening.accounted.execution;
+      this.options.sessionLines.known(
+        key,
+        reportedSessions(entry.opening.sessions).map((id) => ({ harness, id })),
+        this.homeOf(key),
+      );
+    }
   }
 
   /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */
@@ -2912,6 +2972,19 @@ class WorkflowOwner {
     promise.finally(() => this.#inFlight.delete(promise)).catch(() => undefined);
     return promise;
   }
+}
+
+/** An agent's pane as its workflow wrote it and as its host placed it; undefined for no pane. */
+function paneOf(entry: AgentEntry): Omit<AgentPaneRecord, "callPath" | "agent"> | undefined {
+  const placed = entry.opening?.sessions.harness?.pane?.();
+  if (!placed) return undefined;
+  const { pane, layout, keepPane } = entry.identity;
+  return {
+    ...(pane === undefined ? {} : { pane }),
+    ...(layout === undefined ? {} : { layout }),
+    ...(keepPane === undefined ? {} : { keepPane }),
+    placed,
+  };
 }
 
 // What a wait takes of it is type-only, and `asSource` marks it at run time.
@@ -2982,6 +3055,8 @@ class LogicalAgent implements AgentRef {
       progress: RunProgress;
       recordTurn: RecordTurn;
       events: RunEventLog;
+      /** Records the sessions it is seen with, in `operation` when one is named. */
+      sessionsKnown(sessions: readonly NativeSessionRef[], operation?: string): void;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
       /** Throws when no turn may start: the attempt is looking on for values it needs. */
@@ -3458,6 +3533,7 @@ class LogicalAgent implements AgentRef {
     let deliveredAt: number | undefined;
     /** Named by its host before delivery, for its start to carry. */
     const named: string[] = [];
+    // Its sessions as of now, recorded before the line that names it, as a turn's are.
     const fields = () => {
       const { callPath, sessions, ...record } = this.options.ledger.unsettled(
         operationId,
@@ -3467,12 +3543,11 @@ class LogicalAgent implements AgentRef {
       );
       const harness = this.#execution.harness;
       const fresh = named.filter((id) => !sessions.some((known) => known.id === id));
-      return {
-        of,
-        callPath,
-        ...record,
-        sessions: [...sessions, ...fresh.map((id) => ({ harness, id }))],
-      };
+      this.options.sessionsKnown(
+        [...sessions, ...fresh.map((id) => ({ harness, id }))],
+        operationId,
+      );
+      return { of, callPath, ...record };
     };
     return {
       operationId,
@@ -3488,11 +3563,7 @@ class LogicalAgent implements AgentRef {
           named.push(id);
           return;
         }
-        this.options.events.event({
-          kind: "session-known",
-          session: { harness: this.#execution.harness, id },
-          operationId,
-        });
+        this.options.sessionsKnown([{ harness: this.#execution.harness, id }], operationId);
       },
       failed: (error: unknown) =>
         this.options.events.event({
@@ -3503,7 +3574,7 @@ class LogicalAgent implements AgentRef {
     };
   }
 
-  /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
+  /** A turn or compaction that settled, as the view shows it and `log.jsonl` keeps it. */
   private turnEnded(
     outcome: TurnOutcome<JsonValue>,
     kind: TurnRecord["kind"],
@@ -3517,6 +3588,7 @@ class LogicalAgent implements AgentRef {
     this.#last = outcome.kind;
     const reason = "reason" in outcome ? outcome.reason : undefined;
     this.options.progress.turnSettled(this.key, outcome.kind, reason);
+    this.options.sessionsKnown(outcome.usage.sessions, outcome.usage.operationId);
     this.options.recordTurn(outcome, kind);
   }
 
@@ -3736,13 +3808,17 @@ class LogicalAgent implements AgentRef {
     // Once what it was running has ended, so its last operation's line comes first.
     if (first) {
       const { key, execution } = this.options;
-      const stoppedLine = () =>
+      const stoppedLine = () => {
+        const placed = this.options.session.pane?.();
         this.options.events.event({
           kind: "agent-stopped",
           agent: key,
           callPath: [],
           harness: execution.harness,
+          ...(placed?.kept ? { kept: true } : {}),
+          ...(placed?.notKept === undefined ? {} : { notKept: placed.notKept }),
         });
+      };
       closed.then(stoppedLine, stoppedLine);
     }
     return closed;
@@ -4808,7 +4884,7 @@ type OperationLog = {
 type TakenFork = { native: NativeFork; after: string | null };
 type TakeFork = (deadline: AbsoluteDeadline | undefined, into?: SessionCopy) => Promise<TakenFork>;
 
-/** A settled turn or compaction, kept in the run's `turns.jsonl`. */
+/** A settled turn or compaction, kept in the run's `log.jsonl`. */
 type RecordTurn = (outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]) => void;
 
 function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
@@ -5141,18 +5217,14 @@ function stoppedError(key: string, reason: string): Error {
   return new Error(`agent ${key} was stopped (${reason}); its key is not opened again`);
 }
 
-/**
- * Each root agent's last native session in a run's turns, where its harness can resume it: what a
- * event run's continue reopens it on.
- */
-export function keptSessionsOf(turns: readonly TurnRecord[]): Map<string, NativeFork> {
-  const kept = new Map<string, NativeFork>();
-  for (const turn of turns) {
-    if ((turn.callPath?.length ?? 0) > 0) continue;
-    const session = turn.sessions.at(-1);
-    if (session) kept.set(turn.agent, { harness: session.harness, sessionRef: session.id });
-  }
-  return kept;
+/** Each agent's latest `session` line: what an event run's continue reopens it on. */
+export function keptSessionsOf(sessions: RunView["sessions"]): Map<string, NativeFork> {
+  return new Map(
+    Object.values(sessions.latest).map((line) => [
+      line.agent,
+      { harness: line.harness, sessionRef: line.session },
+    ]),
+  );
 }
 
 /**

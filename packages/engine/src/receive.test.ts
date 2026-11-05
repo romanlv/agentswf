@@ -1,18 +1,24 @@
 import { afterAll, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
+import { rm } from "node:fs/promises";
+import { MAILBOX_RECORD_VERSION, readRun } from "@agentswf/contract/records";
 import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
+import { createFakeAdapter } from "@agentswf/harness/testing";
+import { exists } from "./files";
 import { appendMailbox } from "./mailbox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { createRun } from "./runs";
+import { readRunLines } from "./run-lines";
+import { createRun, logFile } from "./runs";
 import {
   answering,
   caseRun,
   claimLines,
   createTempRunDirs,
+  DOC,
   future,
   lastLines,
   startCase,
+  submit,
 } from "./testing";
 import { keptSessionsOf, runWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
@@ -332,24 +338,140 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
   expect(run.stages).toMatchObject([{ name: "slow", outcome: "succeeded" }]);
 });
 
-test("an event run's agents reopen on the last session of each root agent", () => {
-  const turn = (agent: string, session: string, callPath: string[] = []): TurnRecord => ({
-    version: 1,
-    attempt: 1,
-    kind: "turn",
-    outcome: "answered",
+test("an event run's agents reopen on each agent's latest session line", () => {
+  const session = (attempt: number, agent: string, id: string) => ({
+    kind: "session",
+    attempt,
+    at: new Date().toISOString(),
     agent,
-    operationId: session,
-    execution: { harness: "claude", model: "m" },
-    callPath,
-    sessions: [{ harness: "claude", id: session }],
+    harness: "claude",
+    session: id,
   });
-  const kept = keptSessionsOf([
-    turn("investigator", "s1"),
-    turn("investigator", "s2"),
-    turn("child", "s3", ["call-1"]),
+  const kept = keptSessionsOf(
+    readRun([
+      { kind: "claimed", attempt: 1, at: new Date().toISOString() },
+      session(1, "investigator", "s1"),
+      session(1, "investigator", "s2"),
+      session(1, "child", "s3"),
+      { kind: "claimed", attempt: 2, at: new Date().toISOString() },
+      session(2, "investigator", "s4"),
+      // Written by attempt 1 after attempt 2 claimed the run: fenced.
+      session(1, "child", "s5"),
+    ]).sessions,
+  );
+  expect([...kept]).toEqual([
+    ["investigator", { harness: "claude", sessionRef: "s4" }],
+    ["child", { harness: "claude", sessionRef: "s3" }],
   ]);
-  expect([...kept]).toEqual([["investigator", { harness: "claude", sessionRef: "s2" }]]);
+});
+
+test("an event run continues on its agents' sessions with its log deleted between attempts", async () => {
+  const workflow = caseRun(async (wf) => {
+    const worker = await wf.agents.open({ key: "worker", runtime: "codex" });
+    await worker.run({ prompt: "Look.", schema: DOC });
+    await wf.receive({ label: "next" });
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const adapter = () =>
+    createFakeAdapter({
+      harnesses: ["codex"],
+      continues: true,
+      script: (context) => ({
+        act: async () => {
+          // A session named as the turn runs, as codex's stream names its thread.
+          if (!context.activation.continues) context.nameSession("thread-1");
+          await submit(context.binding!, { path: "x" });
+        },
+      }),
+    });
+  const attempt = async (n: number, fake: ReturnType<typeof adapter>) =>
+    runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: "k",
+        lines: await claimLines(run.dir, n),
+        events: true,
+        park: async () => undefined,
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+      deadline: future(),
+    });
+  const parked = (error: unknown) => expect(String(error)).toContain("parked");
+  const first = adapter();
+  await attempt(1, first).then(() => expect.unreachable(), parked);
+  expect(first.activations[0]?.continues).toBeUndefined();
+  const recorded = (await readRunLines(run.dir)).view.sessions.latest.worker;
+  // Its harness's own session, seen after the one its turn named.
+  expect(recorded).toMatchObject({
+    attempt: 1,
+    agent: "worker",
+    harness: "codex",
+    session: "fake-worker",
+  });
+  expect(await exists(logFile(run.dir))).toBe(true);
+  await rm(logFile(run.dir));
+  const second = adapter();
+  await attempt(2, second).then(() => expect.unreachable(), parked);
+  expect(second.activations[0]?.continues).toEqual({ harness: "codex", sessionRef: "fake-worker" });
+});
+
+test("a session its agent reports after its last turn settled is the one a continue resumes", async () => {
+  let binding: { endpoint: string; operationId: string } | undefined;
+  const workflow = caseRun(async (wf) => {
+    const worker = await wf.agents.open({ key: "worker", runtime: "codex" });
+    await worker.run({ prompt: "Look.", schema: DOC });
+    // As the agent's `wfa` names its session once its turn is over: refused, and still seen.
+    if (binding) await submit(binding, { path: "late" }, "thread-late");
+    await wf.receive({ label: "next" });
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const adapter = () =>
+    createFakeAdapter({
+      harnesses: ["codex"],
+      continues: true,
+      script: (context) => ({
+        act: async () => {
+          binding = context.binding;
+          await submit(context.binding!, { path: "x" });
+        },
+      }),
+    });
+  const attempt = async (n: number, fake: ReturnType<typeof adapter>) =>
+    runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: "k",
+        lines: await claimLines(run.dir, n),
+        events: true,
+        park: async () => undefined,
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+      deadline: future(),
+    });
+  const parked = (error: unknown) => expect(String(error)).toContain("parked");
+  await attempt(1, adapter()).then(() => expect.unreachable(), parked);
+  binding = undefined;
+  const second = adapter();
+  await attempt(2, second).then(() => expect.unreachable(), parked);
+  expect(second.activations[0]?.continues).toEqual({ harness: "codex", sessionRef: "thread-late" });
 });
 
 test("a participant routed to the code needs a workflow with events", async () => {

@@ -41,7 +41,7 @@ export class RunEventLog {
     if (this.#closed) return;
     this.#writes.push(
       appendEvent(this.options.runDir, record).catch((error) =>
-        this.options.failed(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
+        this.options.failed(`awf: a turn was not recorded in log.jsonl: ${messageOf(error)}`),
       ),
     );
   }

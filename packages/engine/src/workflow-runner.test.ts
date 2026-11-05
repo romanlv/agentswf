@@ -28,7 +28,7 @@ import type {
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type DecisionScope, RunDecisions } from "./decisions/directory";
-import { openRun, readAccepted, readTurns } from "./runs";
+import { openRun, readAccepted, readEvents, readTurns } from "./runs";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
@@ -2942,8 +2942,14 @@ describe("pane records", () => {
 
   test("a pane reaches the host as its tab and front, and the run records it as written", async () => {
     const fake = createFakeAdapter({ script: () => ({}) });
+    let kept = false;
     const adapter = adapterWith(fake, () => ({
-      pane: () => ({ session: "awf", workspace: "run" as const, tab: "review" }),
+      pane: () => ({
+        session: "awf",
+        workspace: "run" as const,
+        tab: "review",
+        ...(kept ? { kept: true as const } : {}),
+      }),
     }));
     const workflow = workflowOf("pane", async (context) => {
       await context.agents.open({
@@ -2951,10 +2957,13 @@ describe("pane records", () => {
         runtime: "review",
         pane: { tab: "review", front: true },
       });
+      // Its pane is kept once the run's end closes it, as a host decides at close.
+      kept = true;
       return null;
     });
+    const runRoot = tempRunDir();
     const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
+      runRoot,
       runtime: runtime(adapter),
       deadline: future(),
     });
@@ -2965,18 +2974,31 @@ describe("pane records", () => {
         callPath: [],
         agent: "lens",
         pane: { tab: "review", front: true },
-        placed: { session: "awf", workspace: "run", tab: "review" },
+        placed: { session: "awf", workspace: "run", tab: "review", kept: true },
       },
     ]);
+    // The log has where it went as it opened, and whether it stayed as it stopped.
+    const logged = await readEvents(join(runRoot, "pane", result.runId));
+    const opened = logged.find((line) => line.kind === "agent-opened");
+    expect(opened).toMatchObject({
+      pane: {
+        pane: { tab: "review", front: true },
+        placed: { session: "awf", workspace: "run", tab: "review" },
+      },
+    });
+    expect(opened && "pane" in opened && opened.pane?.placed).not.toHaveProperty("kept");
+    expect(logged.find((line) => line.kind === "agent-stopped")).toMatchObject({ kept: true });
   });
 
   test("the run records where each TUI agent's pane went, with its layout as written", async () => {
+    let notKept: string | undefined;
     const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
       pane: () => ({
         session: "awf",
         workspace: "run" as const,
         tab: "lens",
         fallback: "lead is not open",
+        ...(notKept === undefined ? {} : { notKept }),
       }),
     }));
     const workflow = workflowOf("panes", async (context) => {
@@ -2986,10 +3008,13 @@ describe("pane records", () => {
         layout: { beside: "lead", side: "right" },
         keepPane: "on-failure",
       });
+      // Decided as it closes.
+      notKept = "its harness did not settle";
       return null;
     });
+    const runRoot = tempRunDir();
     const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
+      runRoot,
       runtime: runtime(adapter),
       deadline: future(),
     });
@@ -2999,9 +3024,19 @@ describe("pane records", () => {
         agent: "lens",
         layout: { beside: "lead", side: "right" },
         keepPane: "on-failure",
-        placed: { session: "awf", workspace: "run", tab: "lens", fallback: "lead is not open" },
+        placed: {
+          session: "awf",
+          workspace: "run",
+          tab: "lens",
+          fallback: "lead is not open",
+          notKept: "its harness did not settle",
+        },
       },
     ]);
+    const logged = await readEvents(join(runRoot, "panes", result.runId));
+    const stopped = logged.find((line) => line.kind === "agent-stopped");
+    expect(stopped).toMatchObject({ notKept: "its harness did not settle" });
+    expect(stopped).not.toHaveProperty("kept");
   });
 });
 

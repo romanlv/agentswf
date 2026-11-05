@@ -227,7 +227,7 @@ function operationPlaces(lines: readonly { line: RunLogLine }[]): Places {
 function agentOf(event: ReadEvent, places: Places): string | undefined {
   if (event.source === "activity") return event.agent;
   if ("agent" in event.line && event.line.agent) return event.line.agent;
-  // A session a headless turn named names its operation, and so its agent.
+  // A line that names only its operation, such as a message's delivery, is its operation's agent's.
   return "operationId" in event.line && event.line.operationId
     ? places.agent.get(event.line.operationId)
     : undefined;
@@ -379,6 +379,11 @@ async function page(
   const lines: string[] = [
     header(status, stage, lastAt ? Date.parse(timeOf(lastAt.line)) : undefined),
   ];
+  if (read.log.unreadSessions !== undefined) {
+    lines.push(
+      `note: run.jsonl could not be read, so no agent's activity shows: ${said(read.log.unreadSessions)}`,
+    );
+  }
   if (alsoRunning.length > 0) {
     const count = alsoRunning.length + (status.state === "running" ? 1 : 0);
     lines.push(`note: ${count} runs running; also ${alsoRunning.join(", ")}`);
@@ -610,8 +615,8 @@ function describeLine(line: RunLogLine, places: Places): string {
           : "";
       return `${operation(line.kind)} ended  ${line.outcome}${took}`;
     }
-    case "session-known":
-      return `session ${line.session.harness} ${line.session.id}`;
+    case "sandbox-opened":
+      return `sandbox ${said(line.key, 60)} opened  ${line.provider}`;
     case "agent-opened":
       return `opened  ${line.harness}${line.caller ? "  (the calling session)" : ""}`;
     case "agent-stopped":

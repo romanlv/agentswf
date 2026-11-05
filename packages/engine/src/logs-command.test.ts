@@ -1,11 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
+import { createFakeAdapter } from "@agentswf/harness/testing";
 import { writeJson } from "./files";
 import { type LogsClock, logsCommand } from "./logs-command";
-import { createRun, processStart, type Run, screenFile, writeScreen } from "./runs";
-import { createTempRunDirs } from "./testing";
+import { readRunLines } from "./run-lines";
+import { createRun, logFile, processStart, type Run, screenFile, writeScreen } from "./runs";
+import { runsCommand } from "./runs-command";
+import { createTempRunDirs, DOC, runAttempt, submit, workflowOf } from "./testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -40,8 +43,9 @@ async function fixture(attempt: Partial<AttemptRecord> = ALIVE): Promise<Fixture
   mkdirSync(project, { recursive: true });
   const native = join(project, `${WORKER}.jsonl`);
   writeFileSync(native, "");
-  const log = join(run.dir, "turns.jsonl");
+  const log = logFile(run.dir);
   writeFileSync(log, "");
+  addSession(run, WORKER, "op-1");
   addLines(
     { log } as Fixture,
     { kind: "stage-started", at: T(0), stage: "fix" },
@@ -56,10 +60,17 @@ async function fixture(attempt: Partial<AttemptRecord> = ALIVE): Promise<Fixture
       execution: { harness: "claude", model: "m" },
       stage: "fix",
       deliveredAt: T(1),
-      sessions: [{ harness: "claude", id: WORKER }],
     },
   );
   return { cwd, run, log, native };
+}
+
+/** A `session` line of fixer's in `run.jsonl`, as the run writes one once its session is known. */
+function addSession(run: Run, session: string, operation: string) {
+  appendFileSync(
+    join(run.dir, "run.jsonl"),
+    `${JSON.stringify({ kind: "session", attempt: 1, at: T(1), agent: "fixer", harness: "claude", session, operation })}\n`,
+  );
 }
 
 function addLines(fixture: Pick<Fixture, "log">, ...lines: object[]) {
@@ -86,7 +97,6 @@ const turnEnded = (minute: number) => ({
   stage: "fix",
   deliveredAt: T(1),
   settledAt: T(minute),
-  sessions: [{ harness: "claude", id: WORKER }],
 });
 
 /** A clock the waits move, and a hook to change the run as they do. */
@@ -491,7 +501,6 @@ describe("awf logs", () => {
         execution: { harness: "claude", model: "m" },
         stage: "fix",
         deliveredAt: T(3),
-        sessions: [],
       },
       turnEnded(2),
     );
@@ -639,7 +648,6 @@ describe("awf logs", () => {
         operationId: "op-2",
         execution: { harness: "claude", model: "m" },
         label: "fix\nnext: forged",
-        sessions: [],
       },
     );
     for (const argv of [
@@ -733,7 +741,6 @@ describe("awf logs", () => {
         execution: { harness: "claude", model: "m" },
         stage: "fix",
         error: forged,
-        sessions: [],
       },
       {
         kind: "decision-ended",
@@ -750,16 +757,32 @@ describe("awf logs", () => {
     expect(lines.join("\n")).not.toContain("abc123");
   });
 
-  test("a session a turn named is its agent's, under --agent too", async () => {
+  test("a session a turn named is its agent's, its activity read under --agent too", async () => {
     const f = await fixture();
-    addLines(f, {
-      kind: "session-known",
-      at: T(2),
-      operationId: "op-1",
-      session: { harness: "claude", id: "s-2" },
-    });
+    const named = "22222222-2222-4222-8222-222222222222";
+    addSession(f.run, named, "op-1");
+    const native = join(dirname(f.native), `${named}.jsonl`);
+    appendFileSync(
+      native,
+      `${JSON.stringify({ type: "assistant", timestamp: T(2), message: { content: [{ type: "text", text: "Named." }] } })}\n`,
+    );
     const lines = strip((await awfLogs(f, ["--agent", "fixer"])).stdout).split("\n");
-    expect(lines).toContain("@e4 hh:mm:ss fixer  session claude s-2");
+    expect(lines).toContainEqual(
+      expect.stringMatching(/^@a2\.0 hh:mm:ss fix {2}fixer {2}message {2}6 chars$/),
+    );
+    expect(lines.some((line) => line.includes("session"))).toBe(false);
+  });
+
+  test("with run.jsonl unreadable the log still reads, and says why no activity shows", async () => {
+    const f = await fixture();
+    addActivity(f, T(2), [{ type: "text", text: "Fixed it." }]);
+    appendFileSync(join(f.run.dir, "run.jsonl"), "not json\n");
+    const lines = strip((await awfLogs(f, [])).stdout).split("\n");
+    expect(lines[1]).toBe(
+      "note: run.jsonl could not be read, so no agent's activity shows: run.jsonl line 2: not JSON",
+    );
+    expect(lines).toContain("@e3 hh:mm:ss fix  fixer  turn started");
+    expect(lines.some((line) => line.includes("message"))).toBe(false);
   });
 
   test("--follow without --after starts from the last --limit", async () => {
@@ -833,5 +856,111 @@ describe("awf logs", () => {
     for (const wait of ["301", "301s", "6m", "-1s", "90x", "1e2"])
       expect((await awfLogs(f, ["--wait", wait])).exitCode).toBe(2);
     expect((await awfLogs(f, ["--full"])).exitCode).toBe(2);
+  });
+
+  test("a fake-harness run reads as it did before its sessions moved to run.jsonl", async () => {
+    // Printed by the engine before sessions were `run.jsonl`'s, times and the fork's id masked.
+    const before = `staged/r1  completed
+@e1 hh:mm:ss plan  stage started
+@e2 hh:mm:ss planner  opened  codex
+@e3 hh:mm:ss plan  planner  turn started
+@e4 hh:mm:ss plan  planner  turn ended  answered  0s
+@e5 hh:mm:ss plan  planner  compaction started
+@e6 hh:mm:ss plan  planner  compaction ended  answered  0s
+@e7 hh:mm:ss child  forked from planner
+@e8 hh:mm:ss child  opened  codex
+@e9 hh:mm:ss child  session codex fake-planner/fork-{id}
+@e10 hh:mm:ss plan  child  turn started
+@e11 hh:mm:ss plan  child  turn ended  answered  0s
+@e12 hh:mm:ss plan  planned
+@e13 hh:mm:ss plan  stage ended  succeeded
+@e14 hh:mm:ss build  stage started
+@e15 hh:mm:ss named  opened  codex
+@e16 hh:mm:ss build  named  turn started
+@e17 hh:mm:ss build  named  turn ended  answered  0s
+@e18 hh:mm:ss build  stage ended  succeeded
+@e19 hh:mm:ss planner  stopped
+@e20 hh:mm:ss child  stopped
+@e21 hh:mm:ss named  stopped
+@e22 hh:mm:ss plan  stage reused  succeeded
+@e23 hh:mm:ss build  stage started
+@e24 hh:mm:ss named  opened  codex
+@e25 hh:mm:ss build  named  turn started
+@e26 hh:mm:ss build  named  turn ended  answered  0s
+@e27 hh:mm:ss build  stage ended  succeeded
+@e28 hh:mm:ss named  stopped
+run ended: completed in 0s · result: awf runs staged/r1`;
+    const cwd = runDirs.tempRunDir();
+    const runRoot = join(cwd, ".awf", "runs");
+    const adapter = () =>
+      createFakeAdapter({
+        harnesses: ["codex"],
+        continues: true,
+        forks: () => true,
+        script: (context) =>
+          context.kind === "compact"
+            ? { summary: "kept" }
+            : {
+                act: async () => {
+                  if (context.activation.key === "named") context.nameSession("named-session");
+                  await submit(context.binding!, { path: "x" });
+                },
+              },
+      });
+    const workflow = workflowOf(async (wf) => {
+      await wf.stage("plan", { result: DOC }, async () => {
+        const planner = await wf.agents.open({ key: "planner", runtime: "codex" });
+        await planner.run({ prompt: "Plan.", schema: DOC });
+        await planner.compact({ prompt: "Keep the plan." });
+        const child = await planner.fork({ key: "child" });
+        await child.run({ prompt: "Again.", schema: DOC });
+        wf.log("planned", { path: "x" });
+        return { path: "x" };
+      });
+      await wf.stage("build", { result: DOC }, async () => {
+        const named = await wf.agents.open({ key: "named", runtime: "codex" });
+        await named.run({ prompt: "Build.", schema: DOC });
+        return { path: "y" };
+      });
+      return null;
+    });
+    await runAttempt(workflow, { runRoot, adapter: adapter() });
+    await runAttempt(workflow, { runRoot, attempt: 2, fromStage: "build", adapter: adapter() });
+    const read = await awfLogs({ cwd } as Fixture, ["staged/r1", "--limit", "200"]);
+    // The fork's session is a line of `run.jsonl` now, not of the log; the handles after it are
+    // the log's line numbers, one fewer.
+    let n = 0;
+    const expected = before
+      .split("\n")
+      .filter((line) => !line.includes("  session codex"))
+      .map((line) => line.replace(/^@e\d+/, () => `@e${++n}`))
+      .join("\n");
+    expect(strip(read.stdout).replace(/fork-[0-9a-f-]+/, "fork-{id}")).toBe(expected);
+    const runs: string[] = [];
+    await runsCommand(
+      ["staged/r1", "--json"],
+      cwd,
+      { stdout: (text) => runs.push(text), stderr: (text) => runs.push(text) },
+      Date.now(),
+      cwd,
+    );
+    // As `awf runs` listed them before: the latest attempt's agent, its sessions in the order named.
+    expect(
+      JSON.parse(runs.join("")).agents.map((agent: { key: string; sessions: { id: string }[] }) => [
+        agent.key,
+        agent.sessions.map(({ id }) => id),
+      ]),
+    ).toEqual([["named", ["named-session", "fake-named"]]]);
+    const { view } = await readRunLines(join(runRoot, "staged", "r1"));
+    expect(
+      view.sessions.all.map((line) => [line.attempt, line.agent, line.session.split("/")[0]]),
+    ).toEqual([
+      [1, "planner", "fake-planner"],
+      [1, "child", "fake-planner"],
+      [1, "named", "named-session"],
+      [1, "named", "fake-named"],
+      [2, "named", "named-session"],
+      [2, "named", "fake-named"],
+    ]);
   });
 });

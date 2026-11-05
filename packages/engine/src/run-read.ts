@@ -3,11 +3,13 @@ import { join } from "node:path";
 import type { Activity, RunLogLine } from "@agentswf/contract/records";
 import type { AgentKey, HarnessKind } from "@agentswf/contract/workflow";
 import { findHarness, harnessState, readActivity } from "@agentswf/harness";
+import { messageOf } from "./errors";
+import { readRunLines } from "./run-lines";
 import { readNumberedEvents } from "./runs";
 
 /**
- * A native session the run's log names, numbered by the line that first named it, so a session
- * named later never renumbers the others. Its files are found under its agent's home and working
+ * A native session `run.jsonl` names, numbered by the line that first named it, so a session named
+ * later never renumbers the others. Its files are found under its agent's home and working
  * directory: a sandbox's, for an agent in one.
  */
 export type NativeSession = {
@@ -15,6 +17,8 @@ export type NativeSession = {
   harness: HarnessKind;
   id: string;
   agent?: AgentKey;
+  /** The home its line names, for an agent whose opening the log lost. */
+  home?: string;
 };
 
 /** A span of time, open while it has no end. */
@@ -38,6 +42,8 @@ export type RunLog = {
   lines: { number: number; line: RunLogLine }[];
   sessions: NativeSession[];
   agents: Map<AgentKey, RunAgent>;
+  /** Why `run.jsonl` could not be read, so no session is known. */
+  unreadSessions?: string;
 };
 
 /** `ended`: no attempt is running, so a span still open on the calling session ended with it. */
@@ -45,10 +51,15 @@ export async function readRunLog(
   runDir: string,
   options: { ended?: boolean } = {},
 ): Promise<RunLog> {
-  const lines = await readNumberedEvents(runDir);
+  const [lines, recorded] = await Promise.all([
+    readNumberedEvents(runDir),
+    readRunLines(runDir).then(
+      ({ view }) => ({ sessions: view.sessions.all }),
+      (error: unknown) => ({ sessions: [], unread: messageOf(error) }),
+    ),
+  ]);
   const sessions: NativeSession[] = [];
   const agents = new Map<AgentKey, RunAgent>();
-  const agentOf = new Map<string, AgentKey>();
   const agent = (key: AgentKey) => {
     const found = agents.get(key) ?? { key, caller: false, operations: [], windows: [] };
     agents.set(key, found);
@@ -58,14 +69,20 @@ export async function readRunLog(
     if (held.windows.at(-1)?.to === undefined && held.windows.length > 0) return;
     held.windows.push({ from });
   };
-  const name = (harness: HarnessKind, id: string, key?: AgentKey) => {
-    const known = sessions.find((each) => each.harness === harness && each.id === id);
-    if (known) {
-      if (key && !known.agent) known.agent = key;
-      return;
+  // Each session's agent is on its line; which of its activity is the run's, its agent's operations
+  // and windows below say.
+  for (const line of recorded.sessions) {
+    if (sessions.some((each) => each.harness === line.harness && each.id === line.session)) {
+      continue;
     }
-    sessions.push({ n: sessions.length + 1, harness, id, ...(key ? { agent: key } : {}) });
-  };
+    sessions.push({
+      n: sessions.length + 1,
+      harness: line.harness,
+      id: line.session,
+      agent: line.agent,
+      ...(line.home === undefined ? {} : { home: line.home }),
+    });
+  }
   // An attempt that died left its spans open. An agent's end where the next attempt begins; the
   // calling session's at the dead attempt's last line, past which its file is the operator's.
   let attempt: number | undefined;
@@ -107,13 +124,6 @@ export async function readRunLog(
         const from = Date.parse(line.deliveredAt ?? line.at);
         if (!started.caller) open(started, from);
         started.operations.push({ id: line.operationId, from });
-        agentOf.set(line.operationId, line.agent);
-        for (const session of line.sessions) name(session.harness, session.id, line.agent);
-        break;
-      }
-      case "session-known": {
-        const key = line.agent ?? (line.operationId ? agentOf.get(line.operationId) : undefined);
-        name(line.session.harness, line.session.id, key);
         break;
       }
       case "turn":
@@ -129,7 +139,6 @@ export async function readRunLog(
           if (!settled.caller) open(settled, from);
           settled.operations.push({ id: line.operationId, from, to: to ?? at });
         }
-        for (const session of line.sessions) name(session.harness, session.id, line.agent);
         break;
       }
       case "operation-failed": {
@@ -145,7 +154,12 @@ export async function readRunLog(
     }
   }
   if (options.ended && lastAt !== undefined) closeAll(Number.POSITIVE_INFINITY, lastAt);
-  return { lines, sessions, agents };
+  return {
+    lines,
+    sessions,
+    agents,
+    ...("unread" in recorded ? { unreadSessions: recorded.unread } : {}),
+  };
 }
 
 const within = (span: Span, at: number) =>
@@ -188,7 +202,9 @@ async function sessionFiles(
   const spec = findHarness(session.harness);
   if (!spec?.sessionFiles || !spec.activityRow) return [];
   const home =
-    agent?.home ?? harnessState()[session.harness as keyof ReturnType<typeof harnessState>];
+    agent?.home ??
+    session.home ??
+    harnessState()[session.harness as keyof ReturnType<typeof harnessState>];
   if (!home) return [];
   const found = await spec
     .sessionFiles(home, session.id, agent?.cwd ?? runCwd)

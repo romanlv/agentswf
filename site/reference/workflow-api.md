@@ -705,10 +705,9 @@ The fields `defineWorkflow` adds:
   entered, in any attempt and any version of the code, while its value fits. A wait goes outside
   a stage: [`wf.race`](#race) is recorded under its own name.
 - **`--from-stage {stage}`** on a continue redoes that stage and every one after it, as in a plain
-  run, but a later record moves to `replaced/` as the code reaches its stage, not all at once. The
-  stages before it are reused by content. Its own record moves as its new one is written. After it, in this
+  run, each as the code reaches it. The stages before it are reused by content. After it, in this
   attempt and every later one, a stage first entered after it whose record an attempt before the
-  redo wrote runs again, its record replaced; one never entered keeps its record. So an attempt
+  redo wrote runs again, writing a new one; one never entered keeps its record. So an attempt
   that parks partway leaves the next wake, which carries no flag, to redo the rest. The mailbox is
   untouched: a race keeps its recorded answer, but an event a `receive` or `select` took and
   acknowledged isn't taken again, so a stage that handled one isn't reached and keeps its record.

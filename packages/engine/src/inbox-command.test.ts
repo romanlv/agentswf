@@ -456,7 +456,7 @@ describe("awf inbox --wait reads only what changed", () => {
     } as unknown as RunLogLine);
     const live = await claim();
     // Each pause adds lines: noise, a line torn in two, a second attempt's, and its end.
-    const turns = `${run.dir}/turns.jsonl`;
+    const turns = `${run.dir}/log.jsonl`;
     const torn = JSON.stringify({
       ...noise("torn"),
       version: 1,

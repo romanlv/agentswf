@@ -465,14 +465,14 @@ test("a continue claims its attempt first, so wake returns, then waits for the p
   expect(Date.now() - started).toBeLessThan(1_400);
   expect(previous.exitCode).toBeNull();
   // The new attempt wrote nothing yet: its first line waits for the previous process.
-  const turns = await Bun.file(join(run.dir, "turns.jsonl"))
+  const turns = await Bun.file(join(run.dir, "log.jsonl"))
     .text()
     .catch(() => "");
   expect(turns).not.toContain('"attempt":2');
   await previous.exited;
   await until(async () =>
     (
-      await Bun.file(join(run.dir, "turns.jsonl"))
+      await Bun.file(join(run.dir, "log.jsonl"))
         .text()
         .catch(() => "")
     ).includes('"attempt":2'),
