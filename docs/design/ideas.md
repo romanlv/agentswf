@@ -11,6 +11,7 @@ a story or a todo leaves this page.
   session whole (ADR 0009).
 - **Harness hooks as events.** A harness's own hooks feed the workflow, so the code reacts to what
   an agent does while it keeps working; part of the event-driven design.
+- teleport to a specific session from workflow, to be able to explore or drive it manually
 
 ## Subscriptions
 
