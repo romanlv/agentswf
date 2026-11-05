@@ -1,7 +1,7 @@
 {
   "name": "agentswf",
   "version": "0.1.0-beta.5",
-  "description": "agents.wf: an engine that runs workflows made of coding agents. Gives you awf, agentswf/workflow and agentswf/testing",
+  "description": "agents.wf: an engine that runs workflows made of coding agents. Gives you awf, agentswf/workflow, agentswf/typebox and agentswf/testing",
   "license": "MIT",
   "homepage": "https://agents.wf",
   "repository": {
@@ -18,7 +18,8 @@
   },
   "exports": {
     "./workflow": "./src/workflow.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./typebox": "./src/typebox.ts"
   },
   "files": [
     "src",

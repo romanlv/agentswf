@@ -1,9 +1,12 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const FINDINGS = Type.Object(
-  { cause: Type.String(), incidents: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const FINDINGS = typed(
+  Type.Object(
+    { cause: Type.String(), incidents: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -31,7 +34,7 @@ export default defineWorkflow({
     });
     // #endregion connect
 
-    const { outcome } = await investigator.run<Type.Static<typeof FINDINGS>>({
+    const { outcome } = await investigator.run({
       prompt:
         "checkout-api returns 5xx since 09:12. Find the cause in the logs under logs/.",
       schema: FINDINGS,

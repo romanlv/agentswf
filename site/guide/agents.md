@@ -62,13 +62,15 @@ reason. The agent fixes it and sends it again within the same turn.
 [What the agent sees](/guide/how-it-works#what-the-agent-sees) shows the command it is taught.
 
 ```ts
-const { outcome } = await scoper.run<Type.Static<typeof SCOPE>>({ prompt, schema: SCOPE });
+const SCOPE = typed(Type.Object({ files: Type.Array(Type.String()) }, { additionalProperties: false }));
+const { outcome } = await scoper.run({ prompt, schema: SCOPE });
 ```
 
 - **Write the schema with [TypeBox](https://github.com/sinclairzx81/typebox)**, or any library
   that produces JSON Schema, or as a plain JSON Schema object.
-- **The type argument** gives `outcome.value` its TypeScript type. A TypeBox schema doesn't carry
-  one by itself, so without `run<…>` the value is untyped JSON.
+- **`typed(...)`**, from `agentswf/typebox`, gives `outcome.value` its TypeScript type. A bare
+  TypeBox schema doesn't carry one by itself, so without it the value is untyped JSON. It returns
+  the schema unchanged.
 - **Without a schema** the answer is a string: whatever the agent hands back with `wfa result`.
 - **`additionalProperties: false`** on every object refuses fields you didn't ask for.
 

@@ -1,9 +1,12 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const CHANGE = Type.Object(
-  { summary: Type.String(), files: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const CHANGE = typed(
+  Type.Object(
+    { summary: Type.String(), files: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -33,7 +36,7 @@ export default defineWorkflow({
     // #endregion open
 
     // #region run
-    const { outcome } = await implementer.run<Type.Static<typeof CHANGE>>({
+    const { outcome } = await implementer.run({
       prompt: "Add retries to the HTTP client in src/http.ts.",
       schema: CHANGE,
     });

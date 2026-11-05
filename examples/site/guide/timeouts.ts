@@ -1,4 +1,6 @@
 // #region file
+
+import { typed } from "agentswf/typebox";
 import {
   DeadlineExceededError,
   defineWorkflow,
@@ -6,9 +8,11 @@ import {
 } from "agentswf/workflow";
 import Type from "typebox";
 
-export const FINDINGS = Type.Object(
-  { findings: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const FINDINGS = typed(
+  Type.Object(
+    { findings: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 export type Findings = Type.Static<typeof FINDINGS>;
 
@@ -34,7 +38,7 @@ export default defineWorkflow({
             runtime: "claude",
           });
           // #region turn
-          const { outcome } = await reviewer.run<Findings>({
+          const { outcome } = await reviewer.run({
             prompt: `Review the diff on this branch against main, for ${lens} only.`,
             schema: FINDINGS,
             timeout: "10m",

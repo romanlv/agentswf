@@ -1,6 +1,8 @@
 // The MR review loop's run, from agent/loops/review-loop/style-c-sketch.md: one run per MR, keyed
 // by its iid. The reviewer judges and the code publishes. A type-checked sketch: the ledger and
 // GitLab are declared below.
+
+import { typed } from "agentswf/typebox";
 import {
   AgentEnded,
   defineWorkflow,
@@ -8,9 +10,8 @@ import {
   type WorkflowContext,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
-export const Changes = outputSchema(
+export const Changes = typed(
   Type.Object({
     iid: Type.Number(),
     head: Type.String(),
@@ -18,8 +19,8 @@ export const Changes = outputSchema(
     threads: Type.Array(Type.Object({ id: Type.String(), resolved: Type.Boolean() })),
   }),
 );
-export const Closed = outputSchema(Type.Object({ iid: Type.Number(), merged: Type.Boolean() }));
-const Rereview = outputSchema(Type.Object({ iid: Type.Number() }));
+export const Closed = typed(Type.Object({ iid: Type.Number(), merged: Type.Boolean() }));
+const Rereview = typed(Type.Object({ iid: Type.Number() }));
 
 export type Finding = {
   id: string;

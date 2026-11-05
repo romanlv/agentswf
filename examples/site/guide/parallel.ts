@@ -1,20 +1,23 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const FINDINGS = Type.Object(
-  {
-    findings: Type.Array(
-      Type.Object(
-        {
-          file: Type.String(),
-          severity: Type.Union([Type.Literal("high"), Type.Literal("low")]),
-          claim: Type.String(),
-        },
-        { additionalProperties: false },
+export const FINDINGS = typed(
+  Type.Object(
+    {
+      findings: Type.Array(
+        Type.Object(
+          {
+            file: Type.String(),
+            severity: Type.Union([Type.Literal("high"), Type.Literal("low")]),
+            claim: Type.String(),
+          },
+          { additionalProperties: false },
+        ),
       ),
-    ),
-  },
-  { additionalProperties: false },
+    },
+    { additionalProperties: false },
+  ),
 );
 type Findings = Type.Static<typeof FINDINGS>;
 
@@ -39,7 +42,7 @@ export default defineWorkflow({
           key: `review-${lens}`,
           runtime: "codex",
         });
-        const { outcome } = await reviewer.run<Findings>({
+        const { outcome } = await reviewer.run({
           prompt: lensPrompt(lens),
           schema: FINDINGS,
         });
@@ -84,7 +87,7 @@ export const strictReview = defineWorkflow({
         key: `review-${lens}`,
         runtime: "codex",
       });
-      const { outcome } = await reviewer.run<Findings>({
+      const { outcome } = await reviewer.run({
         prompt: lensPrompt(lens),
         schema: FINDINGS,
       });

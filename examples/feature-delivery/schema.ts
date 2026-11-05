@@ -1,6 +1,6 @@
+import { typed } from "agentswf/typebox";
 import type { RuntimeSelection } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 export type Role = "planner" | "implementer" | "reviewer";
 export type AdditionalReviewer = { name: string; runtime: RuntimeSelection };
@@ -14,7 +14,7 @@ export type FeatureArgs = {
 };
 
 /** An author's account of the work: the ticket doc it keeps, and what it did. */
-export const WORK = outputSchema(
+export const WORK = typed(
   Type.Object(
     {
       docPath: Type.String(),
@@ -26,11 +26,11 @@ export const WORK = outputSchema(
 );
 
 /** A review stage's value: the work as approved, and the reviewer's summary of it. */
-export const REVIEWED = outputSchema(
+export const REVIEWED = typed(
   Type.Object({ summary: Type.String(), work: WORK }, { additionalProperties: false }),
 );
 
-export const VERDICT = outputSchema(
+export const VERDICT = typed(
   Type.Union([
     Type.Object(
       { kind: Type.Literal("ready"), summary: Type.String() },
@@ -66,7 +66,7 @@ const ADDITIONAL_REVIEW = Type.Union([
 ]);
 
 /** The additional reviews, and the work as finally approved after their feedback. */
-export const ADDITIONAL = outputSchema(
+export const ADDITIONAL = typed(
   Type.Object(
     { final: REVIEWED, additional: Type.Array(ADDITIONAL_REVIEW) },
     { additionalProperties: false },

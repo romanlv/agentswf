@@ -1,6 +1,6 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type ExecutionConfig, type TurnOutcome } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * Two ways to sandbox agents. A team of codex agents shares one docker container, all at once, each
@@ -38,7 +38,7 @@ export type AgentReport = {
 
 export type SandboxesResult = { reports: AgentReport[] };
 
-export const REPORT = outputSchema(
+export const REPORT = typed(
   Type.Object(
     {
       results: Type.Array(

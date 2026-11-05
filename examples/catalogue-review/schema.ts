@@ -1,5 +1,5 @@
+import { typed } from "agentswf/typebox";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 const RAW_FINDING_SCHEMA = Type.Object(
   {
@@ -15,11 +15,11 @@ const RAW_FINDING_SCHEMA = Type.Object(
   { additionalProperties: false },
 );
 
-export const FINDINGS_SCHEMA = outputSchema(
+export const FINDINGS_SCHEMA = typed(
   Type.Object({ findings: Type.Array(RAW_FINDING_SCHEMA) }, { additionalProperties: false }),
 );
 
-export const VERDICT_SCHEMA = outputSchema(
+export const VERDICT_SCHEMA = typed(
   Type.Object(
     {
       refuted: Type.Boolean(),

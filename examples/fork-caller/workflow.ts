@@ -1,10 +1,8 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
-const RECALLED = outputSchema(
-  Type.Object({ working_on: Type.String() }, { additionalProperties: false }),
-);
+const RECALLED = typed(Type.Object({ working_on: Type.String() }, { additionalProperties: false }));
 
 export type ForkCallerResult = { model: string; workingOn: string };
 

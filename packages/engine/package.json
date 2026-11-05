@@ -19,6 +19,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
+    "./typebox": "./src/author-typebox.ts",
     "./workflow-testing": "./src/workflow-testing/index.ts",
     "./cli": "./src/operator-cli.ts"
   },

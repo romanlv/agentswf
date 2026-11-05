@@ -1,13 +1,18 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const NOTES = Type.Object(
-  { notes: Type.String(), breaking: Type.Boolean() },
-  { additionalProperties: false },
+export const NOTES = typed(
+  Type.Object(
+    { notes: Type.String(), breaking: Type.Boolean() },
+    { additionalProperties: false },
+  ),
 );
-export const CHECK = Type.Object(
-  { breaking: Type.Boolean(), why: Type.String() },
-  { additionalProperties: false },
+export const CHECK = typed(
+  Type.Object(
+    { breaking: Type.Boolean(), why: Type.String() },
+    { additionalProperties: false },
+  ),
 );
 
 export type ReleaseNotes = {
@@ -25,7 +30,7 @@ export default defineWorkflow({
   prepare: ({ argv }) => ({ range: argv[0] ?? "origin/main...HEAD" }),
   async run(wf, args: { range: string }): Promise<ReleaseNotes> {
     const writer = await wf.agents.open({ key: "writer", runtime: "claude" });
-    const draft = await writer.run<Type.Static<typeof NOTES>>({
+    const draft = await writer.run({
       prompt: `Write release notes for the commits in ${args.range}.`,
       schema: NOTES,
     });
@@ -35,7 +40,7 @@ export default defineWorkflow({
     if (!breaking) return { notes, breaking, checked: false };
 
     const checker = await wf.agents.open({ key: "checker", runtime: "codex" });
-    const check = await checker.run<Type.Static<typeof CHECK>>({
+    const check = await checker.run({
       prompt:
         `These notes call ${args.range} a breaking change. ` +
         `Read its diff and say whether it is.\n\n${notes}`,

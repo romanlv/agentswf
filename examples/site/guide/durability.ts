@@ -1,17 +1,21 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const PLAN = Type.Object(
-  { branch: Type.String(), steps: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const PLAN = typed(
+  Type.Object(
+    { branch: Type.String(), steps: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
-export const BUILT = Type.Object(
-  { commit: Type.String() },
-  { additionalProperties: false },
+export const BUILT = typed(
+  Type.Object({ commit: Type.String() }, { additionalProperties: false }),
 );
-export const VERDICT = Type.Object(
-  { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const VERDICT = typed(
+  Type.Object(
+    { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 
 // #region flow
@@ -27,7 +31,7 @@ export default defineWorkflow({
         key: "planner",
         runtime: "claude",
       });
-      const { outcome } = await planner.run<Type.Static<typeof PLAN>>({
+      const { outcome } = await planner.run({
         prompt: `Plan a fix for ${args.issue}. Name the branch you will work on.`,
         schema: PLAN,
       });
@@ -40,7 +44,7 @@ export default defineWorkflow({
         key: "builder",
         runtime: "claude",
       });
-      const { outcome } = await builder.run<Type.Static<typeof BUILT>>({
+      const { outcome } = await builder.run({
         prompt: [
           `On ${plan.branch}, carry out:`,
           ...plan.steps,
@@ -58,7 +62,7 @@ export default defineWorkflow({
         runtime: "codex",
       });
       // A continue's agents are new: the prompt names everything the reviewer needs.
-      const { outcome } = await reviewer.run<Type.Static<typeof VERDICT>>({
+      const { outcome } = await reviewer.run({
         prompt: `Review commit ${built.commit} on ${plan.branch} as a fix for ${args.issue}.`,
         schema: VERDICT,
       });

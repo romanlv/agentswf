@@ -1,4 +1,6 @@
 // #region imports
+
+import { typed } from "agentswf/typebox";
 import {
   choice,
   DecisionError,
@@ -11,21 +13,23 @@ import Type from "typebox";
 
 export const URGENCY = ["later", "this week", "now"] as const;
 
-export const ROUTE = Type.Object(
-  {
-    team: Type.Union([
-      Type.Literal("payments"),
-      Type.Literal("accounts"),
-      Type.Literal("frontend"),
-    ]),
-    bug: Type.Boolean(),
-    urgency: Type.Union([
-      Type.Literal("later"),
-      Type.Literal("this week"),
-      Type.Literal("now"),
-    ]),
-  },
-  { additionalProperties: false },
+export const ROUTE = typed(
+  Type.Object(
+    {
+      team: Type.Union([
+        Type.Literal("payments"),
+        Type.Literal("accounts"),
+        Type.Literal("frontend"),
+      ]),
+      bug: Type.Boolean(),
+      urgency: Type.Union([
+        Type.Literal("later"),
+        Type.Literal("this week"),
+        Type.Literal("now"),
+      ]),
+    },
+    { additionalProperties: false },
+  ),
 );
 
 export type Routed = Type.Static<typeof ROUTE> & { by: "decision" | "agent" };
@@ -83,7 +87,7 @@ export default defineWorkflow<{ ticket: string }, Routed>({
     }
 
     const router = await wf.agents.open({ key: "router", runtime: "codex" });
-    const { outcome } = await router.run<Type.Static<typeof ROUTE>>({
+    const { outcome } = await router.run({
       prompt:
         "Find the code this ticket is about. " +
         `Which team owns it, is it a bug, how urgent?\n\n${ticket}`,

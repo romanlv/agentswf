@@ -1,9 +1,12 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const VERDICT = Type.Object(
-  { verdict: Type.Union([Type.Literal("approve"), Type.Literal("revise")]) },
-  { additionalProperties: false },
+export const VERDICT = typed(
+  Type.Object(
+    { verdict: Type.Union([Type.Literal("approve"), Type.Literal("revise")]) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -17,7 +20,7 @@ export default defineWorkflow({
         key: "reviewer",
         runtime: "claude",
       });
-      const { outcome } = await reviewer.run<Type.Static<typeof VERDICT>>({
+      const { outcome } = await reviewer.run({
         prompt:
           "Read README.md and check every command it shows against the code.",
         schema: VERDICT,

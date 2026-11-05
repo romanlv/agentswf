@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   defineWorkflow,
   type ExecutionConfig,
@@ -8,7 +9,6 @@ import {
 } from "agentswf/workflow";
 import Type from "typebox";
 import Value from "typebox/value";
-import { outputSchema } from "../output-schema";
 
 /**
  * Agents in sandboxes, each running a script of fixed shell commands and reporting what it
@@ -57,7 +57,7 @@ const PLAN = Type.Object({
 
 export type ProbePlan = Type.Static<typeof PLAN>;
 
-const REPORT = outputSchema(
+const REPORT = typed(
   Type.Object(
     { output: Type.String({ description: "everything the script printed, verbatim" }) },
     { additionalProperties: false },

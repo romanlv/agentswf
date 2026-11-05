@@ -62,9 +62,8 @@ codes.
 
 ## Defining one
 
-- **`tool()` types the handler from `input`.** `input` is an object schema. A TypeBox schema
-  carries no TypeScript type on its own, so give it as the type argument, `tool<Finding>(...)`, as
-  `run<T>` takes a turn's answer type. Without `input`, the handler is given `{}`.
+- **`tool()` types the handler from `input`.** `input` is an object schema, wrapped in
+  `typed(...)` as a turn's `schema` is. Without `input`, the handler is given `{}`.
 - **`description` is what the agent reads** to decide when to call it. Say what it is for and when
   to use it.
 - **The handler is given the checked input and the call**: `call.id`, unique in the run;

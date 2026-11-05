@@ -1,12 +1,15 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, tool } from "agentswf/workflow";
 import Type from "typebox";
 
 // #region open
-export const Finding = Type.Object({
-  file: Type.String({ minLength: 1 }),
-  line: Type.Integer({ minimum: 1 }),
-  problem: Type.String({ minLength: 1 }),
-});
+export const Finding = typed(
+  Type.Object({
+    file: Type.String({ minLength: 1 }),
+    line: Type.Integer({ minimum: 1 }),
+    problem: Type.String({ minLength: 1 }),
+  }),
+);
 export type Finding = Type.Static<typeof Finding>;
 
 export default defineWorkflow({
@@ -20,7 +23,7 @@ export default defineWorkflow({
       key: "reviewer",
       runtime: "codex",
       tools: {
-        add_finding: tool<Finding>({
+        add_finding: tool({
           description: "Record one finding as soon as you are sure of it.",
           input: Finding,
           handler: (finding) => {

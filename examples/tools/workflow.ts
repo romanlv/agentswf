@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   defineWorkflow,
   type ExecutionConfig,
@@ -7,7 +8,6 @@ import {
   type WorkflowInvocation,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 import { RUNTIMES as QUICK } from "../quick-check/workflow";
 
 /** quick-check's cheap models, and a codex TUI agent: every harness in its TUI, and all but claude headless. */
@@ -33,7 +33,7 @@ export const ITEMS: readonly Pick<Item, "id" | "title">[] = [
 ];
 
 /** Taught as flags: strings and an enum. */
-const CloseInput = outputSchema(
+const CloseInput = typed(
   Type.Object({
     id: Type.String({ minLength: 1 }),
     status: Type.Union([Type.Literal("done"), Type.Literal("wontfix")]),
@@ -42,11 +42,11 @@ const CloseInput = outputSchema(
 );
 
 /** Taught as JSON: a list isn't a flag. */
-const LabelInput = outputSchema(
+const LabelInput = typed(
   Type.Object({ id: Type.String({ minLength: 1 }), labels: Type.Array(Type.String()) }),
 );
 
-export const Summary = outputSchema(
+export const Summary = typed(
   Type.Object({ closed: Type.Integer({ minimum: 0 }), summary: Type.String({ minLength: 1 }) }),
 );
 

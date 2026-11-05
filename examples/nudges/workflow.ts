@@ -1,13 +1,13 @@
+import { typed } from "agentswf/typebox";
 import { type Duration, defineWorkflow, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 import { Ledger } from "./ledger";
 
 /**
  * A question for the engineer, how long to wait before each nudge, how long a "later" puts the
  * next one off, and how many nudges before giving up: `"4h"`, `"1d"` and 3 in earnest.
  */
-export const Asked = outputSchema(
+export const Asked = typed(
   Type.Object({
     question: Type.String(),
     nudgeAfter: Type.String(),
@@ -16,7 +16,7 @@ export const Asked = outputSchema(
   }),
 );
 
-export const Nudge = outputSchema(Type.Object({ text: Type.String() }));
+export const Nudge = typed(Type.Object({ text: Type.String() }));
 
 /**
  * Story 037's time read from state: a question waits for the engineer's answer, nudging while it

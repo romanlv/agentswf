@@ -1,11 +1,11 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type ExecutionConfig } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /** Cheap, and in its TUI, whose pane is what is being placed. */
 const RUNTIME: ExecutionConfig = { harness: "codex", model: "gpt-6-luna" };
 
-const NAMED = outputSchema(Type.Object({ name: Type.String() }, { additionalProperties: false }));
+const NAMED = typed(Type.Object({ name: Type.String() }, { additionalProperties: false }));
 
 export type PaneLayoutResult = { answered: string[] };
 

@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   type AgentExecution,
   defineWorkflow,
@@ -46,9 +47,11 @@ export const eachRuntime = defineWorkflow({
   },
 });
 
-export const PLAN = Type.Object(
-  { steps: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const PLAN = typed(
+  Type.Object(
+    { steps: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -73,7 +76,7 @@ export default defineWorkflow({
       },
     });
     // #endregion workflow
-    const plan = await planner.run<Type.Static<typeof PLAN>>({
+    const plan = await planner.run({
       prompt:
         "Plan how to add a --verbose flag to the CLI. Don't edit anything.",
       schema: PLAN,

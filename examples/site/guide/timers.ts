@@ -1,21 +1,19 @@
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+import { typed } from "agentswf/typebox";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-const Opened = Type.Object(
-  { pr: Type.Number() },
-  { additionalProperties: false },
+export const OPENED = typed(
+  Type.Object({ pr: Type.Number() }, { additionalProperties: false }),
 );
-export const OPENED: OutputSchema<Type.Static<typeof Opened>> = Opened;
-const Pushed = Type.Object(
-  { pr: Type.Number(), head: Type.String() },
-  { additionalProperties: false },
+export const PUSHED = typed(
+  Type.Object(
+    { pr: Type.Number(), head: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export const PUSHED: OutputSchema<Type.Static<typeof Pushed>> = Pushed;
-const Closed = Type.Object(
-  { pr: Type.Number() },
-  { additionalProperties: false },
+export const CLOSED = typed(
+  Type.Object({ pr: Type.Number() }, { additionalProperties: false }),
 );
-export const CLOSED: OutputSchema<Type.Static<typeof Closed>> = Closed;
 
 export default defineWorkflow({
   meta: {

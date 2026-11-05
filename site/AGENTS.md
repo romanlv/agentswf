@@ -149,7 +149,7 @@ One page owns each of these; every other page says it in a clause at most and li
 
 ## Typing a schema
 
-One style across the site: a TypeBox schema, and the answer typed with the type argument,
-`agent.run<Type.Static<typeof VERDICT>>({ prompt, schema: VERDICT })`. Where a declaration needs
-the type itself (an event's `data`), annotate it `OutputSchema<Type.Static<typeof X>>`. Never
-import the `outputSchema` helper from `examples/output-schema`: a reader can't.
+One style across the site: a TypeBox schema wrapped in `typed(...)` from `agentswf/typebox`, and
+no type argument, `agent.run({ prompt, schema: VERDICT })`. The same wrapper types a tool's `input`
+and an event's `data`. Name the type, `Type.Static<typeof VERDICT>`, only where code outside the
+call needs it.

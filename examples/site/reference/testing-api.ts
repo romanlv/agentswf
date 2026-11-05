@@ -1,4 +1,5 @@
-import { defineWorkflow, type OutputSchema, ParticipantReply } from "agentswf/workflow";
+import { typed } from "agentswf/typebox";
+import { defineWorkflow, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
 
 export const investigate = defineWorkflow({
@@ -20,8 +21,7 @@ export const investigate = defineWorkflow({
   },
 });
 
-const Changed = Type.Object({ case: Type.String() }, { additionalProperties: false });
-export const CHANGED: OutputSchema<Type.Static<typeof Changed>> = Changed;
+export const CHANGED = typed(Type.Object({ case: Type.String() }, { additionalProperties: false }));
 
 export const caseRun = defineWorkflow({
   meta: {
@@ -49,23 +49,25 @@ export const caseRun = defineWorkflow({
   },
 });
 
-export const DOC = Type.Object({ path: Type.String() }, { additionalProperties: false });
-export const BRANCH = Type.Object({ branch: Type.String() }, { additionalProperties: false });
-export const QA = Type.Object({ preview: Type.String() }, { additionalProperties: false });
+export const DOC = typed(Type.Object({ path: Type.String() }, { additionalProperties: false }));
+export const BRANCH = typed(
+  Type.Object({ branch: Type.String() }, { additionalProperties: false }),
+);
+export const QA = typed(Type.Object({ preview: Type.String() }, { additionalProperties: false }));
 
 export const flow = defineWorkflow({
   meta: { name: "flow", description: "Review a doc, implement it, then check a preview." },
   async run(wf) {
     const worker = await wf.agents.open({ key: "worker", runtime: "claude" });
     const doc = await wf.stage("doc-review", { result: DOC }, async () => {
-      const { outcome } = await worker.run<Type.Static<typeof DOC>>({
+      const { outcome } = await worker.run({
         prompt: "Review the ticket doc, and give its path.",
         schema: DOC,
       });
       return outcome.answered ? outcome.value : wf.stop(`doc-review: ${outcome.reason}`);
     });
     const built = await wf.stage("implement", { result: BRANCH }, async () => {
-      const { outcome } = await worker.run<Type.Static<typeof BRANCH>>({
+      const { outcome } = await worker.run({
         prompt: `Implement ${doc.path} on a branch.`,
         schema: BRANCH,
       });
@@ -73,7 +75,7 @@ export const flow = defineWorkflow({
       await worker.compact({ prompt: "Keep the branch, and what is left to check." });
       return outcome.value;
     });
-    const { outcome } = await worker.run<Type.Static<typeof QA>>({
+    const { outcome } = await worker.run({
       prompt: `Check a preview of ${built.branch}.`,
       schema: QA,
     });

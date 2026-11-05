@@ -185,7 +185,7 @@ export interface ToolSpec<I extends JsonObject = JsonObject> {
   description: string;
   /**
    * An object schema, carrying its type as `run()`'s `schema` does, so a TypeBox schema is wrapped
-   * in the schema library's `outputSchema(...)`. Absent, the tool takes no input, and its handler
+   * in `typed(...)` from `agentswf/typebox`. Absent, the tool takes no input, and its handler
    * is given `{}`.
    */
   input?: OutputSchema<I>;

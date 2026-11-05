@@ -1,26 +1,24 @@
-import {
-  AgentEnded,
-  defineWorkflow,
-  type OutputSchema,
-} from "agentswf/workflow";
+import { typed } from "agentswf/typebox";
+import { AgentEnded, defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 // #region schemas
-const Failed = Type.Object(
-  { pr: Type.Number(), job: Type.String(), url: Type.String() },
-  { additionalProperties: false },
-);
 // Typed, so an event's data is typed where the workflow takes it and where a sender sends it.
-export const FAILED: OutputSchema<Type.Static<typeof Failed>> = Failed;
-// #endregion schemas
-const Closed = Type.Object(
-  { pr: Type.Number(), merged: Type.Boolean() },
-  { additionalProperties: false },
+export const FAILED = typed(
+  Type.Object(
+    { pr: Type.Number(), job: Type.String(), url: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export const CLOSED: OutputSchema<Type.Static<typeof Closed>> = Closed;
-export const FIX = Type.Object(
-  { commit: Type.String() },
-  { additionalProperties: false },
+// #endregion schemas
+export const CLOSED = typed(
+  Type.Object(
+    { pr: Type.Number(), merged: Type.Boolean() },
+    { additionalProperties: false },
+  ),
+);
+export const FIX = typed(
+  Type.Object({ commit: Type.String() }, { additionalProperties: false }),
 );
 
 // #region workflow
@@ -49,7 +47,7 @@ export default defineWorkflow({
       if (!latest) continue;
       const { id, job, url } = latest;
       await wf.stage(`fix-${id}`, async () => {
-        const { outcome } = await fixer.run<Type.Static<typeof FIX>>({
+        const { outcome } = await fixer.run({
           prompt:
             `CI job ${job} failed on this pull request: ${url}. ` +
             "Fix it, commit and push.",

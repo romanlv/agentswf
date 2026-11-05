@@ -1,13 +1,15 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const DONE = Type.Object(
-  { summary: Type.String() },
-  { additionalProperties: false },
+export const DONE = typed(
+  Type.Object({ summary: Type.String() }, { additionalProperties: false }),
 );
-export const VERDICT = Type.Object(
-  { verdict: Type.Union([Type.Literal("approve"), Type.Literal("revise")]) },
-  { additionalProperties: false },
+export const VERDICT = typed(
+  Type.Object(
+    { verdict: Type.Union([Type.Literal("approve"), Type.Literal("revise")]) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -36,13 +38,13 @@ export default defineWorkflow({
     });
     // #endregion shared
 
-    const fixed = await coder.run<Type.Static<typeof DONE>>({
+    const fixed = await coder.run({
       prompt: "Make `bun test` pass.",
       schema: DONE,
     });
     if (!fixed.outcome.answered)
       return wf.stop(`coder: ${fixed.outcome.reason}`);
-    const tested = await tester.run<Type.Static<typeof DONE>>({
+    const tested = await tester.run({
       prompt: "Run `bun test` and say what fails, if anything.",
       schema: DONE,
     });
@@ -58,7 +60,7 @@ export default defineWorkflow({
       sandbox: { srt: {} },
     });
     // #endregion private
-    const review = await reviewer.run<Type.Static<typeof VERDICT>>({
+    const review = await reviewer.run({
       prompt: "Review the uncommitted change in this repository.",
       schema: VERDICT,
     });

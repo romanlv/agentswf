@@ -103,6 +103,7 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`DeadlineExceededError`](#deadlines) | what `parallel`, `decide` and a call past its scope's deadline reject with |
 | [`DecisionError`](#decide) | a decision that was sent and didn't answer |
 | [`Ending`](#ending) | how an attempt ended, `parked` included, as `present` and `report` get it |
+| [`typed`](#typed) | a TypeBox schema carrying its type, from `agentswf/typebox` |
 | [Types](#types) | the types and constants `agentswf/workflow` exports |
 
 [Deprecated](#deprecated) lists the old forms that still work, and what replaces each.
@@ -111,16 +112,17 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 
 ```ts
 // summarize.ts
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
+export const SUMMARY = typed(Type.Object({ summary: Type.String() }, { additionalProperties: false }));
 
 export default defineWorkflow({
   meta: { name: "summarize", description: "Summarize one file." },
   async run(wf, args: { file: string }) {
     const agent = await wf.agents.open({ key: "reader", runtime: "claude" });
-    const { outcome } = await agent.run<Type.Static<typeof SUMMARY>>({
+    const { outcome } = await agent.run({
       prompt: `Read ${args.file} and summarize it in two sentences.`,
       schema: SUMMARY,
     });
@@ -214,8 +216,8 @@ The aliases `awf run` installs are `claude` (claude, `sonnet`) and `codex` (code
 | `label` | The turn's name in the progress view and the record. |
 | `nudge` | On by default: an agent that stops without an answer is nudged to give it. `false` turns it off. `{ prompt }` replaces the nudge's opening line; the lines on how to answer still follow. |
 
-The type argument, `run<Type.Static<typeof X>>`, gives the answer its TypeScript type; a TypeBox
-schema doesn't carry one on its own. A wait on a [participant](#participants-connect)'s answer
+A schema wrapped in [`typed`](#typed) gives the answer its TypeScript type; a bare TypeBox schema
+doesn't carry one on its own. A wait on a [participant](#participants-connect)'s answer
 moves the turn's bound out by the wait's length, within the deadlines around it.
 
 Every `run` on the same agent continues its session, so it remembers its earlier turns.
@@ -416,7 +418,7 @@ what it returns. Holding a tool is what lets the agent call it. The guide: [Tool
 | Field | |
 | --- | --- |
 | `description` | Required. What it is for, as the agent reads it in its prompt. |
-| `input` | An object schema. A TypeBox schema carries no TypeScript type, so give it as the type argument, `tool<Type.Static<typeof X>>`, which types the handler's input. Left out, the tool takes none, and the handler gets `{}`. |
+| `input` | An object schema. Wrapped in [`typed`](#typed), it types the handler's input. Left out, the tool takes none, and the handler gets `{}`. |
 | `handler(input, call)` | Required. Runs once per accepted call; what it returns is what the agent reads. `call` has `id`, `agent` (the caller's key, a fork's own) and `signal`, aborted when the call's budget passes or its turn ends. |
 | `timeout` | Each call's budget, 30 s by default; `false` leaves only the turn's deadline. |
 
@@ -978,6 +980,19 @@ if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent 
 - **`wf.deadline`** is the run's deadline, a `Date`, absent unless `awf run --timeout` sets one.
   Read it with `wf.deadline.getTime()`.
 
+## typed {#typed}
+
+```ts
+import { typed } from "agentswf/typebox";
+
+export const VERDICT = typed(Type.Object({ approved: Type.Boolean() }, { additionalProperties: false }));
+```
+
+`agentswf/typebox` exports one function, `typed`. It returns the TypeBox schema it is given,
+unchanged, typed as an [`OutputSchema`](#types) of the value the schema describes, so `run`, a
+tool's `input`, `stage` and `events` infer that value with no type argument. A schema of a value
+that isn't JSON, a `Date` or a `bigint`, is a type error where it is written.
+
 ## Types
 
 What `agentswf/workflow` exports for a workflow's own signatures, beside the calls above.
@@ -991,7 +1006,7 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `ParticipantReply`, `AgentEnded` | Each a value, the schema to declare `{key}:reply` and `{key}:ended` with, and the type of that event's data. |
 | `ParticipantRef` | What [`connect`](#participants-connect) returns: `key`, `post` and `release`; a peer for [`allow`](#messages-allow). |
 | `TurnOutcome<T>` | An [outcome](#outcomes), `T` the answer's type. |
-| `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: annotate a TypeBox schema with it, `const X: OutputSchema<Type.Static<typeof x>> = x`, and `run`, `stage` and `events` take its type. |
+| `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: [`typed`](#typed) gives a TypeBox schema this type, and `run`, `stage` and `events` take it. A declaration that needs only the type writes it, `declare const X: OutputSchema<{ id: string }>`. |
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
 | `Workflow<Args, Result, Events>` | What `defineWorkflow` returns. |
 | `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. |

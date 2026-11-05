@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   type AgentPlacement,
   defineWorkflow,
@@ -5,7 +6,6 @@ import {
   type WorkflowInvocation,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * Each harness and placement that forks (story 016). A runtime named with `:compact` compacts its
@@ -58,8 +58,8 @@ export type ForkCase = {
 
 export type ForkArgs = { cases: ForkCase[]; codename: string; release: string };
 
-const NOTED = outputSchema(Type.Object({ noted: Type.Boolean() }, { additionalProperties: false }));
-const RECALLED = outputSchema(
+const NOTED = typed(Type.Object({ noted: Type.Boolean() }, { additionalProperties: false }));
+const RECALLED = typed(
   Type.Object({ codename: Type.String(), release: Type.String() }, { additionalProperties: false }),
 );
 

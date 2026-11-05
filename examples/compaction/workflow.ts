@@ -1,6 +1,6 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * Every harness and placement, on its cheapest model. pi summarizes only what is older than its
@@ -42,8 +42,8 @@ export const RUNTIMES = {
 
 type RuntimeName = keyof typeof RUNTIMES;
 
-const NOTED = outputSchema(Type.Object({ noted: Type.Boolean() }, { additionalProperties: false }));
-const RECALLED = outputSchema(
+const NOTED = typed(Type.Object({ noted: Type.Boolean() }, { additionalProperties: false }));
+const RECALLED = typed(
   Type.Object({ codename: Type.String(), colour: Type.String() }, { additionalProperties: false }),
 );
 

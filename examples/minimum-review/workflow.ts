@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   type Duration,
   defineWorkflow,
@@ -8,7 +9,6 @@ import {
   type WorkflowMeta,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 const LENSES = ["correctness", "maintainability"] as const;
 
@@ -155,7 +155,7 @@ function instructionFor(lens: ReviewLens): string {
 
 /** What each lens is asked for: a review that names that lens alone. */
 export function reviewSchema(lens: ReviewLens) {
-  return outputSchema(
+  return typed(
     Type.Object(
       {
         lens: Type.Enum([lens]),
