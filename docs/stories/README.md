@@ -167,6 +167,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`040` — A program drives a workflow's runs, typed from the workflow](040-workflows-from-code.md) —
   `ready` — an ordinary Bun program imports a workflow and emits events to it, starts runs and
   waits on them in-process, typed from the workflow, on the engine the project depends on.
+- [`041` — A run's records, one home per fact](041-run-record-layout.md) —
+  `draft` (Q1–Q4 open) — a run's folder gets the run-record design's layout: `run.jsonl` with a
+  published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
+  ends.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
