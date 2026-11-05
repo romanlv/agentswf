@@ -163,8 +163,13 @@ A run is kept in `.awf/runs/{workflow}/{id}` under `--cwd`. `--run-root {dir}` r
 - **`out.json`**: the result, what each agent used, and how the attempt ended. A run that
   failed or was cancelled once its agents started keeps one too. `awf run --json` prints it.
 - **`report.md`**, when the workflow's `report` writes one.
-- The engine's records of each attempt, stage and turn, which `awf runs` and `awf logs` read and
-  `--continue` reuses. `out.json` and `report.md` are views of them: a continue needs neither.
+- **`run.json`, `attempts/` and `run.jsonl`**: what the run is, how each attempt ended, and what
+  the run settled, a line per stage, session, timer and wait. `awf runs` reads them, and
+  `--continue` reuses the stages.
+- **`ops/{key}.{n}/`**: each turn, what the agent was asked, what it answered and what it used.
+- **`log.jsonl`**: what happened, in order, which `awf logs` shows.
+
+`out.json` and `report.md` are views of the others: a continue needs neither.
 
 The first time awf makes a run under a runs folder, it writes a `.gitignore` there holding `*`,
 so no run is committed by accident. [Data](/reference/data) has every file in a run's folder.
