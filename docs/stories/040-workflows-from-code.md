@@ -3,7 +3,7 @@ id: "040"
 title: "A program drives a workflow's runs, typed from the workflow"
 summary: "An ordinary Bun program imports a workflow and emits events to it, starts runs, and waits on them in-process, each call checked by tsc from the workflow's own definition, on the engine the project depends on."
 type: story
-status: awaiting-human-review
+status: done
 epic: authoring
 discovered_in: "a question about driving workflows from a webhook handler, 2026-11-04"
 depends_on: ["034", "039"]
@@ -1118,6 +1118,7 @@ codes. Its samples are `examples/site/reference/client-api.driver.ts`, tested wi
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Accepted 2026-11-05, after
+  `ok` on emit's and start's results, the runnable `examples/programs`, and the Client API page.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
