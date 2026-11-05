@@ -319,37 +319,68 @@ describe("from the second review", () => {
     expect(stderr).toContain("0.0.0-other");
   });
 
-  test("awf run is refused at start for the project its run is kept in, as later commands refuse it", async () => {
+  test("awf test given a path checks that path's tests, not a sibling package's", async () => {
+    const { testCommand } = await import("./test-command");
+    const workspace = tempDir();
+    mkdirSync(join(workspace, ".awf"));
+    for (const [name, version] of [
+      ["a", ENGINE_VERSION],
+      ["b", "0.0.0-other"],
+    ] as const) {
+      mkdirSync(join(workspace, name));
+      fakeInstall(join(workspace, name), version);
+      writeFileSync(join(workspace, name, "x.test.ts"), "");
+    }
+    let stderr = "";
+    const io = {
+      stdout: () => undefined,
+      stderr: (text: string) => {
+        stderr += text;
+      },
+    };
+    await testCommand(["a"], workspace, { ...io, output: io });
+    expect(stderr).not.toContain("one project runs on one engine");
+  });
+
+  test("a plain run over a --cwd that declares agentswf starts, and its readers take it", async () => {
     const { loadAndPrepare } = await import("./run-prepare");
-    const shell = tempDir();
-    mkdirSync(join(shell, ".awf"));
+    const { checkRunEngine } = await import("./run-state");
+    const clone = tempDir();
     writeFileSync(
-      join(shell, "package.json"),
-      JSON.stringify({ devDependencies: { agentswf: ENGINE_VERSION } }),
+      join(clone, "package.json"),
+      JSON.stringify({ devDependencies: { agentswf: "9.9.9" } }),
     );
-    const other = tempDir();
-    const file = join(other, "flow.ts");
+    const flows = tempDir();
+    const file = join(flows, "flow.ts");
     writeFileSync(
       file,
       `import { defineWorkflow } from "agentswf/workflow";
 export default defineWorkflow({ meta: { name: "flow", description: "x" }, run: async () => 1 });
 `,
     );
+    const home = tempDir();
     const prepared = await loadAndPrepare(
       {
-        shellCwd: shell,
-        cwd: shell,
-        cwdGiven: false,
+        shellCwd: flows,
+        cwd: clone,
+        cwdGiven: true,
         runRootGiven: false,
         workflowFile: file,
         workflowArgs: [],
-        runRoot: join(shell, ".awf", "runs"),
+        runRoot: join(clone, ".awf", "runs"),
         json: false,
         watch: false,
       } as never,
       Date.now(),
-      tempDir(),
+      home,
     );
-    expect(prepared).toMatchObject({ refused: expect.stringContaining("declares agentswf") });
+    expect(prepared).not.toHaveProperty("refused");
+    // Kept in the clone's .awf/runs, it is the workflow's project that runs it.
+    const run = { root: join(clone, ".awf", "runs"), record: { cwd: clone, file } };
+    await checkRunEngine({ run, attempts: [] } as never, home);
+    // Without a file recorded, the project it is kept in: the clone, which installs none.
+    await expect(
+      checkRunEngine({ run: { ...run, record: { cwd: clone } }, attempts: [] } as never, home),
+    ).rejects.toThrow("declares agentswf");
   });
 });

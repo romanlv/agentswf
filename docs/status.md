@@ -52,7 +52,8 @@ exists, the code is right, then this page.
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
     outside this repository (see [`examples/README.md`](../examples/README.md)).
-- `awf test` runs a workflow's tests, in any folder, with nothing installed there (story 012):
+- `awf test` runs a workflow's tests, in any folder, with nothing installed there unless it
+  declares `agentswf` (story 012, 040):
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
   and decision model scripted, typed by the schema each turn asks for. Twelve examples have theirs
   beside them.

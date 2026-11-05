@@ -37,7 +37,8 @@ export async function testCommand(
   try {
     // Each test's workflow gets this engine's author surface: its project, and each path's, must
     // run on it (ADR 0014).
-    for (const place of [cwd, ...tests.paths]) {
+    // The paths given, or, with none, everything under here: bun test loads no other.
+    for (const place of tests.paths.length > 0 ? tests.paths : [cwd]) {
       const isDir = statSync(resolve(cwd, place), { throwIfNoEntry: false })?.isDirectory();
       const dir = resolve(cwd, isDir ? place : dirname(place));
       // In a workspace whose packages each install agentswf, the tests' files name the engine.

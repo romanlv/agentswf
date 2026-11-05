@@ -277,3 +277,37 @@ test("from the second review: a resent closing event, status after a failed laun
     runs.emit(review, "pr-9", "thread:reply", { text: "hi" }, { source: "Bad Source" }),
   ).rejects.toMatchObject({ code: "no-run" });
 });
+
+test("from the third review: prepare's result checked as JSON, rests for a generated id, final from the state", async () => {
+  const loose = defineWorkflow({
+    meta: { name: "loose", description: "Prepares what isn't JSON." },
+    file: "/flows/loose.ts",
+    events: { go: Pushed },
+    // As a workflow that isn't type-checked writes it: undefined is no JSON.
+    prepare: (({ argv }: { argv: readonly string[] }) => ({ base: argv[0] })) as never,
+    run: async () => null,
+  });
+  await expect(
+    fakeClient().emit(loose, "a", "go", { sha: "x" }, { eventId: "g-1" }),
+  ).rejects.toMatchObject({ code: "prepare" });
+
+  const runs = fakeClient({
+    rests: {
+      "release/fake-1": [{ state: "completed", final: true }],
+      "review/pr-1": [{ state: "failed", final: true }],
+    },
+  });
+  const started = await runs.start(release, { version: "1" });
+  expect(started.run.ref).toBe("release/fake-1");
+  expect(await started.run.wait()).toEqual({ state: "completed", final: true });
+  // An event run that failed is continued by its next event: not final, whatever the script says.
+  const failed = await runs.get(review, "pr-1");
+  expect(await failed.wait()).toEqual({ state: "failed", final: false });
+});
+
+test("event data that isn't JSON is the ClientError event, as the real client throws", async () => {
+  const data = { sha: "x", at: new Date() } as unknown as { sha: string };
+  await expect(fakeClient().emit(review, "pr-1", "pr.pushed", data)).rejects.toMatchObject({
+    code: "event",
+  });
+});

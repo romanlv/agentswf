@@ -6,7 +6,7 @@
 // - starts a plain workflow with args and waits until it is final;
 // - starts a plain workflow whose agent asks a person, finds the question in inbox(), and answers it
 //   with `awf reply` typed to the global awf, which hands the command over to the project's.
-// Every agent is codex on gpt-6-luna, headless. About 5 turns.
+// Every agent is codex on gpt-6-luna, headless. About 4 turns.
 
 import {
   cpSync,

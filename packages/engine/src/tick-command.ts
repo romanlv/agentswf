@@ -1,4 +1,5 @@
-import { basename, dirname, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { TickResultJson } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import { exists } from "./files";
@@ -62,9 +63,9 @@ export async function tickCommand(
         `awf: ${project} declares agentswf in ${engine.manifest} and has none installed, so its runs are not woken: run bun install there`,
       );
     } else if (engine.kind === "installed" && engine.version !== ENGINE_VERSION) {
-      // Already the project's engine, handed to: its agentswf and engine disagree, and another
-      // child would find the same.
-      if (context.environment[ENGINE_VARIABLE] === engine.dir) {
+      // This is the engine the project's agentswf runs, and they disagree: another child would find
+      // the same, without end.
+      if (isOwnEngine(engine)) {
         failed = true;
         out.stderr(
           `awf: ${project}'s agentswf is ${engine.version} and its engine ${ENGINE_VERSION}, so its runs are not woken: run bun install there`,
@@ -159,5 +160,15 @@ async function tickElsewhere(
       `awf: ${project}'s agentswf ${engine.version} did not say what it woke (exit ${code})`,
     );
     return { ok: false, woke: [] };
+  }
+}
+
+/** Whether `engine`'s agentswf runs on this very engine package. */
+function isOwnEngine(engine: InstalledEngine): boolean {
+  try {
+    const theirs = Bun.resolveSync("@agentswf/engine/package.json", engine.dir);
+    return realpathSync(theirs) === realpathSync(join(import.meta.dir, "..", "package.json"));
+  } catch {
+    return false;
   }
 }

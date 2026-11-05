@@ -28,8 +28,8 @@ release.
   sandbox's own Herdr and for a Herdr session a deprecated `layout` names.
 
 A workflow can live in any folder and needs nothing installed there: `awf` serves it
-`agentswf/workflow` and `typebox` from its own copies, and `awf test` serves `agentswf/testing`
-too.
+`agentswf/workflow` and `typebox` from its own copies, and `awf test` serves `agentswf/client` and
+`agentswf/testing` too. A folder that declares `agentswf` runs on the one it installs.
 
 ## Each harness
 

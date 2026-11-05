@@ -98,7 +98,7 @@ export async function logsCommand(
       options.ref === undefined
         ? await findRun(place.runRoot, undefined)
         : { status: await findRunByRef(options.ref, place, home), alsoRunning: [] };
-    checkRunEngine(status);
+    await checkRunEngine(status, home);
     const again = shellLine(command(place, "awf", "logs", status.ref));
     let after: Cursor | undefined;
     if (options.after !== undefined) {

@@ -2,7 +2,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Client, ClientError, type ClientOptions } from "@agentswf/contract/client";
 import type { EmitResultJson, InboxItemJson } from "@agentswf/contract/records";
-import { awfEventOf, isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
+import {
+  awfEventOf,
+  isEventWorkflow,
+  isJsonValue,
+  type JsonValue,
+} from "@agentswf/contract/workflow";
 import { checkEvent, deliverReply, EmitError, emitEvent } from "../emit";
 import { exists } from "../files";
 import { inboxCommand } from "../inbox-command";
@@ -81,6 +86,9 @@ async function emit(
   ] as const)
     if (value !== undefined && typeof value !== "string")
       throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
+  // What tsc lets through in a value that isn't a literal: the mailbox keeps JSON only.
+  if (!isJsonValue(data))
+    throw new ClientError("event", `${name}'s data must contain only JSON values`, ref);
   const event = {
     name,
     data,

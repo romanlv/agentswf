@@ -1021,6 +1021,32 @@ with the docs. Folded in:
 Left: a failed or crashed attempt counts toward the fake's `stuck` only as its scripted rests say.
 `bun run check` passes; `bun test` 2598 pass, 0 fail.
 
+### Final review, round 2, 2026-11-05
+
+Three fresh reviewers. Round 1's run-start engine check was wrong, and two more of its fixes too
+broad; folded in:
+
+- A run's engine is the project of the file it runs, at start and after: `checkRunEngine` checks
+  the file's project, as the loader does, not the folder a `--cwd` put the run to work in. Round
+  1's start check is gone: it refused `awf run review.ts --cwd ~/clone` whenever the clone
+  declared or pinned `agentswf`.
+- `awf tick` refuses a project only when the project's `agentswf` runs on this very engine package,
+  not whenever `AWF_ENGINE` names it: an agent of a handed-over run inherits it.
+- `awf test` with paths checks only those paths' tests; with none, everything under the folder.
+- The client: event data that isn't JSON is `event`, before any run is made; a named `start` that
+  an `awf run --id` beat to the folder is `other-args`, as it is a moment later.
+- The fake client: `prepare`'s result for an event-made run is checked as JSON, in the workflow's
+  folder; a rest's `final` is the real client's, from its state and the workflow's kind; a start
+  with no id takes a `fake-{n}` that `rests` names. The Testing API page says so, and that a parked
+  run's `nothing-due` is scripted.
+- Docs: README.md and docs/status.md no longer say `awf` runs a folder's workflows on its own
+  copies or that `awf test` needs nothing installed where `agentswf` is declared; testing.md and
+  install.md list `agentswf/client` among what `awf test` serves.
+
+Left: a non-final `wait()` returns the last of several rests within one 500 ms poll, not the first;
+an attempt takes seconds to start. `bun run check` passes; `bun test` 2600 pass, 0 fail, before the
+last two client fixes, whose suites pass (289).
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

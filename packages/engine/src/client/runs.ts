@@ -78,6 +78,13 @@ export async function start(
     } catch (error) {
       // A generated id an `awf run` took meanwhile, which takes no lock: drawn again.
       if (named === undefined && error instanceof RunTaken) return undefined;
+      // A named id an `awf run` took meanwhile: begun with no args recorded, as a moment later.
+      if (error instanceof RunTaken && (await exists(join(found.runRoot, name, id, "run.json"))))
+        throw new ClientError(
+          "other-args",
+          `${name}/${id} is there already, begun by awf run or an event, with no args recorded`,
+          `${name}/${id}`,
+        );
       // An id taken in another case is the caller's; a disk that fails is not.
       if (error instanceof RunRefused)
         throw new ClientError("id", messageOf(error), `${name}/${id}`);
@@ -193,7 +200,7 @@ export function runHandle(
 }
 
 /** Whether nothing continues a run in `state` on its own. */
-function isFinal(state: RunState, events: boolean): boolean {
+export function isFinal(state: RunState, events: boolean): boolean {
   switch (state) {
     case "completed":
     case "stopped":

@@ -284,6 +284,9 @@ describe("what the client refuses", () => {
     const loose = runs as any;
     expect(await code(loose.emit(p.review, "a", "pr.opened", {}))).toBe("event");
     expect(await code(loose.emit(p.review, "a", "pr.pushed", { sha: 1 }))).toBe("event");
+    // Not JSON, which the schema doesn't see in a property it doesn't declare; no run is made.
+    expect(await code(loose.emit(p.review, "b", "pr.pushed", { sha: "a", n: 1n }))).toBe("event");
+    expect(await code(runs.get(p.review, "b"))).toBe("no-run");
     expect(await code(runs.emit(p.review, "Bad Id", "pr.pushed", { sha: "a" }))).toBe("id");
     expect(
       await code(runs.emit(p.review, "a", "pr.pushed", { sha: "a" }, { eventId: "Mixed" })),

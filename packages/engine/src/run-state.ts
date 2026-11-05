@@ -1,10 +1,10 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
 import { checkProjectEngine } from "./project-engine";
-import { listProjects, projectRunRoot, rootProject } from "./projects";
+import { listProjects, projectOf, projectRunRoot, rootProject } from "./projects";
 import { lockHeld, runLockFile } from "./run-lock";
 import {
   entries,
@@ -229,14 +229,22 @@ export async function findRunByRef(
   home: string,
 ): Promise<RunStatus> {
   const status = await findAnywhere(ref, place, home);
-  checkRunEngine(status);
+  await checkRunEngine(status, home);
   return status;
 }
 
-/** Refuses a run this engine doesn't run: its project's, found with the file it last ran. */
-export function checkRunEngine(status: Pick<RunStatus, "run" | "attempts">): void {
+/**
+ * Refuses a run this engine doesn't run: as `awf run` checked it, the project of the file it last
+ * ran, not the folder a `--cwd` put it to work in; without a file, the project it is kept in.
+ */
+export async function checkRunEngine(
+  status: Pick<RunStatus, "run" | "attempts">,
+  home: string,
+): Promise<void> {
   const file = status.attempts.at(-1)?.file ?? status.run.record.file;
-  checkProjectEngine(runProject(status.run), file === undefined ? {} : { file });
+  if (file === undefined) return checkProjectEngine(runProject(status.run));
+  const project = await projectOf(file, home).catch(() => dirname(file));
+  checkProjectEngine(project, { file });
 }
 
 /**

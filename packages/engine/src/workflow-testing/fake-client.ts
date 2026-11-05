@@ -1,6 +1,6 @@
 // A program's tests' `Client`: keeps the calls it is given and answers as the real one's rules do,
 // or as the test scripts. No run, file or process is touched.
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import {
   type Client,
   ClientError,
@@ -17,7 +17,9 @@ import {
   nameProblem,
 } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
+import { isFinal } from "../client/runs";
 import { checkEvent, EmitError } from "../emit";
+import { prepareArgs } from "../run-prepare";
 import { idProblem } from "../runs";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
 
@@ -58,7 +60,9 @@ export type FakeClientScript = {
    * after the call; a run that isn't running, by the last one taken, is answered at once, as the
    * real client does. Its status is the last one taken; an emit or start that launches it makes it
    * `running` again, and a launch that fails leaves it at its last rest, or `interrupted` (`stuck`
-   * after three) if it has none. Attempts that fail or crash count toward `stuck` only as the rests
+   * after three) if it has none. Its `final` is the real client's, from its state and whether the
+   * workflow takes events, whatever the rest scripted says. A start with no id names its run
+   * `fake-1`, `fake-2`, and so on, which this can name. Attempts that fail or crash count toward `stuck` only as the rests
    * scripted say. A run named here is there: `get` and `emit` find it, and the first `start` of it is the one that made it,
    * unless an emit reached it first.
    */
@@ -116,19 +120,24 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
   for (const [ref, rests] of Object.entries(script.rests ?? {}))
     known.set(ref, { ...fresh(), rests: [...rests], scripted: true });
 
-  const handle = (ref: string): Run<never> => {
+  /** `final`, as the real client says it: from the state, and whether the run takes events. */
+  const handle = (ref: string, events: boolean): Run<never> => {
     const run = known.get(ref)!;
+    const now = (): RunStatus<JsonValue> => ({
+      ...run.status,
+      final: isFinal(run.status.state, events),
+    });
     const made: Run<JsonValue> = {
       id: ref.slice(ref.indexOf("/") + 1),
       ref,
-      status: async () => run.status,
+      status: async () => now(),
       wait: async (options = {}) => {
         options.signal?.throwIfAborted();
-        if (options.final ? run.status.final : run.status.state !== "running") return run.status;
+        if (options.final ? now().final : run.status.state !== "running") return now();
         for (let next = run.rests.shift(); next; next = run.rests.shift()) {
           run.status = next;
           run.rest = next;
-          if (!options.final || next.final) return next;
+          if (!options.final || now().final) return now();
         }
         const { signal } = options;
         if (!signal)
@@ -218,6 +227,8 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       ] as const)
         if (value !== undefined && typeof value !== "string")
           throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
+      if (!isJsonValue(data))
+        throw new ClientError("event", `${name}'s data must contain only JSON values`, ref);
       const reply = awfEventOf(name)?.kind === "reply";
       try {
         checkEvent(
@@ -260,7 +271,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         if (!state) {
           // As the real client checks before it makes the run: what `prepare` makes of no argv.
           try {
-            target.prepare({ argv: [], cwd: "/" });
+            prepareArgs(target, [], dirname(target.file!));
           } catch (error) {
             throw new ClientError(
               "prepare",
@@ -321,7 +332,11 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
           `a run of ${name}, which starts on events, is named by its senders`,
         );
       // As the real client generates one: an id no run here holds.
-      for (let n = 1; id === undefined; n++) if (!known.has(`${name}/fake-${n}`)) id = `fake-${n}`;
+      // A run `rests` names and nothing made yet is the one this start makes.
+      for (let n = 1; id === undefined; n++) {
+        const there = known.get(`${name}/fake-${n}`);
+        if (!there || (there.scripted && !("args" in there))) id = `fake-${n}`;
+      }
       const ref = `${name}/${id}`;
       call.ref = ref;
       const problem = idProblem(id);
@@ -343,12 +358,12 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
             `${ref} is there already, with other args or none recorded`,
             ref,
           );
-        if (there.attempted) return { run: handle(ref), did: "exists" };
-        if (there.failed >= 3) return { run: handle(ref), did: "stuck" };
+        if (there.attempted) return { run: handle(ref, isEventWorkflow(target)), did: "exists" };
+        if (there.failed >= 3) return { run: handle(ref, isEventWorkflow(target)), did: "stuck" };
       } else if (!known.has(ref)) known.set(ref, fresh(call.args));
       const run = known.get(ref)!;
       const answer = {
-        run: handle(ref),
+        run: handle(ref, isEventWorkflow(target)),
         did: there ? "exists" : "started",
         ...script.start?.({ ...call, ref }),
       } as StartResult<never>;
@@ -365,7 +380,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       const problem = idProblem(run);
       if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
       if (!known.has(ref)) throw new ClientError("no-run", `no run ${ref}`, ref);
-      return handle(ref);
+      return handle(ref, isEventWorkflow(workflow as unknown as AnyWorkflow));
     },
     inbox: async (workflow, given = {}) => {
       const call = {

@@ -215,7 +215,8 @@ cost. The run's full record stays in `.awf/runs/hello/{id}`.
 <summary>Editor types for a workflow outside this repository</summary>
 
 `awf init` sets a folder up for editor types: `agentswf`, `typebox`, `@types/bun` and `typescript`
-as dev dependencies, and a `tsconfig.json`. `awf` still runs the workflow against its own copies.
+as dev dependencies, and a `tsconfig.json`. The `agentswf` it installs is then the folder's engine:
+the global `awf` hands every command there over to it.
 To set up a folder by hand instead:
 
 ```sh
