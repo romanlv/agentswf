@@ -138,11 +138,12 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
 - **The latest line under a key is its current line**, a key being a kind and a name. A step writes
   a line only when it settles anew: a race once ever; a timer once, and once more if cancelled (037:
   the first call names the time, and a cancelled name stays cancelled, so calling it again returns
-  the cancelled timer); a stage once per attempt that ran it.
-- **A stage has two answers.** `last` is its latest line of any outcome: what `awf runs` shows, and
-  what `--from-stage` reads to tell a failed stage from one never run (`stage-plan.ts`). `settled` is
+  the cancelled timer); a stage each time it ends, which is once per attempt that ran it, except
+  where an event run enters a failed stage again in the same attempt.
+- **A stage has two answers.** `last` is its latest line of any outcome: what `--from-stage` reads to tell a failed stage from one never run (`stage-plan.ts`). `settled` is
   its latest `succeeded` or `provided` line: what a continue may reuse. Its history, failures
-  included, is every line under its name.
+  included, is every line under its name; `awf runs` shows, for each time the latest attempt
+  entered it, that time's own line.
 - **A state's value is its latest entry**, on whichever `stage` or `wait` line saved it; a line that
   doesn't name a state leaves it as it was.
 - **A timer is `due` at its time.** Whether it has fired is the reader's to say against its own
@@ -209,7 +210,7 @@ Today's rules, made explicit as fields:
   nothing held, a state set between two stages is saved on the second's line; and code rerun from the
   top sets it again before it, so a crash between the two loses nothing.
 - **What a wait can take** is the merge of `in.jsonl`'s events, `turn-ended` lines and due
-  timers, ordered by `(at, source, id)`: for equal times a timer comes before a turn's end, before an
+  timers, ordered by `(at, origin, id)`: for equal times a timer comes before a turn's end, before an
   event; a time read from state comes after every ready event (037).
 
 ### Writing it
@@ -243,7 +244,7 @@ Today's rules, made explicit as fields:
 ### What is published
 
 `contract` publishes the line types and `readRun(lines)`, the view a reader outside the engine
-needs: each stage's `settled` and `last`, the redo, races, timers with `due` and whether a wait took
+needs: each stage's `settled`, `last` and history, the redo, races, timers with `due` and whether a wait took
 or a cancel withdrew them, state, the last wait, and sessions. That is the format's meaning for a
 dashboard, an agent or `awf runs`.
 
@@ -263,7 +264,7 @@ launching it.
 ```ts
 type EventLine = {
   at: string; id: EventId; name: string; data: JsonValue; from: string;
-  starts?: true; via?: string;
+  starts?: true; source?: string;
 };
 ```
 
@@ -397,7 +398,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | --- | --- | --- |
 | Is an attempt live? | its file: no `ended`, and its `pid` with its `processStart` | same |
 | The run's status | the attempt files; `readRun`'s last wait for `waiting` | the attempt files, and the mailbox for `stuck` and `waiting` |
-| What a continue may reuse | each stage's `settled` line, from `readRun`: those from the redo's attempt on, and earlier ones the code reaches before the redo stage; `awf runs {ref} --json`, whose stages gain `value` | `ls stages/` |
+| What a continue may reuse | each stage's `settled` line, from `readRun`: those from the redo's attempt on, and earlier ones the code reaches before the redo stage; `awf runs {ref} --json` for the latest attempt's stages, which gain `value` | `ls stages/` |
 | A stage's history | every `stage` line under its name, each with its attempt, outcome and `redo` | `stages/` and `replaced/`; a failure only if it is the latest |
 | What the run waits for | `readRun`'s last wait | the mailbox's last `wait`, events runs only |
 | What it took and acknowledged | `took` lines, and `acks` on the waits after them | `took`, then the next `wait` by rule, `returns` aside |
@@ -416,7 +417,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | claiming an attempt (`run-prepare.ts`) | waits for `previousGone` for every run, truncates, writes `claimed`, ends a crashed attempt's turns, settles missing `spend.json` |
 | `wake`, `awf tick`, `awf emit`, 040's client (`wake.ts`, `tick-command.ts`, `emit.ts`) | read the attempt files, `in.jsonl` (to dedupe and match the wait) and `readRun`'s wait and timers; `emit` writes a starting event into `.new-*/in.jsonl`; `wake` links a failed launch's attempt file, writes `launches/{launch}.log` and passes `AWF_LAUNCH` |
 | `run-state.ts` (`waiting`, `stuck`) | `readRun`, and the attempt files |
-| `awf runs`, `awf logs` (`run-view.ts`, `run-read.ts`, `runs-command.ts`, `logs-command.ts`) | the log for the story; `run.jsonl` for stages, waits and sessions; a stage's `value` in `awf runs --json`; the cursor spans the two files; cost from `spend.json` |
+| `awf runs`, `awf logs` (`run-view.ts`, `run-read.ts`, `runs-command.ts`, `logs-command.ts`) | the log for the story and the current stage; `run.jsonl` for stages' outcomes and values, waits and sessions; a stage's `value` in `awf runs --json`; the cursor spans the two files; cost from `spend.json` |
 | `awf inbox`, `awf reply` (`inbox-command.ts`, `holder-command.ts`) | the log, as today; wait labels from `readRun` |
 | a continue's "interrupted in stage …" notice (`run-prepare.ts`) | the log's last `stage-started`: it presents, it doesn't decide |
 | the end of an attempt (`attempt-output.ts`) | writes the attempt's ending with `value`, `out.json` and `report.md`; no `stages`, `accounting` or `unacknowledged` |
@@ -425,7 +426,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | accounting (`run-usage.ts`, `run-commands.ts`, `attempt-view.ts`) | `spend.json` with `op.json`, priced at read |
 | decisions (`decisions/directory.ts`) | `ops/{decision}.{n}/decision.json`, written whole; `DecisionRecord.artifact` names it |
 | the harness's scratch (`run-skills.ts`, `workflow-runner.ts`) | `work/` |
-| workflow tests (`run-test.ts`, `testing.ts`) | `earlier: { stages, events, run }` (below); `TestRun.stages` becomes `readRun`'s stage lines, a new type; `TestRun.mailbox` becomes `run` and `events`; due timers are no longer appended |
+| workflow tests (`run-test.ts`, `testing.ts`) | `earlier: { stages, events, run }` (below); `TestRun.stages` becomes stage lines, a new type: each stage the attempt entered, in order, a reused one by the line it reused; `TestRun.mailbox` becomes `run` and `events`; due timers are no longer appended |
 | the lab | nothing: it parses `awf run --json` and globs run folders, and reads no `output.json` |
 | the site and `runs-command.ts`'s `records:` line | every page that names `output.json`, `calls/` or `turns.jsonl`, once built (`grep -rl output.json site`) |
 
@@ -445,7 +446,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 - **[[workflow-state]].** Its record format is `state` on a wait or stage line, its save moment
   today's acknowledging wait; it needs no store of its own, and its open "where people read it" has
   an answer: `awf runs`, through `readRun`.
-- **040, a program drives runs.** Its `args` and `via` are in `run.json` and the event line; its
+- **040, a program drives runs.** Its `args` and `source` are in `run.json` and the event line; its
   client takes the lock as `awf emit` does, and reads an ending from the attempt files.
 - **036, keep-alive.** A run parks only with no turn running, which is what lets a turn's end be
   the run's own fact.
