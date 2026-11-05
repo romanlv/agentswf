@@ -1077,6 +1077,13 @@ One reviewer, on round 3's changes. Folded in:
 Left: `tick --all` lists a project's runs up to three times. `bun run check` passes; `bun test`
 2605 pass, 0 fail.
 
+### Final review, round 5, 2026-11-05
+
+One reviewer, on rounds 3 and 4: clean. Left, older than both: a workspace root with no
+`agentswf` of its own, whose packages install a newer one that writes records this engine can't
+read, shows `tick --all` no event runs, so they are passed over silently; it needs a record-format
+bump between the two versions.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.
