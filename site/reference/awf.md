@@ -28,10 +28,43 @@ command gets the `awf run` line it meant.
 
 ## JSON {#json}
 
+With `--json`, stdout always ends with one document. When the command worked, it is the
+result. When it failed, it is a refusal, and stderr still says why, for people:
+
+```json
+{"v": 1, "code": "no-run", "error": "no run review-mr/7 under /work/.awf/runs, or in a project awf knows"}
+```
+
+A document with `code` is a refusal; no result has one. Check for it first, as the exit code
+doesn't tell them apart: `awf emit` exits 1 with a full result when the run's attempt didn't
+start. A command that prints a line per item, as `awf inbox --json` does, ends with its refusal.
+A usage error is a refusal too, whenever `--json` is anywhere in the arguments. The exit codes
+are each command's own, as its help says.
+
+A code means the same in every command that prints it, and is the word
+[`ClientError`](/reference/client-api#clienterror) throws for the same failure:
+
+| `code` | The command failed because | Printed by |
+| --- | --- | --- |
+| `usage` | its arguments can't be parsed, or two of them clash | every command |
+| `no-run` | there is no such run | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `ambiguous` | a run's id names runs of two workflows or projects; with `choices` when they are known | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `id` | a run or event id the grammar refuses | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
+| `event` | the workflow doesn't take the event's name or data, or takes no events | `emit` |
+| `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
+| `not-started` | the run never started: Ctrl-C, a session not taken, a claim given up | `run` |
+| `unreachable` | the run's files can't be read, or it doesn't answer | `runs`, `logs`, `inbox`, `reply`, `send` |
+| `cursor` | a cursor or handle doesn't fit | `logs`, `inbox` |
+| `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `emit`, and any command in a project whose install is broken |
+| `project` | the workflow isn't in a project | `emit` |
+
+`awf reply` and `awf send` also refuse for the [participant's reasons](#reply).
+
 A command's `--json` carries `"v"`, which changes when a field is renamed or removed. It is 1 for
 every command but two at 2: `awf runs {run} --json`, whose agent and stage states are
 [a fixed set](#runs), and `awf send --json` and `awf reply --json`, whose refusal `stopped` is
-[`peer-stopped`](#reply).
+[`peer-stopped`](#reply). A refusal carries its command's `"v"`.
 
 ## Durations {#durations}
 

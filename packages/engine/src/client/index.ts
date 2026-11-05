@@ -8,9 +8,10 @@ import {
   isJsonValue,
   type JsonValue,
 } from "@agentswf/contract/workflow";
-import { checkEvent, deliverReply, EmitError, emitEvent } from "../emit";
+import { checkEvent, deliverReply, emitEvent } from "../emit";
 import { exists } from "../files";
 import { inboxCommand } from "../inbox-command";
+import { asClientError } from "../refusals";
 import { idProblem, openRun } from "../runs";
 import type { WakeContext } from "../wake";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
@@ -54,12 +55,6 @@ export function clientWith(
       start(workflow as AnyWorkflow, args, given ?? {}, context) as never,
     get: (workflow, id) => get(workflow as AnyWorkflow, id, context) as never,
   };
-}
-
-/** An `EmitError` as the caller's mistake it is; anything else as it is. */
-export function asClientError(error: unknown, ref?: string): unknown {
-  if (error instanceof EmitError) return new ClientError(error.code, error.message, ref);
-  return error;
 }
 
 async function emit(

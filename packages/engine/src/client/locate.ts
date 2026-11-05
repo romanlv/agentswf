@@ -1,8 +1,9 @@
 import { isAbsolute } from "node:path";
 import { ClientError } from "@agentswf/contract/client";
 import { messageOf } from "../errors";
-import { checkProjectEngine, EngineRefused } from "../project-engine";
+import { checkProjectEngine } from "../project-engine";
 import { projectOf, projectRunRoot } from "../projects";
+import { asClientError } from "../refusals";
 import { idProblem } from "../runs";
 import type { AnyWorkflow } from "../workflow-loader";
 import { exportProblem } from "./exported";
@@ -35,8 +36,7 @@ export async function locate(workflow: AnyWorkflow, home: string): Promise<Found
   try {
     checkProjectEngine(project, { file, client: true });
   } catch (error) {
-    if (error instanceof EngineRefused) throw new ClientError(error.code, error.message);
-    throw error;
+    throw asClientError(error);
   }
   return { workflow, file, project, runRoot: projectRunRoot(project) };
 }

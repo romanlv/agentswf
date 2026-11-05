@@ -189,6 +189,8 @@ its `ref`. Anything the run decided (a refused event, a failed launch) is in the
 | `other-args` | `start` of a run there with other args, or with none recorded |
 | `cursor` | an `after` made for another run, workflow or filter |
 
+An `awf` command run with `--json` uses [the same word](/reference/awf#json) for the same failure.
+
 ## See also
 
 - [Programs](/guide/programs): the client in a webhook, a relay and a release script.

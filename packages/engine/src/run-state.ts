@@ -132,8 +132,18 @@ export function statusOf(
 
 const ALSO_RUNNING_CHECKED = 20;
 
-/** A reference the commands take, or why there is none to read. */
-export class RunNotFound extends Error {}
+/**
+ * A reference the commands take, or why there is none to read: `no-run`, none by that ref; `id`, a
+ * ref no run could have; `ambiguous`, one naming runs of two workflows or projects.
+ */
+export class RunNotFound extends Error {
+  constructor(
+    message: string,
+    readonly code: "no-run" | "id" | "ambiguous" = "no-run",
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Every run under `runRoot`, newest `created` first. A folder whose `run.json` cannot be read is
@@ -198,7 +208,7 @@ export async function findRun(
   if (slash >= 0) {
     const [workflow, id] = [ref.slice(0, slash), ref.slice(slash + 1)];
     const problem = idProblem(workflow) ?? idProblem(id);
-    if (problem) throw new RunNotFound(`no run ${ref}: ${problem}`);
+    if (problem) throw new RunNotFound(`no run ${ref}: ${problem}`, "id");
     // A record that is there but cannot be read is not a missing run, and says why itself.
     if (!(await exists(join(runRoot, workflow, id, "run.json")))) {
       const missing = await openRun(runRoot, workflow, id).catch((error: unknown) => error);
@@ -219,7 +229,7 @@ export async function findRun(
   }
   if (found.length > 1) {
     const refs = found.map((run) => `${run.record.workflow}/${ref}`).join(", ");
-    throw new RunNotFound(`${ref} names a run of more than one workflow: ${refs}`);
+    throw new RunNotFound(`${ref} names a run of more than one workflow: ${refs}`, "ambiguous");
   }
   return { status: await runStatus(found[0]!, probe), alsoRunning: [] };
 }
@@ -330,6 +340,7 @@ async function findAnywhere(
   if (found.length > 1)
     throw new RunNotFound(
       `${ref} is a run in ${found.length} projects, ${found.map((each) => each.run.record.cwd).join(" and ")}; --cwd names one`,
+      "ambiguous",
     );
   if (found[0]) return found[0];
   if (old) throw old;

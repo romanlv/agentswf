@@ -1,0 +1,499 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { REFUSAL_CODES, type RefusalJson } from "@agentswf/contract/records";
+import { INBOX_CODES, PARTICIPANT_CODES } from "@agentswf/contract/wire";
+import { COMMANDS, type CommandName } from "./commands";
+import { runOperatorCli } from "./operator-cli";
+import { createRun } from "./runs";
+import { createTempRunDirs, eventProject, writeAttempt } from "./testing";
+
+// The rule every `--json` command keeps: stdout's last line is a document whatever happened, and a
+// failure's is a refusal from the published codes, its sentence still on stderr. Each row is a
+// failure a command's help names.
+//
+// Not rows yet, each for the task that makes it reachable or decides it (story 043): `run`'s
+// `prepare` and `not-started` (task 4); `unreachable` from a run that doesn't answer, for `reply`
+// and `send` (task 5); `tick`'s exit 1, which still prints its result (task 3). A broken install's
+// `no-engine` is the hand-over's, before `runOperatorCli`, and has its own test (task 3).
+
+const dirs = createTempRunDirs();
+afterAll(() => dirs.cleanup());
+
+const EVENTS = `import { defineWorkflow } from "agentswf/workflow";
+const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };
+export default defineWorkflow({
+  meta: { name: "dd-case", description: "A case." },
+  file: import.meta.path,
+  events: { "dd.changes": Changes },
+  starts: ["dd.changes"],
+  async run() { return null; },
+});
+`;
+
+const PLAIN = `import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({
+  meta: { name: "plain", description: "No events." },
+  async run() { return null; },
+});
+`;
+
+type Fixture = { root: string; file: string; plain: string; home: string };
+let fixture: Fixture;
+
+beforeAll(async () => {
+  const made = eventProject(dirs, "case.ts", EVENTS);
+  const plain = join(made.root, "flows", "plain.ts");
+  writeFileSync(plain, PLAIN);
+  fixture = { ...made, plain };
+  const runRoot = join(fixture.root, ".awf", "runs");
+  await createRun(runRoot, {
+    id: "r1",
+    workflow: "dd-case",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  // A run that ended without connecting a participant.
+  const done = await createRun(runRoot, {
+    id: "done",
+    workflow: "dd-case",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  await writeAttempt(done, {
+    pid: Bun.spawnSync(["true"]).pid,
+    processStart: "2026-10-11T09:00:00Z",
+    outcome: "completed",
+  });
+  // A run whose record this awf can't read: one made before `run.json` had a format.
+  mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
+  writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
+});
+
+/** Each command's words: the shared ones, and the participant's for `reply`, `send` and `inbox`. */
+const SHARED = new Set<string>(REFUSAL_CODES);
+const PARTICIPANT = new Set<string>([...REFUSAL_CODES, ...PARTICIPANT_CODES]);
+const CODES: Record<string, Set<string>> = {
+  reply: PARTICIPANT,
+  send: PARTICIPANT,
+  inbox: new Set<string>([...REFUSAL_CODES, ...INBOX_CODES]),
+};
+
+type Row = {
+  command: CommandName;
+  failure: string;
+  argv: (f: Fixture) => string[];
+  code: string;
+  exit: number;
+  /** The command's own `v`, which its refusal carries. */
+  v: number;
+  /** What the command says, on stderr or in its document, so a row fails the way it names. */
+  says: RegExp;
+};
+
+const ROWS: Row[] = [
+  {
+    command: "emit",
+    failure: "no run named",
+    argv: () => [],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /name the run/,
+  },
+  {
+    command: "emit",
+    failure: "no such run",
+    argv: () => ["dd-case/nope", "dd.changes", "{}"],
+    code: "no-run",
+    exit: 1,
+    v: 1,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "emit",
+    failure: "a target that isn't there",
+    argv: (f) => ["--target", join(f.root, "missing.ts"), "--id", "k", "dd.changes", "{}"],
+    code: "file",
+    exit: 1,
+    v: 1,
+    says: /workflow file not found/,
+  },
+  {
+    command: "emit",
+    failure: "a workflow without events",
+    argv: (f) => ["--target", f.plain, "--id", "k", "dd.changes", "{}"],
+    code: "event",
+    exit: 2,
+    v: 1,
+    says: /declares no events/,
+  },
+  {
+    command: "emit",
+    failure: "an event the workflow doesn't take",
+    argv: (f) => ["--target", f.file, "--id", "k", "dd.other", "{}"],
+    code: "event",
+    exit: 2,
+    v: 1,
+    says: /declares no event dd\.other/,
+  },
+  {
+    command: "emit",
+    failure: "an event id that isn't one",
+    argv: (f) => [
+      "--target",
+      f.file,
+      "--id",
+      "k",
+      "dd.changes",
+      '{"case":"k"}',
+      "--event-id",
+      "a b",
+    ],
+    code: "id",
+    exit: 2,
+    v: 1,
+    says: /the id "a b"/,
+  },
+  {
+    command: "runs",
+    failure: "a bad option",
+    argv: () => ["--limit", "x"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /--limit needs a whole number/,
+  },
+  {
+    command: "runs",
+    failure: "no such run",
+    argv: () => ["dd-case/nope"],
+    code: "no-run",
+    exit: 1,
+    v: 2,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "runs",
+    failure: "a run it can't read",
+    argv: () => ["dd-case/old"],
+    code: "unreachable",
+    exit: 3,
+    v: 2,
+    says: /dd-case\/old/,
+  },
+  {
+    command: "logs",
+    failure: "a bad option",
+    argv: () => ["--limit", "x"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /--limit needs a whole number/,
+  },
+  {
+    command: "logs",
+    failure: "no such run",
+    argv: () => ["dd-case/nope"],
+    code: "no-run",
+    exit: 1,
+    v: 1,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "logs",
+    failure: "a run it can't read",
+    argv: () => ["dd-case/old"],
+    code: "unreachable",
+    exit: 3,
+    v: 1,
+    says: /dd-case\/old/,
+  },
+  {
+    command: "logs",
+    failure: "a cursor that isn't one",
+    argv: () => ["dd-case/r1", "--after", "nope"],
+    code: "cursor",
+    exit: 1,
+    v: 1,
+    says: /cursor nope does not fit/,
+  },
+  {
+    command: "logs",
+    failure: "a handle that isn't one",
+    argv: () => ["dd-case/r1", "@nope"],
+    code: "cursor",
+    exit: 1,
+    v: 1,
+    says: /nope/,
+  },
+  {
+    command: "tick",
+    failure: "a bad option",
+    argv: () => ["--nope"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /tick takes no --nope/,
+  },
+  {
+    command: "run",
+    failure: "no workflow named",
+    argv: () => [],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /run needs one workflow file/,
+  },
+  {
+    command: "run",
+    failure: "a workflow file that isn't there",
+    argv: (f) => [join(f.root, "missing.ts")],
+    code: "file",
+    exit: 2,
+    v: 1,
+    says: /workflow file not found/,
+  },
+  {
+    command: "allowance",
+    failure: "no such harness",
+    argv: () => ["nope"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /unknown harness or option: nope/,
+  },
+  {
+    command: "reply",
+    failure: "no run named",
+    argv: () => [],
+    code: "usage",
+    exit: 2,
+    v: 3,
+    says: /reply needs a run/,
+  },
+  {
+    command: "reply",
+    failure: "no such run",
+    argv: () => ["dd-case/nope", "reviewer", "--as", "slack", "hi"],
+    code: "no-run",
+    exit: 1,
+    v: 3,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "reply",
+    failure: "a run it can't read",
+    argv: () => ["dd-case/old", "reviewer", "--as", "slack", "hi"],
+    code: "unreachable",
+    exit: 3,
+    v: 3,
+    says: /dd-case\/old/,
+  },
+  {
+    command: "reply",
+    failure: "no such participant",
+    argv: () => ["dd-case/r1", "reviewer", "--as", "slack", "hi"],
+    code: "no-participant",
+    exit: 1,
+    v: 3,
+    says: /slack/,
+  },
+  {
+    command: "send",
+    failure: "no run named",
+    argv: () => [],
+    code: "usage",
+    exit: 2,
+    v: 3,
+    says: /send needs a run/,
+  },
+  {
+    command: "send",
+    failure: "no such run",
+    argv: () => ["dd-case/nope", "reviewer", "--as", "slack", "hi"],
+    code: "no-run",
+    exit: 1,
+    v: 3,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "send",
+    failure: "no such participant",
+    argv: () => ["dd-case/r1", "reviewer", "--as", "slack", "hi"],
+    code: "no-participant",
+    exit: 1,
+    v: 3,
+    says: /slack/,
+  },
+  {
+    command: "inbox",
+    failure: "a bad option",
+    argv: () => ["--wait", "x"],
+    code: "usage",
+    exit: 2,
+    v: 2,
+    says: /--wait takes a duration/,
+  },
+  {
+    command: "inbox",
+    failure: "no such run",
+    argv: () => ["dd-case/nope"],
+    code: "no-run",
+    exit: 1,
+    v: 2,
+    says: /no run dd-case\/nope/,
+  },
+  {
+    command: "inbox",
+    failure: "a run it can't read",
+    argv: () => ["dd-case/old"],
+    code: "unreachable",
+    exit: 3,
+    v: 2,
+    says: /dd-case\/old/,
+  },
+  {
+    command: "inbox",
+    failure: "no such participant",
+    argv: () => ["dd-case/done", "--as", "slack"],
+    code: "no-participant",
+    exit: 1,
+    v: 2,
+    says: /slack/,
+  },
+  {
+    command: "inbox",
+    failure: "a cursor that isn't one",
+    argv: () => ["--after", "nope"],
+    code: "cursor",
+    exit: 1,
+    v: 2,
+    says: /cursor nope/,
+  },
+];
+
+/**
+ * Rows that don't print their refusal yet, by `{command}: {failure}`. Each task of story 043 takes
+ * its commands' rows off, and the last removes the list; a listed row that conforms fails too.
+ */
+const PENDING = new Set([
+  "emit: no run named",
+  "emit: no such run",
+  "emit: a target that isn't there",
+  "emit: a workflow without events",
+  "emit: an event the workflow doesn't take",
+  "emit: an event id that isn't one",
+  "runs: a bad option",
+  "runs: no such run",
+  "runs: a run it can't read",
+  "logs: a bad option",
+  "logs: no such run",
+  "logs: a run it can't read",
+  "logs: a cursor that isn't one",
+  "logs: a handle that isn't one",
+  "tick: a bad option",
+  "run: no workflow named",
+  "run: a workflow file that isn't there",
+  "allowance: no such harness",
+  "reply: no run named",
+  "reply: no such run",
+  "reply: a run it can't read",
+  "reply: no such participant",
+  "send: no run named",
+  "send: no such run",
+  "send: no such participant",
+  "inbox: a bad option",
+  "inbox: no such run",
+  "inbox: a run it can't read",
+  "inbox: no such participant",
+  "inbox: a cursor that isn't one",
+]);
+
+const nameOf = (row: Row) => `${row.command}: ${row.failure}`;
+
+async function attempt(row: Row) {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exit = await runOperatorCli([row.command, ...row.argv(fixture), "--json"], {
+    cwd: fixture.root,
+    home: fixture.home,
+    // Only what a command needs: an `AWF_*` of the shell running the tests changes no row.
+    environment: { PATH: process.env.PATH, HOME: fixture.home },
+    stdout: (text) => stdout.push(text),
+    stderr: (text) => stderr.push(text),
+    stdin: async () => "hi",
+    readAllowance: async () => {
+      throw new Error("no harness is read here");
+    },
+    launch: async () => {
+      throw new Error("no attempt is launched here");
+    },
+  });
+  const last = stdout
+    .flatMap((text) => text.split("\n"))
+    .filter((line) => line.trim() !== "")
+    .at(-1);
+  let document: unknown;
+  try {
+    document = last === undefined ? undefined : JSON.parse(last);
+  } catch {
+    document = last;
+  }
+  return { exit, document, stderr: stderr.join("\n") };
+}
+
+function conforms(row: Row, got: Awaited<ReturnType<typeof attempt>>): boolean {
+  const refusal = got.document as Partial<RefusalJson<string>> | undefined;
+  return (
+    got.exit === row.exit &&
+    typeof refusal === "object" &&
+    refusal !== null &&
+    refusal.v === row.v &&
+    refusal.code === row.code &&
+    typeof refusal.error === "string" &&
+    refusal.error !== "" &&
+    !refusal.error.startsWith("awf: ") &&
+    got.stderr.includes(refusal.error)
+  );
+}
+
+describe("every --json failure prints a refusal last", () => {
+  for (const row of ROWS) {
+    const name = nameOf(row);
+    test(`${name} → ${row.code}, exit ${row.exit}`, async () => {
+      const got = await attempt(row);
+      expect(`${got.stderr}\n${JSON.stringify(got.document)}`).toMatch(row.says);
+      if (PENDING.has(name)) {
+        // Listed as not printing it yet: once it does, the row comes off the list.
+        expect({ name, conforms: conforms(row, got) }).toEqual({ name, conforms: false });
+        return;
+      }
+      expect({ exit: got.exit, document: got.document }).toMatchObject({
+        exit: row.exit,
+        document: { v: row.v, code: row.code },
+      });
+      expect(conforms(row, got)).toBe(true);
+    });
+  }
+});
+
+test("every command whose help offers --json has a row, and only those", () => {
+  const offering = COMMANDS.flatMap((entry) =>
+    entry.help.includes("--json") ? (Object.keys(entry.commands) as CommandName[]) : [],
+  );
+  expect([...new Set(ROWS.map((row) => row.command))].sort()).toEqual(offering.sort());
+});
+
+test("each row expects a word its command may print, under a name of its own", () => {
+  for (const row of ROWS)
+    expect([nameOf(row), (CODES[row.command] ?? SHARED).has(row.code)]).toEqual([
+      nameOf(row),
+      true,
+    ]);
+  const names = ROWS.map(nameOf);
+  expect(new Set(names).size).toBe(names.length);
+  for (const pending of PENDING) expect(names).toContain(pending);
+});

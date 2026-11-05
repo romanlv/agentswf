@@ -1260,6 +1260,51 @@ export type TickResultJson = {
 /** `awf inbox --json` when it read nothing. */
 export type InboxErrorJson = { v: 1; code: InboxCode; error: string };
 
+/**
+ * Why a `--json` command failed, one meaning each, and the words `ClientError` throws for the
+ * same failures: `usage`, an argv that can't be parsed or whose options clash; `no-run`;
+ * `ambiguous`, a name that fits more than one, with `choices` when they are known; `file`, a
+ * workflow file that is missing, doesn't load or doesn't export the workflow; `event`, an event
+ * name or data the workflow doesn't take; `id`, a run or event id the grammar refuses, or one
+ * `id(args)` returns; `no-id`, a start naming no run; `prepare`, a workflow refusing its arguments
+ * or options; `not-started`, a run that never started; `other-args`, a start of a run there with
+ * other args; `unreachable`, a run whose files can't be read or that doesn't answer; `cursor`, a
+ * cursor or handle made for another run or filter; `project`, a workflow in no project; `no-engine`
+ * and `other-engine`, a project's `agentswf` missing or another version. `reply` and `send` also
+ * refuse with `PARTICIPANT_CODES`.
+ */
+export const REFUSAL_CODES = [
+  "usage",
+  "no-run",
+  "ambiguous",
+  "file",
+  "event",
+  "id",
+  "no-id",
+  "prepare",
+  "not-started",
+  "other-args",
+  "unreachable",
+  "cursor",
+  "project",
+  "no-engine",
+  "other-engine",
+] as const;
+
+export type RefusalCode = (typeof REFUSAL_CODES)[number];
+
+/**
+ * What a `--json` command prints last when it failed, in place of its result: no result has
+ * `code`. `v` is the command's own; `error` is the sentence stderr prints, without `awf: `.
+ */
+export type RefusalJson<Code extends string = RefusalCode, V extends number = number> = {
+  v: V;
+  code: Code;
+  error: string;
+  /** With `ambiguous`: the names to choose from, when they are known. */
+  choices?: string[];
+};
+
 /** Each kind's own version, which changes when that kind's shape does. */
 export const RUN_EVENT_VERSIONS = {
   "attempt-started": 1,

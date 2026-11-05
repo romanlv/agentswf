@@ -3,7 +3,7 @@ id: "043"
 title: "Every --json command says why it failed, as a document"
 summary: "With --json, stdout always ends with one document: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
 type: story
-status: ready
+status: in-progress
 depends_on: ["040"]
 ---
 
@@ -19,8 +19,9 @@ exit codes stay as they are, and stderr stays for people.
 The refusal codes are the words `agentswf/client` throws as `ClientError.code`, so a program
 reaching runs by the CLI and one using the client handle the same failure the same way.
 
-A test runs every `--json` command into its failures and checks that each prints a refusal. A new
-command, or a new failure path in an old one, fails `bun test`, not a host in production.
+A test runs every `--json` command into the failures its help documents and checks that each
+prints a refusal. A new `--json` command without rows, or a documented failure that goes silent,
+fails `bun test`, not a host in production.
 
 **Why now.** On 2026-11-05 awf-chat moved its replies to a run's code from the deprecated
 `awf send --event-id` to `awf emit {run} {key}:reply`, the replacement the deprecation names.
@@ -192,14 +193,18 @@ Out of scope:
   | --- | --- | --- |
   | `usage` | the argv can't be parsed, or its options clash | every command |
   | `no-run` | no such run | `emit`, `runs`, `logs`, `reply`, `send`, `inbox`; client |
-  | `file` | the workflow file is missing or isn't a loadable workflow | `emit`, `run`, `tick`; client |
-  | `event` | an event name or data the workflow doesn't take | `emit`; client |
-  | `id` | an event id that isn't one | `emit`; client |
-  | `prepare` | the workflow refuses its arguments or options | `run`; client |
+  | `ambiguous` | a run's id names runs of two workflows or projects | the run readers above |
+  | `id` | a run or event id the grammar refuses | `emit` and the run readers; client |
+  | `file` | the workflow file is missing, doesn't load, or doesn't export it | `emit`, `run`; client |
+  | `event` | an event name or data the workflow doesn't take, or it takes none | `emit`; client |
+  | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
+  | `other-args` | a run there, started with other args or options | `run --id`; client |
   | `not-started` | a run that never started: Ctrl-C, a session not taken, a claim discarded | `run`; client |
-  | `unreachable` | the run's files can't be read, or it doesn't answer | `reply`, `send`, `inbox` |
-  | `cursor` | a cursor that isn't one | `inbox`; client |
-  | `no-engine`, `other-engine`, `project` | the project's engine, as the client says today | hand-over; client |
+  | `unreachable` | the run's files can't be read, or it doesn't answer | `runs`, `logs`, `inbox`, `reply`, `send` |
+  | `cursor` | a cursor or handle made for another run or filter | `logs`, `inbox`; client |
+  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `emit`, hand-over; client |
+  | `project` | a workflow in no project | `emit`; client |
+  | `no-id` | a start naming no run | client |
 
   Plus the participant codes only `reply` and `send` have: `no-participant`, `ended`,
   `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
@@ -232,7 +237,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The contract, the code table, the shared mapping, the reference, and the guard
+- [x] 1. The contract, the code table, the shared mapping, the reference, and the guard
 - [ ] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
 - [ ] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and the hand-over
 - [ ] 4. `awf run` refuses when no run comes of it, and the client says `not-started`
@@ -272,13 +277,13 @@ shared mapping, the reference states the rule, and the guard runs with every sil
 
 Execution:
 
-- [ ] Plan: where the codes live (`wire.ts` or `records.ts`); each command's code set; the
+- [x] Plan: where the codes live (`wire.ts` or `records.ts`); each command's code set; the
   guard's rows, one per failure in the probe table and each help's exit line.
-- [ ] Implement: the types; the mapping, used by the client first; the JSON section and code
+- [x] Implement: the types; the mapping, used by the client first; the JSON section and code
   table in `awf.md`; the guard and its known-silent list.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: `bun test`, `bunx tsc --noEmit`; the client's tests pass unchanged; the guard
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: `bun test`, `bunx tsc --noEmit`; the client's tests pass unchanged; the guard
   passes with the list, and fails when a row is taken off it.
 
 Done when:
@@ -314,7 +319,9 @@ Outcome: these commands refuse as documents; every usage error does, printed onc
 Execution:
 
 - [ ] Plan: each command's failure paths and codes; how dispatch knows `--json` before parsing.
-- [ ] Implement: the refusals and each help's `--json` line; `hand-over.ts`.
+- [ ] Implement: the refusals and each help's `--json` line; `hand-over.ts` and a test of it
+  beside the guard, which can't reach it; whether `tick`'s exit 1, which prints its result,
+  needs anything.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
 - [ ] Verify: each command's test covers its codes; their rows leave the guard's list.
@@ -333,7 +340,9 @@ Execution:
 - [ ] Plan: map each failure under "Context and evidence" to `file`, `prepare`, `usage` or
   `not-started`; which of them the client's `start` can meet.
 - [ ] Implement: the refusals in `operator-cli.ts`, `run.txt`, `not-started` in
-  `ClientErrorCode` and the client.
+  `ClientErrorCode` and the client (out of `refusals.ts`'s `COMMAND_ONLY`); `openEventRun`'s
+  other-args and `panesChanged` refusals in `emit.ts` as `other-args`, not the default `event`;
+  rows for `prepare` and `not-started`.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
 - [ ] Verify: `operator-cli.test.ts` and `client.test.ts` cover each code; a run that does start
@@ -353,8 +362,11 @@ Execution:
 - [ ] Plan: the renames, the success shape, the `v` bumps, and every awf-chat match on them.
 - [ ] Implement: `not-found` → `no-run`, `bad-cursor` → `cursor`, `unreachable` from `failed`,
   `reply`/`send` success `{v: 3, id}`, `inbox` `v: 2`; `reply.txt`, `inbox.txt`, `awf.md`'s
-  JSON section; awf-chat's `HolderResult`, `holderCommand`, `inbox`, `parseLine`, `watch.ts`,
-  `presenter.ts`, `ledger.ts` and its fixtures.
+  JSON section and `#reply` section; `InboxErrorJson` and `ParticipantResultJson`'s refusal folded
+  into `RefusalJson` (`INBOX_CODES` keeps only what isn't shared); the sentence on stderr with
+  `--json` too; the client's `inbox` throwing any client code `awf inbox` refuses with, not only
+  `cursor`; a row for a run that doesn't answer; awf-chat's `HolderResult`, `holderCommand`,
+  `inbox`, `parseLine`, `watch.ts`, `presenter.ts`, `ledger.ts` and its fixtures.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
 - [ ] Verify: the guard passes with no list; deleting one refusal from any command fails it;
@@ -385,8 +397,20 @@ Manual or live evaluation:
 
 ### Task 1
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: per-command sets (guard and reference, types per task); the CLI's code
+  through the mapping (`printRefusal` takes the error); `refusalCode` returns any `RefusalCode`;
+  `ClientErrorCode` a checked union; `choices` on `RefusalJson`; missing rows added (`emit` with no
+  events, `logs` handle, `no-participant`, exit 3 by a run of an earlier format) and the rest
+  named with their tasks; stderr checked; the story's table synced with the reference's; glosses
+  matched across `records.ts`, `awf.md` and `client-api.md`; the `v` paragraph reordered; task 4
+  and 5 checklists take the fold, `INBOX_CODES`, the client's `inbox` mapping and the hand-over
+  test. Kept: `client-api.md` keeps its table, as it says when the client throws each word, a
+  fact of its own. Merge gate recorded for the reference text.
+- Correctness and proof: `RunNotFound` → `no-run` was wrong for a malformed or ambiguous ref,
+  fixed by its code; `emit.ts`'s other-args refusals defaulting to `event` moved to task 4; rows
+  pin their failure by what the command says; per-command sets; `v` per row; a minimal
+  environment; unique names, and every `PENDING` entry a row. No behaviour change in the client's
+  tests; `RunNotFound` can't reach the client's `asClientError` raw today.
 
 ### Task 2
 
@@ -418,6 +442,37 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 1
+
+- The codes live in `contract/src/records.ts` as `REFUSAL_CODES`, beside the `--json` result
+  types they refuse in place of; `wire.ts` stays the agent's wire. `ClientErrorCode` is an
+  `Extract` of `RefusalCode`, so the client can't throw a word the table lacks. `RefusalJson` takes
+  the code set and the command's `v` as parameters.
+- `no-id` and `other-args` are in the table: the client throws them, and one set of words was the
+  point. No command prints them.
+- `unreachable` and `cursor` cover `runs` and `logs` too: their helps already promise exit 3 when
+  the run's files can't be read, and `logs` exits 1 for a cursor or handle that doesn't fit.
+- The mapping is `engine/src/refusals.ts`: `refusalCode` reads the code an engine error carries
+  (`EmitError`, `EngineRefused`, `RunNotFound`) or gives `RunUnreadable` `unreachable`;
+  `asClientError` wraps what is a client code; `printRefusal` takes the error and the command's
+  word for an error with no code, so the CLI's code comes from the same mapping. It is a module of
+  its own because `client/locate.ts` and `client/index.ts` both need it and `index.ts` imports
+  `locate.ts`.
+- `RunNotFound` carries its code: `no-run`, `id` for a ref no run could have, `ambiguous` for one
+  naming runs of two workflows or projects. `ambiguous` joins the table: the participant's word
+  already meant "a name that fits more than one", and a refusal may carry `choices`.
+- `ClientErrorCode` is a plain union checked to sit within `RefusalCode`, so a word missing from
+  the table fails to compile at the declaration.
+- Per-command code sets live in the guard and the reference's "Printed by" column. Each command's
+  output type, `Result | RefusalJson<…>`, names its set in the task that brings the command in.
+- The guard is `engine/src/json-refusals.test.ts`, through `runOperatorCli` in-process, so
+  dispatch is under test too. Each row pins the failure it names by what the command says, the
+  `v` its refusal carries, and that stderr still says it. Its `PENDING` list holds rows that
+  don't conform yet, silent or on an old word; a listed row that conforms fails, so the list can't
+  go stale. A comment names the failures that aren't rows yet and the task each waits for.
+- Merge gate: the reference states the rule from task 1, so the branch reaches main only once
+  task 5 makes it true; `docs` and `site` deploy from main.
 
 ## Human review
 
