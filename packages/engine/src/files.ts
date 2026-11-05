@@ -62,6 +62,16 @@ async function writeSynced(path: string, text: string): Promise<void> {
   }
 }
 
+/** Makes the entries of folder `dir`, a rename or link into it, durable. */
+export async function syncDir(dir: string): Promise<void> {
+  const handle = await open(dir, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Whether `path` names anything, a dangling link included. */
 export async function exists(path: string): Promise<boolean> {
   return lstat(path).then(

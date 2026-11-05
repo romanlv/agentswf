@@ -229,12 +229,14 @@ Today's rules, made explicit as fields:
   from an attempt before *N* that comes after *N*'s `claimed` is ignored, so the claimant's view and
   every later reader's agree. Before it, an ended attempt may still append `session` lines while it
   closes its agents, so a session that moved in a compaction or fork at close is resumed; nothing
-  else is written after an attempt's ending.
-- **Whole lines, durably.** Each line is one `O_APPEND` write, fsynced (`F_FULLFSYNC` on macOS)
-  before the step it settles returns; the folder rename and the attempt's `link` fsync their folder.
-  `timer()`, which returns at once, is written before the next stage or wait (037). A complete line
-  not yet on disk matters only if the machine itself crashes, and then whatever acted on it went
-  with it.
+  else is written after an attempt's ending. One case the fence can't mend: a process thought killed
+  that finishes a short-written line after the claim cut its start leaves a complete line that isn't
+  JSON, which a reader refuses rather than guess at.
+- **Whole lines, durably.** Each line is one `O_APPEND` write, fsynced (a plain `fsync` on macOS
+  until 041's Q5 settles `F_FULLFSYNC`) before the step it settles returns; the folder rename and
+  the attempt's `link` fsync their folder. `timer()`, which returns at once, is written before the
+  next stage or wait (037). A complete line not yet on disk matters only if the machine itself
+  crashes, and then whatever acted on it went with it.
 - **A stage's effects come before its line.** A crash between them runs the stage again: stages are
   at-least-once, as ADR 0011 says, and state saved on its line is saved with it.
 - **A crashed attempt's turns are ended by the next.** A run never parks with a turn running (036), so

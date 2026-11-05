@@ -4,7 +4,6 @@ import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentSessionAdapter, HarnessActivation } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { emitCommand } from "./emit-command";
-import { writeJson } from "./files";
 import { runOperatorCli } from "./operator-cli";
 import { openRun, readAttempts } from "./runs";
 import { createTempRunDirs, eventProject } from "./testing";
@@ -105,12 +104,6 @@ test("--keep-panes and --workspace are recorded, and a run that parks and wakes 
   expect(await send(1)).toBe(0);
   expect(await woken()).toBe(0);
   expect((await readAttempts(run)).map((a) => a.outcome)).toEqual(["parked"]);
-  // Its process is this one: as a real wake's would be, the parked attempt's is gone.
-  const [first] = await readAttempts(run);
-  await writeJson(join(run.dir, "attempts", "1.json"), {
-    ...first,
-    processStart: "2000-01-01T00:00:00.000Z",
-  });
 
   expect(await send(2)).toBe(0);
   expect(await woken()).toBe(0);

@@ -28,9 +28,10 @@ import {
   type TurnRecord,
 } from "@agentswf/contract/records";
 import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
-import { exists, isCode, linkNew, writeJson } from "./files";
+import { exists, isCode, linkNew, syncDir, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
+import type { RunLines } from "./run-lines";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
@@ -57,7 +58,11 @@ export class RunRefused extends Error {
 
 export type Run = { root: string; dir: string; record: RunRecord };
 
-export type Attempt = { run: Run; file: string; record: AttemptRecord };
+/** An attempt's file, claimed. */
+export type AttemptFile = { run: Run; file: string; record: AttemptRecord };
+
+/** An attempt that holds its run: its file, and the writer its claim on `run.jsonl` gave it. */
+export type Attempt = AttemptFile & { lines: RunLines };
 
 /** The start time of process `pid` as an ISO time to the second, or undefined when it is gone. */
 export type ProcessProbe = (pid: number) => string | undefined;
@@ -139,12 +144,16 @@ async function claimRun(
   const dir = join(parent, record.id);
   try {
     await writeJson(runFile(pending), full);
+    await syncDir(pending);
     await rename(pending, dir);
   } catch (error) {
     await rm(pending, { recursive: true, force: true });
     if (isCode(error, "ENOTEMPTY", "EEXIST", "EISDIR")) throw new RunTaken(takenMessage(record.id));
     throw error;
   }
+  // The run is in place and readable; a failed sync risks its entry only on a machine crash, so it
+  // must not refuse an id this call now holds.
+  await syncDir(parent).catch(() => undefined);
   return { root, dir, record: full };
 }
 
@@ -172,7 +181,7 @@ export async function checkFree(root: string, workflow: string, id: string): Pro
  * again: its first attempt was never claimed, or is `own`, which ended before it started. Whether
  * it did: not while another attempt is there.
  */
-export async function discardRun(run: Run, own?: Attempt): Promise<boolean> {
+export async function discardRun(run: Run, own?: AttemptFile): Promise<boolean> {
   const dir = attemptsDir(run.dir);
   const others = (await entries(dir)).filter((name) => join(dir, name) !== own?.file);
   if (others.length > 0) return false;
@@ -327,7 +336,7 @@ export async function claimAttempt(
     /** `--from-stage`: a run that completed is continued only to redo a stage of it. */
     fromStage?: boolean;
   } = {},
-): Promise<{ attempt: Attempt; interrupted: AttemptRecord[] } | { refused: AttemptRefusal }> {
+): Promise<{ attempt: AttemptFile; interrupted: AttemptRecord[] } | { refused: AttemptRefusal }> {
   const probe = options.probe ?? processStart;
   const pid = options.pid ?? process.pid;
   const started = probe(pid);
@@ -356,6 +365,7 @@ export async function claimAttempt(
       // Unclaimed on any refusal or failure, so no attempt is left without an ending.
       const unclaim = () => unlink(file).catch(() => undefined);
       try {
+        await syncDir(dir);
         const before = (await readAttempts(run)).filter((other) => other.attempt < n);
         const refused = attemptRefusal(before, await readStageRecords(run.dir), {
           fromStage: options.fromStage ?? false,
@@ -378,7 +388,7 @@ export async function claimAttempt(
 
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
-  attempt: Attempt,
+  attempt: AttemptFile,
   ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
     outcome: AttemptOutcome;
   },
@@ -796,7 +806,9 @@ export async function previousGone(
   notice: (text: string) => void,
 ): Promise<void> {
   const previous = (await readAttempts(run)).find((each) => each.attempt === n - 1);
-  if (!previous) return;
+  // One that ran in this process, as a workflow's tests run attempts, has ended: waiting for it
+  // would be waiting for ourselves.
+  if (!previous || previous.pid === process.pid) return;
   const alive = () => sameProcess(previous.pid, previous.processStart, processStart);
   const started = Date.now();
   const giveUp = started + PREVIOUS_GONE_MS;

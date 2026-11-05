@@ -308,7 +308,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 
 - [x] 1. The record's new types in `contract`: line types, `readRun`, `format`, tiers, ADR 0014
 - [ ] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
-- [ ] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
+- [x] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
 - [ ] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
 - [ ] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
 - [ ] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
@@ -340,6 +340,17 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 
 - **Q4.** Should `returns` and the first-wait rule stay as built (design, "Open")? Dropping either
   changes how 037's waits behave. That is cheaper before `format: 1` is published than after.
+
+### 3. The claim
+
+- **Q5.** Plain `fsync` or `F_FULLFSYNC` for `run.jsonl` on macOS? Bun 1.4.0's `sync()` is a plain
+  `fsync` there, and neither Bun nor node exposes `F_FULLFSYNC`; `bun:ffi`'s `fcntl(fd, 51)` does.
+  Measured on darwin arm64, 100 appends of a 100-byte line: 0.02–0.06 ms a line plain, 3.9 ms with
+  `F_FULLFSYNC`. A plain `fsync` reaches the drive's cache, so a power loss or kernel panic can
+  lose the lines of the last moments, a `claimed` or a settled stage included, after the step they
+  settled returned; a process crash loses nothing. `F_FULLFSYNC` closes that at about 4 ms a line,
+  and brings `bun:ffi`, marked experimental, into the engine. Linux's `fsync` already reaches the
+  disk. Built: plain `fsync`.
 
 ## To measure
 
@@ -744,6 +755,86 @@ ends:
 - **Verification**, in the worktree, after review round 2: `bun test packages/contract` 103 pass, 0
   fail; `bunx tsc --noEmit` clean; `bun run scripts/check-boundaries.ts` "boundaries ok"; `bunx
   biome check packages/contract` clean; the whole `bun test` 2585 pass, 2 skip, 4 todo, 0 fail.
+
+### Task 3
+
+- **Module.** `packages/engine/src/run-lines.ts` owns `run.jsonl`: the only code that writes it.
+  `claimRunLines(runDir, attempt, at)` cuts the file to its last newline (reading backwards from
+  the end, creating it when absent), fsyncs the run folder, appends `claimed` and returns the
+  attempt's writer, `RunLines`: `{ attempt; append(line: RunLine) }`. Only a claim makes one, so
+  nothing appends before the fence. `append` refuses a line of another attempt; lines are queued by
+  the file's resolved path, so they land in call order however the folder is spelled. Each line is
+  one write to a file opened `O_APPEND`, then fsync, then close: the file is opened per line, not
+  held, so the writer has no lifetime to end. A write that fails part way is cut back to the size
+  before it, when the file ends with that write's bytes, so the next line isn't glued to its half. `readRunLines(runDir)` parses each complete
+  line, ignores text after the last newline (torn, or still being written, which the next claim
+  cuts), refuses a complete line that isn't JSON (`run.jsonl line {n}: not JSON`), and returns `{
+  lines, view }`: `readRun`'s check of every line, and its view.
+- **The writer is on the attempt.** `runs.ts`'s `Attempt` is `AttemptFile & { lines: RunLines }`;
+  `AttemptFile` (`{ run, file, record }`) is what `claimAttempt` returns and what `endAttempt` and
+  `discardRun` take. `claimNext` returns the `Attempt`, so tasks 4–6 append through
+  `attempt.lines`, which the claim produced.
+- **The claim** (`run-prepare.ts`, `claimNext`): `claimAttempt`, then `previousGone` for every
+  run, then `claimRunLines`, then today's `attempt-started` event as before. A claim whose
+  `run.jsonl` write fails unlinks its attempt file and refuses, as a refused claim does.
+- **`previousGone` skips an attempt of this process.** Waiting for every run made an in-process
+  continue (`run-panes.test.ts`, a workflow's tests) wait five minutes for itself and then
+  `SIGTERM` itself. An attempt whose `pid` is this process's has ended, since `attemptRefusal`
+  refuses a live one. Known, unchanged: an in-process attempt that ended but is still closing its
+  agents isn't waited for, so a continue in the same process could overlap its close.
+- **Folders.** `files.ts`'s `syncDir(dir)` opens the folder and fsyncs it. `claimRun` syncs the
+  `.new-*` folder after `run.json` and before the rename, and the parent after it; `claimAttempt`
+  syncs `attempts/` after its `link`, before it reads the others; the claim syncs the run folder
+  for `run.jsonl`'s entry. The parent's sync after the rename is best-effort: the run is in place
+  and this call holds its id, so a failed sync must not refuse it and strand the id. Only a machine
+  crash could then lose the folder's entry.
+- **fsync, not `F_FULLFSYNC`**, until Q5 says otherwise; Q5 has the measurements. The design's
+  "Whole lines, durably" says so.
+- **Known edge.** A process thought killed that finishes a short-written line after a claim cut its
+  start leaves a complete line that isn't JSON after the `claimed`. `readRunLines` refuses it, and
+  the run is unreadable until it is removed by hand. Telling it from corruption would mean guessing
+  at a line no attempt is known to have written; a short write on a local file is near impossible
+  outside a full disk. The design's "The fence" says so.
+- **Not done here.** Listing `ops/` moves into the claim with task 2, which waits for 039's task
+  10: `ops/` doesn't exist yet. Turn recovery moves into the claim with task 5. Nothing else
+  writes `run.jsonl` yet; `stages/`, the mailbox and the log write as before.
+- **Tests**, `packages/engine/src/run-lines.test.ts`, 12, all at the file level: a claim creates
+  the file; a torn last line is cut, not merged (the file is byte-for-byte the whole lines, then
+  `claimed`); a torn tail of 200 KB, past the 64 KiB read-back chunk, is cut whole; a file holding
+  only a torn line is emptied; a fake attempt 1 appending after attempt 2's `claimed` is fenced
+  (`view.fenced` 1, its stage absent); concurrent appends keep call order; a writer refuses another
+  attempt's line; two spellings of a folder are one file; a missing file reads empty; a trailing
+  partial line is not read; a complete non-JSON line is refused; and a run without events waits in
+  `claimNext` for its previous attempt's process (a `sleep 0.4` recorded as a failed attempt 1:
+  `claimNext` resolves no earlier than the process's exit, `run.jsonl` holds attempt 2's `claimed`,
+  and `attempt.lines` appends attempt 2's lines). That last test fails with the old `if
+  (run.record.events)` guard put back. A write failing part way is not tested: it needs a fault
+  injected into the file handle.
+- **Review.** Subagent review of the diff, round 1; all findings accepted:
+  - the writer was reachable without a claim (`runLines` exported) and not threaded: it is now
+    module-private, and `claimNext` returns it as `attempt.lines`. The queue was keyed by the path as
+    spelled; it is the resolved path now.
+  - the non-event wait test asserted a wall-clock threshold; it now asserts `claimNext` resolved at
+    or after the previous process's exit.
+  - `run-panes.test.ts` faked the parked attempt's `processStart` so the continue wouldn't wait for
+    this process; redundant with the same-process skip, removed.
+  - `F_FULLFSYNC` was decided inside the task: raised as Q5, and the design says plain `fsync` until
+    it settles.
+  - nits: a torn tail past 64 KiB is tested; `createRun` no longer fails with the run already in
+    place when the parent's sync fails; the non-JSON line a late short write can leave is a recorded
+    edge, refused, in the design and here; the in-process "still closing" risk is recorded. Beyond
+    the findings: an append that fails part way is cut back, so the writer can't make a non-JSON line
+    itself.
+  - round 2: clean, two nits applied. The cut-back on a failed append truncates only when the file
+    is exactly its size before the write plus this write's bytes, so a stale writer can never cut a
+    later attempt's `claimed`; the design's "Whole lines, durably" is rewrapped. After them: `bun
+    test packages/engine/src/run-lines.test.ts` 12 pass, 0 fail; `bunx tsc --noEmit` clean; `bunx
+    biome check` on `run-lines.ts` clean.
+- **Verification**, in the worktree, after review round 1: `bun test
+  packages/engine/src/run-lines.test.ts packages/engine/src/run-panes.test.ts
+  packages/engine/src/runs.test.ts packages/engine/src/inbox-command.test.ts` 55 pass, 0 fail;
+  `bunx tsc --noEmit` clean; `bun run scripts/check-boundaries.ts` "boundaries ok"; `bunx biome check
+  packages/engine packages/contract` clean (217 files); the whole `bun test` 2597 pass, 2 skip, 4 todo, 0 fail (2603 tests, 197 files).
 
 ## Human review
 

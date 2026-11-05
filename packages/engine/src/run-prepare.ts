@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type AttemptRecord, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
@@ -8,6 +9,7 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import { projectOf, projectRunRoot } from "./projects";
 import type { RunCommand } from "./run-command";
+import { claimRunLines, type RunLines } from "./run-lines";
 import {
   type Attempt,
   appendEvent,
@@ -255,17 +257,26 @@ export async function claimNext(
   if ("refused" in claimed) {
     throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
   }
-  // An event run's: claimed first, which `wake` waits for holding the run's lock, then waited on
-  // before this attempt writes anything, so the attempt before it has finished its own records and
-  // two never share an agent's session.
-  if (run.record.events) await previousGone(run, claimed.attempt.record.attempt, notice);
+  // Claimed first, which `wake` waits for holding the run's lock, then waited on before this
+  // attempt writes anything, so the attempt before it has finished its own records and two never
+  // share an agent's session.
+  const n = claimed.attempt.record.attempt;
+  await previousGone(run, n, notice);
+  let lines: RunLines;
+  try {
+    lines = await claimRunLines(run.dir, n, claimed.attempt.record.started);
+  } catch (error) {
+    // Without its fence the attempt may not write: it goes, as a refused claim's does.
+    await unlink(claimed.attempt.file).catch(() => undefined);
+    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`);
+  }
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
   await endTurnsLine(run.dir)
     .then(() =>
       appendEvent(run.dir, {
         version: RUN_EVENT_VERSIONS["attempt-started"],
-        attempt: claimed.attempt.record.attempt,
+        attempt: n,
         at: claimed.attempt.record.started,
         kind: "attempt-started",
       }),
@@ -279,7 +290,7 @@ export async function claimNext(
       `awf: attempt ${earlier.attempt} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.attempt)}"`,
     );
   }
-  return claimed.attempt;
+  return { ...claimed.attempt, lines };
 }
 
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */
