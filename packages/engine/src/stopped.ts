@@ -1,4 +1,4 @@
-import type { StageNeed, StageRecord } from "@agentswf/contract/records";
+import type { StageLine, StageNeed } from "@agentswf/contract/records";
 
 /**
  * Ends an attempt `stopped`, apart from `failed`: the workflow's `stop`, or a continue that can't
@@ -9,7 +9,7 @@ export class WorkflowStopped extends Error {
     readonly reason: string,
     /** The stage it stopped in; absent between stages. */
     readonly stage?: string,
-    /** Whether going on takes `--from-stage {stage}`: a record a continue can't reuse. */
+    /** Whether going on takes `--from-stage {stage}`: a line a continue can't reuse. */
     readonly redo = false,
     /** The stages whose values, given with `--values`, let the attempt start at a later one. */
     readonly needs?: readonly StageNeed[],
@@ -23,8 +23,8 @@ export class WorkflowStopped extends Error {
 export class FromStageUnreached extends WorkflowStopped {
   constructor(
     readonly fromStage: string,
-    /** The run's stage records, in the order they started: the stages to choose from. */
-    readonly recorded: readonly StageRecord[],
+    /** Each of the run's stages by its latest line, in the order they started: those to choose from. */
+    readonly recorded: readonly StageLine[],
   ) {
     super(`never reached ${fromStage}`);
   }

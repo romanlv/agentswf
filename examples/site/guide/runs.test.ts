@@ -12,7 +12,7 @@ test("a builder that never answers stops the attempt in build, with plan recorde
     agents: { planner: answer(PLAN, plan), builder: noAnswer.silent() },
   });
   expect(run.ending).toMatchObject({ kind: "stopped", stage: "build" });
-  expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+  expect(run.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
     ["plan", "succeeded"],
     ["build", "stopped"],
   ]);
@@ -27,7 +27,7 @@ test("a continue reuses plan without opening the planner, and runs build", async
   expect(run.value).toEqual(built);
   expect(run.agents.map(({ key }) => key)).toEqual(["builder"]);
   expect(run.turnsOf("builder")[0]!.prompt).toContain("docs/ABC-1.md");
-  expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([
+  expect(run.stages.map(({ name, attempt }) => [name, attempt])).toEqual([
     ["plan", 1],
     ["build", 2],
   ]);

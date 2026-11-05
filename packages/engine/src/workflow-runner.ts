@@ -187,6 +187,7 @@ import {
 } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { RunEventLog } from "./run-event-log";
+import { type RunLines, readRunLines } from "./run-lines";
 import {
   type AgentProgress,
   type GroupProgress,
@@ -200,7 +201,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endTurnsLine, readAttempts, readStageRecords, readTurns, writeScreen } from "./runs";
+import { endTurnsLine, readAttempts, readTurns, writeScreen } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -222,7 +223,6 @@ import {
   takeOf,
 } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
-import { lastRedo } from "./stage-plan";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
 import type { EventWorkflow } from "./workflow-loader";
@@ -247,7 +247,8 @@ export type RunWorkflowOptions = {
   run: {
     dir: string;
     id: string;
-    attempt: number;
+    /** The attempt's writer on `run.jsonl`, which its claim made; its `attempt` is this attempt. */
+    lines: RunLines;
     /** How the attempt is named to a person: its Herdr workspace's label. */
     label?: string;
     /** `--from-stage`: the stage this attempt starts at, reusing those before it. */
@@ -501,16 +502,23 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     throw new Error(
       "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs",
     );
-  const { dir: runDir, id: runId, attempt } = options.run;
+  const { dir: runDir, id: runId } = options.run;
+  const { attempt } = options.run.lines;
   const startedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
-  // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
-  // torn the last line an earlier attempt appended.
-  const recorded = await readStageRecords(runDir);
-  // The last --from-stage an earlier attempt redid, whose stale records still rerun as reached.
-  const redo = withEvents
-    ? lastRedo(await readAttempts({ dir: runDir }), recorded, attempt)
-    : undefined;
+  // Before anything opens: a line this awf can't read refuses the attempt.
+  const { view: recorded } = await readRunLines(runDir);
+  // The version each earlier attempt ran, which a line it wrote is reused under.
+  const earlier = await readAttempts({ dir: runDir });
+  const versions = new Map(
+    earlier.flatMap(({ attempt: n, workflowVersion }) =>
+      workflowVersion === undefined ? [] : [[n, workflowVersion] as const],
+    ),
+  );
+  // What the last redo's attempt entered, so a stage it left behind isn't shown as to come.
+  const redoEntered = earlier
+    .find(({ attempt: n }) => n === recorded.redo?.attempt)
+    ?.stages?.map(({ stage }) => stage);
   // The log is observation: one that cannot be written says so as it is, and fails nothing.
   await endTurnsLine(runDir).catch(() => undefined);
   const slots = createResultSlotRegistry({
@@ -563,8 +571,6 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   if (definition.meta.whenToUse !== undefined) deprecations.used("whenToUse");
   if ((definition as { [DEPRECATED_DEFINITION]?: unknown })[DEPRECATED_DEFINITION])
     deprecations.used("defineExecutableWorkflow");
-  // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
-  const turns: TurnRecord[] = [];
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
   const recordTurn: RecordTurn = (outcome, kind) => {
     const turn: TurnRecord = {
@@ -575,19 +581,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       callPath: outcome.usage.callPath,
       ...pick(outcome.usage, TURN_OPERATION_FIELDS),
     };
-    turns.push(turn);
     events.turn(turn);
   };
   const stages = new StageLedger({
-    runDir,
-    attempt,
-    records: recorded,
+    lines: options.run.lines,
+    run: recorded,
+    versions,
+    ...(redoEntered === undefined ? {} : { redoEntered }),
     ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     ...(withEvents ? { byContent: true } : {}),
-    ...(redo === undefined ? {} : { redo }),
-    turns: () => turns,
     event: (body, at) => events.event(body, at),
   });
   const progress = new RunProgress();
@@ -797,7 +801,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const finishedAt = new Date().toISOString();
     await stages
       .close()
-      .catch((error) => warn(`awf: a stage record was not written: ${messageOf(error)}`));
+      .catch((error) => warn(`awf: a stage's line was not written: ${messageOf(error)}`));
     await events.close();
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
@@ -1911,7 +1915,7 @@ class WorkflowOwner {
     });
     if (entered.kind === "reuse") {
       entered.release();
-      // A stage around a wait returns the batch it took, which its record doesn't hold.
+      // A stage around a wait returns the batch it took, which its line doesn't hold.
       const batch =
         entered.value === undefined && !options
           ? (await this.options.mailbox?.batchOf(name))?.map((event) =>
@@ -1944,7 +1948,7 @@ class WorkflowOwner {
       this.#messaging.finishing(messages);
       scope.seal();
       await this.drainMessages(messages, () => scope.settleOwned());
-      // A timer it set is written before its record, which a rerun reuses without its work.
+      // A timer it set is written before its line, which a rerun reuses without its work.
       await this.options.waits.flush();
       if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
       const batch = this.#stageBatches.get(name);

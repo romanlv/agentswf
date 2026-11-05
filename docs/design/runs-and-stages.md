@@ -319,7 +319,7 @@ no outline, and a stage in a branch not taken costs nothing.
 | --- | --- |
 | a succeeded record whose value the `result` schema accepts, or no value and no `result` | reuse |
 | a succeeded record from another major `meta.version` (under `0.x`, another minor) | stop: "review was recorded by 1.4.0; this is 2.0.0" |
-| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits its result schema: {problems}" |
+| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's line no longer fits its result schema: {problems}" |
 | no succeeded record, with `--from-stage` given | its value from `--values`, else stop: "nothing recorded for review" |
 | no succeeded record, plain continue | this is the start point: run |
 

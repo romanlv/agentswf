@@ -355,8 +355,11 @@ the sandbox evals check what a real provider enforces.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
   with a `reason`.
-- **`run.decisions`**, **`run.logs`** and **`run.stages`** are the decision calls, log lines and
-  stage records.
+- **`run.decisions`** and **`run.logs`** are the decision calls and log lines.
+- **`run.stages`** is each stage the attempt entered, in order: its `name`, `outcome`, `attempt`,
+  `started`, `at` (when it ended), `summary`, `reason` and `value`, and `provided` for a value
+  given. A stage it reused gives the earlier attempt's, and a stage the plan stopped as it was
+  entered, which ran nothing, is absent.
 - **`run.timers`** is each timer, its `due` time, and `state`: `fired`, `cancelled` or `pending`.
 - **`run.emits`** and **`run.mailbox`** are for
   [a workflow with events](#a-workflow-with-events).

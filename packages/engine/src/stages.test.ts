@@ -7,8 +7,16 @@ import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
 import { createFakeDecisionProvider } from "./decisions/fake";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { readStageRecords, readTurns } from "./runs";
-import { createTempRunDirs, DOC, future, runAttempt, runNew, workflowOf } from "./testing";
+import { readTurns } from "./runs";
+import {
+  createTempRunDirs,
+  DOC,
+  future,
+  lastLines,
+  runAttempt,
+  runNew,
+  workflowOf,
+} from "./testing";
 import { WorkflowRunError } from "./workflow-runner";
 import { answer, noAnswer } from "./workflow-testing";
 import { runTest } from "./workflow-testing/run-test";
@@ -29,7 +37,7 @@ async function ask(workflow: WorkflowContext, prompt: string, label?: string) {
 }
 
 describe("workflow.stage", () => {
-  test("a stage runs its work, returns its value, and records it with its sessions", async () => {
+  test("a stage runs its work, returns its value, and writes its line, where the attempt started", async () => {
     const run = await runTest(
       workflowOf(
         async (workflow) => {
@@ -48,18 +56,17 @@ describe("workflow.stage", () => {
     expect(run.value).toEqual({ path: "docs/PROJ-1515.md" });
     expect(run.stages).toEqual([
       {
-        version: 1,
-        stage: "doc-review",
+        kind: "stage",
         attempt: 1,
+        at: expect.any(String),
+        name: "doc-review",
         outcome: "succeeded",
         started: expect.any(String),
-        ended: expect.any(String),
-        workflowVersion: "1.2.0",
-        sessions: [{ agent: "worker", harness: "codex", session: expect.any(String) }],
         summary: "docs/PROJ-1515.md",
         value: { path: "docs/PROJ-1515.md" },
+        redo: true,
       },
-      expect.objectContaining({ stage: "notify", outcome: "succeeded", sessions: [] }),
+      expect.objectContaining({ name: "notify", outcome: "succeeded" }),
     ]);
     expect(run.stages[1]).not.toHaveProperty("value");
     expect(run.turns.map(({ stage, label }) => ({ stage, label }))).toEqual([
@@ -131,7 +138,7 @@ describe("workflow.stage", () => {
       }),
     );
     expect(() => run.value).toThrow("stage b was entered while stage a is open");
-    expect(run.stages.map(({ stage }) => stage)).toEqual(["a"]);
+    expect(run.stages.map(({ name }) => name)).toEqual(["a"]);
   });
 
   test("a stage that throws cancels the turns still open in it, then records them failed", async () => {
@@ -163,10 +170,9 @@ describe("workflow.stage", () => {
     expect(run.value).toEqual({ cancelled: true, error: "Error: no preview environment" });
     expect(run.stages).toEqual([
       expect.objectContaining({
-        stage: "qa",
+        name: "qa",
         outcome: "failed",
         reason: "no preview environment",
-        sessions: [expect.objectContaining({ agent: "worker", harness: "codex" })],
       }),
     ]);
     expect(run.turns.map(({ stage, outcome }) => ({ stage, outcome }))).toEqual([
@@ -225,10 +231,9 @@ describe("workflow.stage", () => {
     expect(() => run.value).toThrow();
     expect(run.stages).toEqual([
       expect.objectContaining({
-        stage: "qa",
+        name: "qa",
         outcome: "failed",
         reason: "no answer: timed-out",
-        sessions: [expect.objectContaining({ agent: "worker" })],
       }),
     ]);
   });
@@ -291,7 +296,7 @@ describe("workflow.stage", () => {
     ]);
   });
 
-  test("a workflow without stages writes no stage record, and its turns no stage", async () => {
+  test("a workflow without stages writes no stage line, and its turns no stage", async () => {
     const run = await runTest(
       workflowOf(async (workflow) => ask(workflow, "Do it.")),
       { agents: { worker: answer(DOC, { path: "x" }) } },
@@ -363,7 +368,7 @@ describe("turns.jsonl", () => {
       "implement",
       "implement",
     ]);
-    expect((await readStageRecords(dir)).get("implement")).toMatchObject({ attempt: 3 });
+    expect((await lastLines(dir)).get("implement")).toMatchObject({ attempt: 3 });
   });
 
   test("a line a crash tore is skipped, and the next attempt's turns start lines of their own", async () => {
@@ -406,12 +411,9 @@ describe("turns.jsonl", () => {
     const error = await stopped.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(WorkflowRunError);
     expect((error as WorkflowRunError).endedIn).toBe("qa");
-    const records = await readStageRecords(dir);
-    expect([...records.keys()]).toEqual(["qa"]);
-    expect(records.get("qa")).toMatchObject({
-      outcome: "failed",
-      sessions: [expect.objectContaining({ agent: "worker" })],
-    });
+    const lines = await lastLines(dir);
+    expect([...lines.keys()]).toEqual(["qa"]);
+    expect(lines.get("qa")).toMatchObject({ outcome: "failed" });
   });
 
   test("a turn its harness fails is kept as failed", async () => {
@@ -438,7 +440,7 @@ describe("turns.jsonl", () => {
     ]);
   });
 
-  test("a failed run still has its stage records and turns", async () => {
+  test("a failed run still has its stage lines and turns", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
     const failed = runAttempt(
@@ -452,8 +454,8 @@ describe("turns.jsonl", () => {
       { runRoot },
     );
     await expect(failed).rejects.toBeInstanceOf(WorkflowRunError);
-    const records = await readStageRecords(dir);
-    expect([...records.values()].map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    const lines = await lastLines(dir);
+    expect([...lines.values()].map(({ name, outcome }) => [name, outcome])).toEqual([
       ["implement", "succeeded"],
       ["qa", "failed"],
     ]);

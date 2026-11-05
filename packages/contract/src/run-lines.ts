@@ -6,13 +6,16 @@ import type { StageOutcome } from "./workflow/workflow";
 type RunLineKind = RunLine["kind"];
 type LineOf<K extends RunLineKind> = Extract<RunLine, { kind: K }>;
 
+/** A stage's end, a line of `run.jsonl`. Tier: public, stable. */
+export type StageLine = LineOf<"stage">;
+
 export type StageView = {
   /** Its latest line, of any outcome: a failed stage, told from one never run. */
-  last: LineOf<"stage">;
+  last: StageLine;
   /** Its latest succeeded line, provided ones included: what a continue may reuse. */
-  settled?: LineOf<"stage">;
+  settled?: StageLine;
   /** Every line under its name, in order, failures included. */
-  history: LineOf<"stage">[];
+  history: StageLine[];
 };
 
 /** A timer's latest line, and whether a wait or a race took it. Due is for the reader's clock. */
@@ -21,7 +24,10 @@ export type TimerView = LineOf<"timer"> & { taken: boolean };
 /** `run.jsonl` as a reader outside the engine needs it. What a continue reuses is the engine's. */
 export type RunView = {
   stages: Record<string, StageView>;
-  /** The latest stage line with `redo`: from its attempt on, a stage entered after it reruns. */
+  /**
+   * The latest stage line with `redo`, the stage its attempt started at: from that attempt on, a
+   * stage entered after it whose line is older reruns.
+   */
   redo?: { attempt: number; stage: string };
   races: Record<string, LineOf<"race">>;
   timers: Record<string, TimerView>;

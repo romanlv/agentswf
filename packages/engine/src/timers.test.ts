@@ -109,7 +109,7 @@ test("a workflow without events sleeps: on the test's clock in no time, or parks
   expect((await testWorkflow(followUp)).value).toBe(14);
   const parked = await testWorkflow(followUp, { maxTimers: 0 });
   expect(parked.ending).toMatchObject({ kind: "parked", until: expect.any(String) });
-  expect(parked.stages.map((record) => record.stage)).toEqual(["release"]);
+  expect(parked.stages.map((line) => line.name)).toEqual(["release"]);
 });
 
 test("a workflow without events waits for its timer in its process, as awf run runs it", async () => {

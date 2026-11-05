@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import {
-  copyFile,
   mkdir,
   open,
   readdir,
@@ -22,20 +21,21 @@ import {
   type RunLogLine,
   type RunPanes,
   type RunRecord,
+  type RunView,
   runLogLine,
-  STAGE_RECORD_VERSION,
-  type StageRecord,
+  type StageLine,
   type TurnRecord,
 } from "@agentswf/contract/records";
 import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, syncDir, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
-import type { RunLines } from "./run-lines";
+import { type RunLines, readRunLines } from "./run-lines";
+import { recordedStages } from "./run-policy/stages";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
- * `stages/{stage}.json`, `replaced/{stage}.{attempt}.json`, `turns.jsonl`, each operation's
+ * `run.jsonl` (`run-lines.ts`), `turns.jsonl`, each operation's
  * `calls/{id}/` with its `call.json`, `candidates.jsonl` and `result.json`, and the last ended
  * attempt's `output.json` and `report.md`. The only module that knows where a run's records are;
  * what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
@@ -77,7 +77,7 @@ export function idProblem(id: string): string | undefined {
     : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_', '@' and '-', starting with a letter or digit, up to 128`;
 }
 
-/** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */
+/** Why `name` can't name a stage; undefined when it can. */
 export function stageNameProblem(name: string): string | undefined {
   const problem = typeof name === "string" ? nameProblem(name) : "a string";
   return problem && `${JSON.stringify(name)} is not a stage's name: ${problem}`;
@@ -300,22 +300,32 @@ export function sameStart(now: string, started: string): boolean {
 /** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
 export type AttemptRefusal =
   | { kind: "running"; attempt: AttemptRecord }
-  /** `stages` are the run's records, in the order they began, from which `--from-stage` redoes. */
-  | { kind: "completed"; stages: StageRecord[] };
+  /**
+   * `stages`, those the completed attempt entered, each by its latest line in the order entered,
+   * are what `--from-stage` redoes.
+   */
+  | { kind: "completed"; stages: StageLine[] };
 
 /**
- * Why the run whose attempts and stage records these are takes no attempt now, or undefined when
- * it takes one. A completed run takes one only to redo a stage, which `fromStage` says.
+ * Why the run whose attempts and `run.jsonl` these are takes no attempt now, or undefined when it
+ * takes one. A completed run takes one only to redo a stage, which `fromStage` says.
  */
 export function attemptRefusal(
   attempts: readonly AttemptRecord[],
-  records: ReadonlyMap<string, StageRecord>,
+  run: Pick<RunView, "stages">,
   options: { fromStage: boolean; probe?: ProcessProbe },
 ): AttemptRefusal | undefined {
   const live = attempts.find((attempt) => isLive(attempt, options.probe));
   if (live) return { kind: "running", attempt: live };
-  if (attempts.at(-1)?.outcome !== "completed" || options.fromStage) return undefined;
-  const stages = [...records.values()].sort((a, b) => a.started.localeCompare(b.started));
+  const last = attempts.at(-1);
+  if (last?.outcome !== "completed" || options.fromStage) return undefined;
+  // A stage the code no longer has keeps its line, but the completed attempt never entered it.
+  const stages = last.stages
+    ? last.stages.flatMap(({ stage }) => {
+        const line = run.stages[stage]?.last;
+        return line ? [line] : [];
+      })
+    : recordedStages(run);
   return { kind: "completed", stages };
 }
 
@@ -367,7 +377,7 @@ export async function claimAttempt(
       try {
         await syncDir(dir);
         const before = (await readAttempts(run)).filter((other) => other.attempt < n);
-        const refused = attemptRefusal(before, await readStageRecords(run.dir), {
+        const refused = attemptRefusal(before, (await readRunLines(run.dir)).view, {
           fromStage: options.fromStage ?? false,
           probe,
         });
@@ -408,62 +418,6 @@ export async function endAttempt(
   await writeJson(attempt.file, record);
   attempt.record = record;
   return record;
-}
-
-/** Writes a stage's record into the run's `stages/`, whole, replacing the one before. */
-export async function writeStageRecord(runDir: string, record: StageRecord): Promise<void> {
-  const dir = stagesDir(runDir);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await writeJson(join(dir, `${record.stage}.json`), record);
-}
-
-/** The run's current stage records, by stage. One that doesn't parse, or is newer, refuses. */
-export async function readStageRecords(runDir: string): Promise<Map<string, StageRecord>> {
-  const dir = stagesDir(runDir);
-  const names = (await entries(dir)).filter((name) => name.endsWith(".json"));
-  const records = await Promise.all(
-    names.map((name) => readRecord<StageRecord>(join(dir, name), STAGE_RECORD_VERSION)),
-  );
-  return new Map(records.map((record) => [record.stage, record]));
-}
-
-/**
- * At an attempt's start point: moves every record in `stages/` it hasn't reused to `replaced/`, as
- * `{stage}.{attempt}.json`, the start stage's own first. Each is one rename, so a crash part way
- * leaves the start stage without a record, and the next continue starts there and moves the rest.
- */
-export async function replaceStale(
-  runDir: string,
-  start: string,
-  reused: ReadonlySet<string>,
-): Promise<string[]> {
-  const dir = stagesDir(runDir);
-  const recorded = (await entries(dir))
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => name.slice(0, -".json".length));
-  const stale = [start, ...recorded.filter((name) => name !== start)].filter(
-    (name) => recorded.includes(name) && !reused.has(name),
-  );
-  for (const name of stale) await replaceRecord(runDir, name);
-  return stale;
-}
-
-/**
- * Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`, or, for a stage by
- * content replaced again in the same attempt, `{stage}.{attempt}+{n}.json` from 2: no name has a
- * `+`, so neither reads as another stage's. `copy` leaves it in `stages/` for the new record to
- * overwrite, so an attempt that dies between the two leaves the old one, not none.
- */
-export async function replaceRecord(runDir: string, stage: string, copy = false): Promise<void> {
-  const file = join(stagesDir(runDir), `${stage}.json`);
-  const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
-  const replaced = join(runDir, "replaced");
-  await mkdir(replaced, { recursive: true, mode: 0o700 });
-  let target = join(replaced, `${stage}.${record.attempt}.json`);
-  for (let n = 2; await exists(target); n++) {
-    target = join(replaced, `${stage}.${record.attempt}+${n}.json`);
-  }
-  await (copy ? copyFile(file, target) : rename(file, target));
 }
 
 /** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
@@ -672,10 +626,6 @@ function runFile(runDir: string): string {
 
 function attemptsDir(runDir: string): string {
   return join(runDir, "attempts");
-}
-
-function stagesDir(runDir: string): string {
-  return join(runDir, "stages");
 }
 
 function turnsFile(runDir: string): string {

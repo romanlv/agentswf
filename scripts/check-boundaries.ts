@@ -177,6 +177,14 @@ const RULES: Rule[] = [
     forbid: [ISSUES_REFS],
     pure: true,
   },
+  // The engine's policy over `run.jsonl`'s lines (story 041): what `readRun` publishes is the
+  // format; what the engine does with it is decided here, lines in, decisions out.
+  {
+    dir: "packages/engine/src/run-policy",
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
+    forbid: [ISSUES_REFS],
+    pure: true,
+  },
   // Adapters launch through the seam's types; which provider runs them is the operator's. Tests
   // may use the fake provider.
   {

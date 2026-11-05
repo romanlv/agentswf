@@ -4,16 +4,10 @@ import { join } from "node:path";
 import { emitCommand } from "./emit-command";
 import { appendMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
-import {
-  createRun,
-  openRun,
-  previousGone,
-  processStart,
-  readAttempts,
-  readStageRecords,
-} from "./runs";
+import { readRunLines } from "./run-lines";
+import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
 import { stopCrashed } from "./stop-crashed";
-import { createTempRunDirs, eventProject, until, writeAttempt } from "./testing";
+import { createTempRunDirs, eventProject, lastLines, until, writeAttempt } from "./testing";
 import { wake } from "./wake";
 
 const dirs = createTempRunDirs();
@@ -258,7 +252,9 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   await until(async () => (await outcomes()).at(-1) === "parked");
   expect(await go()).toBe(0);
   await until(async () => (await outcomes()).length === 2 && (await outcomes())[1] === "parked");
-  const stage = async (name: string) => (await readStageRecords(run.dir)).get(name);
+  const stage = async (name: string) => (await lastLines(run.dir)).get(name);
+  const attemptsOf = async (name: string) =>
+    (await readRunLines(run.dir)).view.stages[name]?.history.map((line) => line.attempt);
   expect([(await stage("plan"))?.value, (await stage("build"))?.value]).toEqual([1, 2]);
 
   // Each by hand in a process of its own, as at a terminal: an attempt waits for the one before it to exit.
@@ -277,7 +273,7 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   expect((await own("--from-stage", "build")).code).toBe(0);
   expect(await outcomes()).toEqual(["parked", "parked", "parked"]);
   expect((await readAttempts(run))[2]?.flags).toEqual({ fromStage: "build" });
-  // What marks it a redo for the attempts after it: it ran its stage.
+  // It ran its stage.
   expect((await readAttempts(run))[2]?.stages?.map(({ stage, source }) => [stage, source])).toEqual(
     [
       ["plan", "reused"],
@@ -288,7 +284,9 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
     { attempt: 1, value: 1 },
     { attempt: 3, value: 3 },
   ]);
-  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["build.2.json"]);
+  // What marks it a redo for the attempts after it: its stage's line.
+  expect(await stage("build")).toMatchObject({ redo: true });
+  expect(await attemptsOf("build")).toEqual([2, 3]);
   const summaries = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
     stages: { stage: string; source: string; attempt: number }[];
   };
@@ -302,7 +300,7 @@ test("--from-stage on a run with events redoes that stage and the ones after it,
   expect(nope.code).toBe(3);
   expect(nope.text).toContain("never reached nope");
   expect((await outcomes()).at(-1)).toBe("stopped");
-  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["build.2.json"]);
+  expect(await attemptsOf("build")).toEqual([2, 3]);
   expect((await own()).code).toBe(0);
   expect((await outcomes()).at(-1)).toBe("parked");
 

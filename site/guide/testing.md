@@ -83,8 +83,9 @@ answer, the way a real agent can:
   nudges included. `run.turns` has every agent's.
 - **`run.agentOf(key)`**: what the agent was opened with, such as `execution.alias`, its
   `instructions`, `skills` and `sandbox`. `run.agents` lists them all.
-- **`run.stages`**, **`run.logs`** and **`run.decisions`**: the stage records, log lines and
-  decision calls.
+- **`run.stages`**: each stage the attempt entered, in order, by its `name`, `outcome`,
+  `attempt` and `value`. A reused stage's is from the earlier attempt that ran it.
+- **`run.logs`** and **`run.decisions`**: the log lines and decision calls.
 
 Under `wf.parallel`, read agents by key, not by index. The full list is [What the run did](/reference/testing-api#what-the-run-did).
 

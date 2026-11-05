@@ -316,7 +316,7 @@ const GAP = "   ";
 
 const HOUR_MS = 60 * 60_000;
 
-/** The attempt that recorded a reused stage, and its record's age once that may make it stale. */
+/** The attempt that ran a reused stage, and its line's age once that may make it stale. */
 function reusedTail(stage: StageProgress, now: number): string {
   const age = stage.recordedAt === undefined ? 0 : now - stage.recordedAt;
   return [

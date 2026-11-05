@@ -23,9 +23,10 @@ import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { parseCommand } from "../packages/engine/src/run-command";
+import { readRunLines } from "../packages/engine/src/run-lines";
 import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
-import { createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
+import { claimLines, createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
 import type { RunProcess } from "../packages/harness/src/command";
@@ -1744,14 +1745,11 @@ describe("awf run's stages", () => {
     expect(done.stderr).toContain("↺ stage implement · feat/b · provided · attempt 2");
     // The start point it goes on to is the same: its missing record was said once.
     expect(done.stderr).not.toContain("awf: nothing is recorded");
-    expect(
-      JSON.parse(readFileSync(join(runDir(cwd), "stages", "implement.json"), "utf8")),
-    ).toMatchObject({
+    expect((await readRunLines(runDir(cwd))).view.stages.implement?.last).toMatchObject({
       attempt: 2,
       outcome: "succeeded",
       value: "feat/b",
       provided: true,
-      sessions: [],
     });
   });
 
@@ -1820,7 +1818,50 @@ describe("awf run's stages", () => {
       ].join("\n"),
     );
     // Nothing is recorded for a value no one gave.
-    expect(existsSync(join(runDir(cwd), "stages"))).toBe(false);
+    expect((await readRunLines(runDir(cwd))).view.stages).toEqual({});
+  });
+
+  test("a continue after a --from-stage that died inside its stage starts there again, and says so", async () => {
+    const cwd = await project();
+    expect((await awfRun(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(0);
+    // `--from-stage implement`, its process gone with implement running: no ending, no line.
+    writeFileSync(
+      join(runDir(cwd), "attempts", "2.json"),
+      JSON.stringify({
+        ...attemptOf(runDir(cwd)),
+        attempt: 2,
+        flags: { fromStage: "implement" },
+        pid: Bun.spawnSync(["true"]).pid,
+        processStart: "2026-11-01T00:00:00Z",
+        ended: undefined,
+        outcome: undefined,
+        stages: undefined,
+        accounting: undefined,
+      }),
+    );
+    await claimLines(runDir(cwd), 2);
+    const resumed = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
+    expect(resumed.exitCode).toBe(0);
+    expect(resumed.stderr).toContain(
+      "awf: attempt 2 of r1 ended without an ending inside --from-stage implement; this attempt starts there again",
+    );
+    expect(attemptOf(runDir(cwd), 3)).toMatchObject({
+      outcome: "completed",
+      flags: { fromStage: "implement" },
+    });
+    // Through prepareRun's --from-stage: implement and qa, after it, run again.
+    const { view } = await readRunLines(runDir(cwd));
+    const ran = (name: string) =>
+      view.stages[name]?.history.map(({ attempt, outcome }) => [attempt, outcome]);
+    expect(ran("implement")).toEqual([
+      [1, "succeeded"],
+      [3, "succeeded"],
+    ]);
+    expect(ran("qa")).toEqual([
+      [1, "succeeded"],
+      [3, "succeeded"],
+    ]);
+    expect(view.redo).toEqual({ attempt: 3, stage: "implement" });
   });
 
   test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {
@@ -1848,10 +1889,13 @@ describe("awf run's stages", () => {
       outcome: "completed",
       flags: { fromStage: "qa" },
     });
-    expect(readdirSync(join(runDir(cwd), "replaced")).toSorted()).toEqual([
-      "qa.1.json",
-      "qa.2.json",
+    const { view } = await readRunLines(runDir(cwd));
+    expect(view.stages.qa?.history.map(({ attempt, outcome }) => [attempt, outcome])).toEqual([
+      [1, "failed"],
+      [2, "succeeded"],
+      [3, "succeeded"],
     ]);
+    expect(view.redo).toEqual({ attempt: 3, stage: "qa" });
   });
 
   test("a --from-stage never reached stops: exit 3, and no stage recorded", async () => {
@@ -1912,7 +1956,7 @@ describe("awf run's stages", () => {
     const cwd = await project();
     await awfRun(cwd, ["--run-root", "runs", "--id", "r1", "flow.js"]);
     const dir = join(cwd, "runs", "fixture", "r1");
-    rewriteJson(join(dir, "stages", "implement.json"), { value: 7 });
+    rewriteStageLine(dir, "implement", { value: 7 });
     const misfit = await awfRun(cwd, [
       "--run-root",
       "runs",
@@ -1926,12 +1970,12 @@ describe("awf run's stages", () => {
     expect(misfit.exitCode).toBe(3);
     expect(misfit.record).toMatchObject({ outcome: "stopped", stage: "implement" });
     expect(misfit.record.reason).toBe(
-      "implement's record no longer fits its result schema:\n  value: expected a string; got a number 7",
+      "implement's line no longer fits its result schema:\n  value: expected a string; got a number 7",
     );
     expect(attemptOf(dir, 2)).toMatchObject({ outcome: "stopped", stage: "implement" });
     // The problems sit under the reason, deeper than the rows, so they don't read as rows.
     expect(misfit.stderr).toContain(
-      "■ stopped in implement: implement's record no longer fits its result schema:\n    value: expected a string; got a number 7\n  fixture r1 · ",
+      "■ stopped in implement: implement's line no longer fits its result schema:\n    value: expected a string; got a number 7\n  fixture r1 · ",
     );
     expect(misfit.stderr).toContain(
       `  go on    awf run --run-root ${join(cwd, "runs")} flow.js --id r1 --continue --from-stage implement`,
@@ -2733,6 +2777,19 @@ function reopenAttempt(runDir: string, n: number, fields: Record<string, unknown
     ...open
   } = JSON.parse(readFileSync(file, "utf8"));
   writeFileSync(file, JSON.stringify({ ...open, ...fields }));
+}
+
+/** Rewrites the run's `stage` lines named `name` with `fields` over their own. */
+function rewriteStageLine(dir: string, name: string, fields: Record<string, unknown>): void {
+  const file = join(dir, "run.jsonl");
+  const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  const rewritten = lines.map((text) => {
+    const line = JSON.parse(text);
+    return JSON.stringify(
+      line.kind === "stage" && line.name === name ? { ...line, ...fields } : line,
+    );
+  });
+  writeFileSync(file, `${rewritten.join("\n")}\n`);
 }
 
 /** Rewrites a JSON record with `fields` over its own. */

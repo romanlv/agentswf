@@ -61,9 +61,9 @@ describe("a run's state", () => {
       // `--continue` refuses a live attempt: the same one this calls running.
       const probe = () => (ps === "gone" ? undefined : ps);
       expect(isLive(status.attempts[0]!, probe)).toBe(state === "running");
-      expect(attemptRefusal(status.attempts, new Map(), { fromStage: false, probe })?.kind).toBe(
-        state === "running" ? "running" : state === "completed" ? "completed" : undefined,
-      );
+      expect(
+        attemptRefusal(status.attempts, { stages: {} }, { fromStage: false, probe })?.kind,
+      ).toBe(state === "running" ? "running" : state === "completed" ? "completed" : undefined);
     }
   });
 

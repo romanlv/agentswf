@@ -402,7 +402,10 @@ export type RunLine = {
       value?: JsonValue;
       /** Its value was given, not run: written `succeeded` with `provided`. */
       provided?: true;
-      /** The stage `--from-stage` named, in the attempt it was named. */
+      /**
+       * The stage its attempt started at: the one `--from-stage` named, or a plain run's first stage
+       * not reused. A stage entered after it whose line an earlier attempt wrote runs again.
+       */
       redo?: true;
       state?: Saved;
     }
@@ -467,7 +470,13 @@ export type EventLine = {
   source?: string;
 };
 
-export { type RunView, readRun, type StageView, type TimerView } from "./run-lines";
+export {
+  type RunView,
+  readRun,
+  type StageLine,
+  type StageView,
+  type TimerView,
+} from "./run-lines";
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
@@ -524,7 +533,7 @@ export type AttemptAccounting = Pick<
 >;
 
 /**
- * A stage an attempt entered, as its files record it: no value, which `stages/` holds.
+ * A stage an attempt entered, as its files record it: no value, which its stage line holds.
  * Tier: public, stable.
  */
 export type AttemptStage = Omit<StageSummary, "value">;
@@ -617,36 +626,6 @@ export type MailboxRecord = {
    */
   | { kind: "launch-failed"; reason: string }
 );
-
-export const STAGE_RECORD_VERSION = 1 as const;
-
-/**
- * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,
- * by the attempt that ran it. Tier: retired by story 041.
- */
-export type StageRecord = {
-  version: typeof STAGE_RECORD_VERSION;
-  stage: string;
-  /** The attempt that ran it. */
-  attempt: number;
-  outcome: StageOutcome;
-  /** Why it did not succeed. */
-  reason?: string;
-  started: string;
-  ended: string;
-  workflowVersion?: string;
-  /** The agents' native sessions its turns used. */
-  sessions: { agent: AgentKey; harness: HarnessKind; session: string }[];
-  /** The stage's own one line, from its `summary`. */
-  summary?: string;
-  /** As returned, after a JSON round trip; absent for a stage that returns nothing. */
-  value?: JsonValue;
-  /**
-   * Its value was given to start the run at a later stage, `awf run --values`, or it returns
-   * nothing and was passed: no turn ran it. Reused as a succeeded stage is.
-   */
-  provided?: true;
-};
 
 export type { StageNeed } from "./workflow/executable";
 
@@ -1081,7 +1060,14 @@ export type RunJson = {
     stage?: string;
     reason?: string;
   }[];
-  stages: { stage: string; state: StageStateJson; started?: string; ended?: string }[];
+  stages: {
+    stage: string;
+    state: StageStateJson;
+    started?: string;
+    ended?: string;
+    /** Its `stage` line's value, a reused stage's the line it reused; absent when it has none. */
+    value?: JsonValue;
+  }[];
   agents: {
     key: AgentKey;
     harness?: HarnessKind;

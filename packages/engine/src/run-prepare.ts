@@ -9,7 +9,8 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import { projectOf, projectRunRoot } from "./projects";
 import type { RunCommand } from "./run-command";
-import { claimRunLines, type RunLines } from "./run-lines";
+import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
+import { crashedRedo } from "./run-policy/stages";
 import {
   type Attempt,
   appendEvent,
@@ -25,7 +26,6 @@ import {
   type Run,
   RunRefused,
   readAttempts,
-  readStageRecords,
   readTurns,
 } from "./runs";
 import {
@@ -41,6 +41,11 @@ export type PreparedRun = {
   id?: string;
   /** The run `--continue` names, its earlier attempts, and what to warn of before it goes on. */
   continued?: { run: Run; attempts: AttemptRecord[]; warnings: string[] };
+  /**
+   * The `--from-stage` a continue goes on with though none was given: that of the attempt before
+   * it, which crashed inside its start stage.
+   */
+  resumes?: string;
 };
 
 /** `awf run --id` of a workflow with events, which starts the run detached, or wakes it. */
@@ -110,7 +115,13 @@ export async function loadAndPrepare(
     }
   }
   try {
-    return { loaded, prepared: await prepareRun(command, loaded, now), command };
+    const prepared = await prepareRun(command, loaded, now);
+    const { resumes } = prepared;
+    return {
+      loaded,
+      prepared,
+      command: resumes === undefined ? command : { ...command, fromStage: resumes },
+    };
   } catch (error) {
     return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
   }
@@ -154,19 +165,36 @@ async function prepareRun(
     );
   }
   const attempts = await readAttempts(run);
-  const records = await readStageRecords(run.dir);
+  const { view } = await readRunLines(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
-  const refused = attemptRefusal(attempts, records, { fromStage: command.fromStage !== undefined });
+  const refused = attemptRefusal(attempts, view, { fromStage: command.fromStage !== undefined });
   if (refused) throw new RunRefused(refusalMessage(id, refused, now));
-  const { fromStage } = command;
+  // A plain run's redo that crashed inside its stage wrote no line, so nothing says it: it goes on
+  // from there, as 018 has a crash mid-stage do. A wake carries no flag, so an event run's is lost.
+  const resumes =
+    command.fromStage === undefined && !isEventWorkflow(workflow)
+      ? crashedRedo(attempts, view)
+      : undefined;
+  const fromStage = command.fromStage ?? resumes;
   // Once per start point: a run started at a stage goes on to it attempt after attempt.
   const unrecorded =
     fromStage !== undefined &&
-    !records.has(fromStage) &&
+    view.stages[fromStage] === undefined &&
     attempts.at(-1)?.flags.fromStage !== fromStage
       ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
       : [];
-  return { args, continued: { run, attempts, warnings: unrecorded } };
+  const warnings =
+    resumes === undefined
+      ? unrecorded
+      : [
+          `awf: attempt ${attempts.at(-1)?.attempt} of ${id} ended without an ending inside --from-stage ${resumes}; this attempt starts there again`,
+          ...unrecorded,
+        ];
+  return {
+    args,
+    continued: { run, attempts, warnings },
+    ...(resumes === undefined ? {} : { resumes }),
+  };
 }
 
 /** The workflow's args from `argv`, as its `prepare` makes them, checked to be JSON. */
@@ -195,7 +223,7 @@ async function unusedId(runRoot: string, workflow: string, now: number): Promise
 /**
  * Why `awf run` doesn't take a workflow with `events` as asked: every attempt after the first is
  * started by a wake, which passes on none of the flags a run would have to keep. A `--from-stage`
- * is the one attempt's, and its records keep what it redid.
+ * is the one attempt's, and its stage line keeps what it redid.
  */
 function eventRunRefusal(command: RunCommand): string | undefined {
   if (command.values !== undefined)

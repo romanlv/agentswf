@@ -1,13 +1,19 @@
 import { afterAll, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import { MAILBOX_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
 import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { appendMailbox } from "./mailbox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { createRun, readStageRecords } from "./runs";
-import { answering, caseRun, createTempRunDirs, future, startCase } from "./testing";
+import { createRun } from "./runs";
+import {
+  answering,
+  caseRun,
+  claimLines,
+  createTempRunDirs,
+  future,
+  lastLines,
+  startCase,
+} from "./testing";
 import { keptSessionsOf, runWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
@@ -32,7 +38,7 @@ test("a run started by its id, with no event, parks at its first wait", async ()
     { id: "kombo" },
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "nothing yet" });
-  expect(run.stages.map((record) => record.stage)).toEqual(["setup"]);
+  expect(run.stages.map((line) => line.name)).toEqual(["setup"]);
   const unnamed = await testWorkflow(caseRun(async (workflow) => workflow.runId));
   expect(unnamed.value).toBe("test");
   await expect(
@@ -74,7 +80,7 @@ test("a stage entered twice in a run with events runs once", async () => {
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.value).toBe(1);
-  expect(run.stages.map((s) => s.stage)).toEqual(["close-e1"]);
+  expect(run.stages.map((s) => s.name)).toEqual(["close-e1"]);
 });
 
 test("a stage around a wait returns its batch, and one returning other events fails", async () => {
@@ -302,7 +308,7 @@ test("a wait in a stage that parks leaves the stage unrecorded, for the next att
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "approval" });
-  expect(run.stages.map((s) => s.stage)).toEqual([]);
+  expect(run.stages.map((s) => s.name)).toEqual([]);
 });
 
 test("a wait beside an open stage doesn't park until the stage ends", async () => {
@@ -323,7 +329,7 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
   expect(order).toEqual(["slow done"]);
-  expect(run.stages).toMatchObject([{ stage: "slow", outcome: "succeeded" }]);
+  expect(run.stages).toMatchObject([{ name: "slow", outcome: "succeeded" }]);
 });
 
 test("an event run's agents reopen on the last session of each root agent", () => {
@@ -497,7 +503,7 @@ test("a race's name answers once an attempt; a refused race sets none of its tim
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
-test("--from-stage reruns what a replay enters: a stage behind an acknowledged receive keeps its record", async () => {
+test("--from-stage reruns what a replay enters: a stage behind an acknowledged receive keeps its line", async () => {
   const handled: string[] = [];
   const workflow = caseRun(async (wf) => {
     await wf.stage("setup", async () => undefined);
@@ -525,13 +531,14 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
     data: { case: "k" },
     from: "operator",
   });
-  const attempt = (n: number, fromStage?: string) =>
+  const attempt = async (n: number, fromStage?: string) =>
     runWorkflow(workflow, null, {
       runRoot,
       run: {
         dir: run.dir,
         id: "k",
-        attempt: n,
+
+        lines: await claimLines(run.dir, n),
         events: true,
         park: async () => undefined,
         ...(fromStage === undefined ? {} : { fromStage }),
@@ -542,12 +549,12 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
   const parked = (error: unknown) => expect(String(error)).toContain("parked");
   await attempt(1).then(() => expect.unreachable(), parked);
   expect(handled).toEqual(["e1"]);
-  expect([...(await readStageRecords(run.dir)).keys()].sort()).toEqual(["handle-e1", "setup"]);
+  expect([...(await lastLines(run.dir)).keys()].sort()).toEqual(["handle-e1", "setup"]);
   // Redone from setup: e1 was acknowledged, so the replay never hands it back, and its stage,
-  // never entered, keeps its record and isn't run again.
+  // never entered, keeps its line and isn't run again.
   await attempt(2, "setup").then(() => expect.unreachable(), parked);
   expect(handled).toEqual(["e1"]);
-  const records = await readStageRecords(run.dir);
-  expect([records.get("setup")?.attempt, records.get("handle-e1")?.attempt]).toEqual([2, 1]);
-  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["setup.1.json"]);
+  const lines = await lastLines(run.dir);
+  expect([lines.get("setup")?.attempt, lines.get("handle-e1")?.attempt]).toEqual([2, 1]);
+  expect(lines.get("setup")?.redo).toBe(true);
 });

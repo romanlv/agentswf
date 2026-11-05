@@ -17,6 +17,7 @@ import {
   answering,
   caseEvents,
   caseRun,
+  claimLines,
   createTempRunDirs,
   DOC,
   future,
@@ -438,7 +439,7 @@ test("a stage around receive replayed by a continue logs, as each attempt logs i
     const logs: string[] = [];
     const result = await runWorkflow(workflow, null, {
       runRoot,
-      run: { dir: run.dir, id: "k", attempt: n },
+      run: { dir: run.dir, id: "k", lines: await claimLines(run.dir, n) },
       runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
       deadline: future(),
       onLog: (text) => logs.push(text),
@@ -481,7 +482,7 @@ test("a stage around receive hands back a declared reply under its name, taken a
     (
       await runWorkflow(workflow, null, {
         runRoot,
-        run: { dir: run.dir, id: "k", attempt: n },
+        run: { dir: run.dir, id: "k", lines: await claimLines(run.dir, n) },
         runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
         deadline: future(),
       })

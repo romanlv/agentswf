@@ -1,25 +1,45 @@
 import { describe, expect, test } from "bun:test";
-import type { StageRecord } from "@agentswf/contract/records";
+import type { StageLine } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue } from "@agentswf/contract/workflow";
-import { planStage, type StagePlanState } from "./stage-plan";
+import { planStage as plan, type StagePlanState } from "./stage-plan";
 
-const record = (stage: string, fields: Partial<StageRecord> = {}): StageRecord => ({
-  version: 1,
-  stage,
+/** A stage's line, and the version of the attempt that wrote it. */
+type Recorded = StageLine & { workflowVersion?: string };
+
+const record = (name: string, fields: Partial<Recorded> = {}): Recorded => ({
+  kind: "stage",
+  name,
   attempt: 1,
+  at: "2026-10-02T16:10:00Z",
   outcome: "succeeded",
   started: "2026-10-02T16:00:00Z",
-  ended: "2026-10-02T16:10:00Z",
-  sessions: [],
   ...fields,
 });
-const state = (records: StageRecord[], fields: Partial<StagePlanState> = {}): StagePlanState => ({
-  records: new Map(records.map((one) => [one.stage, one])),
+type State = Omit<StagePlanState, "line" | "lineVersion" | "recorded"> & {
+  records: Map<string, Recorded>;
+};
+const state = (records: Recorded[], fields: Partial<State> = {}): State => ({
+  records: new Map(records.map((one) => [one.name, one])),
   started: false,
   entered: [],
   ...fields,
 });
+/** The plan for `stage`, given the line it stands for in `records`. */
+const planStage = ({ records, ...given }: State, stage: string, result: JsonSchema | undefined) => {
+  const found = records.get(stage);
+  const { workflowVersion, ...line } = found ?? { workflowVersion: undefined };
+  return plan(
+    {
+      ...given,
+      ...(found ? { line: line as StageLine } : {}),
+      ...(workflowVersion === undefined ? {} : { lineVersion: workflowVersion }),
+      recorded: [...records.keys()],
+    },
+    stage,
+    result,
+  );
+};
 const values = (entries: Record<string, JsonValue>) => new Map(Object.entries(entries));
 const PATH: JsonSchema = {
   type: "object",
@@ -33,13 +53,13 @@ describe("the stage plan, before the start point", () => {
     const doc = record("doc-review", { value: { path: "a" } });
     expect(planStage(state([doc]), "doc-review", PATH)).toEqual({
       kind: "reuse",
-      record: doc,
+      line: doc,
       value: { path: "a" },
     });
     const notify = record("notify");
     expect(planStage(state([notify]), "notify", undefined)).toEqual({
       kind: "reuse",
-      record: notify,
+      line: notify,
       value: undefined,
     });
   });
@@ -50,16 +70,16 @@ describe("the stage plan, before the start point", () => {
       kind: "stop",
       reason: "review was recorded by 1.4.0; this is 2.0.0",
     });
-    const plan = (one: StageRecord, workflowVersion?: string) =>
+    const planned = (one: Recorded, workflowVersion?: string) =>
       planStage(state([one], workflowVersion ? { workflowVersion } : {}), "review", undefined).kind;
     // A minor change reuses; a version on one side only leaves the schema to guard it.
-    expect(plan(review, "1.5.0")).toBe("reuse");
-    expect(plan(review)).toBe("reuse");
-    expect(plan(record("review"), "2.0.0")).toBe("reuse");
+    expect(planned(review, "1.5.0")).toBe("reuse");
+    expect(planned(review)).toBe("reuse");
+    expect(planned(record("review"), "2.0.0")).toBe("reuse");
     // Under 1.0, a minor is breaking.
     const early = record("review", { workflowVersion: "0.1.3" });
-    expect(plan(early, "0.2.0")).toBe("stop");
-    expect(plan(early, "0.1.9")).toBe("reuse");
+    expect(planned(early, "0.2.0")).toBe("stop");
+    expect(planned(early, "0.1.9")).toBe("reuse");
   });
 
   test("a record that no longer fits its stage's result stops, with why", () => {
@@ -68,15 +88,15 @@ describe("the stage plan, before the start point", () => {
     ).toEqual({
       kind: "stop",
       reason:
-        'doc-review\'s record no longer fits its result schema:\n  value: expected an object; got a string "a path"',
+        'doc-review\'s line no longer fits its result schema:\n  value: expected an object; got a string "a path"',
     });
     expect(planStage(state([record("doc-review")]), "doc-review", PATH)).toEqual({
       kind: "stop",
-      reason: "doc-review's record holds no value, and the stage's result now expects one",
+      reason: "doc-review's line holds no value, and the stage's result now expects one",
     });
     expect(planStage(state([record("notify", { value: 1 })]), "notify", undefined)).toEqual({
       kind: "stop",
-      reason: "notify's record holds a value, and the stage no longer has a result",
+      reason: "notify's line holds a value, and the stage no longer has a result",
     });
   });
 

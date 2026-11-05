@@ -367,6 +367,148 @@ describe("awf runs", () => {
     expect(lines[6]).toMatch(/^ {6}fixer +working +turn 1/);
   });
 
+  test("a stage entered twice in an attempt shows twice, each with its own line's outcome and value", async () => {
+    const cwd = runDirs.tempRunDir();
+    const second = (line: object) => ({ ...line, attempt: 2 });
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e1",
+      [
+        { started: T(0), ended: T(0), outcome: "parked" },
+        { started: T(1), ended: T(5), outcome: "parked" },
+      ],
+      [
+        second({
+          kind: "stage-ended",
+          at: T(1),
+          stage: "plan",
+          outcome: "succeeded",
+          source: "reused",
+        }),
+        second({ kind: "stage-started", at: T(1), stage: "notify" }),
+        second({ kind: "stage-ended", at: T(2), stage: "notify", outcome: "failed" }),
+        second({ kind: "stage-started", at: T(3), stage: "notify" }),
+        second({ kind: "stage-ended", at: T(4), stage: "notify", outcome: "succeeded" }),
+      ],
+    );
+    const stage = (attempt: number, name: string, started: number, fields: object) => ({
+      kind: "stage",
+      attempt,
+      at: T(started + 1),
+      name,
+      started: T(started),
+      ...fields,
+    });
+    writeFileSync(
+      join(run.dir, "run.jsonl"),
+      [
+        { kind: "claimed", attempt: 1, at: T(0) },
+        stage(1, "plan", 0, { outcome: "succeeded", value: { steps: 3 } }),
+        { kind: "claimed", attempt: 2, at: T(1) },
+        stage(2, "notify", 1, { outcome: "failed", reason: "slack down", value: "partial" }),
+        stage(2, "notify", 3, { outcome: "succeeded", value: { sent: true } }),
+      ]
+        .map((line) => `${JSON.stringify(line)}\n`)
+        .join(""),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e1", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      { stage: "plan", state: "reused", started: T(1), ended: T(1), value: { steps: 3 } },
+      { stage: "notify", state: "failed", started: T(1), ended: T(2), value: "partial" },
+      { stage: "notify", state: "succeeded", started: T(3), ended: T(4), value: { sent: true } },
+    ]);
+  });
+
+  test("entries of one stage that began at once take its lines in order; a provided one keeps its state; values are masked", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e2",
+      [{ started: T(1), ended: T(5), outcome: "parked" }],
+      [
+        { kind: "stage-ended", at: T(1), stage: "plan", outcome: "succeeded", source: "provided" },
+        { kind: "stage-started", at: T(2), stage: "notify" },
+        { kind: "stage-ended", at: T(2), stage: "notify", outcome: "failed" },
+        { kind: "stage-started", at: T(2), stage: "notify" },
+        // Its end never reached the log: the line's says when.
+      ],
+    );
+    writeFileSync(
+      join(run.dir, "run.jsonl"),
+      [
+        { kind: "claimed", attempt: 1, at: T(1) },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(1),
+          name: "plan",
+          outcome: "succeeded",
+          started: T(1),
+          value: { token: "abc", path: "a.md" },
+          provided: true,
+        },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(2),
+          name: "notify",
+          outcome: "failed",
+          started: T(2),
+          value: 1,
+        },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(3),
+          name: "notify",
+          outcome: "succeeded",
+          started: T(2),
+          value: 2,
+        },
+      ]
+        .map((line) => `${JSON.stringify(line)}\n`)
+        .join(""),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e2", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      {
+        stage: "plan",
+        state: "provided",
+        started: T(1),
+        ended: T(1),
+        value: { token: "***", path: "a.md" },
+      },
+      { stage: "notify", state: "failed", started: T(2), ended: T(2), value: 1 },
+      { stage: "notify", state: "succeeded", started: T(2), ended: T(3), value: 2 },
+    ]);
+  });
+
+  test("a run whose run.jsonl can't be read shows its stages from the log, and says values are omitted", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e3",
+      [{ started: T(1), ended: T(5), outcome: "completed" }],
+      [
+        { kind: "stage-started", at: T(1), stage: "plan" },
+        { kind: "stage-ended", at: T(2), stage: "plan", outcome: "succeeded" },
+      ],
+    );
+    writeFileSync(join(run.dir, "run.jsonl"), "not json\n");
+    const { stdout } = await awfRuns(cwd, "review/e3");
+    expect(stdout).toContain("stage plan     succeeded");
+    expect(stdout).toContain(
+      "awf: run.jsonl could not be read, so stages show no values: run.jsonl line 1: not JSON",
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e3", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      { stage: "plan", state: "succeeded", started: T(1), ended: T(2) },
+    ]);
+  });
+
   test("lists twenty runs, says how many are older, and --limit lists more", async () => {
     const cwd = runDirs.tempRunDir();
     for (let minute = 0; minute < 22; minute += 1) {

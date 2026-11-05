@@ -53,7 +53,7 @@ describe("feature-delivery", () => {
       review: { primary: "code ok", additional: [] },
     });
     expect(run.stages[1]).toMatchObject({
-      stage: "doc-review",
+      name: "doc-review",
       summary: "doc ok: Named it in the doc.",
     });
     expect(run.messagesOf("planner")).toEqual([
@@ -105,7 +105,7 @@ describe("feature-delivery", () => {
 
   test("a full run records each stage with its summary", async () => {
     const run = await testWorkflow(featureDelivery, { args, agents: happyPath });
-    expect(run.stages.map(({ stage, outcome, summary }) => [stage, outcome, summary])).toEqual([
+    expect(run.stages.map(({ name, outcome, summary }) => [name, outcome, summary])).toEqual([
       ["ticket-doc", "succeeded", doc],
       ["doc-review", "succeeded", "ok"],
       ["implementation", "succeeded", "built"],
@@ -139,7 +139,7 @@ describe("feature-delivery", () => {
     // The plan and its review are the first attempt's; the planner is opened, never asked.
     expect(run.turnsOf("planner")).toEqual([]);
     expect(run.turnsOf("implementer")[0]!.prompt).toContain(`from ${doc}`);
-    expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([
+    expect(run.stages.map(({ name, attempt }) => [name, attempt])).toEqual([
       ["ticket-doc", 1],
       ["doc-review", 1],
       ["implementation", 2],
@@ -176,7 +176,7 @@ describe("feature-delivery", () => {
     expect(run.turnsOf("reviewer")).toHaveLength(1);
     expect(review!.prompt).toContain("Review the implementation of ABC-1");
     expect(review!.prompt).toContain("- security: escape the key");
-    expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([
+    expect(run.stages.map(({ name, attempt }) => [name, attempt])).toEqual([
       ["ticket-doc", 1],
       ["doc-review", 1],
       ["implementation", 1],

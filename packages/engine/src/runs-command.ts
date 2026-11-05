@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
+import type { JsonValue } from "@agentswf/contract/workflow";
 import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
@@ -264,6 +265,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     for (const agent of own) shown.add(agent.key);
     lines.push(...agentLines(own, indent, now));
   }
+  if (view.unread) lines.push(`${indent}  awf: ${view.unread}`);
   lines.push(
     ...agentLines(
       view.agents.filter((each) => !shown.has(each.key)),
@@ -331,11 +333,12 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ...(stage ? { stage } : {}),
       ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
     })),
-    stages: view.stages.map(({ stage, state, startedAt, endedAt }) => ({
+    stages: view.stages.map(({ stage, state, startedAt, endedAt, value }) => ({
       stage,
       state,
       ...(startedAt ? { started: new Date(startedAt).toISOString() } : {}),
       ...(endedAt ? { ended: new Date(endedAt).toISOString() } : {}),
+      ...(value === undefined ? {} : { value: masked(value) as JsonValue }),
     })),
     agents: view.agents.map((agent) => ({
       key: agent.key,

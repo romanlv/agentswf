@@ -6,9 +6,8 @@ import {
   MAILBOX_RECORD_VERSION,
   type MailboxRecord,
   type SandboxRecord,
-  STAGE_RECORD_VERSION,
+  type StageLine,
   type StageNeed,
-  type StageRecord,
 } from "@agentswf/contract/records";
 import {
   AWF_ID_PREFIX,
@@ -36,14 +35,8 @@ import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
 import { appendMailbox, foldMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import {
-  createRun,
-  idProblem,
-  readEvents,
-  readStageRecords,
-  readTurns,
-  writeStageRecord,
-} from "../runs";
+import { claimRunLines, type RunLines, readRunLines } from "../run-lines";
+import { createRun, idProblem, readEvents, readTurns } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import { assertJsonValue, type EventWorkflow } from "../workflow-loader";
 import type { RunnableWorkflow } from "../workflow-runner";
@@ -450,10 +443,12 @@ export type TestRun<Result> = {
   decisions: DecisionRequest[];
   logs: { message: string; fields?: JsonObject }[];
   /**
-   * Each stage's record in the order entered, as the run wrote it to disk: sessions, times and
-   * reason included, which the run's own summaries leave out.
+   * Each stage the attempt entered, in order, by its line in `run.jsonl`: one it ran or was given
+   * its own, times and reason included, which the run's own summaries leave out; one it reused the
+   * line it reused, an earlier attempt's. A stage the plan stopped as it was entered wrote none, and
+   * is absent.
    */
-  stages: StageRecord[];
+  stages: StageLine[];
   /**
    * How the attempt ended, as the workflow's `present` and `report` are given it: `completed` with
    * its value, `parked` at its last wait, or `stopped`, `failed`, `timed-out` or `cancelled` with
@@ -651,7 +646,7 @@ export async function runTest<Result extends JsonValue>(
   let sandboxOf = new Map<string, AgentSandbox>();
   const emits: EmittedEvent[] = [];
   let mailbox: MailboxRecord[] = [];
-  let stages: StageRecord[] = [];
+  let stages: StageLine[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
   const deadline =
@@ -666,15 +661,25 @@ export async function runTest<Result extends JsonValue>(
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
     throw error;
   });
-  if (earlier.stages) await recordEarlierAttempt(run.dir, earlier.stages);
-  for (const record of earlier.mailbox ?? []) await appendMailbox(run.dir, record);
-  if (started.record) await appendMailbox(run.dir, started.record);
+  let lines: RunLines;
+  try {
+    if (earlier.stages) await recordEarlierAttempt(run.dir, earlier.stages);
+    for (const record of earlier.mailbox ?? []) await appendMailbox(run.dir, record);
+    if (started.record) await appendMailbox(run.dir, started.record);
+    lines = await claimRunLines(run.dir, attempt, new Date(now()).toISOString());
+  } catch (error) {
+    for (const path of temporary) rmSync(path, { recursive: true, force: true });
+    throw error;
+  }
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
-    const records = await readStageRecords(run.dir);
-    // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
-    return entered.flatMap(({ stage, attempt }) => {
-      const record = records.get(stage);
-      return record?.attempt === attempt ? [record] : [];
+    const { view } = await readRunLines(run.dir);
+    // The run's summaries hold one entry per stage, as it last stood: a stage by content that
+    // failed and ran again in this attempt is one entry, its latest line. So each entry's line is
+    // the latest its attempt wrote: a stage this attempt ran or was given has its own, a reused one
+    // the line it reused. A stage the plan stopped wrote none.
+    return entered.flatMap(({ stage, attempt: wrote }) => {
+      const line = view.stages[stage]?.history.findLast((each) => each.attempt === wrote);
+      return line ? [line] : [];
     });
   };
   events.onActivity();
@@ -694,7 +699,8 @@ export async function runTest<Result extends JsonValue>(
       run: {
         dir: run.dir,
         id: run.record.id,
-        attempt,
+
+        lines,
         ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
         ...(options.values === undefined
           ? {}
@@ -940,25 +946,26 @@ async function messagesIn(dir: string): Promise<(MessageRecord & { to: string })
 }
 
 /**
- * Writes `recorded` as attempt 1's succeeded stages into a run's folder, a second apart in the order
- * given: a continue orders what is recorded by when each stage started.
+ * Writes `recorded` as attempt 1's succeeded stage lines into a run's `run.jsonl`, after attempt 1's
+ * claim, a second apart in the order given: a continue orders what is recorded by when each stage
+ * started.
  */
 async function recordEarlierAttempt(
   dir: string,
   recorded: Readonly<Record<string, JsonValue | undefined>>,
 ): Promise<void> {
   let at = Date.now() - Object.keys(recorded).length * 1_000;
-  for (const [stage, value] of Object.entries(recorded)) {
+  const lines = await claimRunLines(dir, 1, new Date(at - 1_000).toISOString());
+  for (const [name, value] of Object.entries(recorded)) {
     const time = new Date(at).toISOString();
     at += 1_000;
-    await writeStageRecord(dir, {
-      version: STAGE_RECORD_VERSION,
-      stage,
+    await lines.append({
+      kind: "stage",
       attempt: 1,
+      at: time,
+      name,
       outcome: "succeeded",
       started: time,
-      ended: time,
-      sessions: [],
       ...(value === undefined ? {} : { value }),
     });
   }

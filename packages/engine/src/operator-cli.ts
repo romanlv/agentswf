@@ -590,7 +590,7 @@ async function runAttempt(
       run: {
         dir: run.dir,
         id,
-        attempt: n,
+        lines: attempt.lines,
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
         ...(command.values === undefined ? {} : { values: command.values.stages }),

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { AttemptRecord, StageLine } from "@agentswf/contract/records";
 import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   defineWorkflow,
@@ -16,6 +16,7 @@ import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
 import { writeJson } from "./files";
 import { OPERATOR_ALIASES } from "./operator-aliases";
+import { claimRunLines, readRunLines } from "./run-lines";
 import { createRun, openRun, type Run, readAttempts } from "./runs";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { type RunWorkflowOptions, runWorkflow, startWorkflow } from "./workflow-runner";
@@ -59,6 +60,17 @@ export async function until(check: () => Promise<boolean>, ms = 20_000): Promise
     if (Date.now() > end) throw new Error("timed out");
     await Bun.sleep(50);
   }
+}
+
+/** Attempt `attempt`'s writer on the run's `run.jsonl`, claimed now, as `awf run` claims it. */
+export function claimLines(runDir: string, attempt: number) {
+  return claimRunLines(runDir, attempt, new Date().toISOString());
+}
+
+/** Each stage's latest line in the run's `run.jsonl`, by name, in the order first written. */
+export async function lastLines(runDir: string): Promise<Map<string, StageLine>> {
+  const { stages } = (await readRunLines(runDir)).view;
+  return new Map(Object.entries(stages).map(([name, { last }]) => [name, last]));
 }
 
 /** Writes the run's next attempt record, as `awf run` claims one, with `fields` over defaults. */
@@ -164,7 +176,8 @@ export function answering(): AgentSessionAdapter {
 
 /**
  * One attempt of run r1 of `workflow` under `runRoot`, created by the first, its agents answered by
- * `answering()`. Its folder is `{runRoot}/{workflow}/r1`.
+ * `answering()`. Its folder is `{runRoot}/{workflow}/r1`. It claims `run.jsonl` as a claim does, and
+ * writes its attempt's file once it ends, as a later attempt reads its version there.
  */
 export async function runAttempt<Result extends JsonValue>(
   workflow: RunnableWorkflow<null, Result>,
@@ -188,19 +201,43 @@ export async function runAttempt<Result extends JsonValue>(
         cwd: process.cwd(),
         sandbox: null,
       });
-  return runWorkflow(workflow, null, {
-    runRoot,
-    run: {
-      dir: run.dir,
-      id: run.record.id,
+  const started = new Date().toISOString();
+  const lines = await claimRunLines(run.dir, attempt, started);
+  const ended = (outcome: AttemptRecord["outcome"]) =>
+    writeJson(join(run.dir, "attempts", `${attempt}.json`), {
+      version: 1,
       attempt,
-      ...(fromStage === undefined ? {} : { fromStage }),
-      ...(values === undefined ? {} : { values: new Map(Object.entries(values)) }),
-    },
-    runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
-    deadline: future(),
-    ...(signal === undefined ? {} : { signal }),
-  });
+      file: name,
+      ...(workflow.meta.version === undefined ? {} : { workflowVersion: workflow.meta.version }),
+      flags: fromStage === undefined ? {} : { fromStage },
+      pid: process.pid,
+      processStart: started,
+      started,
+      ended: new Date().toISOString(),
+      outcome,
+    } satisfies AttemptRecord);
+  mkdirSync(join(run.dir, "attempts"), { recursive: true });
+  try {
+    const result = await runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: run.record.id,
+
+        lines,
+        ...(fromStage === undefined ? {} : { fromStage }),
+        ...(values === undefined ? {} : { values: new Map(Object.entries(values)) }),
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
+      deadline: future(),
+      ...(signal === undefined ? {} : { signal }),
+    });
+    await ended("completed");
+    return result;
+  } catch (error) {
+    await ended("failed");
+    throw error;
+  }
 }
 
 /** `startWorkflow` as the first attempt of a new run of the workflow under `options.runRoot`. */
@@ -215,9 +252,10 @@ export async function startNew<Args extends JsonValue, Result extends JsonValue>
     cwd: options.cwd ?? process.cwd(),
     sandbox: null,
   });
+  const lines = await claimRunLines(run.dir, 1, new Date().toISOString());
   return startWorkflow(definition, args, {
     ...options,
-    run: { dir: run.dir, id: run.record.id, attempt: 1 },
+    run: { dir: run.dir, id: run.record.id, lines },
   });
 }
 

@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import { type AttemptRecord, readRun } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import {
+  attemptRefusal,
   checkContinue,
   checkFree,
   claimAttempt,
@@ -21,10 +22,9 @@ import {
   RunRefused,
   readAccepted,
   readAttempts,
-  replaceStale,
   writeAcceptedExclusive,
 } from "./runs";
-import { createTempRunDirs, runAttempt, workflowOf } from "./testing";
+import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -148,10 +148,9 @@ describe("runs", () => {
 
   test("a claim that fails after its link leaves no file", async () => {
     const created = await createRun(root(), run());
-    await mkdir(join(created.dir, "stages"));
-    await writeFile(join(created.dir, "stages", "plan.json"), JSON.stringify({ version: 99 }));
+    await writeFile(join(created.dir, "run.jsonl"), `${JSON.stringify({ kind: "later" })}\n`);
     await expect(claimAttempt(created, fields, { pid: 1, probe: alive(1) })).rejects.toThrow(
-      "newer than this awf reads",
+      'run.jsonl line 1: unknown kind "later"',
     );
     expect(await readdir(join(created.dir, "attempts"))).toEqual([]);
   });
@@ -355,24 +354,35 @@ describe("runs", () => {
   });
 });
 
-test("a continue moves its start stage's record first: a move that fails after it leaves the rest", async () => {
-  const runRoot = runDirs.tempRunDir();
-  const dir = join(runRoot, "staged", "r1");
-  await runAttempt(
-    workflowOf(async (workflow) => {
-      for (const stage of ["doc-review", "implement", "qa"])
-        await workflow.stage(stage, async () => {});
-      return null;
-    }),
-    { runRoot },
-  );
-  // A record that can't be read fails the move after implement's.
-  await writeFile(join(dir, "stages", "qa.json"), "{");
-  await expect(replaceStale(dir, "implement", new Set(["doc-review"]))).rejects.toThrow(
-    "could not be read",
-  );
-  expect(await readdir(join(dir, "replaced"))).toEqual(["implement.1.json"]);
-  expect((await readdir(join(dir, "stages"))).sort()).toEqual(["doc-review.json", "qa.json"]);
+test("a completed run is redone from the stages its last attempt entered, a removed one left out", () => {
+  const stage = (name: string, attempt: number) => ({
+    kind: "stage",
+    attempt,
+    at: `2026-11-0${attempt}T00:00:01Z`,
+    name,
+    outcome: "succeeded",
+    started: `2026-11-0${attempt}T00:00:00Z`,
+  });
+  const view = readRun([
+    { kind: "claimed", attempt: 1, at: "2026-11-01T00:00:00Z" },
+    stage("plan", 1),
+    stage("gone", 1),
+    { kind: "claimed", attempt: 2, at: "2026-11-02T00:00:00Z" },
+    stage("build", 2),
+  ]);
+  const completed = {
+    attempt: 2,
+    outcome: "completed",
+    stages: [
+      { stage: "plan", source: "reused", outcome: "succeeded", attempt: 1, spanMs: 0 },
+      { stage: "build", source: "ran", outcome: "succeeded", attempt: 2, spanMs: 0 },
+    ],
+  } as unknown as AttemptRecord;
+  const refused = attemptRefusal([completed], view, { fromStage: false, probe: () => undefined });
+  expect(refused?.kind === "completed" && refused.stages.map(({ name }) => name)).toEqual([
+    "plan",
+    "build",
+  ]);
 });
 
 describe("an operation's accepted result", () => {

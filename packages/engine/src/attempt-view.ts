@@ -2,8 +2,8 @@ import type {
   AgentPaneRecord,
   AttemptRecord,
   RunAccounting,
+  StageLine,
   StageNeed,
-  StageRecord,
 } from "@agentswf/contract/records";
 import type { Ending, JsonValue, StageSummary } from "@agentswf/contract/workflow";
 import { ago, describeAccounting, describeAttempts } from "./accounting/format";
@@ -289,18 +289,18 @@ export function refusalMessage(id: string, refusal: AttemptRefusal, now: number)
   return `${id} completed; to redo from a stage, --from-stage one of:\n${listRecorded(refusal.stages, now).join("\n")}`;
 }
 
-/** Stage records, a line each, in the order given: summary, attempt, and how long ago. */
-function listRecorded(records: readonly StageRecord[], now: number): string[] {
-  const name = Math.max(0, ...records.map((record) => record.stage.length));
-  const summary = Math.max(0, ...records.map((record) => record.summary?.length ?? 0));
-  return records.map((record) =>
+/** Stage lines, one each, in the order given: summary, attempt, and how long ago. */
+function listRecorded(lines: readonly StageLine[], now: number): string[] {
+  const name = Math.max(0, ...lines.map((line) => line.name.length));
+  const summary = Math.max(0, ...lines.map((line) => line.summary?.length ?? 0));
+  return lines.map((line) =>
     [
-      `  ${record.stage.padEnd(name)}`,
-      ...(summary > 0 ? [(record.summary ?? "").padEnd(summary)] : []),
+      `  ${line.name.padEnd(name)}`,
+      ...(summary > 0 ? [(line.summary ?? "").padEnd(summary)] : []),
       [
-        ...(record.outcome === "succeeded" ? [] : [record.outcome]),
-        `attempt ${record.attempt}`,
-        ago(now - Date.parse(record.ended)),
+        ...(line.outcome === "succeeded" ? [] : [line.outcome]),
+        `attempt ${line.attempt}`,
+        ago(now - Date.parse(line.at)),
       ].join(" · "),
     ].join("   "),
   );

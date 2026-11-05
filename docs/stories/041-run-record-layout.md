@@ -309,7 +309,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 - [x] 1. The record's new types in `contract`: line types, `readRun`, `format`, tiers, ADR 0014
 - [ ] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
 - [x] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
-- [ ] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
+- [x] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
 - [ ] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
 - [ ] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
 - [ ] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
@@ -835,6 +835,136 @@ ends:
   packages/engine/src/runs.test.ts packages/engine/src/inbox-command.test.ts` 55 pass, 0 fail;
   `bunx tsc --noEmit` clean; `bun run scripts/check-boundaries.ts` "boundaries ok"; `bunx biome check
   packages/engine packages/contract` clean (217 files); the whole `bun test` 2597 pass, 2 skip, 4 todo, 0 fail (2603 tests, 197 files).
+
+### Task 4
+
+- **The policy module** is `packages/engine/src/run-policy/`, checked by `check-boundaries` as
+  `engine/src/accounting` is: pure, contract only. It holds `stages.ts`, reuse, and `stage-plan.ts`,
+  the stage plan, moved in whole (it was already pure). The waits, the held batch and turn ends go
+  beside them in later tasks.
+
+  ```ts
+  type StageRedo = { stage: string; attempt: number };
+  class StageReuse {
+    constructor(view: Pick<RunView, "stages" | "redo">, attempt: number);
+    /** The line `name` stands for as entered now, of any outcome; undefined when none, or outdated by the redo. */
+    enter(name: string): StageLine | undefined;
+    /** This attempt starts at `name`: a later stage with an older line runs again. */
+    redoFrom(name: string): void;
+    /** A line this attempt wrote, which later entries see. */
+    wrote(line: StageLine): void;
+  }
+  /** Each stage's latest line, in the order they started: what a stage not reached names. */
+  function recordedStages(view: Pick<RunView, "stages">): StageLine[];
+  /** Those a continue may still come to: none the redo's attempt left behind, by its attempt file. */
+  function upcomingStages(view: Pick<RunView, "stages" | "redo">, redoEntered?: readonly string[]): StageLine[];
+  /** The `--from-stage` of a last attempt with no ending that wrote no line for its stage. */
+  function crashedRedo(attempts: readonly Pick<AttemptRecord, "attempt" | "ended" | "flags">[], view: Pick<RunView, "stages">): string | undefined;
+  ```
+
+  The stage plan decides from the line `StageReuse.enter` gives, as it did from
+  `stages/{stage}.json`: `StagePlanState` takes `line`, `lineVersion` and the names `recorded`, in
+  place of `records`, and a reuse carries its `line`. `lastRedo` is gone: the redo is `readRun`'s.
+- **`StageLine`** is defined in contract's `run-lines.ts`, used there for every stage line, and
+  re-exported from `records.ts`, tier public, stable: `TestRun.stages`' type, "a new type" as the
+  design's table says.
+- **The writer is threaded** through `RunWorkflowOptions.run.lines`, which replaces `run.attempt`:
+  the attempt is `lines.attempt`. `operator-cli.ts` passes `claimNext`'s `attempt.lines`; every test
+  entry claims its own (`runAttempt`, `startNew`, `runTest`, and `testing.ts`'s `claimLines`).
+  `StageLedger` takes `lines`, `run` (`readRunLines`' view as the attempt began), `versions` and
+  `redoEntered`, and no longer `runDir`, `attempt`, `records`, `redo` or `turns`. A ran stage's line
+  is `{ name, outcome, reason?, started, summary?, value?, redo? }`, `started` the one clock read the
+  log's `stage-started` carries and `at` its end; a provided one is `succeeded` with `provided`,
+  `started` and `at` its entry.
+- **The reuse rule.** A stage stands for its latest line, as `stages/{stage}.json` held the latest
+  record, and is reused only when that line succeeded: a continue reuses `settled` only when it is
+  also `last`, so a stage rerun after a redo that then failed runs again on the next wake, as 039
+  built it. After the redo's stage, a line older than the redo stands for nothing.
+- **Decision for human review: `redo` means the stage the attempt started at.** It is written on
+  every start point: the stage `--from-stage` named, or a plain run's first stage not reused. That
+  is what `replaceStale` did at any start point: in a run where b's failure was caught, c succeeded
+  and d failed, a continue starts at b and dies in c, and the next continue must not reuse attempt
+  1's c. The design ("Its lines", "The rules", "Redo", "What is published", "Reading it") and
+  `records.ts`' field comment say so. A plain run's first attempt writes `redo` on its first stage.
+- **A crash inside a plain run's `--from-stage` stage** writes no line, so `prepareRun` restores
+  018's promise: when the last attempt has no ending (its process gone, which the refusal already
+  checked), has `flags.fromStage` S, and wrote no line for S, the continue runs as `--from-stage S`
+  and says so (`awf: attempt {n} of {id} ended without an ending inside --from-stage {S}; this
+  attempt starts there again`; `crashedRedo`; `PreparedRun.resumes`, which `loadAndPrepare` puts on
+  the command). The resumed attempt carries no `--values`: the attempt file doesn't keep them, so a
+  stage before S with no line to reuse stops for its value, and the go-on names `--values`. An
+  event run's wakes carry no flag, so there the redo is lost, as the design's "Redo" now says for
+  both kinds of run.
+- **Removed stages.** A completed run's refusal offers the stages its completed attempt entered (its
+  attempt file's `stages`), each by its latest line; without them, every recorded stage.
+  `progress().upcoming` leaves out a stage whose latest line is older than the redo's attempt and
+  which that attempt never entered (its attempt file's `stages`); with no such list, as after a
+  crash, it leaves out none. A stage reused before the redo's stage keeps an older line, so the line
+  alone can't tell it from a removed one: hence the attempt file. "Recorded and not reached" still
+  names every stage with a line. The two attempt-file reads move with task 7, which drops
+  `stages` from it.
+- **Deviations.**
+  - *The version a line was written under* is its attempt's `workflowVersion`, read from
+    `attempts/{n}.json`: the stage line has no version field, and the attempt's is the one the old
+    record copied. `runAttempt` (`testing.ts`) writes an ended attempt file for this.
+  - *`awf runs`* reads `run.jsonl` and, when it doesn't parse, shows the stages from the log and
+    one line, `awf: run.jsonl could not be read, so stages show no values: {why}`; `--json` has no
+    values then. There is no `format` to check yet (task 8). Values are masked as reasons are.
+  - *Messages* say a stage's "line" where they said its "record" (`'s line no longer fits its
+    result schema`); `docs/design/runs-and-stages.md`'s table follows.
+  - Not touched here: `site/guide/durability.md`, `site/reference/data.md` and
+    `site/reference/workflow-api.md:708` still name `stages/` and `replaced/`; task 8 owns them.
+    Those pages must say that a plain run's first stage line carries `redo` (every start point
+    does), and that an attempt resumed after a crash inside its `--from-stage` stage doesn't carry
+    `--values`.
+- **`awf runs`' stage list** (`run-view.ts`): an end pairs with the latest running entry of its
+  name; a ran or provided entry takes its outcome (a provided one stays `provided`), value, and its
+  end when the log lost it, from this attempt's line with its name and `started`, each line used
+  once, in order; a reused entry takes `settled`'s value, which for the latest attempt is the line
+  it reused; a running or plan-stopped entry keeps the log's. `RunJson.stages` gains `value`.
+  `TestRun.stages` reads the run's summaries, which hold one entry per stage name, so a stage by
+  content that failed and ran again in one attempt is one entry, its latest line.
+- **Tests added:** `run-policy/stages.test.ts`; in `stage-ledger.test.ts`, a line's `started` is the
+  clock read `stage-started` logs, failed then succeeded keeps both lines with `last` the success,
+  another major version stops by its attempt's version, a fenced line isn't reused, a plain run's
+  redo carries to a later continue, every start point is a redo (the caught-failure case), and a
+  by-content `--from-stage` stage that fails and runs again writes `redo` once; the in-memory writer
+  refuses another attempt's line. `runs-command.test.ts`: two entries of one stage in an attempt,
+  ties by order, a provided entry, masking, and an unreadable `run.jsonl`. `continue.test.ts`: 018's
+  "after a crash mid-stage, a continue starts at that stage" restored with its outcome, and a crash
+  past the redo's stage. `runs.test.ts`: a completed run's choices leave a removed stage out.
+  `tests/operator-cli.test.ts`: a continue after a `--from-stage` that died inside its stage starts
+  there and says so; its three stage tests read `run.jsonl` where they read `stages/` and
+  `replaced/`. Removed with what they tested: the stage-ledger's session test, the "start point
+  can't move" test and `runs.test.ts`' `replaceStale` test.
+- **Review, round 1.**
+  - correctness: nothing material.
+  - architecture, three regressions for plain runs, all accepted: an implicit start point outdated
+    nothing (now every start point writes `redo`); a crash inside a `--from-stage` stage lost the
+    redo (now `crashedRedo`); removed stages stayed in the refusal's choices and in `upcoming` (now
+    from the attempt file). Also accepted: design text that a continue reuses `settled` only when it
+    is `last`; `awf runs` saying when values are omitted; `stage-plan.ts` moved into `run-policy/`;
+    `StageLine` defined once in `run-lines.ts`; `run.attempt` derived from `run.lines`, its
+    reconciling check dropped.
+  - nits, all applied: `StageReuse` keeps a map of latest lines; `run-test.ts`' one-entry-per-stage
+    reading documented; the reused value documented as the latest attempt's; "line" in the plan's
+    messages; the `runs-command` tests above; `awf runs` takes a lost end from the line; the
+    by-content redo-once test; the in-memory writer's attempt check; `runTest` cleans its temp dirs
+    if writing the earlier attempt fails.
+- **Review, round 2.** Clean on both lenses. Nits applied: a test that the runner passes
+  `redoEntered` (`tests/run-progress.test.ts`: a stage the last redo's attempt never entered isn't
+  upcoming; it fails with the option dropped); the resumed attempt's notice reworded; the
+  operator-cli crash test asserts the outcome through `prepareRun` (implement and qa rerun in
+  attempt 3, which is the redo); task 8's two page notes above.
+  After them: focused (`run-policy`, `stage-ledger`, `continue`, `runs-command`,
+  `tests/operator-cli`, `tests/run-progress`) 230 pass, 0 fail; `bun run check` clean but for the
+  existing Biome info; the whole `bun test` 2616 pass, 2 skip, 4 todo, 0 fail (2622 tests).
+- **Verification**, in the worktree, after review round 1: focused (`run-policy`, `stage-ledger`,
+  `continue`, `stages`, `receive`, `runs-command`, `runs`, `emit-e2e`, `tests/operator-cli`,
+  `tests/run-progress`) 310 pass, 0 fail; `bun test examples` 179 pass, 4 todo, 0 fail; `bun run
+  check` clean (Biome, `tsc --noEmit`, "boundaries ok"), but for an existing Biome info in
+  `experiments/e9-messaging-protocol`; the whole `bun test` 2615 pass, 2 skip, 4 todo, 0 fail (2621
+  tests, 198 files).
 
 ## Human review
 

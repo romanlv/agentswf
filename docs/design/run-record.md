@@ -104,7 +104,8 @@ type Saved = { name: string; value: JsonValue }[];
 type RunLine = { attempt: number; at: string } & (
   // the attempt begins writing: the fence (Writing it, below)
   | { kind: "claimed" }
-  // a stage's end, every outcome; only `succeeded` settles it, a provided one included
+  // a stage's end, every outcome; only `succeeded` settles it, a provided one included;
+  // `redo` on the stage its attempt started at (Redo, below)
   | { kind: "stage"; name: string; outcome: StageOutcome; reason?: string; started: string;
       summary?: string; value?: JsonValue; provided?: true; redo?: true; state?: Saved }
   // a race's winner, and what it took
@@ -142,7 +143,8 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
   where an event run enters a failed stage again in the same attempt.
 - **A stage has two answers.** `last` is its latest line of any outcome: what `--from-stage` reads to tell a failed stage from one never run (`stage-plan.ts`). `settled` is
   its latest `succeeded` line, a provided stage's included, since one is written `succeeded` with
-  `provided`: what a continue may reuse. Its history, failures
+  `provided`: what a continue may reuse, and the engine reuses it only when it is also `last`, so a
+  stage that failed after its success runs again. Its history, failures
   included, is every line under its name; `awf runs` shows, for each time the latest attempt
   entered it, that time's own line.
 - **A state's value is its latest entry**, on whichever `stage` or `wait` line saved it; a line that
@@ -167,9 +169,10 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
 
 ### Redo
 
-039's rule, as built, over `attempt`. The stage `--from-stage` named writes its line with
-`redo: true` in attempt *N*, whatever its outcome. From then on, in *N* and every later attempt, a
-stage first entered after it whose `settled` line is from an attempt before *N* runs again; one not
+039's rule, as built, over `attempt`. The stage attempt *N* started at writes its line with
+`redo: true`, whatever its outcome: the stage `--from-stage` named, or, in a run without events, the
+first stage it didn't reuse. From then on, in *N* and every later attempt, a stage first entered
+after it whose line is from an attempt before *N* runs again; one not
 entered after it keeps its reuse, so a per-event stage before the redo point still runs once (039:
 moving every record not yet entered "lost their run-once reuse"). Races, timers, what the waits took
 and saved state are not stage results: a redo leaves them as they are.
@@ -186,9 +189,11 @@ attempt 3   (a continue, no flag)
 
 Whether a stage is entered after the redo stage is known only while the code runs, so no reader of
 the file can say what a continue will reuse, only what it may: each stage's `settled`, and the redo.
-A crash inside the redone stage writes no line, so the redo is lost and the old value stands, as
-today; a run never parks short of the redo stage (`FromStageUnreached`), since no wake carries the
-flag.
+A crash inside the redone stage writes no line. In a run without events, the next continue sees the
+attempt that died without an ending, its `flags.fromStage` and no line of that stage from it, says
+so, and starts at that stage again, as `--from-stage`, as 018 promised. A wake carries no flag, so
+in an event run the redo is lost and the old value stands, and the operator issues it again; a run
+never parks short of the redo stage (`FromStageUnreached`).
 
 ### Taking and acknowledging
 
@@ -248,7 +253,8 @@ Today's rules, made explicit as fields:
 ### What is published
 
 `contract` publishes the line types and `readRun(lines)`, the view a reader outside the engine
-needs: each stage's `settled`, `last` and history, the redo, races, timers with `due` and whether a wait took
+needs: each stage's `settled`, `last` and history, the redo (the stage the latest attempt that ran
+one started at), races, timers with `due` and whether a wait took
 or a cancel withdrew them, state, the last wait, and sessions. That is the format's meaning for a
 dashboard, an agent or `awf runs`.
 
@@ -402,7 +408,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | --- | --- | --- |
 | Is an attempt live? | its file: no `ended`, and its `pid` with its `processStart` | same |
 | The run's status | the attempt files; `readRun`'s last wait for `waiting` | the attempt files, and the mailbox for `stuck` and `waiting` |
-| What a continue may reuse | each stage's `settled` line, from `readRun`: those from the redo's attempt on, and earlier ones the code reaches before the redo stage; `awf runs {ref} --json` for the latest attempt's stages, which gain `value` | `ls stages/` |
+| What a continue may reuse | each stage's `settled` line, from `readRun`, when it is also its `last`: those from the redo's attempt on, and earlier ones the code reaches before the redo stage; `awf runs {ref} --json` for the latest attempt's stages, which gain `value` | `ls stages/` |
 | A stage's history | every `stage` line under its name, each with its attempt, outcome and `redo` | `stages/` and `replaced/`; a failure only if it is the latest |
 | What the run waits for | `readRun`'s last wait | the mailbox's last `wait`, events runs only |
 | What it took and acknowledged | `took` lines, and `acks` on the waits after them | `took`, then the next `wait` by rule, `returns` aside |
@@ -487,7 +493,8 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 - **A `launches/` record for a launch that never began**: a file kind and a special case in `stuck`
   for what an attempt file with `outcome: "failed"` already says.
 - **A redo pending from `flags.fromStage` alone**: an attempt that never reached the stage would
-  count as one, the bug 039 fixed (`lastRedo`).
+  count as one, the bug 039 fixed (`lastRedo`). The flag is read only to start a plain run's
+  continue at the stage an attempt died inside, which no line records.
 - **Folding `run.json` into `run.jsonl`'s first line**: one file fewer, but a first line unlike the
   rest, inside an append-only file.
 - **A priced total in each attempt file**: one read per attempt for `awf runs`'s cost, but a price

@@ -8,7 +8,15 @@ import { createFakeAdapter, createFakeCallingSession } from "@agentswf/harness/t
 import { createFakeDecisionProvider } from "./decisions/fake";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun, openRun, readEvents, readTurns } from "./runs";
-import { createTempRunDirs, DOC, future, runAttempt, submit, workflowOf } from "./testing";
+import {
+  claimLines,
+  createTempRunDirs,
+  DOC,
+  future,
+  runAttempt,
+  submit,
+  workflowOf,
+} from "./testing";
 import { runWorkflow } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
@@ -66,7 +74,7 @@ describe("the run's event log", () => {
     });
     await runWorkflow(workflow, null, {
       runRoot,
-      run: { dir: run.dir, id: "r1", attempt: 1 },
+      run: { dir: run.dir, id: "r1", lines: await claimLines(run.dir, 1) },
       runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(forking()) },
       decisions: {
         providers: { fake: createFakeDecisionProvider() },
@@ -240,7 +248,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", lines: await claimLines(run.dir, 1) },
         runtime: {
           aliases: { review: { harness: "fake", model: "fake" } },
           host: {
@@ -297,7 +305,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", lines: await claimLines(run.dir, 1) },
         runtime: {
           aliases: { review: { harness: "fake", model: "fake" } },
           host: {
@@ -383,7 +391,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", lines: await claimLines(run.dir, 1) },
         runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(forking()) },
         deadline: future(),
         onLog: (message) => said.push(message),
