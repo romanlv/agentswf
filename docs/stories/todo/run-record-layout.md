@@ -10,46 +10,47 @@ depends_on: []
 
 # A run's records, designed as a whole
 
-Review the layout of a run's folder (`.awf/runs/{workflow}/{id}/`) as one design and propose the
-one it should have, before agents.wf leaves evaluation. This is the investigation and the
-proposal; nothing changes before the design is reviewed.
+A run's folder (`.awf/runs/{workflow}/{id}/`) gets the layout it should have before agents.wf leaves
+evaluation: one home per fact, chosen by who writes it and who relies on it, with the run's own
+record a closed set of lines whose reading, `readRun`, is published in `contract`. The proposal is
+[[run-record|docs/design/run-record.md]]; nothing changes until it is reviewed.
 
-Why it matters: the layout grew a story at a time, and record formats are what others build on:
-`awf logs`, `awf runs`, an agent reading a run, a dashboard. Changing it costs a release note
-today and a migration once the project leaves evaluation, so it has to be settled before then.
+Why it matters: record formats are what others build on (`awf logs`, `awf runs`, 040's client, an
+agent reading a run, a dashboard, the optimizer foundation §7 names), and the layout grew a story at
+a time. Measured on 2026-11-04 against the code:
 
-What is sound, to keep: records replaced whole and logs appended, so a crash leaves the old file
-or the new one; status, current stage and last attempt derived, never stored; replay by name, the
-code run again from the top with each named step answered from its record; and an inbox written
-by outsiders under a lock, apart from the run's own writes.
+1. **A named step's answer has three stores**, each with its own keys and rule for a second call: a
+   stage's value in `stages/`, a race's winner as a `took` line and a timer as a `timer` line in
+   `mailbox.jsonl`.
+2. **The mailbox is not only an inbox**, and not only for runs with events: every run that uses a
+   timer, `sleep`, race or wait writes one, holding the run's own `wait`, `took`, `timer`, `turn` and
+   `launch-failed` lines beside the events from outside, and its own `timer:due`, `at:due` and
+   `agent:ended` events. `data.md`'s "with events only" is out of date.
+3. **Continue reads the log** that stories 028 and 039 say it never reads: a run with events resumes
+   its agents' sessions from `turns.jsonl`.
+4. **Sessions are recorded four ways:** turn lines, `operation-started` lines, `session-known` lines
+   and each stage record's `sessions`.
+5. **Decisions are overwritten each attempt** (`decisions/{n}.json`, numbered from 1, written without
+   a rename), and nothing reads them; `replaced/` and `calls/` are read by nothing but tests.
+6. **`output.json` is the only home of the run's return value**, its sandboxes, skills and panes,
+   though no code reads the file; it also repeats the attempt file's stages and accounting.
+7. **Records and scratch share the folder:** `agents/`, `staging/`, `forks/` and `skills/`.
 
-Where it shows it accreted, as of 2026-11-01:
+The proposal, in one line each: `run.json` identity; `run.jsonl` what the run settled, one writer,
+fenced by attempt; `events.jsonl` what came in, under the lock; `attempts/` claims and endings, a
+failed launch included; `log.jsonl` the story, never read to act; `operations/{id}/` one folder per turn or
+decision, with its measured spend; `output.json` and `report.md` views; `work/` scratch.
 
-1. **One idea, three stores.** A named step's recorded answer is a stage's value in `stages/`, a
-   race's winner as a `took` line in `mailbox.jsonl`, and a timer's time as a `timer` line there,
-   each with its own keys and its own rule for a second call under a name.
-2. **The mailbox is not only an inbox.** Beside the events from outside it holds the run's own
-   bookkeeping: `wait`, `took`, `timer`, `timer-cancelled`, `turn`, `launch-failed`.
-3. **`turns.jsonl` is the run's whole log** (stages, logs, decisions, messaging, tools), named
-   for one kind of its lines.
-4. **The run's own records are split** between the mailbox, what replay reads, and
-   `turns.jsonl`, what the run did; a started turn is written to both.
-5. **Sessions are recorded three ways:** `turn` lines, `session-known` lines, and each stage
-   record's `sessions`.
-6. **Decisions are numbered by order and overwritten each attempt,** while a redone stage keeps
-   its old record in `replaced/`.
-7. **`output.json` repeats** the attempt file's stages and accounting.
-8. **Records and scratch share the folder:** `agents/`, `staging/`, `forks/` and `skills/` are
-   harness working space beside the run's records.
+Notes:
 
-A shape to weigh, not a decision: `inbox.jsonl`, written only by outsiders; `journal.jsonl`, the
-run's own history, one line per named step settled (stage ended, race won, timer set or
-cancelled, wait took, decision, turn settled) under one key scheme; `stages/` and `output.json`
-as views built from it for fast reads; harness scratch under one `work/`.
-
-Notes: the proposal should say what replay, `awf logs`, `awf runs`, `awf tick`, accounting and
-the lab's readers change, and how a run made before it is read or refused. Weigh it with
-[[workflow-state]], whose durable values are saved with the acks of the events that changed them,
-and which would be one more store unless it lands in the same journal. The current layout is in
-[`site/reference/data.md`](../../../site/reference/data.md) and `MailboxRecord` and the records
-around it in `packages/contract/src/records.ts`.
+- **Before 039's next beta**: it builds on what 039's tasks 1–9 shipped, not on task 10 or the
+  story closing. 039's `earlier: { stages, mailbox }` (task 6) is unpublished, and the beta that ships
+  tasks 1–9 publishes it. This design replaces `mailbox` with `events` and `run`; settle it first, or change it
+  through a deprecation. 039's line 723 should commit to the event *names*, not the mailbox's record
+  kinds.
+- **Homes for other todos**: [[workflow-state]]'s record format (`state` on a wait or stage line),
+  [[non-answered-evidence]] (`operations/{id}/evidence/`), [[interrupted-accounting-read]]
+  (`spend.json` settled by the next attempt), [[crash-leftovers-reaper]] (the attempt file).
+- **Amends ADR 0011**'s "Persistence" paragraph; needs an ADR of its own when accepted.
+- After acceptance: `site/reference/data.md`, `runs-and-stages.md`'s "State on disk", and
+  `records.ts` follow.
