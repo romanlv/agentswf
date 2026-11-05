@@ -24,7 +24,15 @@ import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
 import { prepareArgs } from "./run-prepare";
 import type { RunStatus } from "./run-state";
-import { createRun, idProblem, openRun, panesChanged, type Run, readAttempts } from "./runs";
+import {
+  createRun,
+  idProblem,
+  openRun,
+  panesChanged,
+  type Run,
+  RunTaken,
+  readAttempts,
+} from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
 import { type EventWorkflow, loadWorkflowFile } from "./workflow-loader";
 
@@ -210,7 +218,13 @@ export async function deliver(
     if (!run) {
       if (!start) return result("refused", { did: "none", why: "not-a-start" });
       checkStartArgs(start.target, start.project);
-      run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
+      try {
+        run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
+      } catch (error) {
+        // A disk that tells case apart: another case's run is found only as the folder is claimed.
+        if (error instanceof RunTaken) throw new EmitError(messageOf(error), "id");
+        throw error;
+      }
     }
     await appendMailbox(run.dir, {
       version: MAILBOX_RECORD_VERSION,

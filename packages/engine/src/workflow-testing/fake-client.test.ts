@@ -229,3 +229,51 @@ test("from re-review: a run stopped stays stopped, a prepare that refuses no arg
     code: "prepare",
   });
 });
+
+test("from the second review: a resent closing event, status after a failed launch, a relaunch continued", async () => {
+  const done = { state: "completed", final: true } as const;
+  const runs = fakeClient({
+    rests: { "review/pr-1": [done], "review/pr-2": [{ state: "parked", final: false }] },
+    emit: (call) =>
+      call.eventId?.startsWith("bad") ? { did: "none", why: "launch-failed" } : undefined,
+    start: (call) => (call.ref === "release/r1" ? { did: "launch-failed" } : undefined),
+  });
+  // A resent event to a completed run leaves it completed, as the real wake does.
+  await runs.emit(review, "pr-1", "pr.pushed", { sha: "a" }, { eventId: "c-1" });
+  const closed = await runs.get(review, "pr-1");
+  expect(await closed.wait()).toEqual(done);
+  expect(
+    await runs.emit(review, "pr-1", "pr.pushed", { sha: "a" }, { eventId: "c-1" }),
+  ).toMatchObject({ outcome: "duplicate", did: "none", why: "returned" });
+  expect(await closed.status()).toEqual(done);
+
+  // A plain run whose launch failed is interrupted, final; three failures make it stuck.
+  const failed = await runs.start(release, { version: "1" }, { id: "r1" });
+  expect(failed.did).toBe("launch-failed");
+  expect(await failed.run.wait({ final: true })).toEqual({ state: "interrupted", final: true });
+  await runs.start(release, { version: "1" }, { id: "r1" });
+  await runs.start(release, { version: "1" }, { id: "r1" });
+  expect(await failed.run.status()).toEqual({ state: "stuck", final: true });
+  expect((await runs.start(release, { version: "1" }, { id: "r1" })).did).toBe("stuck");
+
+  // An event run whose first launch failed is interrupted, not final.
+  await runs.emit(review, "pr-3", "pr.pushed", { sha: "a" }, { eventId: "bad-1" });
+  expect(await (await runs.get(review, "pr-3")).status()).toEqual({
+    state: "interrupted",
+    final: false,
+  });
+
+  // A parked run whose continue failed stays parked, and is continued, not started, next.
+  const parked = await runs.get(review, "pr-2");
+  await parked.wait();
+  await runs.emit(review, "pr-2", "pr.pushed", { sha: "b" }, { eventId: "bad-2" });
+  expect(await parked.status()).toEqual({ state: "parked", final: false });
+  expect(
+    await runs.emit(review, "pr-2", "pr.pushed", { sha: "c" }, { eventId: "c-3" }),
+  ).toMatchObject({ did: "continued" });
+
+  // A reply to no run is no-run before its source is looked at, as the real client checks.
+  await expect(
+    runs.emit(review, "pr-9", "thread:reply", { text: "hi" }, { source: "Bad Source" }),
+  ).rejects.toMatchObject({ code: "no-run" });
+});

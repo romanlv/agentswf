@@ -1,10 +1,10 @@
-import { basename, dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
 import { checkProjectEngine } from "./project-engine";
-import { listProjects, projectRunRoot } from "./projects";
+import { listProjects, projectRunRoot, rootProject } from "./projects";
 import { lockHeld, runLockFile } from "./run-lock";
 import {
   entries,
@@ -244,10 +244,7 @@ export function checkRunEngine(status: Pick<RunStatus, "run" | "attempts">): voi
  * `--run-root` of the operator's, the directory it works in.
  */
 export function runProject(run: Pick<Run, "root" | "record">): string {
-  const root = resolve(run.root);
-  return basename(root) === "runs" && basename(dirname(root)) === ".awf"
-    ? dirname(dirname(root))
-    : run.record.cwd;
+  return rootProject(run.root, run.record.cwd);
 }
 
 async function findAnywhere(

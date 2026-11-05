@@ -457,16 +457,6 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 
 ## `fakeClient` {#fakeclient}
 
-A [program](/guide/programs)'s handler takes a `Client`; its test passes `fakeClient(script?)`,
-which runs the real client's checks, throws the same `ClientError`, and keeps `calls`, every call
-in order, refused ones included. Unscripted, it answers as the real rules do: a run is started by
-an event that may start one, kept after a launch that failed and started by its next event or
-by the same event resent, a `duplicate` that wakes it; `nudged` while running, `continued` once
-parked, failed or crashed, left alone once stopped, cancelled or stuck, `refused` once returned; a reply to no run throws
-`no-run`; a second `start` with the same args is `exists`, with others `other-args`. Its runs
-move to a scripted rest only at a `wait`. A script overrides what it names, and the fake then
-knows what it said: a refused event leaves no run, `why` alone is `did: "none"`:
-
 ```ts
 const runs = fakeClient({
   emit: (call) => (call.eventId === "d-1" ? { did: "none", why: "launch-failed" } : undefined),
@@ -475,6 +465,18 @@ const runs = fakeClient({
   inbox: (call) => [], // the items for this read
 });
 ```
+
+A [program](/guide/programs)'s handler takes a `Client`; its test passes `fakeClient(script?)`,
+which runs the real client's checks that need no files, throws the same `ClientError`, and keeps `calls`, every call
+in order, refused ones included. Unscripted, it answers as the real rules do: a run is started by
+an event that may start one, kept after a launch that failed and started by its next event or
+by the same event resent, a `duplicate` that wakes it; `nudged` while running, `continued` once
+parked, failed or crashed, left alone once stopped, cancelled or stuck, `refused` once returned (and `none`, `returned`, if
+resent); a reply to no run throws `no-run`; a second `start` with the same args is `exists`, with
+others `other-args`. A run moves to its next scripted rest at a `wait`, to `running` when it is
+launched, and after a launch that fails stays at its last rest, or is `interrupted` (`stuck` after
+three) if it has none. A script overrides what it names, and the fake then knows what it said: a
+refused event leaves no run, `why` alone is `did: "none"`.
 
 ## `awf test` {#awf-test}
 

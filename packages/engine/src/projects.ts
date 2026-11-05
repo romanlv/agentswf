@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { realPath } from "./files";
 import { appendLine } from "./jsonl";
 import { withRunLock } from "./run-lock";
@@ -54,4 +54,15 @@ export async function recordProject(home: string, project: string): Promise<void
     if ((await listProjects(home)).includes(project)) return;
     await appendLine(file, project);
   });
+}
+
+/**
+ * The project a run root's runs belong to: the folder holding it as its `.awf/runs`, else, under a
+ * `--run-root` of the operator's, the directory the run works in.
+ */
+export function rootProject(runRoot: string, cwd: string): string {
+  const root = resolve(runRoot);
+  return basename(root) === "runs" && basename(dirname(root)) === ".awf"
+    ? dirname(dirname(root))
+    : cwd;
 }

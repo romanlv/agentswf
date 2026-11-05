@@ -62,6 +62,15 @@ export async function tickCommand(
         `awf: ${project} declares agentswf in ${engine.manifest} and has none installed, so its runs are not woken: run bun install there`,
       );
     } else if (engine.kind === "installed" && engine.version !== ENGINE_VERSION) {
+      // Already the project's engine, handed to: its agentswf and engine disagree, and another
+      // child would find the same.
+      if (context.environment[ENGINE_VARIABLE] === engine.dir) {
+        failed = true;
+        out.stderr(
+          `awf: ${project}'s agentswf is ${engine.version} and its engine ${ENGINE_VERSION}, so its runs are not woken: run bun install there`,
+        );
+        return;
+      }
       const ticked = await tickElsewhere(project, root, engine, context.environment, out);
       woke.push(...ticked.woke);
       if (!ticked.ok) failed = true;

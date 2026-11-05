@@ -268,7 +268,10 @@ describe("the global awf", () => {
     expect(stdout).toContain(`this project's agentswf 0.0.0-fixture, in ${engine}`);
   });
 
-  test("Ctrl-C returns the prompt only once the child has ended, with its code", async () => {
+  test.each([
+    ["Ctrl-C, to the process group,", true],
+    ["a SIGINT to the global awf alone", false],
+  ])("%s returns the prompt only once the child has ended, with its code", async (_, group) => {
     const { dir } = project("0.0.0-fixture");
     const parent = Bun.spawn({
       cmd: [process.execPath, "--no-env-file", AWF, "run", "--sigint"],
@@ -285,7 +288,7 @@ describe("the global awf", () => {
       if (done) break;
       seen += new TextDecoder().decode(value);
     }
-    process.kill(-parent.pid, "SIGINT");
+    process.kill(group ? -parent.pid : parent.pid, "SIGINT");
     const code = await parent.exited;
     for (;;) {
       const { value, done } = await reader.read();
@@ -294,5 +297,59 @@ describe("the global awf", () => {
     }
     expect(code).toBe(7);
     expect(seen).toContain('"ended":true');
+  });
+});
+
+describe("from the second review", () => {
+  test("awf test from a workspace root is refused when its packages' tests resolve another version", async () => {
+    const { testCommand } = await import("./test-command");
+    const workspace = tempDir();
+    mkdirSync(join(workspace, ".awf"));
+    mkdirSync(join(workspace, "a"));
+    fakeInstall(join(workspace, "a"), "0.0.0-other");
+    writeFileSync(join(workspace, "a", "x.test.ts"), "");
+    let stderr = "";
+    const code = await testCommand([], workspace, {
+      stdout: () => undefined,
+      stderr: (text) => {
+        stderr += text;
+      },
+    });
+    expect(code).toBe(2);
+    expect(stderr).toContain("0.0.0-other");
+  });
+
+  test("awf run is refused at start for the project its run is kept in, as later commands refuse it", async () => {
+    const { loadAndPrepare } = await import("./run-prepare");
+    const shell = tempDir();
+    mkdirSync(join(shell, ".awf"));
+    writeFileSync(
+      join(shell, "package.json"),
+      JSON.stringify({ devDependencies: { agentswf: ENGINE_VERSION } }),
+    );
+    const other = tempDir();
+    const file = join(other, "flow.ts");
+    writeFileSync(
+      file,
+      `import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({ meta: { name: "flow", description: "x" }, run: async () => 1 });
+`,
+    );
+    const prepared = await loadAndPrepare(
+      {
+        shellCwd: shell,
+        cwd: shell,
+        cwdGiven: false,
+        runRootGiven: false,
+        workflowFile: file,
+        workflowArgs: [],
+        runRoot: join(shell, ".awf", "runs"),
+        json: false,
+        watch: false,
+      } as never,
+      Date.now(),
+      tempDir(),
+    );
+    expect(prepared).toMatchObject({ refused: expect.stringContaining("declares agentswf") });
   });
 });

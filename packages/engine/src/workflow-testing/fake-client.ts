@@ -56,8 +56,10 @@ export type FakeClientScript = {
   /**
    * By ref: the rests the run comes to, in order. A wait takes the next one, as the run's next rest
    * after the call; a run that isn't running, by the last one taken, is answered at once, as the
-   * real client does. Its status is the last one taken, and moves only at a wait. A run named
-   * here is there: `get` and `emit` find it, and the first `start` of it is the one that made it,
+   * real client does. Its status is the last one taken; an emit or start that launches it makes it
+   * `running` again, and a launch that fails leaves it at its last rest, or `interrupted` (`stuck`
+   * after three) if it has none. Attempts that fail or crash count toward `stuck` only as the rests
+   * scripted say. A run named here is there: `get` and `emit` find it, and the first `start` of it is the one that made it,
    * unless an emit reached it first.
    */
   rests?: Record<string, RunStatus<JsonValue>[]>;
@@ -74,10 +76,12 @@ export type FakeClient = Client & {
 type Known = {
   /** The args it was started with; absent for one an event began. */
   args?: JsonValue;
-  /** False until an attempt is launched: after a launch that failed, or while it is stuck. */
-  launched: boolean;
+  /** Whether an attempt was ever launched: until then, a wake `started` it, after, `continued`. */
+  attempted: boolean;
   /** Launches that failed in a row: three make it stuck, as the real rule does. */
   failed: number;
+  /** The last rest a wait took. */
+  rest?: RunStatus<JsonValue>;
   /** Named only by `rests`: the first start of it is the one that made it. */
   scripted?: true;
   eventIds: Set<string>;
@@ -92,7 +96,7 @@ const RUNNING: RunStatus<JsonValue> = { state: "running", final: false };
  * client's checks on what it is given, so a test sees the `ClientError` the real one throws, and
  * keeps its calls. Unscripted, it answers as the real rules do: an event to a new id is `started`
  * if it may start a run and refused `not-a-start` if not; to a run there, `refused` `returned` for
- * one that completed, and otherwise woken as the real `wake` does, a `duplicate` for an event id it
+ * one that completed (`none`, `returned`, if resent), and otherwise woken as the real `wake` does, a `duplicate` for an event id it
  * has: `started` for a run whose launch failed (`stuck` after three), `nudged` while running,
  * `continued` once parked, failed or crashed, nothing for one stopped, cancelled or stuck; a reply
  * to no run throws `no-run`; a start is `started` for a new id, `exists` for one there with the same args, and
@@ -103,7 +107,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
   const known = new Map<string, Known>();
   const fresh = (args?: JsonValue): Known => ({
     ...(args === undefined ? {} : { args }),
-    launched: true,
+    attempted: true,
     failed: 0,
     eventIds: new Set(),
     status: RUNNING,
@@ -123,6 +127,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         if (options.final ? run.status.final : run.status.state !== "running") return run.status;
         for (let next = run.rests.shift(); next; next = run.rests.shift()) {
           run.status = next;
+          run.rest = next;
           if (!options.final || next.final) return next;
         }
         const { signal } = options;
@@ -143,10 +148,13 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
     run: Known,
     duplicate: boolean,
   ): Pick<EmitResultJson, "did"> & Partial<Pick<EmitResultJson, "why">> => {
-    if (!run.launched) return run.failed >= 3 ? { did: "none", why: "stuck" } : { did: "started" };
+    if (run.failed >= 3) return { did: "none", why: "stuck" };
+    if (!run.attempted) return { did: "started" };
     switch (run.status.state) {
       case "running":
         return duplicate ? { did: "none" } : { did: "nudged" };
+      case "completed":
+        return { did: "none", why: "returned" };
       case "stopped":
       case "cancelled":
       case "stuck":
@@ -156,6 +164,19 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         // the event is `nothing-due` to the real client; script that.
         return { did: "continued" };
     }
+  };
+
+  /** What the real client then reads of a run whose launch just failed. */
+  const launchFailed = (run: Known, events: boolean, stuck: boolean): void => {
+    run.failed = stuck ? Math.max(run.failed, 3) : run.failed + 1;
+    if (run.failed >= 3) run.status = { state: "stuck", final: true };
+    else if (!run.attempted) run.status = { state: "interrupted", final: !events };
+    else if (run.rest) run.status = run.rest;
+  };
+  const launchedNow = (run: Known): void => {
+    run.attempted = true;
+    run.failed = 0;
+    run.status = RUNNING;
   };
 
   /** The real client's checks of a workflow it is given that need no file: its `file` and name. */
@@ -188,6 +209,15 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
           `${(target as AnyWorkflow)?.meta?.name} declares no events; start runs it`,
         );
       located(target);
+      if (typeof name !== "string")
+        throw new ClientError("event", "an event's name is a string", ref);
+      if (typeof run !== "string") throw new ClientError("id", "a run's id is a string");
+      for (const [field, value] of [
+        ["eventId", given.eventId],
+        ["source", given.source],
+      ] as const)
+        if (value !== undefined && typeof value !== "string")
+          throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
       const reply = awfEventOf(name)?.kind === "reply";
       try {
         checkEvent(
@@ -199,13 +229,13 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         if (error instanceof EmitError) throw new ClientError(error.code, error.message, ref);
         throw error;
       }
-      const badSource = given.source === undefined ? undefined : nameProblem(given.source);
-      if (badSource)
-        throw new ClientError(
-          "event",
-          `the source ${JSON.stringify(given.source)}: ${badSource}`,
-          ref,
-        );
+      const sourceProblem = () => {
+        if (given.source === undefined) return;
+        const bad = nameProblem(given.source);
+        if (bad)
+          throw new ClientError("event", `the source ${JSON.stringify(given.source)}: ${bad}`, ref);
+      };
+      if (!reply) sourceProblem();
       const problem = idProblem(run);
       if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
       const result = (fields: Omit<EmitResultJson, "v" | "ref" | "eventId">): EmitResultJson => ({
@@ -217,6 +247,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       let state = known.get(ref);
       if (!state && reply)
         throw new ClientError("no-run", `no run ${ref}: a reply never starts one`, ref);
+      if (reply) sourceProblem();
       const duplicate =
         state !== undefined && given.eventId !== undefined && state.eventIds.has(given.eventId);
       let made = false;
@@ -237,7 +268,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
               ref,
             );
           }
-          state = { ...fresh(), launched: false };
+          state = { ...fresh(), attempted: false };
           made = true;
         }
         // A duplicate isn't appended, but wakes the run, as a retry after a failed launch does;
@@ -256,17 +287,9 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       if (made) known.set(ref, state);
       delete state.scripted;
       if (given.eventId !== undefined) state.eventIds.add(given.eventId);
-      if (answer.did === "started" || answer.did === "continued") {
-        state.launched = true;
-        state.failed = 0;
-        state.status = RUNNING;
-      } else if (answer.why === "launch-failed") {
-        state.launched = false;
-        state.failed += 1;
-      } else if (answer.why === "stuck") {
-        state.launched = false;
-        state.failed = Math.max(state.failed, 3);
-      }
+      if (answer.did === "started" || answer.did === "continued") launchedNow(state);
+      else if (answer.why === "launch-failed" || answer.why === "stuck")
+        launchFailed(state, true, answer.why === "stuck");
       return result(answer);
     },
     start: async (workflow, args, given = {}) => {
@@ -320,7 +343,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
             `${ref} is there already, with other args or none recorded`,
             ref,
           );
-        if (there.launched) return { run: handle(ref), did: "exists" };
+        if (there.attempted) return { run: handle(ref), did: "exists" };
         if (there.failed >= 3) return { run: handle(ref), did: "stuck" };
       } else if (!known.has(ref)) known.set(ref, fresh(call.args));
       const run = known.get(ref)!;
@@ -329,10 +352,10 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         did: there ? "exists" : "started",
         ...script.start?.({ ...call, ref }),
       } as StartResult<never>;
-      run.launched = answer.did !== "launch-failed" && answer.did !== "stuck";
-      if (answer.did === "launch-failed") run.failed += 1;
-      if (answer.did === "stuck") run.failed = Math.max(run.failed, 3);
-      if (run.launched) run.failed = 0;
+      if (answer.did === "launch-failed" || answer.did === "stuck") {
+        if (!there) run.attempted = false;
+        launchFailed(run, isEventWorkflow(target), answer.did === "stuck");
+      } else launchedNow(run);
       return answer;
     },
     get: async (workflow, run) => {
@@ -353,7 +376,10 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       calls.push(call);
       located(workflow as unknown as AnyWorkflow);
       const { after } = given;
-      if (after !== undefined && (after === "" || after.startsWith("-")))
+      if (
+        after !== undefined &&
+        (typeof after !== "string" || after === "" || after.startsWith("-"))
+      )
         throw new ClientError("cursor", `${JSON.stringify(after)} is no cursor an item carried`);
       return script.inbox?.(call) ?? [];
     },

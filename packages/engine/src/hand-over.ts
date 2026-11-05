@@ -119,12 +119,13 @@ export async function handOver(own: {
     stdio: ["inherit", "inherit", "inherit"],
   });
   const forward = (signal: NodeJS.Signals) => () => child.kill(signal);
+  // Each is forwarded, for a signal sent to this process alone. The terminal's Ctrl-C reaches the
+  // child twice, through the process group too, and a run takes a repeat within a second as one;
+  // the prompt comes back once the child has ended, not before.
   const listeners: [NodeJS.Signals, () => void][] = [
     ["SIGTERM", forward("SIGTERM")],
     ["SIGHUP", forward("SIGHUP")],
-    // The terminal sends Ctrl-C to the child too, through the process group: the prompt comes back
-    // once the child has ended its run, not before.
-    ["SIGINT", () => undefined],
+    ["SIGINT", forward("SIGINT")],
   ];
   for (const [signal, listener] of listeners) process.on(signal, listener);
   const code = await child.exited;

@@ -52,10 +52,13 @@ export function engineOf(project: string, files: readonly string[] = []): Projec
  */
 export function checkProjectEngine(
   project: string,
-  options: { file?: string; client?: boolean; version?: string } = {},
+  options: { file?: string; files?: readonly string[]; client?: boolean; version?: string } = {},
 ): void {
   const own = options.version ?? ENGINE_VERSION;
-  const engine = engineOf(project, options.file === undefined ? [] : [options.file]);
+  const engine = engineOf(project, [
+    ...(options.file === undefined ? [] : [options.file]),
+    ...(options.files ?? []),
+  ]);
   if (engine.kind === "declared")
     throw new EngineRefused(
       "no-engine",

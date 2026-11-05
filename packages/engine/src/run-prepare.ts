@@ -6,7 +6,8 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { exists } from "./files";
-import { projectOf, projectRunRoot, recordProject } from "./projects";
+import { checkProjectEngine } from "./project-engine";
+import { projectOf, projectRunRoot, recordProject, rootProject } from "./projects";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
@@ -118,6 +119,12 @@ export async function loadAndPrepare(
     } catch (error) {
       return { refused: messageOf(error) };
     }
+  }
+  try {
+    // As every later command checks it: the project the run is kept in, with the file it runs.
+    checkProjectEngine(rootProject(command.runRoot, command.cwd), { file: loaded.file });
+  } catch (error) {
+    return { refused: messageOf(error) };
   }
   try {
     return { loaded, prepared: await prepareRun(command, loaded, now), command };

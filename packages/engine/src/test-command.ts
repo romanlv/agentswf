@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { constants } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
@@ -38,10 +38,10 @@ export async function testCommand(
     // Each test's workflow gets this engine's author surface: its project, and each path's, must
     // run on it (ADR 0014).
     for (const place of [cwd, ...tests.paths]) {
-      const dir = statSync(place, { throwIfNoEntry: false })?.isDirectory()
-        ? place
-        : dirname(place);
-      checkProjectEngine(dir);
+      const isDir = statSync(resolve(cwd, place), { throwIfNoEntry: false })?.isDirectory();
+      const dir = resolve(cwd, isDir ? place : dirname(place));
+      // In a workspace whose packages each install agentswf, the tests' files name the engine.
+      checkProjectEngine(dir, { files: isDir ? testFiles(dir) : [resolve(cwd, place)] });
     }
   } catch (error) {
     io.stderr(`awf: ${messageOf(error)}`);
@@ -148,4 +148,15 @@ export async function runWorkflowTests(
     signal?.removeEventListener("abort", stop);
     process.off("exit", orphaned);
   }
+}
+
+/** A test file `bun test` would find under a folder, outside `node_modules`, for each folder. */
+function testFiles(dir: string): string[] {
+  const byFolder = new Map<string, string>();
+  for (const path of new Bun.Glob("**/*.{test,spec}.{ts,tsx,js,jsx,mts,mjs}").scanSync({
+    cwd: dir,
+  }))
+    if (!path.split("/").includes("node_modules") && !byFolder.has(dirname(path)))
+      byFolder.set(dirname(path), join(dir, path));
+  return [...byFolder.values()];
 }

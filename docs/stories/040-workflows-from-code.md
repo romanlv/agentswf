@@ -483,9 +483,10 @@ declare function client(options?: { home?: string; environment?: Record<string, 
   one's pure checks (`checkEvent`, `fileOf`, `idProblem`, the event-id grammar), so a test sees the
   `ClientError` the real one throws. Unscripted, it keeps the ids it has seen and answers as the
   real one's rules do: an event to a new id is `started` if it may start one and refused
-  `not-a-start` if not, and `nudged` to an id seen; a reply to an unseen id throws `no-run`; a
-  start is `started` for a new id, `exists` for one seen with the same args, and `other-args` for
-  other args; a `Run` rests as the script says.
+  `not-a-start` if not, and to an id seen it wakes the run as the real `wake` does (see the
+  Implementation notes); a reply to an unseen id throws `no-run`; a start is `started` for a new
+  id, `exists` for one seen with the same args, and `other-args` for other args; a `Run` rests as
+  the script says.
 
 Alternatives rejected:
 
@@ -987,6 +988,38 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
 - Manual, beta.5 as an older global over a run started from code (record version 2): its `awf
   runs` listing passes over it, and `awf runs add/a1` and `awf run add.ts --id a1 --continue` refuse
   it, "version 2, newer than this awf reads"; it never prepares empty argv for it.
+
+### Final review, round 1, 2026-11-05
+
+Three reviewers, one each on the hand-over and recorded args, the client, and the fake client
+with the docs. Folded in:
+
+- The hand-over forwards SIGINT, as it does SIGTERM and SIGHUP: one sent to the global `awf` alone
+  was swallowed and the child ran on. The terminal's Ctrl-C now reaches the child twice, which a
+  run already takes as one.
+- `awf tick` of a project on its own engine refuses, instead of handing over again, when it is
+  already that engine (`AWF_ENGINE`) and its `agentswf` and engine disagree, which looped.
+- `awf test` passes each folder's test files to the engine check, so a workspace root with no
+  `agentswf` of its own is refused when its packages' tests resolve another version.
+- `awf run` checks the engine of the project its run is kept in, with the file, at start, as every
+  later command does: a run could start and then have its `awf logs` and `awf reply` refused.
+- `emit`: a run in another case found only as the folder is claimed, on a case-sensitive disk,
+  throws `ClientError` `id`, not a bare `RunRefused`. `start` draws a generated id again when an
+  `awf run`, which takes no lock, took it meanwhile.
+- `wait()` doesn't take a failed launch as a rest when an attempt has started since, by a sender
+  that launched it again.
+- The fake client: a resent event to a completed run is `none`, `returned`, and leaves it
+  completed; a run whose launch failed reads `interrupted` (final for a plain run) or `stuck`
+  after three, as `runStatus` does, and stays at its last rest if it had one; a run that had an
+  attempt is `continued` after a failed relaunch, not `started`; it checks a reply's run before its
+  `source`, and the types of `eventId`, `source` and `after`, in the real client's order.
+- Docs: the stories index says `awaiting-human-review`; the guide says the fake runs the checks
+  that need no files, that a failed post relays its batch again, and `awf inbox --workflow`;
+  install.md says the hand-over happens only at another version; the Testing API puts its code
+  first; the design's fake-client section no longer says `nudged` to an id seen.
+
+Left: a failed or crashed attempt counts toward the fake's `stuck` only as its scripted rests say.
+`bun run check` passes; `bun test` 2598 pass, 0 fail.
 
 ## Human review
 

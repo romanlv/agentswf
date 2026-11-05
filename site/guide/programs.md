@@ -75,8 +75,9 @@ program's job, with the webhook's secret; awf trusts whatever the program sends.
 
 <<< @/../examples/site/guide/programs/handlers.driver.ts#relay
 
-`inbox` lists what the workflow's runs posted and asked, oldest first, as `awf inbox --json` does.
-Each item carries a cursor; pass the last one to the next read, and each item is relayed once.
+`inbox` lists what the workflow's runs posted and asked, oldest first, as `awf inbox --workflow --json`
+does. Each item carries a cursor; pass the last one to the next read, and each item is relayed
+once, or again if a post in its batch throws.
 Keep the cursor where a restart finds it, or a restarted program relays everything again.
 `onThreadReply` sends a person's answer back as the thread's `thread:reply`, which the workflow
 declares. A reply goes to a run that is there and never starts one: to an id with no run, `emit`
@@ -109,7 +110,7 @@ continues it, from anywhere: a workflow that gives `file` keeps its runs in its 
 ## Testing a program
 
 `agentswf/testing`'s `fakeClient()` is a `Client` that keeps the calls it is given, runs the real
-client's checks, and answers as the real one's rules do (a resent event id is a `duplicate`, a
+client's checks that need no files, and answers as the real one's rules do (a resent event id is a `duplicate`, a
 run whose launch failed is kept), or as the test scripts:
 
 <<< @/../examples/site/guide/programs/handlers.test.ts#test

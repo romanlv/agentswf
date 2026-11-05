@@ -25,6 +25,7 @@ import {
   outputFile,
   type Run,
   RunRefused,
+  RunTaken,
   readAttempts,
 } from "../runs";
 import { wake } from "../wake";
@@ -60,7 +61,7 @@ export async function start(
   }
   // Without one, a new id, as awf run makes one: no sender names this run.
   const id = named ?? (await unusedId(found.runRoot, name));
-  const create = async (id: string): Promise<StartResult<JsonValue>> => {
+  const create = async (id: string): Promise<StartResult<JsonValue> | undefined> => {
     let run: Run;
     try {
       run = await createRun(found.runRoot, {
@@ -75,6 +76,8 @@ export async function start(
         file: found.file,
       });
     } catch (error) {
+      // A generated id an `awf run` took meanwhile, which takes no lock: drawn again.
+      if (named === undefined && error instanceof RunTaken) return undefined;
       // An id taken in another case is the caller's; a disk that fails is not.
       if (error instanceof RunRefused)
         throw new ClientError("id", messageOf(error), `${name}/${id}`);
@@ -101,7 +104,8 @@ export async function start(
       if (made) return made;
     }
   return withRunLock(runLockFile(found.runRoot, name, id), async () => {
-    if (!(await exists(join(found.runRoot, name, id, "run.json")))) return create(id);
+    // Named, so never drawn again: create returns a result or throws.
+    if (!(await exists(join(found.runRoot, name, id, "run.json")))) return (await create(id))!;
     const run = await openRun(found.runRoot, name, id);
     if (run.record.id !== id)
       throw new ClientError("id", `${ref} differs only in case from ${run.record.id}`, ref);
@@ -305,7 +309,9 @@ async function waitFor(
       const ending = await endingOf(run, rested);
       return { state, final: isFinal(state, events), ...(ending ? { ending } : {}) };
     }
-    if (launchFailed) return { state: "interrupted", final: isFinal("interrupted", events) };
+    // Unless an attempt has started since, by a sender that launched it again.
+    if (launchFailed && !attempts.some((attempt) => attempt.attempt >= watching))
+      return { state: "interrupted", final: isFinal("interrupted", events) };
   }
 }
 

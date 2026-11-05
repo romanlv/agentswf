@@ -95,7 +95,7 @@ bun add -g agentswf
 ```
 
 A folder `awf init` set up has its own `agentswf`, and that is what runs its workflows: the global
-`awf` hands each command there over to it, with a warning when the two versions differ. Update it
+`awf`, run in that folder at another version, warns and hands the command over to it. Update it
 in the folder, then run the `check` and `test` scripts [`awf init`](/guide/quick-start) wrote:
 
 ```sh

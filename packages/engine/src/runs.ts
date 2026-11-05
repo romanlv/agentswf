@@ -123,7 +123,8 @@ export async function createRun(
   }
 }
 
-class RunTaken extends RunRefused {}
+/** The id is a run's already, maybe in another case. */
+export class RunTaken extends RunRefused {}
 
 async function claimRun(
   root: string,
