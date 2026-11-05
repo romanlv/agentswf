@@ -70,6 +70,7 @@ write one.
 | `approval-reminders/` | a doc waits for approval, with a reminder an agent drafts on a timer, until it is approved or expires | [People](../site/guide/people.md), [Events](../site/guide/events.md) |
 | `nudges/` | a question for a person, nudging on a schedule kept in a file, until it is answered | [Timers](../site/guide/timers.md) |
 | `keep-alive/` | a claude kept alive between events, compacted when its window passes, woken by the next | [People](../site/guide/people.md) |
+| `programs/` | a Bun program drives runs through `agentswf/client`: it sends each term to a glossary's run, relays what the run posts, closes it, then starts a plain run with the definitions as args and waits for it. `bun examples/programs/desk.driver.ts idempotent backpressure`; codex on a cheap model, a cent or two | [Programs](../site/guide/programs.md) |
 
 ### For awf's own checks
 

@@ -1084,6 +1084,15 @@ One reviewer, on rounds 3 and 4: clean. Left, older than both: a workspace root 
 read, shows `tick --all` no event runs, so they are passed over silently; it needs a record-format
 bump between the two versions.
 
+### A runnable example, 2026-11-05
+
+Asked for in review: `examples/programs/`, a program a reader can run. `desk.driver.ts` sends
+each term to a `glossary` run, waits for it to park and relays its post from `inbox()`, closes it,
+then `start`s `glossary-summary` with the definitions as args and waits until final. Its test runs
+the handlers on `fakeClient`. Live, on codex `gpt-6-luna`, `idempotent backpressure`: three
+attempts of the glossary, each term `continued` from parked, both definitions relayed, the summary
+completed; under $0.01 a run.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.
