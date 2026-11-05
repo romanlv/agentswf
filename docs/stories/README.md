@@ -171,6 +171,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — a run's folder gets the run-record design's layout: `run.jsonl` with a
   published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
   ends.
+- [[043-json-refusals|043 — Every --json command says why it failed, as a document]] —
+  `ready` — with `--json`, stdout always ends with one document, the result or a refusal from a
+  published code set, the words `agentswf/client` throws; a test across every command keeps it so.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

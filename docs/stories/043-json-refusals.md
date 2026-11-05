@@ -1,0 +1,430 @@
+---
+id: "043"
+title: "Every --json command says why it failed, as a document"
+summary: "With --json, stdout always ends with one document: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
+type: story
+status: ready
+depends_on: ["040"]
+---
+
+# Every --json command says why it failed, as a document
+
+## Outcome
+
+A program that runs `awf {command} --json` reads one document from stdout whatever happened.
+When the command worked, the document is its result. When it failed, the document is a refusal,
+`{"v": …, "code": …, "error": …}`, whose `code` comes from a table the contract publishes. The
+exit codes stay as they are, and stderr stays for people.
+
+The refusal codes are the words `agentswf/client` throws as `ClientError.code`, so a program
+reaching runs by the CLI and one using the client handle the same failure the same way.
+
+A test runs every `--json` command into its failures and checks that each prints a refusal. A new
+command, or a new failure path in an old one, fails `bun test`, not a host in production.
+
+**Why now.** On 2026-11-05 awf-chat moved its replies to a run's code from the deprecated
+`awf send --event-id` to `awf emit {run} {key}:reply`, the replacement the deprecation names.
+`send --json` printed `{"v":2,"code":"not-found",…}` for a run that isn't there. `emit --json`
+prints nothing on stdout and a line on stderr. So the host had to read the exit code and parse
+stderr, and still can't tell "no such run" from "the workflow won't load": both exit 1. The
+replacement offered less than what it replaced, and nothing said so until an agent ran into it.
+The datadog watcher's `awf-issues.md`, outside this repository, records it. The `--json`
+outputs are what hosts are built on. Fixing them now, while agents.wf is in evaluation, costs a
+story. After that, it costs a deprecation cycle per command.
+
+## How it works
+
+```text
+awf {command} … --json
+        │
+        ├─ worked ─────────▶ stdout: {"v":1, …the command's result…}             exit 0
+        │
+        └─ failed ─────────▶ stdout: {"v":1, "code":"no-run", "error":"no run review-mr/7 here…"}
+                             stderr: awf: no run review-mr/7 here…   (unchanged, for people)
+                             exit 1, 2 or 3, as the command's help says, unchanged
+```
+
+**One document, always last.** A command that prints lines, as `awf inbox --json` does, ends
+with its refusal as the last line. A reader takes the last line, as awf-chat already does.
+
+**`code` means refused.** A document with `code` is a refusal, and no result has `code`. A reader
+checks for it first, then reads the result. The exit code doesn't tell them apart: `emit` exits 1
+with a full result when the run's attempt didn't launch.
+
+**One `v` per command.** A refusal carries its command's `v`, the same number as the command's
+results, and both move together under the rule `awf.md` already states.
+
+**One set of words.** A code means the same thing in every command that prints it, and the client
+throws the same word for the same failure.
+
+**Usage errors too.** `awf emit --json` with no run named prints `{"code":"usage",…}` and exits 2.
+`--json` anywhere in the argv counts, even when the rest can't be parsed.
+
+## Scope
+
+In scope:
+
+- The rule, in the JSON section of `site/reference/awf.md`, and in each `--json` help line.
+- `RefusalJson` and the code table in `contract`, with `InboxErrorJson` and
+  `ParticipantResultJson`'s refusal folded into it.
+- Every `--json` command brought into line: `emit`, `runs`, `logs`, `tick`, `run`, `allowance`;
+  the usage errors and exit 3 of `reply`, `send` and `inbox`; and `hand-over.ts`'s broken
+  install.
+- The holder commands on the shared words: `not-found` → `no-run`, `bad-cursor` → `cursor`, and
+  `reply`/`send`'s success without `code`.
+- The client's `start` throwing `not-started` where `awf run` refuses with it.
+- A test across every `--json` command that runs it into each failure it documents.
+- awf-chat on the new outputs: `toCode`, `holderCommand`, `inbox`, `parseLine`, `watch.ts`, and
+  the `delivered` matches in `presenter.ts` and `ledger.ts`.
+
+Out of scope:
+
+- Human output without `--json`: unchanged.
+- Exit codes: unchanged. A host may keep reading them.
+- `wfa`'s refusals: the agent's wire has its own envelope and codes, and already reports every
+  failure.
+- An older engine a project installs. The global `awf` hands over to it, and it prints what it
+  always printed. A host still treats an empty stdout as a failure it can only read from stderr.
+- New result fields for any command.
+
+## Context and evidence
+
+- Fact: probed 2026-11-05 against the working tree, in an empty folder:
+
+  | Command | Failure | stdout | exit |
+  | --- | --- | --- | --- |
+  | `reply`, `send` | no such run | `{"v":2,"code":"not-found",…}` | 1 |
+  | `inbox` | no such run, bad cursor | `{"v":1,"code":"not-found" \| "bad-cursor",…}` | 1 |
+  | `reply` | usage | nothing | 2 |
+  | `emit` | no such run, file not found | nothing | 1 |
+  | `emit` | usage | nothing | 2 |
+  | `runs {run}`, `logs {run}` | no such run | nothing | 1 |
+  | `tick`, `runs`, `allowance` | usage | nothing | 2 |
+  | `run` | workflow file not found | nothing | 2 |
+
+  The holder commands kept the rule because a host was built on them first; the rest never had
+  it.
+- Fact: `reply` and `send` exit 3 through `failed` in `run-commands.ts` when the run's files
+  can't be read or the run doesn't answer, with a line on stderr only.
+- Fact: `emit-command.ts` prints every failure as `awf: {message}` on stderr and returns 1, or 2
+  for an `EmitError`. It has done so since `478d7fa` (039 task 7). Not a regression; the rule was
+  never written.
+- Fact: `emit` exits 1 with a full `EmitResultJson` for `launch-failed`, and that result has an
+  `error` field. Neither the exit code nor `error` tells a refusal from a result.
+- Fact: `ParticipantResultJson` uses `code` for success too: `{v: 2, code: "delivered", id}`.
+- Fact: the code sets disagree. `PARTICIPANT_CODES` and `INBOX_CODES` in `contract/src/wire.ts`
+  say `not-found` and `bad-cursor`; `ClientErrorCode` in `contract/src/client.ts` says `no-run`
+  and `cursor`.
+- Fact: `awf run --json` prints the run's `out.json` once a run exists, failed or not. Before
+  that it fails with no run and prints nothing: a file that isn't a workflow or names a run, a
+  workflow that won't load or refuses its arguments (`loadAndPrepare`), a `--run-root` holding
+  the sandboxes folder, a `--session` that can't be taken, Ctrl-C before the start, and a claimed
+  run discarded before its agents started.
+- Fact: `hand-over.ts` reports a broken project install on stderr before any engine code runs.
+- Fact: the JSON section of `site/reference/awf.md` describes `"v"` and nothing else. The helps
+  for `runs`, `tick` and `allowance` say "--json prints one document", which a failure breaks.
+- Constraint: `"v"` changes when a field is renamed or removed, and a renamed code counts: `stopped`
+  → `peer-stopped` moved `reply`/`send` to 2. A refusal where nothing was printed changes no
+  `v`.
+- Constraint: beta, no compatibility: a better shape replaces the shipped one, with no shim.
+- Assumption: no host but awf-chat reads these outputs. It matches `delivered` in
+  `presenter.ts` and `ledger.ts`, `bad-cursor` in `watch.ts`, and `v === 1` for inbox items in
+  `parseLine`.
+
+## Code map
+
+### contract
+
+- `src/records.ts`: `ParticipantResultJson`, `InboxErrorJson`, `EmitResultJson`. They gain
+  `RefusalJson<Code>`, and each command's output type becomes `Result | RefusalJson<…>`.
+- `src/wire.ts`: `PARTICIPANT_CODES`, `INBOX_CODES`, renamed to the shared words.
+- `src/client.ts`: `ClientErrorCode`, the source of the shared words; gains `not-started`.
+
+### engine
+
+- `src/emit-command.ts`: the two `out.stderr` returns; `printEmit`.
+- `src/runs-command.ts`, `src/logs-command.ts`, `src/tick-command.ts`,
+  `src/allowance-command.ts`: each command's failure returns.
+- `src/operator-cli.ts`: `awf run`'s pre-run failures (`runNamed`, `loadAndPrepare`'s refusal,
+  the run-root check, `takeCaller`, `cancelledBeforeStart`, `endUnstarted`); dispatch and usage
+  errors, printed once for every command.
+- `src/run-commands.ts`: `failed`, exit 3 for the holder commands.
+- `src/holder-command.ts` (`refused`), `src/inbox-command.ts` (`refuse`): the two helpers that
+  print refusals today; they become the shared one.
+- `src/hand-over.ts`: the broken-install line.
+- `src/client/index.ts`, `src/client/locate.ts`, `src/client/runs.ts`: map engine errors to
+  `ClientError`. The CLI uses the same mapping.
+- `src/help/*.txt`: each `--json` line; `reply.txt` covers `send`.
+- Tests: `emit.test.ts`, `runs-command.test.ts`, `logs-command.test.ts`,
+  `inbox-command.test.ts`, `operator-cli.test.ts`, `client/client.test.ts`. The guard sits
+  beside `commands.test.ts`.
+
+### site
+
+- `site/reference/awf.md`: the JSON section, the code table, and each command's codes.
+- `site/reference/client-api.md`: `ClientError`'s codes, now also the CLI's.
+
+### Hosts
+
+- `~/dev/braintrust/awf-chat/src/awf/cli-holder.ts`: `toCode` reads `emit`'s refusal;
+  `holderCommand` and `inbox` read the renamed codes and the new success shape; `parseLine`'s
+  `v`.
+- `~/dev/braintrust/awf-chat/src/awf/watch.ts`: `bad-cursor` → `cursor`.
+- `~/dev/braintrust/awf-chat/src/core/presenter.ts`, `src/core/ledger.ts`: match
+  `code === "delivered"`; `HolderResult` in `src/core/ports.ts` takes the new success shape.
+
+## Design
+
+- **The rule.** With `--json`, stdout ends with exactly one JSON document: the result, or a
+  `RefusalJson`. No `--json` command exits with nothing on stdout.
+- **The shape.** `RefusalJson<Code> = { v; code: Code; error: string } & extras`. `error` is the
+  sentence stderr prints, without `awf: `. A code with extra data declares it, as `ambiguous`
+  does `choices`.
+- **The discriminant.** `code` marks a refusal; no result carries it. `reply` and `send`'s
+  success drops `code: "delivered"` and becomes `{v: 3, id}`, in the same `v` bump as the
+  renames. `emit`'s `outcome: "refused"` stays a result: the run refused the event, the command
+  did not fail.
+- **`v`.** A refusal carries its command's `v`. `reply`/`send` go to 3, and `inbox` to 2,
+  items and refusals alike. Every other command keeps its `v`.
+- **The codes.** One table, each code with one meaning:
+
+  | Code | Meaning | Printed by |
+  | --- | --- | --- |
+  | `usage` | the argv can't be parsed, or its options clash | every command |
+  | `no-run` | no such run | `emit`, `runs`, `logs`, `reply`, `send`, `inbox`; client |
+  | `file` | the workflow file is missing or isn't a loadable workflow | `emit`, `run`, `tick`; client |
+  | `event` | an event name or data the workflow doesn't take | `emit`; client |
+  | `id` | an event id that isn't one | `emit`; client |
+  | `prepare` | the workflow refuses its arguments or options | `run`; client |
+  | `not-started` | a run that never started: Ctrl-C, a session not taken, a claim discarded | `run`; client |
+  | `unreachable` | the run's files can't be read, or it doesn't answer | `reply`, `send`, `inbox` |
+  | `cursor` | a cursor that isn't one | `inbox`; client |
+  | `no-engine`, `other-engine`, `project` | the project's engine, as the client says today | hand-over; client |
+
+  Plus the participant codes only `reply` and `send` have: `no-participant`, `ended`,
+  `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
+  codes it prints. Task plans may find a failure the table lacks; it gets a row, not a
+  command-local word.
+- **One mapping.** The function that turns an engine error into a `ClientError` code also gives
+  the CLI's refusal code, so the CLI and the client can't drift.
+- **The guard.** A table-driven test lists every `--json` command and, for each, a failing argv
+  per documented failure. It checks that the last stdout line parses as a `RefusalJson` whose
+  `code` is in that command's set. A second check compares the table with `commands.ts`, so a
+  new `--json` command can't be left out. Task 1 writes it whole, with a list of rows known to
+  print nothing; each later task empties its rows from the list, and the last removes it.
+
+Alternatives rejected:
+
+- Fix `emit` only. The next host is written against another command and meets the same thing;
+  the rule has to be stated and enforced, not repaired one command at a time.
+- Refusals on stderr as JSON. Hosts read stdout for `--json`, and stderr holds deprecation lines
+  and other notes. Two streams to parse is the problem this story removes.
+- The reason in the exit code alone. Exit codes are coarse by design: 1 covers no run, a workflow
+  that won't load, and a failed launch.
+- A JSON stream with a separate error event. One last document is what hosts read today, and a
+  stream adds a format for no reader.
+- A fake `out.json` when `awf run` makes no run. The reader keeps one shape but gets a run id
+  `awf runs` can't find, a spend of zero, and an ending no run had.
+- A `v` of its own for `RefusalJson`. A command's output would then carry two version numbers,
+  and a reader would track both.
+- Telling refusals apart by `"code" in doc && doc.code !== "delivered"`. Every reader would carry
+  `reply`/`send`'s exception, for a `v` bump those commands take anyway.
+
+## Tasks at a glance
+
+- [ ] 1. The contract, the code table, the shared mapping, the reference, and the guard
+- [ ] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
+- [ ] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and the hand-over
+- [ ] 4. `awf run` refuses when no run comes of it, and the client says `not-started`
+- [ ] 5. The holder commands on the shared words, and awf-chat with them
+
+## Open questions
+
+None. Decided with the human on 2026-11-05:
+
+- Q1. `no-run` replaces `not-found`.
+- Q2. A usage error is a refusal, `usage`; `--json` anywhere in the argv counts.
+- Q3. `awf run --json` refuses when no run comes of it, with `file`, `prepare`, `usage` or
+  `not-started`, rather than printing an `out.json` with no run behind it.
+- Q4. `code` marks a refusal, and no result carries it; `reply`/`send`'s success drops
+  `code: "delivered"`.
+- Q5. A refusal carries its command's `v`.
+
+## To measure
+
+None.
+
+## Task execution rule
+
+Process one task at a time. Every task repeats the checklist shown under its details. Do not begin
+the next task because the current implementation merely compiles: its design must be recorded, its
+diff reviewed by subagents, findings resolved, and focused verification complete.
+
+After all tasks are complete, run story-level verification and request human review of the complete
+deliverable.
+
+## Task details
+
+### 1. The contract, the code table, the shared mapping, the reference, and the guard
+
+Outcome: the contract publishes `RefusalJson` and the code table, the client throws through the
+shared mapping, the reference states the rule, and the guard runs with every silent row listed.
+
+Execution:
+
+- [ ] Plan: where the codes live (`wire.ts` or `records.ts`); each command's code set; the
+  guard's rows, one per failure in the probe table and each help's exit line.
+- [ ] Implement: the types; the mapping, used by the client first; the JSON section and code
+  table in `awf.md`; the guard and its known-silent list.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: `bun test`, `bunx tsc --noEmit`; the client's tests pass unchanged; the guard
+  passes with the list, and fails when a row is taken off it.
+
+Done when:
+
+- The client throws the same codes through the shared mapping, the reference states the rule,
+  and the guard names every row that still prints nothing.
+
+### 2. `emit` refuses as a document
+
+Outcome: `awf emit --json` prints a refusal for every failure, in both forms, and awf-chat's
+`toCode` reads it.
+
+Execution:
+
+- [ ] Plan: every failure path of `emitEvent`, `emitToRun` and the argv parse, and its code.
+- [ ] Implement: the refusals and `emit.txt`; awf-chat's `CliHolder.toCode`, reading `code`
+  instead of stderr, and its test.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: `emit.test.ts` covers each code; `emit`'s rows leave the guard's list; awf-chat's
+  `bun run check` and `bun test` pass.
+
+Done when:
+
+- Each documented failure of `awf emit --json` prints its refusal, and awf-chat no longer parses
+  stderr.
+
+### 3. `runs`, `logs`, `tick`, `allowance`, usage errors, and the hand-over
+
+Outcome: these commands refuse as documents; every usage error does, printed once where
+`operator-cli.ts` dispatches; a broken install prints `no-engine` with `--json`.
+
+Execution:
+
+- [ ] Plan: each command's failure paths and codes; how dispatch knows `--json` before parsing.
+- [ ] Implement: the refusals and each help's `--json` line; `hand-over.ts`.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: each command's test covers its codes; their rows leave the guard's list.
+
+Done when:
+
+- Every row of the probe table but `run`'s and the holder commands' shows a document.
+
+### 4. `awf run` refuses when no run comes of it
+
+Outcome: each pre-run failure of `awf run --json` prints a refusal; the client's `start` throws
+`not-started` for the same cases.
+
+Execution:
+
+- [ ] Plan: map each failure under "Context and evidence" to `file`, `prepare`, `usage` or
+  `not-started`; which of them the client's `start` can meet.
+- [ ] Implement: the refusals in `operator-cli.ts`, `run.txt`, `not-started` in
+  `ClientErrorCode` and the client.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: `operator-cli.test.ts` and `client.test.ts` cover each code; a run that does start
+  and fails still prints its `out.json`; `run`'s rows leave the guard's list.
+
+Done when:
+
+- `awf run --json` prints a document whether or not a run came of it.
+
+### 5. The holder commands on the shared words
+
+Outcome: `reply`, `send` and `inbox` print the shared codes and refuse on exit 2 and 3; their
+`v` moves; awf-chat reads them; the guard's list is gone.
+
+Execution:
+
+- [ ] Plan: the renames, the success shape, the `v` bumps, and every awf-chat match on them.
+- [ ] Implement: `not-found` → `no-run`, `bad-cursor` → `cursor`, `unreachable` from `failed`,
+  `reply`/`send` success `{v: 3, id}`, `inbox` `v: 2`; `reply.txt`, `inbox.txt`, `awf.md`'s
+  JSON section; awf-chat's `HolderResult`, `holderCommand`, `inbox`, `parseLine`, `watch.ts`,
+  `presenter.ts`, `ledger.ts` and its fixtures.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the guard passes with no list; deleting one refusal from any command fails it;
+  awf-chat's `bun run check` and `bun test` pass.
+
+Done when:
+
+- The guard fails for a command with a silent failure, and for a `--json` command missing from
+  its table.
+
+## Verification
+
+Automated:
+
+- [ ] The guard: every `--json` command, every documented failure, a refusal on stdout's last line.
+- [ ] `bun test`
+- [ ] `bunx tsc --noEmit`
+- [ ] `bun run scripts/check-boundaries.ts`
+- [ ] awf-chat: `bun run check` and `bun test`.
+
+Manual or live evaluation:
+
+- [ ] The probe in "Context and evidence", rerun: a document in every row. Free.
+- [ ] A Slack reply in a datadog-watcher thread to a case run that's gone shows awf-chat's ⚠️ with
+  the `no-run` refusal. Free.
+
+## Review record
+
+### Task 1
+
+- Architecture and scope:
+- Correctness and proof:
+
+### Task 2
+
+- Architecture and scope:
+- Correctness and proof:
+
+### Task 3
+
+- Architecture and scope:
+- Correctness and proof:
+
+### Task 4
+
+- Architecture and scope:
+- Correctness and proof:
+
+### Task 5
+
+- Architecture and scope:
+- Correctness and proof:
+
+## Readiness
+
+- [x] Outcome and boundaries are concrete.
+- [x] Relevant implementation, callers, and tests are mapped.
+- [x] Evidence and research support the proposed design.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: Q1–Q5.
+- [x] Tasks are ordered, coherent, and independently verifiable.
+- [x] Open questions are resolved or explicitly moved out of scope.
+
+## Implementation notes
+
+## Human review
+
+- [ ] Every task is complete and story-level verification passes.
+- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+  decisions, task-level subagent findings and dispositions, exact verification results, deviations,
+  and remaining risks.
+- [ ] Record the human's explicit approval or requested changes here.
+- [ ] If changes are requested, return to the affected task and repeat its review and verification.
+- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
