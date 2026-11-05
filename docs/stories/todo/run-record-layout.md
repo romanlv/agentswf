@@ -37,9 +37,15 @@ a time. Measured on 2026-11-04 against the code:
 7. **Records and scratch share the folder:** `agents/`, `staging/`, `forks/` and `skills/`.
 
 The proposal, in one line each: `run.json` identity; `run.jsonl` what the run settled, one writer,
-fenced by attempt; `events.jsonl` what came in, under the lock; `attempts/` claims and endings, a
-failed launch included; `log.jsonl` the story, never read to act; `operations/{id}/` one folder per turn or
-decision, with its measured spend; `output.json` and `report.md` views; `work/` scratch.
+fenced by attempt; `in.jsonl` what came in, under the lock; `attempts/` claims and endings, a
+failed launch included; `log.jsonl` the story, never read to act; `ops/{op}/` one folder per turn,
+compaction or decision, with its measured spend, named `{agent}.{n}` or `{decision}.{n}`; `out.json`
+and `report.md` views; `work/` scratch.
+
+Short names were settled on 2026-11-04: `ops/`, `op.json`, `answers.jsonl`, `live.jsonl`,
+`screen.txt`, `in.jsonl`, `out.json`, and op ids from the agent's or decision's key and a count, in
+place of a UUID. That makes agent and decision keys names, as events and stages are, and one
+namespace between them.
 
 Notes:
 
@@ -49,7 +55,7 @@ Notes:
   through a deprecation. 039's line 723 should commit to the event *names*, not the mailbox's record
   kinds.
 - **Homes for other todos**: [[workflow-state]]'s record format (`state` on a wait or stage line),
-  [[non-answered-evidence]] (`operations/{id}/evidence/`), [[interrupted-accounting-read]]
+  [[non-answered-evidence]] (`ops/{op}/screen.txt`, built today in `calls/{operationId}/`), [[interrupted-accounting-read]]
   (`spend.json` settled by the next attempt), [[crash-leftovers-reaper]] (the attempt file).
 - **Amends ADR 0011**'s "Persistence" paragraph; needs an ADR of its own when accepted.
 - After acceptance: `site/reference/data.md`, `runs-and-stages.md`'s "State on disk", and

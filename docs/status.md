@@ -33,6 +33,9 @@ exists, the code is right, then this page.
   shows one in depth; `awf logs` reads its event log, `turns.jsonl`, merged with what each agent did,
   read from its own claude, codex or pi session files (cursor's cannot be read from an offset), bounded, with a cursor, `--wait`, `--follow`,
   one event `--full`, and `--json`.
+- A pane turn, message operation or compaction that ends without an answer, or whose agent fails to
+  start, keeps what the pane showed in `calls/{operationId}/screen.txt`, and `awf logs` names it on
+  the turn's line ([`non-answered-evidence`](stories/todo/non-answered-evidence.md)).
 - Each agent answers through `wfa result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema. Quiet agents receive
   recovery prompts; supported Claude TUI agents can declare waiting and take repeated check-ins within
@@ -288,8 +291,9 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 
 - [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go
   on, and can keep its agent open for a person to finish the step.
-- [`non-answered-evidence`](stories/todo/non-answered-evidence.md): a turn that didn't answer keeps
-  its screen, so a misread `blocked` can be told apart.
+- [`non-answered-evidence`](stories/todo/non-answered-evidence.md): the screen is kept (built
+  2026-11-04); left are checking that a failed start's screen and Herdr's start errors carry no
+  credential (M1, M2), and whether `awf run`'s closing block names the screen.
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
 - [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
