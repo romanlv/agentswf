@@ -1,13 +1,19 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { Activity, RunLogLine } from "@agentswf/contract/records";
+import type { Activity, RunLine, RunLogLine } from "@agentswf/contract/records";
 import type { AgentKey, HarnessKind } from "@agentswf/contract/workflow";
 import { findHarness, harnessState, readActivity } from "@agentswf/harness";
+import { messageOf } from "./errors";
+import { readRunLines } from "./run-lines";
+import { unfenced } from "./run-policy/waits";
 import { readNumberedEvents } from "./runs";
 
+/** An agent's native session, as `run.jsonl` records it. */
+export type SessionLine = Extract<RunLine, { kind: "session" }>;
+
 /**
- * A native session the run's log names, numbered by the line that first named it, so a session
- * named later never renumbers the others. Its files are found under its agent's home and working
+ * A native session `run.jsonl` names, numbered by the line that first named it, so a session named
+ * later never renumbers the others. Its files are found under its agent's home and working
  * directory: a sandbox's, for an agent in one.
  */
 export type NativeSession = {
@@ -15,6 +21,8 @@ export type NativeSession = {
   harness: HarnessKind;
   id: string;
   agent?: AgentKey;
+  /** The home its line names, for an agent whose opening the log lost. */
+  home?: string;
 };
 
 /** A span of time, open while it has no end. */
@@ -36,8 +44,14 @@ export type RunAgent = {
 
 export type RunLog = {
   lines: { number: number; line: RunLogLine }[];
+  /** `run.jsonl`'s lines that first name a session, each with its line number there, from 1. */
+  named: { number: number; line: SessionLine }[];
+  /** How many complete lines `run.jsonl` has: where a read of it stopped. */
+  runLines: number;
   sessions: NativeSession[];
   agents: Map<AgentKey, RunAgent>;
+  /** Why `run.jsonl` could not be read, so no session is known. */
+  unreadSessions?: string;
 };
 
 /** `ended`: no attempt is running, so a span still open on the calling session ended with it. */
@@ -45,10 +59,26 @@ export async function readRunLog(
   runDir: string,
   options: { ended?: boolean } = {},
 ): Promise<RunLog> {
-  const lines = await readNumberedEvents(runDir);
+  const [lines, recorded] = await Promise.all([
+    readNumberedEvents(runDir),
+    readRunLines(runDir).then(
+      ({ lines }) => {
+        const kept = new Set(unfenced(lines));
+        const sessions = lines.flatMap((line, index) =>
+          line.kind === "session" && kept.has(line) ? [{ number: index + 1, line }] : [],
+        );
+        return { sessions, count: lines.length };
+      },
+      (error: unknown) => ({
+        sessions: [] as { number: number; line: SessionLine }[],
+        count: 0,
+        unread: messageOf(error),
+      }),
+    ),
+  ]);
+  const named: RunLog["named"] = [];
   const sessions: NativeSession[] = [];
   const agents = new Map<AgentKey, RunAgent>();
-  const agentOf = new Map<string, AgentKey>();
   const agent = (key: AgentKey) => {
     const found = agents.get(key) ?? { key, caller: false, operations: [], windows: [] };
     agents.set(key, found);
@@ -58,14 +88,21 @@ export async function readRunLog(
     if (held.windows.at(-1)?.to === undefined && held.windows.length > 0) return;
     held.windows.push({ from });
   };
-  const name = (harness: HarnessKind, id: string, key?: AgentKey) => {
-    const known = sessions.find((each) => each.harness === harness && each.id === id);
-    if (known) {
-      if (key && !known.agent) known.agent = key;
-      return;
+  // Each session's agent is on its line; which of its activity is the run's, its agent's operations
+  // and windows below say.
+  for (const { number, line } of recorded.sessions) {
+    if (sessions.some((each) => each.harness === line.harness && each.id === line.session)) {
+      continue;
     }
-    sessions.push({ n: sessions.length + 1, harness, id, ...(key ? { agent: key } : {}) });
-  };
+    named.push({ number, line });
+    sessions.push({
+      n: sessions.length + 1,
+      harness: line.harness,
+      id: line.session,
+      agent: line.agent,
+      ...(line.home === undefined ? {} : { home: line.home }),
+    });
+  }
   // An attempt that died left its spans open. An agent's end where the next attempt begins; the
   // calling session's at the dead attempt's last line, past which its file is the operator's.
   let attempt: number | undefined;
@@ -107,13 +144,6 @@ export async function readRunLog(
         const from = Date.parse(line.deliveredAt ?? line.at);
         if (!started.caller) open(started, from);
         started.operations.push({ id: line.operationId, from });
-        agentOf.set(line.operationId, line.agent);
-        for (const session of line.sessions) name(session.harness, session.id, line.agent);
-        break;
-      }
-      case "session-known": {
-        const key = line.agent ?? (line.operationId ? agentOf.get(line.operationId) : undefined);
-        name(line.session.harness, line.session.id, key);
         break;
       }
       case "turn":
@@ -129,7 +159,6 @@ export async function readRunLog(
           if (!settled.caller) open(settled, from);
           settled.operations.push({ id: line.operationId, from, to: to ?? at });
         }
-        for (const session of line.sessions) name(session.harness, session.id, line.agent);
         break;
       }
       case "operation-failed": {
@@ -145,7 +174,14 @@ export async function readRunLog(
     }
   }
   if (options.ended && lastAt !== undefined) closeAll(Number.POSITIVE_INFINITY, lastAt);
-  return { lines, sessions, agents };
+  return {
+    lines,
+    named,
+    runLines: recorded.count,
+    sessions,
+    agents,
+    ...("unread" in recorded ? { unreadSessions: recorded.unread } : {}),
+  };
 }
 
 const within = (span: Span, at: number) =>
@@ -188,7 +224,9 @@ async function sessionFiles(
   const spec = findHarness(session.harness);
   if (!spec?.sessionFiles || !spec.activityRow) return [];
   const home =
-    agent?.home ?? harnessState()[session.harness as keyof ReturnType<typeof harnessState>];
+    agent?.home ??
+    session.home ??
+    harnessState()[session.harness as keyof ReturnType<typeof harnessState>];
   if (!home) return [];
   const found = await spec
     .sessionFiles(home, session.id, agent?.cwd ?? runCwd)
@@ -206,27 +244,33 @@ async function sessionFiles(
 }
 
 /**
- * Where a read stopped: the event log's last line number, and each native file's byte offset.
- * Opaque to its holder, who copies it back; versioned, so a later awf can refuse an old one.
+ * Where a read stopped: the event log's last line number, `run.jsonl`'s, and each native file's
+ * byte offset. Opaque to its holder, who copies it back; versioned, so a later awf can refuse an
+ * old one.
  */
-export type Cursor = { log: number; files: Record<string, number> };
+export type Cursor = { log: number; run: number; files: Record<string, number> };
+
+/** A read from the start. */
+export const START: Cursor = Object.freeze({ log: 0, run: 0, files: Object.freeze({}) });
 
 export function encodeCursor(cursor: Cursor): string {
-  return `c1.${Buffer.from(JSON.stringify([cursor.log, cursor.files])).toString("base64url")}`;
+  const fields = [cursor.log, cursor.run, cursor.files];
+  return `c2.${Buffer.from(JSON.stringify(fields)).toString("base64url")}`;
 }
 
 export function decodeCursor(text: string): Cursor | undefined {
-  if (!text.startsWith("c1.")) return undefined;
+  if (!text.startsWith("c2.")) return undefined;
   try {
-    const [log, files] = JSON.parse(Buffer.from(text.slice(3), "base64url").toString("utf8"));
-    if (!Number.isSafeInteger(log) || log < 0 || typeof files !== "object" || files === null) {
+    const [log, run, files] = JSON.parse(Buffer.from(text.slice(3), "base64url").toString("utf8"));
+    const line = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
+    if (!line(log) || !line(run) || typeof files !== "object" || files === null) {
       return undefined;
     }
     const offsets = Object.entries(files as Record<string, unknown>);
     if (!offsets.every(([, offset]) => Number.isSafeInteger(offset) && (offset as number) >= 0)) {
       return undefined;
     }
-    return { log, files: Object.fromEntries(offsets) as Record<string, number> };
+    return { log, run, files: Object.fromEntries(offsets) as Record<string, number> };
   } catch {
     return undefined;
   }
@@ -237,13 +281,15 @@ function fileName(file: Pick<SessionFile, "session" | "key">): string {
   return `a${file.session.n}${file.key ? `-${file.key}` : ""}`;
 }
 
-/** An event's handle: its line in the log, or its file and its place in that file. */
+/** An event's handle: its line in the log or in `run.jsonl`, or its file and its place in that file. */
 export type Handle =
   | { kind: "event"; line: number }
+  | { kind: "run"; line: number }
   | { kind: "activity"; file: string; offset: number; index: number };
 
 export function encodeHandle(handle: Handle): string {
   if (handle.kind === "event") return `e${handle.line}`;
+  if (handle.kind === "run") return `r${handle.line}`;
   const index = handle.index > 0 ? `.${handle.index}` : "";
   return `${handle.file}.${handle.offset.toString(16)}${index}`;
 }
@@ -252,6 +298,8 @@ export function decodeHandle(text: string): Handle | undefined {
   const plain = text.startsWith("@") ? text.slice(1) : text;
   const event = /^e([1-9]\d*)$/.exec(plain);
   if (event) return { kind: "event", line: Number(event[1]) };
+  const run = /^r([1-9]\d*)$/.exec(plain);
+  if (run) return { kind: "run", line: Number(run[1]) };
   const activity = /^(a[1-9]\d*(?:-[0-9a-f]{12})?)\.([0-9a-f]+)(?:\.([1-9]\d*))?$/.exec(plain);
   if (!activity) return undefined;
   return {
@@ -262,7 +310,10 @@ export function decodeHandle(text: string): Handle | undefined {
   };
 }
 
-/** One event of a read: a line of the log, or an agent's activity, with its handle. */
+/**
+ * One event of a read: a line of the log, a line of `run.jsonl` that first names a session, or an
+ * agent's activity, with its handle.
+ */
 export type ReadEvent = {
   handle: string;
   at: string;
@@ -270,6 +321,7 @@ export type ReadEvent = {
   time: number;
 } & (
   | { source: "log"; line: RunLogLine }
+  | { source: "run"; line: SessionLine }
   | {
       source: "activity";
       agent?: AgentKey;
@@ -280,13 +332,14 @@ export type ReadEvent = {
 );
 
 /**
- * Everything after `cursor`: the log's lines and each session's activity that is the run's, merged
- * by time. The cursor returned is where this read stopped, past nothing torn.
+ * Everything after `cursor`: the log's lines, the sessions `run.jsonl` names, and each session's
+ * activity that is the run's, merged by time. The cursor returned is where this read stopped, past
+ * nothing torn.
  */
 export async function readRun(
   runDir: string,
   runCwd: string,
-  cursor: Cursor = { log: 0, files: {} },
+  cursor: Cursor = START,
   options: {
     full?: boolean;
     ended?: boolean;
@@ -325,6 +378,20 @@ export async function readRun(
       line,
     });
   }
+  // As the log's, `run.jsonl`'s lines keep their order.
+  let since = Number.NEGATIVE_INFINITY;
+  for (const { number, line } of log.named) {
+    if (number <= cursor.run) continue;
+    since = Math.max(since, Date.parse(line.at) || since);
+    events.push({
+      handle: encodeHandle({ kind: "run", line: number }),
+      at: line.at,
+      time: since,
+      source: "run",
+      line,
+    });
+  }
+  const run = Math.max(cursor.run, log.runLines);
   const files = { ...cursor.files };
   // A pane's pi names its session twice, by id and by path: one file, read once.
   const seen = new Set<string>();
@@ -396,8 +463,8 @@ export async function readRun(
   events.sort((a, b) => a.time - b.time);
   const more = horizon < Number.POSITIVE_INFINITY;
   const beyond = events.findIndex((event) => event.time > horizon);
-  if (beyond < 0) return { events, cursor: { log: last, files }, log, cut, more };
-  const next = cutCursor(events, beyond, { log: last, files });
+  if (beyond < 0) return { events, cursor: { log: last, run, files }, log, cut, more };
+  const next = cutCursor(events, beyond, { log: last, run, files });
   return { events: events.slice(0, beyond), cursor: next, log, cut, more };
 }
 
@@ -406,10 +473,11 @@ export async function readRun(
  * time order and the log's lines in line order among them, so nothing shown is read again.
  */
 export function cutCursor(all: readonly ReadEvent[], cut: number, end: Cursor): Cursor {
-  const next: Cursor = { log: end.log, files: { ...end.files } };
+  const next: Cursor = { log: end.log, run: end.run, files: { ...end.files } };
   for (const event of all.slice(cut)) {
     const handle = decodeHandle(event.handle)!;
     if (handle.kind === "event") next.log = Math.min(next.log, handle.line - 1);
+    else if (handle.kind === "run") next.run = Math.min(next.run, handle.line - 1);
     else
       next.files[handle.file] = Math.min(next.files[handle.file] ?? handle.offset, handle.offset);
   }

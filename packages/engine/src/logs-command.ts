@@ -5,6 +5,7 @@ import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
+import { screenFile } from "./ops";
 import {
   clockTime,
   command,
@@ -31,11 +32,11 @@ import {
   type FileCache,
   type ReadEvent,
   readRun,
+  START,
   timeOf,
 } from "./run-read";
 import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
-import { screenFile } from "./runs";
 
 export const logsUsage = help.trimEnd();
 
@@ -110,8 +111,14 @@ export async function logsCommand(
     }
     const read = new Reader(status, after, clock, options.limit * 2, json);
     // Lines are numbered by their place in the file, past any that were skipped.
-    if (after && after.log > ((await read.next()).log.lines.at(-1)?.number ?? 0)) {
-      throw new DoesNotFit(`cursor ${options.after} does not fit this run; start again: ${again}`);
+    if (after) {
+      const { log } = await read.next();
+      const past = after.run > log.runLines && log.unreadSessions === undefined;
+      if (after.log > (log.lines.at(-1)?.number ?? 0) || past) {
+        throw new DoesNotFit(
+          `cursor ${options.after} does not fit this run; start again: ${again}`,
+        );
+      }
     }
     if (options.handle !== undefined) return await oneEvent(status, options, json, out, again);
     if (options.follow) return await follow(read, options, place, out, clock);
@@ -227,8 +234,9 @@ function operationPlaces(lines: readonly { line: RunLogLine }[]): Places {
 
 function agentOf(event: ReadEvent, places: Places): string | undefined {
   if (event.source === "activity") return event.agent;
+  if (event.source === "run") return event.line.agent;
   if ("agent" in event.line && event.line.agent) return event.line.agent;
-  // A session a headless turn named names its operation, and so its agent.
+  // A line that names only its operation, such as a message's delivery, is its operation's agent's.
   return "operationId" in event.line && event.line.operationId
     ? places.agent.get(event.line.operationId)
     : undefined;
@@ -238,12 +246,15 @@ function stageOf(event: ReadEvent, places: Places): string | undefined {
   if (event.source === "activity") {
     return event.operation ? places.stage.get(event.operation) : undefined;
   }
+  if (event.source === "run") {
+    return event.line.operation ? places.stage.get(event.line.operation) : undefined;
+  }
   return "stage" in event.line ? event.line.stage : undefined;
 }
 
 /** The agents a messaging line is between, so `--agent` follows it from either side. */
 function sidesOf(event: ReadEvent): readonly string[] {
-  if (event.source === "activity") return [];
+  if (event.source !== "log") return [];
   const { line } = event;
   switch (line.kind) {
     case "route-opened":
@@ -261,14 +272,32 @@ function sidesOf(event: ReadEvent): readonly string[] {
   }
 }
 
+/**
+ * The `run.jsonl` lines text leaves out: an agent's first session, which its opening and first turn
+ * already stand for, unless it is a fork's, made apart from any turn.
+ */
+function quietSessions(read: Read): Set<number> {
+  const forked = new Set<string>();
+  for (const { line } of read.log.lines) if (line.kind === "agent-forked") forked.add(line.agent);
+  const quiet = new Set<number>();
+  const seen = new Set<string>();
+  for (const { number, line } of read.log.named) {
+    if (!seen.has(line.agent) && !forked.has(line.agent)) quiet.add(number);
+    seen.add(line.agent);
+  }
+  return quiet;
+}
+
 function kept(read: Read, options: LogsOptions, json = false) {
   const stages = operationPlaces(read.log.lines);
+  const quiet = json ? new Set<number>() : quietSessions(read);
   const events = read.events.filter(
     (event) =>
+      !(event.source === "run" && quiet.has(decodeHandleLine(event.handle))) &&
       // A call that has ended shows on its end's line, with its input; `--json` keeps both.
       !(
         !json &&
-        event.source !== "activity" &&
+        event.source === "log" &&
         event.line.kind === "tool-called" &&
         stages.calls.get(event.line.call)?.ended
       ) &&
@@ -278,6 +307,11 @@ function kept(read: Read, options: LogsOptions, json = false) {
       (options.stage === undefined || stageOf(event, stages) === options.stage),
   );
   return { events, stages };
+}
+
+function decodeHandleLine(handle: string): number {
+  const decoded = decodeHandle(handle);
+  return decoded?.kind === "run" ? decoded.line : 0;
 }
 
 function sameLine(a: ReadEvent, b: ReadEvent): boolean {
@@ -380,6 +414,11 @@ async function page(
   const lines: string[] = [
     header(status, stage, lastAt ? Date.parse(timeOf(lastAt.line)) : undefined),
   ];
+  if (read.log.unreadSessions !== undefined) {
+    lines.push(
+      `note: run.jsonl could not be read, so no agent's activity shows: ${said(read.log.unreadSessions)}`,
+    );
+  }
   if (alsoRunning.length > 0) {
     const count = alsoRunning.length + (status.state === "running" ? 1 : 0);
     lines.push(`note: ${count} runs running; also ${alsoRunning.join(", ")}`);
@@ -388,7 +427,7 @@ async function page(
     const of = options.agent ? ` for ${options.agent}` : "";
     // A cut read has more than any --limit reaches: paging from the start reads it all.
     const more = read.cut
-      ? `from the start: ${shellLine([...command(place, "awf", "logs", status.ref), ...filters, "--after", encodeCursor({ log: 0, files: {} })])}`
+      ? `from the start: ${shellLine([...command(place, "awf", "logs", status.ref), ...filters, "--after", encodeCursor(START)])}`
       : "raise --limit for more";
     const total = read.cut ? `the last ${events.length} read` : `${events.length}`;
     lines.push(`(showing ${shown.length} of ${total}${of}; ${more})`);
@@ -450,16 +489,19 @@ async function oneEvent(
   const handle = decodeHandle(options.handle!);
   if (!handle) throw missing;
   // Read from where the handle points, and only its file.
+  const none = Number.MAX_SAFE_INTEGER;
   const read = await readRun(
     status.run.dir,
     status.run.record.cwd,
     handle.kind === "event"
-      ? { log: handle.line - 1, files: {} }
-      : { log: Number.MAX_SAFE_INTEGER, files: { [handle.file]: handle.offset } },
+      ? { log: handle.line - 1, run: none, files: {} }
+      : handle.kind === "run"
+        ? { log: none, run: handle.line - 1, files: {} }
+        : { log: none, run: none, files: { [handle.file]: handle.offset } },
     {
       ended: status.state !== "running",
       full: options.full || json,
-      only: handle.kind === "event" ? "" : handle.file,
+      only: handle.kind === "activity" ? handle.file : "",
     },
   );
   const stages = operationPlaces(read.log.lines);
@@ -478,7 +520,7 @@ async function oneEvent(
   const lines = [describeEvent(event, stages, screens)];
   if (options.full) {
     lines.unshift(
-      `(${event.source === "activity" ? "native text" : "the log's line"}; common credential shapes are masked)`,
+      `(${{ activity: "native text", log: "the log's line", run: "run.jsonl's line" }[event.source]}; common credential shapes are masked)`,
     );
     const text =
       event.source === "activity" ? event.text : JSON.stringify(masked(event.line), null, 2);
@@ -537,6 +579,9 @@ function publish(
       ...(event.text === undefined ? {} : { text: masked(event.text, limit) as string }),
     };
   }
+  if (event.source === "run") {
+    return { handle: event.handle, ...(masked(event.line, limit) as typeof event.line) };
+  }
   const { version: _version, ...fields } = event.line;
   return {
     handle: event.handle,
@@ -552,7 +597,7 @@ type Screens = ReadonlyMap<string, string>;
 
 /** A turn or compaction that ended without an answer, and the file its screen would be kept in. */
 function screenOf(event: ReadEvent, screens: Screens): { screen?: string } {
-  if (event.source === "activity") return {};
+  if (event.source !== "log") return {};
   const { line } = event;
   if (line.kind !== "turn" && line.kind !== "compact") return {};
   const screen = screens.get(line.operationId);
@@ -563,7 +608,7 @@ async function keptScreens(runDir: string, events: readonly ReadEvent[]): Promis
   const screens = new Map<string, string>();
   await Promise.all(
     events.map(async (event) => {
-      if (event.source === "activity") return;
+      if (event.source !== "log") return;
       const { line } = event;
       if (line.kind !== "turn" && line.kind !== "compact") return;
       if (line.outcome === "answered" || line.outcome === "cancelled") return;
@@ -581,7 +626,9 @@ function describeEvent(event: ReadEvent, stages: Places, screens: Screens): stri
   const what =
     event.source === "activity"
       ? describeActivity(event.activity)
-      : describeLine(event.line, stages);
+      : event.source === "run"
+        ? `session ${event.line.harness} ${event.line.session}`
+        : describeLine(event.line, stages);
   const { screen } = screenOf(event, screens);
   return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}${
     screen ? `  screen: ${screen}` : ""
@@ -611,8 +658,8 @@ function describeLine(line: RunLogLine, places: Places): string {
           : "";
       return `${operation(line.kind)} ended  ${line.outcome}${took}`;
     }
-    case "session-known":
-      return `session ${line.session.harness} ${line.session.id}`;
+    case "sandbox-opened":
+      return `sandbox ${said(line.key, 60)} opened  ${line.provider}`;
     case "agent-opened":
       return `opened  ${line.harness}${line.caller ? "  (the calling session)" : ""}`;
     case "agent-stopped":

@@ -1,13 +1,14 @@
 import type {
   AgentPaneRecord,
-  AttemptRecord,
+  ClaimedAttempt,
   RunAccounting,
+  StageLine,
   StageNeed,
-  StageRecord,
 } from "@agentswf/contract/records";
 import type { Ending, JsonValue, StageSummary } from "@agentswf/contract/workflow";
 import { ago, describeAccounting, describeAttempts } from "./accounting/format";
-import { sumAttempts } from "./accounting/summary";
+import type { EarlierSpent } from "./accounting/spent";
+import { attemptAccounting, sumAttempts } from "./accounting/summary";
 import { type AttemptEnd, OUTCOMES } from "./attempt-ending";
 import type { Kept } from "./attempt-output";
 import { pathFrom } from "./display-path";
@@ -32,7 +33,9 @@ export function printEnding(
     /** The run's id and folder. */
     run: { id: string; dir: string };
     n: number;
-    earlier: readonly AttemptRecord[];
+    earlier: readonly ClaimedAttempt[];
+    /** What the attempts before this one spent, from their operations, priced now. */
+    spentBefore?: EarlierSpent;
     json: boolean;
     /** Whether the attempt redid from a stage, which no repeated stop then hints at. */
     fromStage: boolean;
@@ -66,7 +69,7 @@ export function printEnding(
     named: `${context.workflow.meta.name} ${context.run.id}`,
     n: context.n,
     ...(settled ? { accounting: settled.accounting } : {}),
-    earlier: context.earlier,
+    ...(context.spentBefore ? { spentBefore: context.spentBefore } : {}),
     stages: context.terminal === undefined,
     records: pathFrom(shellCwd, context.run.dir, { home: context.home }),
     ...(kept.report ? { report: pathFrom(shellCwd, kept.report, { home: context.home }) } : {}),
@@ -105,7 +108,7 @@ function describeEnding(
     named: string;
     n: number;
     accounting?: RunAccounting;
-    earlier: readonly AttemptRecord[];
+    spentBefore?: EarlierSpent;
     stages: boolean;
     records: string;
     report?: string;
@@ -127,7 +130,9 @@ function describeEnding(
     context.named,
     ...(n > 1 ? [`attempt ${n}`] : []),
     ...(totals === undefined ? [] : [totals]),
-    ...(n > 1 && accounting ? [runTotal(n, accounting, context.earlier)] : []),
+    ...(n > 1 && accounting && context.spentBefore
+      ? [runTotal(n, accounting, context.spentBefore)]
+      : []),
   ].join(" · ");
   const word = OUTCOMES[ending.kind].word;
   if (ending.kind === "completed") {
@@ -229,14 +234,11 @@ function whereKept(
     : `${pane} in workspace "${label}" of herdr session ${session}`;
 }
 
-function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
-  const before = earlier.filter((record) => record.attempt < n);
-  const recorded = [...before.flatMap((record) => record.accounting ?? []), current];
-  const unknown = before.filter((record) => record.accounting === undefined);
-  const interrupted = unknown.filter((record) => record.ended === undefined).length;
-  return describeAttempts(sumAttempts(recorded), n, {
-    interrupted,
-    ended: unknown.length - interrupted,
+/** The run's total over its attempts: those before priced now, this one as it ran. */
+function runTotal(n: number, current: RunAccounting, before: EarlierSpent): string {
+  return describeAttempts(sumAttempts([...before.recorded, attemptAccounting(current)]), n, {
+    interrupted: before.interrupted,
+    ended: before.ended,
   });
 }
 
@@ -261,7 +263,7 @@ function present(
  */
 function sameStop(
   ending: Ending<JsonValue>,
-  earlier: readonly AttemptRecord[],
+  earlier: readonly ClaimedAttempt[],
 ): string | undefined {
   if (ending.kind !== "stopped" || ending.stage !== undefined) return undefined;
   const reused = ending.stages.at(-1)?.stage;
@@ -289,18 +291,18 @@ export function refusalMessage(id: string, refusal: AttemptRefusal, now: number)
   return `${id} completed; to redo from a stage, --from-stage one of:\n${listRecorded(refusal.stages, now).join("\n")}`;
 }
 
-/** Stage records, a line each, in the order given: summary, attempt, and how long ago. */
-function listRecorded(records: readonly StageRecord[], now: number): string[] {
-  const name = Math.max(0, ...records.map((record) => record.stage.length));
-  const summary = Math.max(0, ...records.map((record) => record.summary?.length ?? 0));
-  return records.map((record) =>
+/** Stage lines, one each, in the order given: summary, attempt, and how long ago. */
+function listRecorded(lines: readonly StageLine[], now: number): string[] {
+  const name = Math.max(0, ...lines.map((line) => line.name.length));
+  const summary = Math.max(0, ...lines.map((line) => line.summary?.length ?? 0));
+  return lines.map((line) =>
     [
-      `  ${record.stage.padEnd(name)}`,
-      ...(summary > 0 ? [(record.summary ?? "").padEnd(summary)] : []),
+      `  ${line.name.padEnd(name)}`,
+      ...(summary > 0 ? [(line.summary ?? "").padEnd(summary)] : []),
       [
-        ...(record.outcome === "succeeded" ? [] : [record.outcome]),
-        `attempt ${record.attempt}`,
-        ago(now - Date.parse(record.ended)),
+        ...(line.outcome === "succeeded" ? [] : [line.outcome]),
+        `attempt ${line.attempt}`,
+        ago(now - Date.parse(line.at)),
       ].join(" · "),
     ].join("   "),
   );

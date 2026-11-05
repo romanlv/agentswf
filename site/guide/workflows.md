@@ -110,7 +110,7 @@ gives the reason, the command that goes on, and where the report is:
 
 ## The result: `present` and `report`
 
-What `run` returns is kept in the run's `output.json`. Two optional functions turn it into
+What `run` returns is kept in the run's `out.json`. Two optional functions turn it into
 something for a person.
 
 **`present(value, ending)`** is what a completed run prints, on standard output. The sample's
@@ -131,7 +131,7 @@ saves none.
 - **Only the words after `--` reach `prepare`.** A second file name before `--` is refused with
   `put -- before workflow arguments`, and an option awf doesn't know with `unknown option`.
 - **`present` and `report` don't fail the run.** One that throws is reported on standard error;
-  awf prints the JSON instead, or saves no report, and the result is still in `output.json`.
+  awf prints the JSON instead, or saves no report, and the result is still in `out.json`.
 - **`report.md` is the last attempt's.** A later attempt whose `report` returns `undefined`
   removes the earlier one; a `report` that throws leaves the earlier attempt's file in place.
 - **The closing block goes to standard error,** and only what `present` returns, or the JSON, to

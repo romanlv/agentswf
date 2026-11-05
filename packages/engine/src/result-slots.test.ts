@@ -1,17 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { SemanticCheck } from "@agentswf/contract";
+import { readAccepted, readAnswers, recordAnswer, writeAcceptedExclusive } from "./ops";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistryOptions,
   type ResultSlotSpec,
 } from "./result-slots";
-import {
-  readAccepted,
-  readCandidates,
-  recordCandidate,
-  writeAcceptedExclusive,
-  writeCall,
-} from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -39,7 +33,7 @@ function answer(raw = "{}", overrides: { operationId?: string; agentId?: string 
 }
 
 function persistenceWith(overrides: Partial<TestPersistence>): TestPersistence {
-  return { writeCall, recordCandidate, writeAcceptedExclusive, ...overrides };
+  return { recordAnswer, writeAcceptedExclusive, ...overrides };
 }
 
 describe("result slots", () => {
@@ -67,7 +61,7 @@ describe("result slots", () => {
     expect(
       submissions.filter((item) => item.kind === "rejected" && item.code === "closed-operation"),
     ).toHaveLength(11);
-    const candidates = await readCandidates(runDir, "op-1");
+    const candidates = await readAnswers(runDir, "op-1");
     expect(candidates.filter((candidate) => candidate.accepted)).toHaveLength(1);
     expect(candidates.filter((candidate) => !candidate.accepted)).toHaveLength(11);
     const persisted = await readAccepted(runDir, "op-1");
@@ -160,54 +154,6 @@ describe("result slots", () => {
     expect(timers.at(-1)).toMatchObject({ delay: 5_000, cancelled: false });
   });
 
-  test("concurrent opens reserve the operation id before persistence", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let writes = 0;
-    const persistence = persistenceWith({
-      async writeCall(...args) {
-        writes += 1;
-        await gate;
-        return writeCall(...args);
-      },
-    });
-    const slots = createResultSlotRegistry({
-      runDir: tempRunDir(),
-      now: () => NOW,
-      persistence,
-    });
-
-    const first = slots.open(call());
-    await Promise.resolve();
-    await expect(slots.open(call({ question: "again" }))).rejects.toThrow(
-      "already exists for operation op-1",
-    );
-    expect(writes).toBe(1);
-    release();
-    await first;
-  });
-
-  test("failed call persistence rolls back the operation reservation", async () => {
-    let fail = true;
-    const persistence = persistenceWith({
-      async writeCall(...args) {
-        if (fail) throw new Error("call record unavailable");
-        return writeCall(...args);
-      },
-    });
-    const slots = createResultSlotRegistry({
-      runDir: tempRunDir(),
-      now: () => NOW,
-      persistence,
-    });
-
-    await expect(slots.open(call())).rejects.toThrow("call record unavailable");
-    fail = false;
-    await expect(slots.open(call())).resolves.toMatchObject({ operationId: "op-1" });
-  });
-
   test("schema and semantic failures remain field-level rejected candidates", async () => {
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
@@ -228,7 +174,7 @@ describe("result slots", () => {
     );
     expect(semantic.kind === "rejected" ? semantic.error : "").toContain("wrong source text");
     expect(await readAccepted(runDir, "op-1")).toBeNull();
-    expect((await readCandidates(runDir, "op-1")).every((candidate) => !candidate.accepted)).toBe(
+    expect((await readAnswers(runDir, "op-1")).every((candidate) => !candidate.accepted)).toBe(
       true,
     );
   });
@@ -250,7 +196,7 @@ describe("result slots", () => {
     expect(wrong).toMatchObject({ kind: "rejected", code: "invalid-result" });
     expect(right).toMatchObject({ kind: "accepted" });
     expect(await readAccepted(runDir, "op-1")).toMatchObject({ value: { count: 3, even: false } });
-    expect((await readCandidates(runDir, "op-1")).map((candidate) => candidate.raw)).toEqual([
+    expect((await readAnswers(runDir, "op-1")).map((candidate) => candidate.raw)).toEqual([
       '["--count","three"]',
       '["--count","3","--even","false"]',
     ]);
@@ -372,7 +318,7 @@ describe("result slots", () => {
 
   test("candidate-log failure after atomic settlement cannot turn acceptance into rejection", async () => {
     const persistence = persistenceWith({
-      async recordCandidate() {
+      async recordAnswer() {
         throw new Error("candidate log unavailable");
       },
     });
@@ -405,9 +351,9 @@ describe("result slots", () => {
       release = resolve;
     });
     const persistence = persistenceWith({
-      async recordCandidate(...args) {
+      async recordAnswer(...args) {
         await gate;
-        return recordCandidate(...args);
+        return recordAnswer(...args);
       },
     });
     const slots = createResultSlotRegistry({
@@ -638,7 +584,7 @@ describe("waiting and bounded commit admission", () => {
       schedule: timers.schedule,
       auditMs: 7,
       persistence: persistenceWith({
-        async recordCandidate() {
+        async recordAnswer() {
           auditing.resolve();
           await new Promise(() => {});
         },
@@ -667,56 +613,4 @@ test("the timestamp checked for deadline eligibility is the recorded admission t
     acceptedAt: DEADLINE.unixMilliseconds,
   });
   await expect(binding.settled).resolves.toMatchObject({ kind: "accepted" });
-});
-
-test("timed-out opening reserves its ID against a late call-record write", async () => {
-  const timers = manualTimers();
-  const entered = deferred();
-  const gate = deferred();
-  const slots = createResultSlotRegistry({
-    runDir: tempRunDir(),
-    now: () => NOW,
-    schedule: timers.schedule,
-    persistenceMs: 5,
-    persistence: persistenceWith({
-      async writeCall() {
-        entered.resolve();
-        await gate.promise;
-      },
-    }),
-  });
-  const opening = slots.open(call()).catch((error) => error);
-  await entered.promise;
-  timers.fire(5);
-  expect(await opening).toMatchObject({ message: "call persistence timed out" });
-  await expect(slots.open(call())).rejects.toThrow("already exists");
-  gate.resolve();
-  await expect(slots.submit(answer())).resolves.toMatchObject({ code: "closed-operation" });
-});
-
-test("close during call persistence does not install an expiry timer afterward", async () => {
-  const write = Promise.withResolvers<void>();
-  const timers = new Set<() => void>();
-  const registry = createResultSlotRegistry({
-    runDir: "/unused",
-    now: () => NOW,
-    schedule: (_ms, callback) => {
-      timers.add(callback);
-      return () => {
-        timers.delete(callback);
-      };
-    },
-    persistence: {
-      writeCall: () => write.promise,
-      writeAcceptedExclusive: async () => true,
-      recordCandidate: async () => {},
-    },
-  });
-  const opening = registry.open(call());
-  await Promise.resolve();
-  await registry.close("op-1");
-  write.resolve();
-  const slot = await opening;
-  expect(await slot.settled).toEqual({ kind: "closed" });
-  expect(timers.size).toBe(0);
 });

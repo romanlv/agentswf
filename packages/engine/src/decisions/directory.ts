@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DecisionArtifact, Money, SettledDecision } from "@agentswf/contract/records";
 import {
@@ -16,6 +15,8 @@ import {
 import { canonical } from "../canonical-json";
 import { abortableSleep, assertDeadline, boundedDeadline, scheduleAt } from "../deadlines";
 import { messageOf } from "../errors";
+import { writeJson } from "../files";
+import { decisionArtifact, type OpIds } from "../ops";
 import type { RunEventBody } from "../run-event-log";
 import {
   type DecisionInstallation,
@@ -66,6 +67,8 @@ export class RunDecisions {
     private readonly options: {
       installation?: DecisionInstallation;
       runDir: string;
+      /** Numbers each asking, `{key}.{n}`, and keeps the keys apart from agents'. */
+      ops: OpIds;
       sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
       /** Writes the run's event log. */
       event?(body: RunEventBody): void;
@@ -136,17 +139,10 @@ export class RunDecisions {
       "on decide",
     );
     assertDeadline(deadline);
+    // Last: a decision refused for anything else holds no key.
+    this.options.ops.claim(spec.key, "decision");
     const slot = this.#slots.length;
     this.#slots.push(undefined);
-    this.options.event?.({
-      kind: "decision-asked",
-      decision: slot + 1,
-      ...(scope.stage === undefined ? {} : { stage: scope.stage }),
-      key: spec.key,
-      alias: spec.model,
-      provider: resolved.provider,
-      model: resolved.model,
-    });
     return { spec, ids, resolved, provider, deadline, slot };
   }
 
@@ -155,6 +151,12 @@ export class RunDecisions {
     scope: DecisionScope,
   ): Promise<{ answers: Record<string, unknown>; record: DecisionRecord }> {
     const { spec, ids, resolved, provider, deadline, slot } = call;
+    const { runDir, ops } = this.options;
+    // Its folder and op.json are written as its id is drawn, before any line names it.
+    const { id: operation, lost: opLost } = ops.draw(spec.key, {
+      kind: "decision",
+      ...(scope.stage === undefined ? {} : { stage: scope.stage }),
+    });
     const startedAt = new Date().toISOString();
     const controller = new AbortController();
     let ending: Ending | undefined;
@@ -168,6 +170,16 @@ export class RunDecisions {
       : () => undefined;
     this.#cancellers.add(cancel);
     const removeFromScope = scope.add?.(async (reason) => cancel(reason));
+    this.options.event?.({
+      kind: "decision-asked",
+      decision: slot + 1,
+      operation,
+      ...(scope.stage === undefined ? {} : { stage: scope.stage }),
+      key: spec.key,
+      alias: spec.model,
+      provider: resolved.provider,
+      model: resolved.model,
+    });
 
     let attempts = 0;
     let tokens: { input: number; output: number } | undefined;
@@ -230,7 +242,7 @@ export class RunDecisions {
       this.#cancellers.delete(cancel);
     }
 
-    const artifact = join("decisions", `${slot + 1}.json`);
+    const artifact = decisionArtifact(operation);
     const outcome: DecisionRecord["outcome"] = ending
       ? ending.outcome
       : answers
@@ -268,12 +280,13 @@ export class RunDecisions {
       request: { state: spec.state, questions: spec.questions },
       ...(answers ? { answers: answers as JsonObject } : {}),
     };
-    try {
-      await mkdir(join(this.options.runDir, "decisions"), { recursive: true });
-      await writeFile(join(this.options.runDir, artifact), `${JSON.stringify(written, null, 2)}\n`);
-    } catch (thrown) {
-      const lost = `artifact not written: ${messageOf(thrown)}`;
-      // Without its artifact an answer cannot be fitted again, so it does not count as one; any
+    const artifactLost = await writeJson(join(runDir, artifact), written).then(
+      () => undefined,
+      (thrown: unknown) => `artifact not written: ${messageOf(thrown)}`,
+    );
+    if (opLost !== undefined || artifactLost !== undefined) {
+      const lost = [opLost, artifactLost].filter((each) => each !== undefined).join("; ");
+      // Without its records an answer cannot be fitted again, so it does not count as one; any
       // other outcome stands.
       settled =
         settled.outcome === "answered"
@@ -284,6 +297,7 @@ export class RunDecisions {
     this.options.event?.({
       kind: "decision-ended",
       decision: slot + 1,
+      operation,
       ...(settled.stage === undefined ? {} : { stage: settled.stage }),
       outcome: settled.outcome,
       ...(settled.error === undefined ? {} : { error: settled.error }),

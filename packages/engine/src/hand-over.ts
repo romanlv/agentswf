@@ -1,5 +1,5 @@
 // The global `awf`'s first step, before the engine is imported: a project whose installed `agentswf`
-// is another version runs on that one (ADR 0014). Imports nothing of the engine, so a hand-over
+// is another version runs on that one (ADR 0015). Imports nothing of the engine, so a hand-over
 // costs a Bun start and no more, and the engine's own checks can share how a project's engine is
 // found.
 

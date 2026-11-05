@@ -22,7 +22,7 @@ describe("review on event", () => {
     expect(run.turnsOf("reviewer")[0]?.prompt).toContain(
       "git diff main...aaa1111",
     );
-    expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    expect(run.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
       ["review-aaa1111", "succeeded"],
     ]);
     expect(run.ending).toMatchObject({
@@ -47,7 +47,7 @@ describe("review on event", () => {
       expect.stringContaining("aaa1111"),
       expect.stringContaining("bbb2222"),
     ]);
-    expect(run.stages.map(({ stage }) => stage)).toEqual([
+    expect(run.stages.map(({ name }) => name)).toEqual([
       "review-aaa1111",
       "review-bbb2222",
     ]);
@@ -74,15 +74,15 @@ describe("review on event", () => {
     const run = await testWorkflow(reviewOnEvent, {
       id: "42",
       event: opened,
-      agents: { reviewer: noAnswer.failed(), "reviewer#2": approved },
+      agents: { reviewer: noAnswer.failed(), "reviewer-2": approved },
       events: [{ during: "reviewer#1", ...pushed }],
     });
-    // A key the code makes, reviewer#2, has no {key}:ended to declare: its start() is deprecated.
+    // A key the code makes, reviewer-2, has no {key}:ended to declare: its start() is deprecated.
     expect(
       run.logs.map((log) => log.message).filter((m) => !m.startsWith("awf:")),
     ).toEqual(["review failed"]);
-    expect(run.turnsOf("reviewer#2")[0]?.prompt).toContain("bbb2222");
-    expect(run.stages.map(({ stage }) => stage)).toEqual(["review-bbb2222"]);
+    expect(run.turnsOf("reviewer-2")[0]?.prompt).toContain("bbb2222");
+    expect(run.stages.map(({ name }) => name)).toEqual(["review-bbb2222"]);
   });
 
   test("a head that isn't a commit hash is logged and not reviewed", async () => {

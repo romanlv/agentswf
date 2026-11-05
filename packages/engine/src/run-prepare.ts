@@ -1,13 +1,17 @@
 import { statSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AttemptRecord, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
+import { type ClaimedAttempt, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import { type EarlierOps, listOps } from "./ops";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import type { RunCommand } from "./run-command";
+import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
+import { crashedRedo } from "./run-policy/stages";
 import {
   type Attempt,
   appendEvent,
@@ -15,15 +19,15 @@ import {
   checkContinue,
   checkFree,
   claimAttempt,
-  endTurnsLine,
+  endLogLine,
   generateId,
   idProblem,
+  launchLog,
   openRun,
   previousGone,
   type Run,
   RunRefused,
   readAttempts,
-  readStageRecords,
   readTurns,
 } from "./runs";
 import {
@@ -38,7 +42,12 @@ export type PreparedRun = {
   /** A new run's id, from `--id` or the workflow's `id(args)`; absent for one to generate. */
   id?: string;
   /** The run `--continue` names, its earlier attempts, and what to warn of before it goes on. */
-  continued?: { run: Run; attempts: AttemptRecord[]; warnings: string[] };
+  continued?: { run: Run; attempts: ClaimedAttempt[]; warnings: string[] };
+  /**
+   * The `--from-stage` a continue goes on with though none was given: that of the attempt before
+   * it, which crashed inside its start stage.
+   */
+  resumes?: string;
 };
 
 /** `awf run --id` of a workflow with events, which starts the run detached, or wakes it. */
@@ -109,7 +118,7 @@ export async function loadAndPrepare(
   }
   if (!isEventWorkflow(loaded.workflow) && loaded.workflow.file !== undefined) {
     // A plain workflow that gives `file` keeps its runs in its project, registered, so a run a
-    // program started is continued from anywhere (ADR 0015); only the run root moves.
+    // program started is continued from anywhere (ADR 0016); only the run root moves.
     try {
       const project = await projectOf(loaded.file, home);
       if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
@@ -120,7 +129,13 @@ export async function loadAndPrepare(
     }
   }
   try {
-    return { loaded, prepared: await prepareRun(command, loaded, now), command };
+    const prepared = await prepareRun(command, loaded, now);
+    const { resumes } = prepared;
+    return {
+      loaded,
+      prepared,
+      command: resumes === undefined ? command : { ...command, fromStage: resumes },
+    };
   } catch (error) {
     return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
   }
@@ -157,7 +172,7 @@ async function prepareRun(
   }
   let args: JsonValue;
   try {
-    // A run a program started runs with the args it was given, never prepared (ADR 0015).
+    // A run a program started runs with the args it was given, never prepared (ADR 0016).
     args = run.record.args !== undefined ? run.record.args : prepare(argv, cwd);
   } catch (error) {
     throw new RunRefused(
@@ -165,19 +180,36 @@ async function prepareRun(
     );
   }
   const attempts = await readAttempts(run);
-  const records = await readStageRecords(run.dir);
+  const { view } = await readRunLines(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
-  const refused = attemptRefusal(attempts, records, { fromStage: command.fromStage !== undefined });
+  const refused = attemptRefusal(attempts, view, { fromStage: command.fromStage !== undefined });
   if (refused) throw new RunRefused(refusalMessage(id, refused, now));
-  const { fromStage } = command;
+  // A plain run's redo that crashed inside its stage wrote no line, so nothing says it: it goes on
+  // from there, as 018 has a crash mid-stage do. A wake carries no flag, so an event run's is lost.
+  const resumes =
+    command.fromStage === undefined && !isEventWorkflow(workflow)
+      ? crashedRedo(attempts, view)
+      : undefined;
+  const fromStage = command.fromStage ?? resumes;
   // Once per start point: a run started at a stage goes on to it attempt after attempt.
   const unrecorded =
     fromStage !== undefined &&
-    !records.has(fromStage) &&
+    view.stages[fromStage] === undefined &&
     attempts.at(-1)?.flags.fromStage !== fromStage
       ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
       : [];
-  return { args, continued: { run, attempts, warnings: unrecorded } };
+  const warnings =
+    resumes === undefined
+      ? unrecorded
+      : [
+          `awf: attempt ${attempts.at(-1)?.attempt} of ${id} ended without an ending inside --from-stage ${resumes}; this attempt starts there again`,
+          ...unrecorded,
+        ];
+  return {
+    args,
+    continued: { run, attempts, warnings },
+    ...(resumes === undefined ? {} : { resumes }),
+  };
 }
 
 /** The workflow's args from `argv`, as its `prepare` makes them, checked to be JSON. */
@@ -206,7 +238,7 @@ async function unusedId(runRoot: string, workflow: string, now: number): Promise
 /**
  * Why `awf run` doesn't take a workflow with `events` as asked: every attempt after the first is
  * started by a wake, which passes on none of the flags a run would have to keep. A `--from-stage`
- * is the one attempt's, and its records keep what it redid.
+ * is the one attempt's, and its stage line keeps what it redid.
  */
 function eventRunRefusal(command: RunCommand): string | undefined {
   if (command.values !== undefined)
@@ -244,15 +276,21 @@ function derivedId(workflow: AnyWorkflow, args: JsonValue): string | undefined {
   return id as string;
 }
 
-/** Claims the run's next attempt, naming each earlier one found interrupted. */
+/**
+ * Claims the run's next attempt, naming each earlier one found interrupted. `launch`: the
+ * background launch that started this process, recorded only when it is this run's, its
+ * `launches/{launch}.log` there.
+ */
 export async function claimNext(
   run: Run,
   loaded: LoadedWorkflow,
   command: RunCommand,
   notice: (text: string) => void,
   now: number,
+  launch?: string,
 ): Promise<Attempt> {
   const { meta } = loaded.workflow;
+  const ours = launch !== undefined && (await exists(launchLog(run.dir, launch)));
   const claimed = await claimAttempt(
     run,
     {
@@ -262,23 +300,41 @@ export async function claimNext(
         ...(command.timeout === undefined ? {} : { timeout: command.timeout }),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
       },
+      ...(ours ? { launch } : {}),
     },
     { fromStage: command.fromStage !== undefined },
   );
   if ("refused" in claimed) {
     throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
   }
-  // An event run's: claimed first, which `wake` waits for holding the run's lock, then waited on
-  // before this attempt writes anything, so the attempt before it has finished its own records and
-  // two never share an agent's session.
-  if (run.record.events) await previousGone(run, claimed.attempt.record.attempt, notice);
+  // Claimed first, which `wake` waits for holding the run's lock, then waited on before this
+  // attempt writes anything, so the attempt before it has finished its own records and two never
+  // share an agent's session.
+  const n = claimed.attempt.record.attempt;
+  await previousGone(run, n, notice);
+  // Numbered on from what earlier attempts left, now that none still writes: an id is never reused.
+  let ops: EarlierOps;
+  try {
+    ops = await listOps(run.dir);
+  } catch (error) {
+    await unlink(claimed.attempt.file).catch(() => undefined);
+    throw new Error(`ops/ was not listed: ${messageOf(error)}`);
+  }
+  let lines: RunLines;
+  try {
+    lines = await claimRunLines(run.dir, n, claimed.attempt.record.started);
+  } catch (error) {
+    // Without its fence the attempt may not write: it goes, as a refused claim's does.
+    await unlink(claimed.attempt.file).catch(() => undefined);
+    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`);
+  }
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
-  await endTurnsLine(run.dir)
+  await endLogLine(run.dir)
     .then(() =>
       appendEvent(run.dir, {
         version: RUN_EVENT_VERSIONS["attempt-started"],
-        attempt: claimed.attempt.record.attempt,
+        attempt: n,
         at: claimed.attempt.record.started,
         kind: "attempt-started",
       }),
@@ -292,7 +348,7 @@ export async function claimNext(
       `awf: attempt ${earlier.attempt} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.attempt)}"`,
     );
   }
-  return claimed.attempt;
+  return { ...claimed.attempt, lines, ops };
 }
 
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */

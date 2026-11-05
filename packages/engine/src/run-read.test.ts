@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { ClaimedAttempt } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import {
   decodeCursor,
@@ -29,10 +29,10 @@ async function run(root: string, workflow: string, id: string, created?: string)
   return made;
 }
 
-async function attempt(made: Run, fields: Partial<AttemptRecord> = {}): Promise<void> {
-  const record: AttemptRecord = {
-    version: 1,
+async function attempt(made: Run, fields: Partial<ClaimedAttempt> = {}): Promise<void> {
+  const record: ClaimedAttempt = {
     attempt: 1,
+    kind: "attempt",
     file: "flow.ts",
     flags: { timeout: "1h" },
     pid: 4242,
@@ -61,9 +61,9 @@ describe("a run's state", () => {
       // `--continue` refuses a live attempt: the same one this calls running.
       const probe = () => (ps === "gone" ? undefined : ps);
       expect(isLive(status.attempts[0]!, probe)).toBe(state === "running");
-      expect(attemptRefusal(status.attempts, new Map(), { fromStage: false, probe })?.kind).toBe(
-        state === "running" ? "running" : state === "completed" ? "completed" : undefined,
-      );
+      expect(
+        attemptRefusal(status.attempts, { stages: {} }, { fromStage: false, probe })?.kind,
+      ).toBe(state === "running" ? "running" : state === "completed" ? "completed" : undefined);
     }
   });
 
@@ -107,13 +107,22 @@ describe("a run reference", () => {
 
 describe("cursors and handles", () => {
   test("round-trip, and anything else is refused", () => {
-    const cursor = { log: 12, files: { a1: 4096, "a2-9b2e00aa11cc": 17 } };
+    const cursor = { log: 12, run: 3, files: { a1: 4096, "a2-9b2e00aa11cc": 17 } };
     expect(decodeCursor(encodeCursor(cursor))).toEqual(cursor);
-    for (const bad of ["c1.zzz", "c2.e30", "", encodeCursor({ log: -1, files: {} })]) {
+    const old = `c1.${Buffer.from(JSON.stringify([12, {}])).toString("base64url")}`;
+    for (const bad of [
+      "c2.zzz",
+      "c3.e30",
+      "",
+      old,
+      encodeCursor({ log: -1, run: 0, files: {} }),
+      encodeCursor({ log: 0, run: -1, files: {} }),
+    ]) {
       expect(decodeCursor(bad)).toBeUndefined();
     }
     for (const handle of [
       { kind: "event" as const, line: 216 },
+      { kind: "run" as const, line: 4 },
       { kind: "activity" as const, file: "a3", offset: 0x1f4c, index: 0 },
       { kind: "activity" as const, file: "a3-9b2e00aa11cc", offset: 7, index: 2 },
     ]) {
@@ -123,7 +132,9 @@ describe("cursors and handles", () => {
     expect(encodeHandle({ kind: "activity", file: "a3", offset: 0x1f4c, index: 0 })).toBe(
       "a3.1f4c",
     );
-    for (const bad of ["e0", "a.1", "a3", "x1", "a3.zz"]) expect(decodeHandle(bad)).toBeUndefined();
+    for (const bad of ["e0", "r0", "a.1", "a3", "x1", "a3.zz"]) {
+      expect(decodeHandle(bad)).toBeUndefined();
+    }
   });
 });
 
@@ -159,6 +170,33 @@ describe("reading a run", () => {
       settledAt,
       sessions: [{ harness: "claude", id: session }],
     });
+  /**
+   * Writes `lines` as the run's log, each line's `sessions` as `run.jsonl`'s `session` lines in
+   * their place, as the engine records them.
+   */
+  const writeLog = (dir: string, lines: readonly string[]) => {
+    const log: string[] = [];
+    const sessions: string[] = [];
+    for (const text of lines) {
+      const { sessions: named, ...line } = JSON.parse(text);
+      for (const { harness, id } of named ?? []) {
+        sessions.push(
+          JSON.stringify({
+            kind: "session",
+            attempt: line.attempt,
+            at: line.at ?? line.settledAt,
+            agent: line.agent,
+            harness,
+            session: id,
+            operation: line.operationId,
+          }),
+        );
+      }
+      log.push(JSON.stringify(line));
+    }
+    writeFileSync(join(dir, "log.jsonl"), `${log.join("\n")}\n`);
+    writeFileSync(join(dir, "run.jsonl"), sessions.map((line) => `${line}\n`).join(""));
+  };
   const said = (at: string, text: string) =>
     `${JSON.stringify({ type: "assistant", timestamp: at, message: { content: [{ type: "text", text }] } })}\n`;
   const T = (minute: number) => `2026-10-11T09:${String(minute).padStart(2, "0")}:00.000Z`;
@@ -207,7 +245,7 @@ describe("reading a run", () => {
       turn("author", "op-2", T(3), T(5), caller),
       event({ kind: "agent-stopped", at: T(8), agent: "worker", callPath: [], harness: "claude" }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     return { made, project, worker };
   }
 
@@ -215,17 +253,19 @@ describe("reading a run", () => {
     const { made } = await setUp();
     const read = await readRun(made.dir, "/repo");
     const shown = read.events.map((each) =>
-      each.source === "log"
-        ? `${each.handle} ${each.line.kind}`
-        : `${each.handle} ${each.agent} ${each.operation} ${each.activity.type}`,
+      each.source === "activity"
+        ? `${each.handle} ${each.agent} ${each.operation} ${each.activity.type}`
+        : `${each.handle} ${each.line.kind}`,
     );
     expect(shown).toEqual([
       "e1 agent-opened",
       "e2 agent-opened",
       "e3 operation-started",
+      "r1 session",
       "a1.74 worker op-1 message",
       "e4 turn",
       "e5 operation-started",
+      "r3 session",
       "a2.76 author op-2 message",
       "e6 turn",
       "e7 agent-stopped",
@@ -238,7 +278,7 @@ describe("reading a run", () => {
 
   test("the calling session is known by its operations, should its opening line be lost", async () => {
     const { made } = await setUp();
-    const log = join(made.dir, "turns.jsonl");
+    const log = join(made.dir, "log.jsonl");
     const lines = readFileSync(log, "utf8")
       .split("\n")
       .filter(Boolean)
@@ -267,7 +307,7 @@ describe("reading a run", () => {
     const line = said(T(8), "late");
     appendFileSync(file, line.slice(0, 30));
     appendFileSync(
-      join(made.dir, "turns.jsonl"),
+      join(made.dir, "log.jsonl"),
       event({ kind: "log", at: T(8), text: "x" }).slice(0, 10),
     );
     const torn = await readRun(made.dir, "/repo", first.cursor);
@@ -329,7 +369,7 @@ describe("reading a run", () => {
         home,
       }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     const read = await readRun(made.dir, "/repo");
     const activity = read.events.flatMap((each) =>
       each.source === "activity"
@@ -377,7 +417,7 @@ describe("reading a run", () => {
         sessions,
       }),
     ];
-    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    writeLog(made.dir, lines);
     const read = await readRun(made.dir, "/repo", undefined, { ended: true });
     expect(read.log.sessions).toHaveLength(2);
     expect(
@@ -389,8 +429,8 @@ describe("reading a run", () => {
     const { made } = await setUp();
     const before = (await readRunLog(made.dir)).sessions;
     appendFileSync(
-      join(made.dir, "turns.jsonl"),
-      `${event({ kind: "session-known", at: T(6), session: { harness: "codex", id: "thread-9" }, operationId: "op-1" })}\n`,
+      join(made.dir, "run.jsonl"),
+      `${JSON.stringify({ kind: "session", attempt: 1, at: T(6), agent: "worker", harness: "codex", session: "thread-9", operation: "op-1" })}\n`,
     );
     const after = (await readRunLog(made.dir)).sessions;
     expect(after.slice(0, before.length)).toEqual(before);

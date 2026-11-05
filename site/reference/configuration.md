@@ -48,7 +48,7 @@ Unset them in the shell you run `awf` from.
 ### Where harnesses keep their state
 
 awf reads each harness's own folder to find its agents' sessions, which `awf logs` and the usage
-in `output.json` come from, to copy a login into a sandboxed agent's home, and to keep sandboxes
+in `out.json` come from, to copy a login into a sandboxed agent's home, and to keep sandboxes
 off it. It follows the variable the harness itself follows:
 
 | Variable | Harness | Default |

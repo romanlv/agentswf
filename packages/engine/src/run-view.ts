@@ -1,24 +1,30 @@
-import { join } from "node:path";
 import type {
   Activity,
   AgentStateJson,
-  AttemptRecord,
+  ClaimedAttempt,
   OperationLivenessRecord,
   RunLogLine,
   StageStateJson,
 } from "@agentswf/contract/records";
-import type { AgentKey, HarnessKind } from "@agentswf/contract/workflow";
+import type { AgentKey, HarnessKind, JsonValue } from "@agentswf/contract/workflow";
+import { messageOf } from "./errors";
 import { readLines } from "./jsonl";
+import { liveFile } from "./ops";
 import { currentStage, estimateOf } from "./run-commands";
+import { readRunLines } from "./run-lines";
 import { type Cursor, type FileCache, readRun, timeOf } from "./run-read";
 import type { RunStatus } from "./run-state";
 
-/** A stage of the attempt shown: running, reused or given from an earlier one, or how it ended. */
+/**
+ * A stage of the attempt shown: running, reused or given from an earlier one, or how it ended. Its
+ * outcome and value are its own `stage` line's, a reused one's the line it reused.
+ */
 export type StageView = {
   stage: string;
   state: StageStateJson;
   startedAt?: number;
   endedAt?: number;
+  value?: JsonValue;
 };
 
 /**
@@ -48,14 +54,18 @@ export type DecisionView = { decision: number; key: string; askedAt: number; out
 export type RunView = {
   status: RunStatus;
   /** The attempt shown: the last. */
-  attempt?: AttemptRecord;
+  attempt?: ClaimedAttempt;
   stages: StageView[];
+  /** Why the stages show no values: `run.jsonl` didn't read. */
+  unread?: string;
   /** The stage running now, or the one the attempt ended in. */
   stage?: string;
   agents: AgentView[];
   decisions: DecisionView[];
   /** Over the attempts that kept one, at list prices: never what was billed. */
   estimate?: number;
+  /** How many agent operations' usage isn't known: `estimate` is a floor. */
+  unknownCost: number;
   lastEventAt?: number;
   lines: { number: number; line: RunLogLine }[];
   cursor: Cursor;
@@ -74,7 +84,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
     .map(({ line }) => line)
     .filter((line) => attempt === undefined || line.attempt === attempt.attempt);
 
-  const stages: StageView[] = [];
+  const stages: (StageView & { started?: string })[] = [];
   const decisions: DecisionView[] = [];
   const agents = new Map<AgentKey, AgentView>();
   const open = new Map<string, AgentKey>();
@@ -93,13 +103,17 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
     const at = Date.parse(timeOf(line));
     switch (line.kind) {
       case "stage-started":
-        stages.push({ stage: line.stage, state: "running", startedAt: at });
+        stages.push({ stage: line.stage, state: "running", startedAt: at, started: line.at });
         break;
       case "stage-ended": {
-        const started = stages.find((each) => each.stage === line.stage);
+        // An event run enters a failed stage again in the same attempt: the end is the open one's.
+        const started = stages.findLast(
+          (each) => each.stage === line.stage && each.state === "running",
+        );
         const state = line.source ?? line.outcome;
-        if (started) Object.assign(started, { state, endedAt: at });
-        else stages.push({ stage: line.stage, state, startedAt: at, endedAt: at });
+        if (started && line.source === undefined) Object.assign(started, { state, endedAt: at });
+        else
+          stages.push({ stage: line.stage, state, startedAt: at, endedAt: at, started: line.at });
         break;
       }
       case "agent-opened":
@@ -136,6 +150,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
       }
     }
   }
+  const unread = await withLines(stages, run.dir, attempt?.attempt);
   const stage = currentStage(status, read.log.lines);
   // A run whose process is gone left what it was doing undone.
   if (status.state === "interrupted") {
@@ -175,20 +190,64 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
       files: (files.get(session.n)?.files ?? []).map((file) => file.path),
     });
   }
-  const estimate = estimateOf(attempts);
+  const { estimate, unknown } = await estimateOf(status);
   const lastLine = read.log.lines.at(-1)?.line;
   return {
     status,
     ...(attempt ? { attempt } : {}),
-    stages,
+    stages: stages.map(({ started: _started, ...each }) => each),
+    ...(unread === undefined ? {} : { unread }),
     ...(stage === undefined ? {} : { stage }),
     agents: [...agents.values()],
     decisions,
     ...(estimate === undefined ? {} : { estimate }),
+    unknownCost: unknown,
     ...(lastLine ? { lastEventAt: Date.parse(timeOf(lastLine)) } : {}),
     lines: read.log.lines,
     cursor: read.cursor,
   };
+}
+
+/**
+ * Each stage's outcome and value from `run.jsonl`. One that ran or was given takes its own line, of
+ * attempt `attempt` with its name and `started`, ties by the order entered; a reused one takes the
+ * line it reused, its stage's settled one. A stage running, or one the plan stopped, has no line,
+ * and keeps what the log says.
+ */
+async function withLines(
+  stages: (StageView & { started?: string })[],
+  runDir: string,
+  attempt: number | undefined,
+): Promise<string | undefined> {
+  let view: Awaited<ReturnType<typeof readRunLines>>["view"];
+  try {
+    ({ view } = await readRunLines(runDir));
+  } catch (error) {
+    // A run whose lines can't be read still shows its story from the log, and says what it lacks.
+    return `run.jsonl could not be read, so stages show no values: ${messageOf(error)}`;
+  }
+  if (attempt === undefined) return undefined;
+  const taken = new Set<unknown>();
+  for (const entry of stages) {
+    const stage = view.stages[entry.stage];
+    if (!stage) continue;
+    if (entry.state === "reused") {
+      // The attempt shown is the latest, and a stage it reused it can't run again: no later
+      // success than the one it reused.
+      if (stage.settled?.value !== undefined) entry.value = stage.settled.value;
+      continue;
+    }
+    const line = stage.history.find(
+      (each) => each.attempt === attempt && each.started === entry.started && !taken.has(each),
+    );
+    if (!line) continue;
+    taken.add(line);
+    if (entry.state !== "provided") entry.state = line.outcome;
+    // The log is best effort: an end it lost is the line's.
+    entry.endedAt ??= Date.parse(line.at);
+    if (line.value !== undefined) entry.value = line.value;
+  }
+  return undefined;
 }
 
 /** The latest phase a call's liveness file holds, which is diagnostics, best effort. */
@@ -196,7 +255,7 @@ async function latestPhase(
   runDir: string,
   operationId: string,
 ): Promise<OperationLivenessRecord | undefined> {
-  const file = join(runDir, "calls", operationId, "liveness.jsonl");
+  const file = liveFile(runDir, operationId);
   return (await readLines<OperationLivenessRecord>(file).catch(() => [])).at(-1);
 }
 

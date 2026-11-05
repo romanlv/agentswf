@@ -25,7 +25,7 @@ export type ClientContext = Omit<WakeContext, "file"> & {
 
 /**
  * A program's way to its workflows' runs, in its own process: the code `awf emit`, `awf inbox` and
- * the run readers run, on the engine the workflow's project depends on (ADR 0014).
+ * the run readers run, on the engine the workflow's project depends on (ADR 0015).
  */
 export function client(options: ClientOptions = {}): Client {
   return clientWith(options);
@@ -86,7 +86,7 @@ async function emit(
   ] as const)
     if (value !== undefined && typeof value !== "string")
       throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
-  // What tsc lets through in a value that isn't a literal: the mailbox keeps JSON only.
+  // What tsc lets through in a value that isn't a literal: in.jsonl keeps JSON only.
   if (!isJsonValue(data))
     throw new ClientError("event", `${name}'s data must contain only JSON values`, ref);
   const event = {

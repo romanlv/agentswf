@@ -11,7 +11,6 @@ import { dirname, join } from "node:path";
 import { ClientError } from "@agentswf/contract/client";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { writeJson } from "../files";
-import { appendMailbox } from "../mailbox";
 import { runOperatorCli } from "../operator-cli";
 import { runLockFile } from "../run-lock";
 import { openRun, processStart, type Run, readAttempts } from "../runs";
@@ -116,7 +115,7 @@ type Project = Awaited<ReturnType<typeof project>>;
 
 function fakeLaunch(): Launch & { launched: string[] } {
   const launched: string[] = [];
-  const launch = (async (run: Run, file: string) => {
+  const launch = (async (run: Run, file: string, _launch: string) => {
     launched.push(run.record.id);
     await writeAttempt(run, { ...ALIVE, file });
   }) as Launch & { launched: string[] };
@@ -168,10 +167,10 @@ describe("start, by its rules", () => {
     expect(
       await code(runs.start(p.release, { version: "1.4.0", dryRun: true }, { id: "v1" })),
     ).toBe("other-args");
-    // The record: awf run's, with its args, PATH, file and project, at the new version.
+    // The record: awf run's, with its args, PATH, file and project, at format 1.
     const run = await openRun(p.runRoot, "release", "v1");
     expect(run.record).toMatchObject({
-      version: 2,
+      format: 1,
       id: "v1",
       workflow: "release",
       argv: [],
@@ -192,7 +191,7 @@ describe("start, by its rules", () => {
     expect((await runs.start(p.tidy, null, { id: "t" })).did).toBe("started");
     expect((await runs.start(p.tidy, null, { id: "t" })).did).toBe("exists");
     expect((await openRun(p.runRoot, "tidy", "t")).record).toMatchObject({
-      version: 2,
+      format: 1,
       args: null,
     });
   });
@@ -423,7 +422,7 @@ describe("runs started from code, for real", () => {
     expect(exit).toBe(0);
     expect(JSON.parse(out.join("")).value).toMatchObject({ released: "2.0.0" });
     const run = await openRun(p.runRoot, "release", "c1");
-    expect(run.record).toMatchObject({ version: 1, argv: ["2.0.0"], cwd: elsewhere });
+    expect(run.record).toMatchObject({ format: 1, argv: ["2.0.0"], cwd: elsewhere });
     const again: string[] = [];
     const redo = await runOperatorCli(
       ["run", p.files.release, "--id", "c1", "--continue", "--from-stage", "built", "--json"],
@@ -483,17 +482,10 @@ describe("runs started from code, for real", () => {
   }, 60_000);
 });
 
-test("a stale run with no attempt and a launch-failed, past its lock's holder", async () => {
+test("a launch that failed before an attempt claimed its number counts for nothing", async () => {
   const p = await project();
+  await runsOf(p, failing).start(p.tidy, null, { id: "t" });
   const { run } = await runsOf(p, fakeLaunch()).start(p.tidy, null, { id: "t" });
-  const record = await openRun(p.runRoot, "tidy", "t");
-  await appendMailbox(record.dir, {
-    version: 1,
-    at: new Date().toISOString(),
-    kind: "launch-failed",
-    reason: "x",
-  });
-  // An attempt exists: the launch-failed before it counts for nothing.
   expect((await run.status()).state).toBe("running");
 });
 
@@ -546,7 +538,7 @@ export default defineWorkflow({
   expect(await code(clientWith({ home: p.home }).start(inHome, null))).toBe("project");
 });
 
-test("a run awf run started with argv is other-args to start; a run an event began stays at today's version", async () => {
+test("a run awf run started with argv is other-args to start; a run an event began records no args", async () => {
   const p = await project();
   expect(
     await runOperatorCli(["run", p.files.release, "--id", "cli", "--json", "--", "3.0.0"], {
@@ -562,11 +554,11 @@ test("a run awf run started with argv is other-args to start; a run an event beg
   ).toBe("other-args");
   await runs.emit(p.review, "pr-9", "ping", { n: 1 });
   const emitted = (await openRun(p.runRoot, "review", "pr-9")).record;
-  expect(emitted).toMatchObject({ version: 1, events: true });
+  expect(emitted).toMatchObject({ format: 1, events: true });
   expect(emitted.args).toBeUndefined();
   await runs.start(p.review, { pr: 8 });
   expect((await openRun(p.runRoot, "review", "pr-8")).record).toMatchObject({
-    version: 2,
+    format: 1,
     events: true,
     args: { pr: 8 },
     argv: [],

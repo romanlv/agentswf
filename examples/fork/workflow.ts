@@ -92,8 +92,7 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
       args.cases,
       async (item): Promise<ForkCheck> => {
         const name = caseName(item);
-        // A key has no colon, which is kept for awf's own event names.
-        const key = name.replaceAll(":", "-");
+        const key = keyOf(name);
         const worker = await wf.agents.open({
           key: `worker-${key}`,
           runtime: RUNTIMES[item.runtime].execution,
@@ -171,6 +170,11 @@ function inventory(lines: number): string {
     (_, i) => `inventory line ${i + 1}: a clay pot, a rake, a bag of soil`,
   );
   return `Skim this inventory; nothing in it matters later. Answer noted: true.\n\n${rows.join("\n")}`;
+}
+
+/** A case's name as a key: `claude>headless` and `claude-headless` must stay apart. */
+export function keyOf(name: string): string {
+  return name.replace(":", ".").replace(">", ".to-").replace("+", ".");
 }
 
 function caseName(item: ForkCase): string {

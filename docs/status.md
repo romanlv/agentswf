@@ -30,11 +30,11 @@ exists, the code is right, then this page.
   turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Another agent watches a run from the command line (story 028): `awf run`
   names it first, `awf: {workflow}/{id} started · watch: …`; `awf runs` lists the runs here and
-  shows one in depth; `awf logs` reads its event log, `turns.jsonl`, merged with what each agent did,
+  shows one in depth; `awf logs` reads its event log, `log.jsonl`, and the sessions `run.jsonl` names, merged with what each agent did,
   read from its own claude, codex or pi session files (cursor's cannot be read from an offset), bounded, with a cursor, `--wait`, `--follow`,
   one event `--full`, and `--json`.
 - A pane turn, message operation or compaction that ends without an answer, or whose agent fails to
-  start, keeps what the pane showed in `calls/{operationId}/screen.txt`, and `awf logs` names it on
+  start, keeps what the pane showed in `ops/{key}.{n}/screen.txt`, and `awf logs` names it on
   the turn's line ([`non-answered-evidence`](stories/todo/non-answered-evidence.md)).
 - Each agent answers through `wfa result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema. Quiet agents receive
@@ -45,7 +45,7 @@ exists, the code is right, then this page.
   answer doesn't count against the asker's deadline (story 032).
 - Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
-  ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed, timed
+  ends. `awf run` prints it and writes it to `out.json` (story 002), for a run that failed, timed
   out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story
   003). A run its own deadline ended is `timed-out`, apart from `failed` (story 008).
 - Two workflows have run live:
@@ -75,7 +75,7 @@ exists, the code is right, then this page.
   outside the denied regions; docker: the image), and reach the domains it names plus their
   models'. They get exactly the environment variables the provider sets, and each has a fresh
   harness home holding its credential and first-run answers, nothing else of the operator's.
-  `output.json` lists each sandbox and its agents. A sandbox names its provider; there is no
+  `out.json` lists each sandbox and its agents. A sandbox names its provider; there is no
   default. The providers:
   - **srt**: headless claude, codex and pi, and claude, codex and pi
     in panes of the run's Herdr, all verified live;
@@ -84,12 +84,12 @@ exists, the code is right, then this page.
 - A workflow names each agent's skills, `{ path }` or a public `{ repo, skill, ref? }`, and the
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
-  `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
+  `out.json` records each agent's skills. An agent named none keeps the operator's on the host.
 - Agents message each other on routes a workflow grants with `wf.messages.allow` (story
   029): `wfa peers`, `wfa send` and `wfa reply`, and `wfa send --await-reply` to ask and wait, where M2
   measured it: claude headless and in a TUI that confirms delivery, headless codex and pi. A
   message reaches an agent between turns; one for an idle agent starts a message operation, whose
-  `cause` is in `wf.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
+  `cause` is in `wf.usage()` and `out.json`. `awf run`, `awf logs` and `awf runs` show the
   messages, waits and queues, and a workflow's tests script them for free.
 - A workflow connects a coordinator outside the run with `wf.participants.connect` (story
   032), and its agents report to it and ask it over routes like any peer's, a route's `timeout`
@@ -268,7 +268,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   for a window after its turns, so a message then is a warm turn in the same pane, and its
   `onTimeout` compacts it before the run parks. ADR 0012.
 - [037 — a workflow waits on time in code that says what it waits for](stories/037-workflow-timers.md):
-  built, awaiting human review. Named timers that fire into the mailbox as `timer:due`; sources
+  built, awaiting human review. Named timers that a wait takes as `timer:due` once due; sources
   (timers, signals, participants, agents, turns); `race`, recorded by name; `select`, a loop beside
   `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer. A
   select's branch can be a time read from state, `wf.at(() => date)`, that follows the state
@@ -280,6 +280,19 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   done. `agentswf/client`:
   typed `emit` (events and replies), `start` with recorded args, `get`, `inbox` and `wait`; the
   fake client; one engine per project, the `agentswf` it depends on, the global `awf` handing over.
+- [041 — a run's records, one home per fact](stories/041-run-record-layout.md): built, awaiting
+  human review. A run's folder has the layout of [`design/run-record.md`](design/run-record.md):
+  `run.json` with `format: 1`; `run.jsonl`, what the run settled (claims, stage ends, races,
+  timers, waits and what they took, started turns and their ends, sessions), one writer fenced by
+  each attempt's `claimed` line, read through `contract`'s published `readRun`; `in.jsonl`, the
+  events senders add under the run's lock; `attempts/{n}.json` with the run's `value`, a failed
+  background launch an attempt file too, each launch's output in `launches/`; `log.jsonl`, which
+  nothing that acts on the run reads; `ops/{key}.{n}/` per operation, numbered across attempts,
+  agent and decision keys one set of names; `spend.json` unpriced, priced when read, an interrupted
+  attempt's settled by the next; `out.json` and `report.md` as views; scratch in `work/`. `stages/`,
+  `replaced/`, the mailbox, `calls/`, `decisions/` and `process.log` are gone; every start point is
+  a redo line; `awf logs` shows each session on the `run.jsonl` line that first names it, its
+  cursor spanning both files; a run made before is listed `unreadable` and not read. ADR 0014.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -304,7 +317,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   `agents.attach` and `participants.get` are gone; agent `labels`, `meta.whenToUse`, a stage
   around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
   a wait are deprecated, each logged once per attempt with its replacement; `agentswf/workflow` is an
-  explicit list, which the examples import; `output.json` has `ref`.
+  explicit list, which the examples import; `out.json` has `ref`.
   Task 2 built: in `agentswf/testing`, `noAnswer.*` replaces `reply.*`, a message script returns
   nothing or `noAnswer.failed()` instead of `message.silent()` and `fail()`, `run.ending` replaces
   `run.stopped` and `run.parked`, and an event's id is `eventId`, each old form deprecated and
@@ -316,7 +329,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   its process, never parking; `signal` takes only declared names; `file` is required only with
   `starts`, and `awf run` makes an id for a workflow with events and no `starts`. `--from-stage` on
   a continue of a run with events redoes that stage and the ones after it, each later record
-  moved to `replaced/` as the code reaches it, by this attempt or a later one; one that would park before reaching it stops. An agent's
+  outdated by the redo and run again as the code reaches it, by this attempt or a later one; one that would park before reaching it stops. An agent's
   or participant's key with a colon is deprecated, and the examples use `-`.
   Task 4 built: `caller()` returns a `CallerRef`, an agent without `compact` or `set` whose
   fork takes no `tools`, which every `AgentRef` is; `fork` and `forkCaller` take `runtime: {
@@ -332,8 +345,9 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   milliseconds.
   Task 6 built: `testWorkflow(workflow, options?)` for every workflow, `args` an option required
   by type where the workflow takes them, `id` `"test"` unless given, `maxTurns` for every run, an
-  unknown option refused by name, and `earlier: { stages, mailbox }` (with `fromStage` for a
-  workflow with events too); `testWorkflow(workflow, args, options)`, `recorded` and `mailbox` are
+  unknown option refused by name, and `earlier: { stages, mailbox }`, since 041's
+  `earlier: { stages, events, run }` (with `fromStage` for a workflow with events too);
+  `testWorkflow(workflow, args, options)`, `recorded` and `mailbox` are
   deprecated, each logged once; `agentswf/testing` re-exports one curated list, the engine's
   workflow-testing index, and every example test uses the one signature.
   Task 7 built: everything that wakes a run is declared in `events`. A
@@ -346,7 +360,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   participant's `is(e)`, `start()` without a declared end, the `participant:reply` and
   `agent:ended` names, the scripted `participant:reply` and `awf send --event-id` are deprecated,
   each logged; a workflow that declares some reply or end refuses an undeclared `to: "code"` or
-  `start()`. The mailbox keeps its record names. The examples with a participant routed to the code
+  `start()`. The event names awf records stay. The examples with a participant routed to the code
   and the Datadog sketch use the declared form.
   Task 8 built: `--timeout` (`awf run`, `awf test`, `wfa`) and `--wait` (`awf
   logs`, `awf inbox`) take the one duration grammar, `1d` and `90s` included; a whole number of

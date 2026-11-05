@@ -23,9 +23,10 @@ import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { parseCommand } from "../packages/engine/src/run-command";
+import { readRunLines } from "../packages/engine/src/run-lines";
 import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
-import { createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
+import { claimLines, createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
 import type { RunProcess } from "../packages/harness/src/command";
@@ -295,8 +296,8 @@ describe("awf run", () => {
     ]);
     expect(result.value.blockingFindingCount).toBe(1);
     expect(result.artifacts.startsWith(runRoot)).toBe(true);
-    expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
-    const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
+    expect(existsSync(join(result.artifacts, "ops"))).toBe(true);
+    const saved = JSON.parse(readFileSync(join(result.artifacts, "out.json"), "utf8"));
     expect(saved.ref).toBe(`review-loop/${saved.runId}`);
     expect(saved.accounting).toMatchObject({
       basis: "list prices 2026-10-07",
@@ -371,6 +372,7 @@ describe("awf run", () => {
   test("says once where its TUI agents are, as the first opens", async () => {
     const adapter = createFakeAdapter({
       harnesses: ["pi"],
+      givesSkills: true,
       script: (context) => ({
         act: async () => {
           await submit(context.binding!, { answer: context.prompt.includes("Add 9") ? 400 : 391 });
@@ -575,7 +577,7 @@ describe("awf run", () => {
     }
   });
 
-  test("output.json lists the sandboxes a run opened, each denying every run under the run root", async () => {
+  test("out.json lists the sandboxes a run opened, each denying every run under the run root", async () => {
     const root = runDirs.tempRunDir();
     const workflow = join(root, "sandboxed.js");
     await Bun.write(
@@ -618,13 +620,13 @@ describe("awf run", () => {
         agents: [],
       },
     ]);
-    expect(
-      JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).sandboxes,
-    ).toEqual(record.sandboxes);
+    expect(JSON.parse(readFileSync(join(record.artifacts, "out.json"), "utf8")).sandboxes).toEqual(
+      record.sandboxes,
+    );
     expect(fake.events[0]).toMatchObject({ kind: "open", runRoot: realpathSync(runRoot) });
   });
 
-  test("output.json lists the decisions a run asked, and the accounting prints them", async () => {
+  test("out.json lists the decisions a run asked, and the accounting prints them", async () => {
     const root = runDirs.tempRunDir();
     const workflow = join(root, "decides.js");
     await Bun.write(
@@ -659,13 +661,13 @@ describe("awf run", () => {
         snapshot: "fake/jev-1-20260926",
         outcome: "answered",
         charged: { amount: 0.000042, currency: "USD" },
-        artifact: "decisions/1.json",
+        artifact: "ops/triage:1.1/decision.json",
       }),
     ]);
-    expect(existsSync(join(record.artifacts, "decisions/1.json"))).toBe(true);
-    expect(
-      JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).decisions,
-    ).toEqual(record.decisions);
+    expect(existsSync(join(record.artifacts, "ops/triage:1.1/decision.json"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(record.artifacts, "out.json"), "utf8")).decisions).toEqual(
+      record.decisions,
+    );
     expect(record.accounting.unpriced).toEqual(["fake/jev-1-20260926"]);
     expect(errors.some((line) => line.startsWith("  1 decision · 1k tokens"))).toBe(true);
   });
@@ -926,7 +928,7 @@ describe("awf run", () => {
     expect(exitCode).not.toBe(0);
     expect(errors.join("")).toContain("the run's sandbox did not open");
     expect(existsSync(join(shell, "ran"))).toBe(false);
-    expect([...new Bun.Glob("runs/**/output.json").scanSync({ cwd: shell })]).toEqual([]);
+    expect([...new Bun.Glob("runs/**/out.json").scanSync({ cwd: shell })]).toEqual([]);
   });
 
   test("on a terminal, progress is one block redrawn under the log, and the terminal is restored", async () => {
@@ -990,7 +992,7 @@ describe("awf run", () => {
     const artifacts = artifactsLine!.replace("  records  ", "").replace(/^~/, homedir());
     expect(reportLine).toBe(`  report   ${join(artifacts, "report.md")}`);
     expect(readFileSync(join(artifacts, "report.md"), "utf8")).toBe("# 2 found\n");
-    expect(JSON.parse(readFileSync(join(artifacts, "output.json"), "utf8")).value).toEqual({
+    expect(JSON.parse(readFileSync(join(artifacts, "out.json"), "utf8")).value).toEqual({
       total: 2,
     });
 
@@ -1068,7 +1070,7 @@ describe("awf run", () => {
     const dir = recordsIn(reported);
     const reason = "runtime cleanup failed: cleanup broke";
     expect(attemptOf(dir)).toMatchObject({ outcome: "failed", reason });
-    const saved = JSON.parse(readFileSync(join(dir, "output.json"), "utf8"));
+    const saved = JSON.parse(readFileSync(join(dir, "out.json"), "utf8"));
     expect(saved).toMatchObject({ outcome: "failed", reason });
     expect(saved).not.toHaveProperty("value");
     expect(reported).toMatch(/^ {2}go on {4}awf run .*review-loop\.ts --id \S+ --continue$/m);
@@ -1096,7 +1098,7 @@ describe("awf run", () => {
     expect(errors.join("\n")).toContain("review incomplete:");
   });
 
-  test("a failed run keeps what it spent in output.json, and prints it with --json", async () => {
+  test("a failed run keeps what it spent in out.json, and prints it with --json", async () => {
     const adapter = createFakeAdapter({
       harnesses: ["claude", "codex"],
       script: (context) => ({ sessionRef: `s-${context.activation.key}` }),
@@ -1128,7 +1130,7 @@ describe("awf run", () => {
       expect(reported).toMatch(
         /^✗ failed: review incomplete: .*\n {2}review-loop \S+ · 2 agents · \d+s · .* · subscription$/m,
       );
-      const saved = JSON.parse(readFileSync(join(recordsIn(reported), "output.json"), "utf8"));
+      const saved = JSON.parse(readFileSync(join(recordsIn(reported), "out.json"), "utf8"));
       expect(saved).toMatchObject({
         version: OUTPUT_RECORD_VERSION,
         outcome: "failed",
@@ -1159,7 +1161,7 @@ describe("awf run", () => {
         },
       );
       const saved = JSON.parse(
-        readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
+        readFileSync(join(recordsIn(errors.join("\n")), "out.json"), "utf8"),
       );
       return { exitCode, saved, stderr: errors.join("\n") };
     };
@@ -1321,9 +1323,7 @@ describe("awf run", () => {
     expect(cleaned).toBe(1);
     expect(adapter.closed.length).toBeGreaterThan(0);
     expect(errors.join("\n")).toContain("■ cancelled: workflow cancelled by operator");
-    const saved = JSON.parse(
-      readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
-    );
+    const saved = JSON.parse(readFileSync(join(recordsIn(errors.join("\n")), "out.json"), "utf8"));
     expect(saved).toMatchObject({ outcome: "cancelled", reason: "workflow cancelled by operator" });
     expect(saved.accounting.totals.known).toBeGreaterThan(0);
   });
@@ -1383,9 +1383,7 @@ describe("awf run", () => {
     expect(cleaned).toBe(1);
     expect(errors.join("\n")).toContain("■ cancelled: workflow cancelled by operator");
     expect(errors.join("\n")).toContain("session close broke");
-    const saved = JSON.parse(
-      readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
-    );
+    const saved = JSON.parse(readFileSync(join(recordsIn(errors.join("\n")), "out.json"), "utf8"));
     expect(saved.outcome).toBe("cancelled");
     expect(saved.reason).toContain("session close broke");
   });
@@ -1469,10 +1467,9 @@ describe("awf run's runs and attempts", () => {
     expect(attemptOf(join(runs(cwd), "r1"), 2)).toMatchObject({
       outcome: "failed",
       reason: "no host",
-      accounting: { totals: { agents: 0 } },
     });
     expect(continued.join("\n")).toContain("✗ failed: no host\n  fixture r1 · attempt 2 · ");
-    expect(existsSync(join(runs(cwd), "r1", "output.json"))).toBe(true);
+    expect(existsSync(join(runs(cwd), "r1", "out.json"))).toBe(true);
   });
 
   test("--continue adds an attempt with the run's own argv", async () => {
@@ -1518,6 +1515,18 @@ describe("awf run's runs and attempts", () => {
     const done = await awfRun(cwd, ["flow.js", "--id", "r2", "--continue"]);
     expect(done).toMatchObject({ exitCode: 2, installed: false });
     expect(done.stderr).toBe("awf: r2 completed; there is nothing to continue");
+
+    // A run an awf before format 1 made: its run.json has a version and no format.
+    const file = join(runs(cwd), "r1", "run.json");
+    const { format: _format, ...old } = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify({ version: 1, ...old }));
+    rmSync(join(runs(cwd), "r1", "run.jsonl"));
+    const before = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
+    expect(before).toMatchObject({ exitCode: 2, installed: false });
+    expect(before.stderr).toBe(
+      "awf: fixture/r1 is unreadable: an earlier awf made it, before run.json had a format; this awf does not read it",
+    );
+    expect(readdirSync(join(runs(cwd), "r1", "attempts"))).toEqual(["1.json"]);
   });
 
   test("a continue names an earlier attempt that was interrupted", async () => {
@@ -1528,8 +1537,8 @@ describe("awf run's runs and attempts", () => {
     reopenAttempt(join(runs(cwd), "r1"), 1, { pid: 999_999_999 });
     // Its last turn, in qa.
     writeFileSync(
-      join(runs(cwd), "r1", "turns.jsonl"),
-      `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered", sessions: [] })}\n`,
+      join(runs(cwd), "r1", "log.jsonl"),
+      `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered" })}\n`,
     );
     rmSync(join(cwd, "fail"));
     const continued = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
@@ -1548,11 +1557,11 @@ describe("awf run's runs and attempts", () => {
     const line = (fields: object) =>
       `${JSON.stringify({ version: 1, attempt: 1, at, ...fields })}\n`;
     writeFileSync(
-      join(runs(cwd), "r1", "turns.jsonl"),
+      join(runs(cwd), "r1", "log.jsonl"),
       [
         line({ kind: "attempt-started" }),
         line({ kind: "stage-started", stage: "qa" }),
-        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered", sessions: [] }),
+        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered" }),
         line({ kind: "stage-ended", stage: "qa", outcome: "succeeded" }),
         line({ kind: "stage-started", stage: "fix" }),
         line({ kind: "log", text: "fixing", stage: "fix" }),
@@ -1580,7 +1589,7 @@ describe("awf run's runs and attempts", () => {
     const dir = join(runs(cwd), "r1");
     // A line the stage files contradict, and a torn last line: the continue goes by the files.
     appendFileSync(
-      join(dir, "turns.jsonl"),
+      join(dir, "log.jsonl"),
       `${JSON.stringify({ version: 1, attempt: 1, at: "", kind: "stage-ended", stage: "qa", outcome: "succeeded" })}\n{"version":1,"att`,
     );
     rmSync(join(cwd, "fail"));
@@ -1744,14 +1753,11 @@ describe("awf run's stages", () => {
     expect(done.stderr).toContain("↺ stage implement · feat/b · provided · attempt 2");
     // The start point it goes on to is the same: its missing record was said once.
     expect(done.stderr).not.toContain("awf: nothing is recorded");
-    expect(
-      JSON.parse(readFileSync(join(runDir(cwd), "stages", "implement.json"), "utf8")),
-    ).toMatchObject({
+    expect((await readRunLines(runDir(cwd))).view.stages.implement?.last).toMatchObject({
       attempt: 2,
       outcome: "succeeded",
       value: "feat/b",
       provided: true,
-      sessions: [],
     });
   });
 
@@ -1820,7 +1826,48 @@ describe("awf run's stages", () => {
       ].join("\n"),
     );
     // Nothing is recorded for a value no one gave.
-    expect(existsSync(join(runDir(cwd), "stages"))).toBe(false);
+    expect((await readRunLines(runDir(cwd))).view.stages).toEqual({});
+  });
+
+  test("a continue after a --from-stage that died inside its stage starts there again, and says so", async () => {
+    const cwd = await project();
+    expect((await awfRun(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(0);
+    // `--from-stage implement`, its process gone with implement running: no ending, no line.
+    writeFileSync(
+      join(runDir(cwd), "attempts", "2.json"),
+      JSON.stringify({
+        ...attemptOf(runDir(cwd)),
+        attempt: 2,
+        flags: { fromStage: "implement" },
+        pid: Bun.spawnSync(["true"]).pid,
+        processStart: "2026-11-01T00:00:00Z",
+        ended: undefined,
+        outcome: undefined,
+      }),
+    );
+    await claimLines(runDir(cwd), 2);
+    const resumed = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
+    expect(resumed.exitCode).toBe(0);
+    expect(resumed.stderr).toContain(
+      "awf: attempt 2 of r1 ended without an ending inside --from-stage implement; this attempt starts there again",
+    );
+    expect(attemptOf(runDir(cwd), 3)).toMatchObject({
+      outcome: "completed",
+      flags: { fromStage: "implement" },
+    });
+    // Through prepareRun's --from-stage: implement and qa, after it, run again.
+    const { view } = await readRunLines(runDir(cwd));
+    const ran = (name: string) =>
+      view.stages[name]?.history.map(({ attempt, outcome }) => [attempt, outcome]);
+    expect(ran("implement")).toEqual([
+      [1, "succeeded"],
+      [3, "succeeded"],
+    ]);
+    expect(ran("qa")).toEqual([
+      [1, "succeeded"],
+      [3, "succeeded"],
+    ]);
+    expect(view.redo).toEqual({ attempt: 3, stage: "implement" });
   });
 
   test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {
@@ -1848,10 +1895,13 @@ describe("awf run's stages", () => {
       outcome: "completed",
       flags: { fromStage: "qa" },
     });
-    expect(readdirSync(join(runDir(cwd), "replaced")).toSorted()).toEqual([
-      "qa.1.json",
-      "qa.2.json",
+    const { view } = await readRunLines(runDir(cwd));
+    expect(view.stages.qa?.history.map(({ attempt, outcome }) => [attempt, outcome])).toEqual([
+      [1, "failed"],
+      [2, "succeeded"],
+      [3, "succeeded"],
     ]);
+    expect(view.redo).toEqual({ attempt: 3, stage: "qa" });
   });
 
   test("a --from-stage never reached stops: exit 3, and no stage recorded", async () => {
@@ -1912,7 +1962,7 @@ describe("awf run's stages", () => {
     const cwd = await project();
     await awfRun(cwd, ["--run-root", "runs", "--id", "r1", "flow.js"]);
     const dir = join(cwd, "runs", "fixture", "r1");
-    rewriteJson(join(dir, "stages", "implement.json"), { value: 7 });
+    rewriteStageLine(dir, "implement", { value: 7 });
     const misfit = await awfRun(cwd, [
       "--run-root",
       "runs",
@@ -1926,12 +1976,12 @@ describe("awf run's stages", () => {
     expect(misfit.exitCode).toBe(3);
     expect(misfit.record).toMatchObject({ outcome: "stopped", stage: "implement" });
     expect(misfit.record.reason).toBe(
-      "implement's record no longer fits its result schema:\n  value: expected a string; got a number 7",
+      "implement's line no longer fits its result schema:\n  value: expected a string; got a number 7",
     );
     expect(attemptOf(dir, 2)).toMatchObject({ outcome: "stopped", stage: "implement" });
     // The problems sit under the reason, deeper than the rows, so they don't read as rows.
     expect(misfit.stderr).toContain(
-      "■ stopped in implement: implement's record no longer fits its result schema:\n    value: expected a string; got a number 7\n  fixture r1 · ",
+      "■ stopped in implement: implement's line no longer fits its result schema:\n    value: expected a string; got a number 7\n  fixture r1 · ",
     );
     expect(misfit.stderr).toContain(
       `  go on    awf run --run-root ${join(cwd, "runs")} flow.js --id r1 --continue --from-stage implement`,
@@ -2024,7 +2074,7 @@ describe("awf run's stages", () => {
     }
   });
 
-  test("a failure names its stage and the command that goes on; the attempt keeps its stages", async () => {
+  test("a failure names its stage and the command that goes on; out.json shows its stages", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
     const failed = await awfRun(cwd, ["--id", "r1", "flow.js"]);
@@ -2043,11 +2093,14 @@ describe("awf run's stages", () => {
       ],
     });
     expect(failed.record.stages[0]).not.toHaveProperty("value");
-    const attempt = attemptOf(runDir(cwd), 1);
-    expect(attempt).toMatchObject({ outcome: "failed", stage: "qa", stages: failed.record.stages });
-    expect(attempt.accounting).toMatchObject({
+    expect(failed.record.accounting).toMatchObject({
       byStage: [{ stage: "implement" }, { stage: "qa" }],
     });
+    // The attempt file keeps its ending; its stages are run.jsonl's, its cost its operations'.
+    const attempt = attemptOf(runDir(cwd), 1);
+    expect(attempt).toMatchObject({ outcome: "failed", stage: "qa" });
+    for (const gone of ["stages", "accounting", "unacknowledged", "value"])
+      expect(attempt).not.toHaveProperty(gone);
 
     rmSync(join(cwd, "fail"));
     const continued = await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
@@ -2114,7 +2167,7 @@ describe("awf run's stages", () => {
     expect(failed.record).not.toHaveProperty("stage");
   });
 
-  test("a later attempt totals the run, counting attempts whose cost is unknown, and drops a stale report", async () => {
+  test("a later attempt totals the run, an interrupted one's operations settled as it starts, cost unknown where unread, and drops a stale report", async () => {
     const cwd = runDirs.tempRunDir();
     const flow = (withReport: boolean) =>
       executableModule(
@@ -2126,23 +2179,128 @@ describe("awf run's stages", () => {
         withReport ? 'report() { return "# a report"; },' : "",
       );
     await Bun.write(join(cwd, "flow.js"), flow(true));
+    // Another file, as a fix is often tried: this one writes no report.
+    await Bun.write(join(cwd, "fixed.js"), flow(false));
     await awfRun(cwd, ["--id", "r1", "flow.js"]);
     const dir = join(cwd, ".awf", "runs", "fixture", "r1");
     expect(existsSync(join(dir, "report.md"))).toBe(true);
     await awfRun(cwd, ["flow.js", "--id", "r1", "--continue"]);
-    // Attempt 2 as an interruption leaves it: no ending, no accounting.
+    // Attempt 2 as an interruption leaves it: no ending, and an agent's turn with no spend.json.
     reopenAttempt(dir, 2, { pid: 999_999_999 });
-    // Attempt 1 as an older awf may have ended it: no accounting.
-    const { accounting: _accounting, ...first } = attemptOf(dir, 1);
-    writeFileSync(join(dir, "attempts", "1.json"), JSON.stringify(first));
-    // Another file, as a fix is often tried: this one writes no report.
-    await Bun.write(join(cwd, "fixed.js"), flow(false));
+    mkdirSync(join(dir, "ops", "worker.1"), { recursive: true });
+    writeFileSync(
+      join(dir, "ops", "worker.1", "op.json"),
+      JSON.stringify({
+        id: "worker.1",
+        attempt: 2,
+        at: attemptOf(dir, 2).started,
+        kind: "turn",
+        question: "Check.",
+        agent: "worker",
+        execution: { harness: "codex", model: "gpt-6-sol" },
+        cwd,
+      }),
+    );
     const third = await awfRun(cwd, ["fixed.js", "--id", "r1", "--continue"]);
     expect(third.exitCode).toBe(0);
-    expect(third.stderr).toMatch(
-      / · run: 3 attempts \(1 interrupted, 1 ended without a cost record, cost unknown\), \d+s$/m,
-    );
+    // Settled by the attempt after it, with what could be read: this runtime reads no sessions.
+    expect(JSON.parse(readFileSync(join(dir, "ops", "worker.1", "spend.json"), "utf8"))).toEqual({
+      billing: "unknown",
+      settledBy: 3,
+    });
+    // Its usage stays unknown, and the total says so.
+    expect(third.stderr).toMatch(/ · run: 3 attempts \(1 interrupted, cost unknown\), \d+s$/m);
     expect(existsSync(join(dir, "report.md"))).toBe(false);
+  });
+
+  test("deleting out.json and work/ between attempts changes nothing a continue does", async () => {
+    const flow = executableModule(
+      "return null;",
+      `const plan = await workflow.stage("plan", { result: { type: "string" } }, async () => {
+         const planner = await workflow.agents.open({
+           key: "planner",
+           runtime: "pi",
+           skills: [{ path: new URL("./skills/alpha", import.meta.url) }],
+         });
+         await planner.run({ prompt: "Plan.", schema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] } });
+         return "planned";
+       });
+       return workflow.stage("build", { result: { type: "string" } }, async () => {
+         const { existsSync } = await import("node:fs");
+         if (existsSync(workflow.cwd + "/fail")) throw new Error("not yet");
+         return plan;
+       });`,
+    );
+    let turns = 0;
+    const adapter = createFakeAdapter({
+      harnesses: ["pi"],
+      givesSkills: true,
+      script: (context) => ({
+        sessionRef: `s-${context.activation.key}`,
+        act: async () => {
+          turns += 1;
+          await submit(context.binding!, { answer: "planned" });
+        },
+      }),
+    });
+    const go = async (cwd: string, argv: string[]) => {
+      const output: string[] = [];
+      const errors: string[] = [];
+      const exitCode = await cli(["run", "--json", ...argv], {
+        cwd,
+        stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
+        installRuntime: async () => ({
+          config: {
+            aliases: { pi: { harness: "pi", model: "gpt-6-sol" } },
+            host: createSingleSessionHostFactory(adapter, spentFromFiles()),
+          },
+          cleanup: async () => undefined,
+        }),
+      });
+      return { exitCode, record: JSON.parse(output.join("\n")), stderr: errors.join("\n") };
+    };
+    const continued = async (remove: boolean) => {
+      const cwd = await projectWith(flow);
+      await Bun.write(
+        join(cwd, "skills", "alpha", "SKILL.md"),
+        "---\nname: alpha\ndescription: Use when planning.\n---\nPlan well.\n",
+      );
+      await Bun.write(join(cwd, "fail"), "");
+      expect((await go(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(1);
+      const dir = join(cwd, ".awf", "runs", "fixture", "r1");
+      expect(existsSync(join(dir, "out.json"))).toBe(true);
+      expect(existsSync(join(dir, "work", "skills"))).toBe(true);
+      expect(existsSync(join(dir, "work", "agents"))).toBe(true);
+      if (remove) {
+        rmSync(join(dir, "out.json"));
+        rmSync(join(dir, "work"), { recursive: true });
+      }
+      rmSync(join(cwd, "fail"));
+      const before = turns;
+      const next = await go(cwd, ["flow.js", "--id", "r1", "--continue"]);
+      return { ...next, turns: turns - before };
+    };
+    const kept = await continued(false);
+    const removed = await continued(true);
+    expect(kept.exitCode).toBe(0);
+    expect(removed.exitCode).toBe(0);
+    // The same value, plan reused and no agent asked again, and the same run total.
+    expect(removed.record.value).toBe("planned");
+    expect(removed.record.value).toEqual(kept.record.value);
+    expect(removed.turns).toBe(0);
+    expect(kept.turns).toBe(0);
+    const entered = (record: { stages: { stage: string; source: string; attempt: number }[] }) =>
+      record.stages.map(({ stage, source, attempt }) => [stage, source, attempt]);
+    expect(entered(removed.record)).toEqual(entered(kept.record));
+    expect(entered(removed.record)).toEqual([
+      ["plan", "reused", 1],
+      ["build", "ran", 2],
+    ]);
+    const total = (stderr: string) =>
+      /run: 2 attempts, \d+s, (\S+)$/m.exec(stderr)?.[1] ?? "no total";
+    expect(total(removed.stderr)).toBe(total(kept.stderr));
+    expect(total(kept.stderr)).toMatch(/^~?\$/);
   });
 
   test("a continued attempt that never starts is ended at no cost, with its own records and the command that goes on", async () => {
@@ -2170,13 +2328,12 @@ describe("awf run's stages", () => {
     expect(attemptOf(dir, 2)).toMatchObject({
       outcome: "failed",
       reason: "runtime: no login",
-      accounting: { totals: { agents: 0 } },
     });
     expect(readFileSync(join(dir, "report.md"), "utf8")).toBe("failed: runtime: no login\n");
     // Its own output record, which --json prints, in place of the earlier attempt's.
     const record = JSON.parse(output.join("\n"));
     expect(record).toMatchObject({ attempt: 2, outcome: "failed", reason: "runtime: no login" });
-    expect(JSON.parse(readFileSync(join(dir, "output.json"), "utf8"))).toEqual(record);
+    expect(JSON.parse(readFileSync(join(dir, "out.json"), "utf8"))).toEqual(record);
     const said = errors.join("\n");
     expect(said).toContain("✗ failed: runtime: no login\n  fixture r1 · attempt 2 · ");
     expect(said).toContain("  go on    awf run flow.js --id r1 --continue");
@@ -2606,6 +2763,7 @@ describe("awf run --here", () => {
     let asked: unknown;
     const adapter = createFakeAdapter({
       harnesses: ["pi"],
+      givesSkills: true,
       script: (context) => ({
         act: async () => {
           const picking = context.prompt.includes("Pick");
@@ -2657,7 +2815,7 @@ describe("awf run --here", () => {
     const handedBack = herdr.calls.find((call) => call[0] === "agent" && call[1] === "prompt");
     expect(handedBack?.[2]).toBe("w1:p1");
     expect(handedBack?.[3]).toMatch(
-      /^\[awf\] The workflow calling-session, run \S+, completed; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
+      /^\[awf\] The workflow calling-session, run \S+, completed; its record is .*out\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
     );
   });
 });
@@ -2727,12 +2885,23 @@ function reopenAttempt(runDir: string, n: number, fields: Record<string, unknown
     ended: _ended,
     outcome: _outcome,
     reason: _reason,
-    accounting: _accounting,
-    stages: _stages,
     stage: _stage,
     ...open
   } = JSON.parse(readFileSync(file, "utf8"));
   writeFileSync(file, JSON.stringify({ ...open, ...fields }));
+}
+
+/** Rewrites the run's `stage` lines named `name` with `fields` over their own. */
+function rewriteStageLine(dir: string, name: string, fields: Record<string, unknown>): void {
+  const file = join(dir, "run.jsonl");
+  const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  const rewritten = lines.map((text) => {
+    const line = JSON.parse(text);
+    return JSON.stringify(
+      line.kind === "stage" && line.name === name ? { ...line, ...fields } : line,
+    );
+  });
+  writeFileSync(file, `${rewritten.join("\n")}\n`);
 }
 
 /** Rewrites a JSON record with `fields` over its own. */

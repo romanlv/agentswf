@@ -1,5 +1,6 @@
 import type { WaitTake } from "@agentswf/contract/records";
-import { awfEventOf, type JsonValue, type WorkflowEvent } from "@agentswf/contract/workflow";
+import type { JsonValue, WorkflowEvent } from "@agentswf/contract/workflow";
+import { matches, recordName } from "./run-policy/waits";
 
 /** What each source the run issued takes: only awf makes a source, so only these are. */
 const takes = new WeakMap<object, WaitTake>();
@@ -35,16 +36,6 @@ export function isSignal(value: unknown): boolean {
 
 type Looked = { name: string; from: string; data?: unknown };
 
-/**
- * The name the mailbox records an event under: awf's keep `agent:ended` and `participant:reply`,
- * from their key, whatever name the workflow declares and is handed, `{key}:ended` or `{key}:reply`.
- */
-export function recordName(event: { name: string; from: string }): string {
-  const awf = awfEventOf(event.name);
-  if (!awf || awf.key !== event.from) return event.name;
-  return awf.kind === "ended" ? "agent:ended" : "participant:reply";
-}
-
 /** `event` under the name the workflow declares for it, where it declares one. */
 export function presented<E extends WorkflowEvent<string, JsonValue>>(
   event: E,
@@ -55,37 +46,9 @@ export function presented<E extends WorkflowEvent<string, JsonValue>>(
   return Object.freeze({ ...event, name: `${event.from}:${kind}` });
 }
 
-/** The first of `branches` that takes `event`. */
-export function branchOf(
-  branches: readonly (readonly [string, WaitTake])[],
-  event: Looked,
-): string | undefined {
-  return branches.find(([, take]) => matches(event, take))?.[0];
-}
-
 /** What a source takes; undefined for anything the run didn't issue as one. */
 export function takeOf(value: unknown): WaitTake | undefined {
   return typeof value === "object" && value !== null ? takes.get(value) : undefined;
-}
-
-/** Whether a wait that takes `take` takes `event`, under its recorded name or its declared one. */
-export function matches(
-  event: { name: string; from: string; data?: unknown },
-  take: WaitTake,
-): boolean {
-  if (recordName(event) !== take.name) return false;
-  if (take.from !== undefined && event.from !== take.from) return false;
-  if (take.turn === undefined) return true;
-  const data = event.data as { turn?: unknown } | null | undefined;
-  return typeof data === "object" && data !== null && data.turn === take.turn;
-}
-
-/** Whether a wait taking `wanted`, or everything when it names nothing, takes `event`. */
-export function wouldTake(
-  event: { name: string; from: string; data?: unknown },
-  wanted: readonly WaitTake[] | undefined,
-): boolean {
-  return wanted === undefined || wanted.some((take) => matches(event, take));
 }
 
 /**

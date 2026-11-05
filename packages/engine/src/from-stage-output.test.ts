@@ -18,7 +18,7 @@ export default defineWorkflow({
 });
 `;
 
-test("a stop for the values --from-stage needs keeps them in output.json", async () => {
+test("a stop for the values --from-stage needs keeps them in out.json", async () => {
   const { root, file, home } = eventProject(dirs, "two-stages.ts", WORKFLOW);
   const err: string[] = [];
   const code = await runOperatorCli(
@@ -33,7 +33,7 @@ test("a stop for the values --from-stage needs keeps them in output.json", async
   expect(code).toBe(3);
   const runs = join(root, ".awf", "runs", "two-stages");
   const [id] = readdirSync(runs);
-  const output = JSON.parse(await Bun.file(join(runs, id!, "output.json")).text());
+  const output = JSON.parse(await Bun.file(join(runs, id!, "out.json")).text());
   expect(output).toMatchObject({
     outcome: "stopped",
     stage: "plan",

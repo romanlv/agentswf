@@ -25,7 +25,7 @@ if (import.meta.main) {
   const faults = (async () => {
     if (mode !== "cancel" && mode !== "lost-route") return;
     while (!finished) {
-      for await (const path of new Bun.Glob("*/*/calls/*/liveness.jsonl").scan({
+      for await (const path of new Bun.Glob("*/*/ops/*/live.jsonl").scan({
         cwd: runRoot,
         absolute: true,
       })) {
@@ -108,7 +108,7 @@ if (import.meta.main) {
     : undefined;
   const evidence: Evidence = [];
   if (record)
-    for await (const path of new Bun.Glob("calls/*/liveness.jsonl").scan({
+    for await (const path of new Bun.Glob("ops/*/live.jsonl").scan({
       cwd: record.artifacts,
     })) {
       const read = await readOperationEvents(record.artifacts, path.split("/")[1]!);

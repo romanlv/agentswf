@@ -190,7 +190,7 @@ Out of scope:
   `environment` say only whose runs it reaches and what a launched attempt inherits.
 - Constraint: boundary 6. A workflow imports `agentswf/workflow` only; a program may import
   `agentswf/client`. An example driver needs its own boundary rule.
-- Constraint: [[run-record-layout]] is redesigning the run's folder (`design/run-record.md`, its
+- Constraint: [[run-record]] is redesigning the run's folder (`design/run-record.md`, its
   `created` line). Recorded args go into whichever record ships first; whichever lands second
   carries them over.
 - Assumption: the program runs as the operator: the same user, `HOME`, and a `PATH` that holds the
@@ -582,7 +582,7 @@ Every task runs this checklist:
 ### 1. The surface and the ADRs
 
 Outcome: the types written in `@agentswf/contract/client`; the ADRs for one
-engine per project and recorded args drafted, the second placed against [[run-record-layout]]; the
+engine per project and recorded args drafted, the second placed against [[run-record]]; the
 user approves all three.
 
 Done when:
@@ -834,7 +834,7 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
   `Startable`, re-exporting `Ending`, `EventData`, `EventsOf` and `Located`; `EventsOf` and
   `EventData` in `workflow/events.ts`, which `wf.emit` now types its data with;
   `WorkflowEvent.source?`; `WithoutEvents.file?: string`; `agentswf/client` re-exports the
-  contract's module, and gains `client` with task 3; ADRs 0014 and 0015.
+  contract's module, and gains `client` with task 3; ADRs 0015 and 0016.
 - `EventsOf` matches `events` structurally rather than through `Workflow<any, any, infer E>`: the
   same result, with no import of `executable.ts` into `events.ts`.
 - `defineWorkflow` has three overloads: events, inferring a `File` type parameter; plain with
@@ -847,8 +847,8 @@ Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-
 - `Startable` lists the plain form last, so a plain workflow without `file` is told `file` is what
   it lacks.
 - Review (one subagent, both lenses, with `tsc` probes): no blocking finding. Folded in: the Code
-  map's overload text; ADR 0015 says "a new record version", not 2, as story 041 may replace
-  `version` with `format`; ADR 0014 says `tick --all` passes over a project declared and not
+  map's overload text; ADR 0016 says "a new record version", not 2, as story 041 may replace
+  `version` with `format`; ADR 0015 says `tick --all` passes over a project declared and not
   installed; a misplaced `biome-ignore`. Accepted as above: explicit type arguments on an events
   workflow, the `string | undefined` file, errors at the call. A union-typed event name accepts
   either event's data, as `wf.emit` always has; the schema check at run time refuses it.
@@ -1055,7 +1055,7 @@ Two fresh reviewers; the engine and client side came back clean but for one item
   rests, makes the run, as a first `start` does: `started`, or `not-a-start`, and a reply to it is
   `no-run`. It answered `nudged`, so a handler's `did === "started"` branch went untested.
 - `awf tick --all` passes over a project whose runs are all plain: a plain workflow with `file`
-  registers its project (ADR 0015), and tick has nothing there to wake, so a declared, an
+  registers its project (ADR 0016), and tick has nothing there to wake, so a declared, an
   uninstalled or another version's engine there is no failure.
 - README.md says the global `awf` hands over only at another version.
 

@@ -17,6 +17,7 @@ import { createFakeAdapter } from "@agentswf/harness/testing";
 import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
 import { sumAttempts, summarizeRun } from "../accounting/summary";
+import { OpIds } from "../ops";
 import { openRun } from "../runs";
 import { createTempRunDirs, future, runNew, startNew, workflowOf } from "../testing";
 import { WorkflowRunError } from "../workflow-runner";
@@ -98,7 +99,7 @@ describe("decisions.decide", () => {
       tokens: { input: 10_000, output: 8 },
       charged: { amount: 0.00042, currency: "USD" },
       requestId: "gen-1",
-      artifact: "decisions/1.json",
+      artifact: "ops/triage:1.1/decision.json",
     });
     expect(record!.error).toBeUndefined();
 
@@ -444,7 +445,7 @@ describe("RunDecisions", () => {
     const slept: number[] = [];
     const decisions = new RunDecisions({
       installation: installation(provider),
-      runDir: runDirs.tempRunDir(),
+      ...decisionDir(),
       sleep: async (milliseconds) => {
         slept.push(milliseconds);
       },
@@ -463,7 +464,7 @@ describe("RunDecisions", () => {
     const provider = createFakeDecisionProvider([busy()]);
     const decisions = new RunDecisions({
       installation: installation(provider),
-      runDir: runDirs.tempRunDir(),
+      ...decisionDir(),
     });
     const failure = await decisions
       .decide({ key: "k", model: "jev", state: "s", questions: TRIAGE }, { deadline: future(300) })
@@ -481,10 +482,12 @@ describe("RunDecisions", () => {
         createFakeDecisionProvider([() => new Promise<never>(() => undefined)]),
       ),
       runDir: blocked,
+      ops: new OpIds(blocked, 1, new Map()),
     });
     const answered = new RunDecisions({
       installation: installation(createFakeDecisionProvider()),
       runDir: blocked,
+      ops: new OpIds(blocked, 1, new Map()),
     });
     const lost = await answered
       .decide({ key: "k", model: "jev", state: "s", questions: TRIAGE }, { deadline: future() })
@@ -501,7 +504,9 @@ describe("RunDecisions", () => {
     expect(late).toBeInstanceOf(DeadlineExceededError);
     expect(decisions.records()[0]).toMatchObject({
       outcome: "timed-out",
-      error: expect.stringMatching(/^deadline exceeded after 1 attempt; artifact not written/),
+      error: expect.stringMatching(
+        /^deadline exceeded after 1 attempt; op\.json not written: .*; artifact not written/,
+      ),
     });
   });
 
@@ -509,7 +514,7 @@ describe("RunDecisions", () => {
     const provider = createFakeDecisionProvider();
     const decisions = new RunDecisions({
       installation: { ...installation(provider), unavailable: { other: "OTHER_KEY is not set" } },
-      runDir: runDirs.tempRunDir(),
+      ...decisionDir(),
     });
     const ask = (model: string, state: unknown) =>
       decisions
@@ -530,7 +535,7 @@ describe("RunDecisions", () => {
   test("rejects a deadline that is not one, rather than ignoring it", async () => {
     const decisions = new RunDecisions({
       installation: installation(createFakeDecisionProvider()),
-      runDir: runDirs.tempRunDir(),
+      ...decisionDir(),
     });
     await expect(
       decisions.decide(
@@ -564,7 +569,7 @@ describe("RunDecisions", () => {
           },
         ]),
       ),
-      runDir: runDirs.tempRunDir(),
+      ...decisionDir(),
     });
     const { answers } = await decisions.decide(
       { key: "k", model: "jev", state: "s", questions: { odd: choice("Which?", options) } },
@@ -591,7 +596,7 @@ describe("decision accounting", () => {
     outcome: "answered",
     attempts: 1,
     tokens: { input: 1_000_000, output: 5 },
-    artifact: "decisions/1.json",
+    artifact: "ops/match:f1.1/decision.json",
     ...overrides,
   });
   const TIMES = { startedAt: "2026-09-23T10:00:00.000Z", finishedAt: "2026-09-23T10:00:05.000Z" };
@@ -707,4 +712,10 @@ function unexpected(): never {
 function failed(error: unknown): WorkflowRunError {
   expect(error).toBeInstanceOf(WorkflowRunError);
   return error as WorkflowRunError;
+}
+
+/** A run's folder and its operation ids, as an attempt that listed no earlier ones has them. */
+function decisionDir() {
+  const runDir = runDirs.tempRunDir();
+  return { runDir, ops: new OpIds(runDir, 1, new Map()) };
 }

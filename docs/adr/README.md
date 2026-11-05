@@ -27,7 +27,9 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   kept-alive agent holds the run live
 - [0013](0013-the-agent-command-is-wfa.md) — the agent's command is `wfa`, a workflow's context
   is `wf`, and the command lives in the engine
-- [0014](0014-one-engine-per-project.md) — one engine per project: the global `awf` hands over to
+- [0014](0014-a-run-settles-its-facts-as-lines.md) — a run settles its facts as lines in
+  `run.jsonl`, with a published reading
+- [0015](0015-one-engine-per-project.md) — one engine per project: the global `awf` hands over to
   the project's `agentswf`
-- [0015](0015-a-run-started-from-code-records-its-args.md) — a run started from code records its
-  args, at a new record version
+- [0016](0016-a-run-started-from-code-records-its-args.md) — a run started from code records its
+  args

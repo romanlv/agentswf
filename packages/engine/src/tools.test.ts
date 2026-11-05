@@ -1405,7 +1405,7 @@ describe("tool records and awf logs", () => {
     });
     expect(result.value).toBeNull();
     expect(JSON.parse(envelope)).toMatchObject({ kind: "rejected", code: "invalid-request" });
-    const text = await Bun.file(join(runRoot, "records", result.runId, "turns.jsonl")).text();
+    const text = await Bun.file(join(runRoot, "records", result.runId, "log.jsonl")).text();
     const lines = text
       .split("\n")
       .filter(Boolean)
@@ -1499,7 +1499,7 @@ describe("with started turns", () => {
       { ...startCase, agents: { investigator: calls } },
     );
     expect(run.value).toEqual({ cancelled: true, settledFirst: true, kind: "cancelled" });
-    const end = run.mailbox.find((each) => each.kind === "event" && each.name === "agent:ended");
+    const end = run.run.find((line) => line.kind === "turn-ended");
     expect(Date.parse(end!.at)).toBeGreaterThanOrEqual(seen.settledAt!);
   });
 

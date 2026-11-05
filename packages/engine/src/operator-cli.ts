@@ -7,6 +7,7 @@ import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
+import { earlierSpent, unreadEarlier } from "./accounting/spent";
 import { allowanceCommand } from "./allowance-command";
 import {
   type AttemptEnd,
@@ -58,6 +59,7 @@ import {
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
+import { readSpent } from "./spend";
 import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
 import { tickCommand } from "./tick-command";
@@ -104,6 +106,11 @@ export type OperatorEnvironment = {
   /** Starts or continues an event run's attempt for `awf emit`; absent, a detached `awf run`. */
   launch?: Launch;
   /**
+   * The background launch that started this process, which its attempt records; absent, the
+   * environment's `AWF_LAUNCH`.
+   */
+  launchId?: string;
+  /**
    * Where agents may `--await-reply`, past the engine's list: for the live checks that decide
    * what goes on it (story 029's M2 gate).
    */
@@ -128,10 +135,27 @@ type Output = {
   now: () => number;
 };
 
+/**
+ * `given`, its launch taken: the launch names this process's attempt only, so it is read once and
+ * kept from anything the process spawns, `process.env` and an injected environment alike, and a run
+ * an agent starts doesn't record it.
+ */
+export function takeLaunch(given: OperatorEnvironment): OperatorEnvironment {
+  const launchId = given.launchId ?? (given.environment ?? process.env).AWF_LAUNCH;
+  delete process.env.AWF_LAUNCH;
+  const { AWF_LAUNCH: _, ...kept } = given.environment ?? {};
+  return {
+    ...given,
+    ...(given.environment ? { environment: kept } : {}),
+    ...(launchId === undefined ? {} : { launchId }),
+  };
+}
+
 export async function runOperatorCli(
   argv: readonly string[],
-  environment: OperatorEnvironment = {},
+  given: OperatorEnvironment = {},
 ): Promise<number> {
+  const environment = takeLaunch(given);
   const stdout = environment.stdout ?? ((text) => console.log(text));
   const write = (text: string) => void process.stderr.write(text);
   const stderr =
@@ -448,7 +472,7 @@ async function runAttempt(
   }
   let attempt: Attempt;
   try {
-    attempt = await claimNext(run, loaded, command, notice, now());
+    attempt = await claimNext(run, loaded, command, notice, now(), environment.launchId);
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
@@ -477,14 +501,26 @@ async function runAttempt(
     attempt,
     loaded,
     stderr,
+    now,
     ...(!run.record.events ? {} : { locked }),
   };
-  const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
-    printEnding(end, kept, {
+  const close = async (end: AttemptEnd, kept: Kept, cleanupAlso?: string) => {
+    const earlier = prepared.continued?.attempts ?? [];
+    // Priced now, from what each earlier attempt's operations recorded, its claim's settling included.
+    const spentBefore =
+      n > 1
+        ? await readSpent(run.dir, earlier).then(
+            (spent) => earlierSpent(spent, earlier, n),
+            // Still a total, with every earlier attempt's cost unknown.
+            () => unreadEarlier(earlier, n),
+          )
+        : undefined;
+    return printEnding(end, kept, {
       workflow,
       run: { id, dir: run.dir },
       n,
-      earlier: prepared.continued?.attempts ?? [],
+      earlier,
+      ...(spentBefore ? { spentBefore } : {}),
       json: command.json,
       fromStage: command.fromStage !== undefined,
       now: now(),
@@ -496,6 +532,7 @@ async function runAttempt(
       stderr,
       notice,
     });
+  };
   // Timed from here: finding the calling session can take minutes the run itself never had.
   const startedAt = now();
   // Every way out from here writes the attempt's ending, before the hand-back: a session told the
@@ -594,7 +631,8 @@ async function runAttempt(
       run: {
         dir: run.dir,
         id,
-        attempt: n,
+        lines: attempt.lines,
+        ops: attempt.ops,
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
         ...(command.values === undefined ? {} : { values: command.values.stages }),

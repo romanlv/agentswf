@@ -132,7 +132,7 @@ for it.
   your authority ([Security](/guide/security#a-workflow-is-trusted-code)).
 - **A sandboxed agent still uses your login.** It runs on your subscription like any other agent.
 
-The record of a run, `output.json`, lists every sandbox once: its provider, the spec with paths
+The record of a run, `out.json`, lists every sandbox once: its provider, the spec with paths
 resolved, every domain reachable in the end, and each agent it held.
 
 ## See also

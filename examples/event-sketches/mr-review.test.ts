@@ -28,7 +28,7 @@ test.todo("a push during a review is reviewed next, and nothing is posted at the
     files: { [REVIEWS]: {} },
   });
   expect(run.turnsOf("reviewer")[1]?.prompt).toContain("aaa..bbb");
-  expect(run.stages.map((s) => s.stage)).not.toContain("post-f1@aaa");
+  expect(run.stages.map((s) => s.name)).not.toContain("post-f1@aaa");
 });
 
 async function refused(): Promise<void> {

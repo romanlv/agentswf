@@ -52,6 +52,10 @@ again. A test shows it, with no agents and no cost:
 | You change the code between attempts | | every stage record | runs the new code, reusing the records that still fit it ([below](#when-the-code-changes)) |
 | The run completed | `completed` | everything | refused, unless `--from-stage` names a stage to redo |
 
+In a run without events, a crash inside the stage `--from-stage` named leaves that redo to the
+next continue: it starts at that stage again, and says so. It doesn't carry the crashed attempt's
+`--values`, so a stage before it with no record to reuse stops for its value.
+
 A stage is the unit: nothing finer is kept. Two agent turns in one stage are redone together, so
 a step worth keeping on its own is a stage of its own. A workflow with no stages keeps nothing to
 reuse, and a continue runs all of it again.
@@ -70,8 +74,8 @@ As the workflow enters each stage, the continue decides:
   against the stage's `result` schema as it is now, and handed back; its work is never called.
 - **The start point** is the first stage entered with no succeeded record, or the stage
   `--from-stage` names. From there, every stage runs, even those that succeeded before: a review
-  of an implementation that is being redone is stale. Their old records move to `replaced/` in
-  the run's folder; nothing is deleted.
+  of an implementation that is being redone is stale. Their old records stay in the run's
+  `run.jsonl`; nothing is deleted.
 - **Agents start fresh.** A continue opens its agents anew, and they remember nothing of the
   stages it reused. That is why the `review` prompt names the commit and the branch.
 
@@ -90,7 +94,7 @@ what it reuses, from coarse to fine:
 | `meta.version`'s major (under `0.x`, its minor), when both the record and the code have one | the attempt stops at the first stage recorded by the other version |
 | A stage's `result` schema rejects its recorded value, or the stage gained or lost a `result` | the attempt stops at that stage, saying why |
 | A stage was added or renamed | it has no record, so a plain continue starts there; after `--from-stage`, the attempt stops, listing the recorded stages it never reached |
-| A stage was removed | its record is never asked for, and moves to `replaced/` at the next start point |
+| A stage was removed | its record is never asked for, and stays in `run.jsonl` |
 | A prompt, a model or anything else | records are reused as they are |
 
 Each stop names the stage, and the command it prints goes on with `--from-stage {stage}`, which
@@ -106,8 +110,8 @@ An attempt with no ending whose process is gone reads `interrupted` in `awf runs
 interrupted one and the Herdr workspace its panes were in, the one named
 `awf fix-issue 212 #1`. Those panes stay open until the next run that opens a TUI agent, which
 closes the workspaces of runs whose process is gone. The agents' turns up to the crash are in the
-run's event log; an interrupted attempt has no usage totals, since those are written when an
-attempt ends.
+run's event log. What it used is read from its agents' sessions by the next attempt, as it starts,
+and counted in the run's [cost](/guide/cost#where-the-numbers-come-from).
 
 Two continues of one run at once can't both run: the second is refused, naming the attempt still
 running and its process.

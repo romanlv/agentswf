@@ -22,13 +22,13 @@ fixed without this.
 Notes:
 
 - **Non-answered outcomes.** Save `agent read --source detection` in the call dir with every
-  non-answered outcome, and name it in `output.json`.
+  non-answered outcome, and name it in the run's result.
 - **Start failures.** In story 001's first live run every `agent.start` failed and the run record
   kept no native diagnostic, so the Herdr rejection was lost with the workspace. Keep a redacted
   `agent.start` diagnostic in the engine-owned run record, without raw command arguments or unsafe
   provider output.
-- The record shape and redaction boundary are a durable-evidence decision: settle them before
-  building, with [[run-record-layout]].
+- The record shape and redaction boundary are a durable-evidence decision: the screen's home is
+  the operation's folder, `ops/{key}.{n}/` ([[041-run-record-layout|041]]).
 - Split from [[herdr-pane-settlement]], whose measurement work this doesn't wait on: the screen is
   evidence, not settlement authority.
 
@@ -36,12 +36,11 @@ Notes:
 
 Drafted 2026-11-04, for review; nothing is built.
 
-**One file per operation: `calls/{operationId}/screen.txt`.** It holds the pane's visible screen
-when the operation settled without an answer, as plain text with ANSI stripped, mode `0600`,
-capped at 64 KiB (the last lines kept). With [[run-record-layout]]'s short names it becomes
-`ops/{agent}.{n}/screen.txt`: the op folder is the operation's evidence, so the screen sits in it
-directly, and a later piece (a headless agent's `stderr.txt`) beside it. Built before that layout,
-the move renames only the parent.
+**One file per operation: `ops/{key}.{n}/screen.txt`.** It holds the pane's visible screen when
+the operation settled without an answer, as plain text with ANSI stripped, mode `0600`, capped at
+64 KiB (the last lines kept). The op folder is the operation's evidence, so the screen sits in it
+directly, and a later piece (a headless agent's `stderr.txt`) beside it. It was built in
+`calls/{operationId}/` first, and [[041-run-record-layout|041]] moved it.
 
 **When.** On every outcome but `answered` and `cancelled`: `unanswered`, `blocked`, `timed-out`
 and `failed`, for turns and compactions alike, and for the nudges of an operation, since they
@@ -65,13 +64,13 @@ turn, so Herdr's host reads the screen before closing it and answers with that o
 tail is a later, separate choice.
 
 **Where a person finds it.** The path follows from the `operationId` that every `usage` row in
-`output.json` and every `turn` line already carries, so no record gains a field:
-- `site/reference/data.md` lists the file under `calls/{operationId}/`.
+`out.json` and every `turn` line already carries, so no record gains a field:
+- `site/reference/data.md` lists the file under `ops/{key}.{n}/`.
 - `awf logs` prints `screen: {path}` on a non-answered turn's line.
 - `awf run`'s closing block doesn't, for now: a run doesn't record which operation ended it, so
   naming one would be a guess.
 
-This changes the story's note "name it in `output.json`": the convention is the smaller surface,
+This changes the story's note "name it in the run's result": the convention is the smaller surface,
 and a field can still be added later, where removing one cannot. The run-record design agrees: `out.json`
 is a view with nothing only in it, and a diagnostic file is not part of what it promises.
 
@@ -86,7 +85,7 @@ On branch `screen-evidence`, 2026-11-04:
 - [x] `HarnessTurn.screen()`, Herdr's run host reading `pane read --source visible`, a failed start's
       screen read before its pane closes; the fake harness scripts one with `screen`.
 - [x] The engine keeps it for turns, message operations and compactions, not for answered or
-      cancelled ones: `calls/{operationId}/screen.txt`.
+      cancelled ones: `ops/{key}.{n}/screen.txt` (041 moved it from `calls/{operationId}/`).
 - [x] `awf logs` names it, and `--json` as `screen`; `site/reference/data.md` lists it.
 - [x] Live, codex in its pane, a turn timed out mid-`sleep`: `screen.txt` (0600) shows it
       working, read before the interrupt, and `awf logs` names it.

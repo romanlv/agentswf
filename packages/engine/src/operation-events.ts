@@ -1,10 +1,11 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import {
   OPERATION_LIVENESS_KINDS,
   OPERATION_LIVENESS_RECORD_VERSION,
   type OperationLivenessRecord,
 } from "@agentswf/contract/records";
+import { liveFile } from "./ops";
 
 export type OperationEvent = Pick<
   OperationLivenessRecord,
@@ -174,7 +175,7 @@ function bound(value: number | undefined, fallback: number, minimum: number): nu
   return actual;
 }
 function eventFile(runDir: string, operationId: string): string {
-  return join(runDir, "calls", operationId, "liveness.jsonl");
+  return liveFile(runDir, operationId);
 }
 async function append(path: string, line: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

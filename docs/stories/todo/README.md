@@ -87,7 +87,6 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
   harness's records, a limit if the numbers call for one.
 - [[woken-run-bounds]] — a woken run gets a deadline, and `awf tick` reaps an ended attempt still
   alive; one reading of liveness when `ps` can't answer.
-- [[run-record-layout]] — a run's folder designed as a whole, before leaving evaluation.
 - [[agent-own-config]] — an agent runs on the setup the workflow gives it, not the operator's.
 - [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
 - [[claude-file-login]] — a sandboxed claude signs in from a login file, not a setup token.

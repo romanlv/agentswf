@@ -7,7 +7,7 @@ test("the reviewer's checked answer is the run's result, kept as the review stag
     agents: { reviewer: answer(VERDICT, { verdict: "approve" }) },
   });
   expect(run.value).toEqual({ verdict: "approve" });
-  expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+  expect(run.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
     ["review", "succeeded"],
   ]);
 });

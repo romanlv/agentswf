@@ -7,8 +7,17 @@ import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter, createFakeCallingSession } from "@agentswf/harness/testing";
 import { createFakeDecisionProvider } from "./decisions/fake";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { createRun, openRun, readEvents, readTurns } from "./runs";
-import { createTempRunDirs, DOC, future, runAttempt, submit, workflowOf } from "./testing";
+import { readRunLines } from "./run-lines";
+import { createRun, logFile, openRun, readEvents, readTurns } from "./runs";
+import {
+  claimLines,
+  createTempRunDirs,
+  DOC,
+  future,
+  runAttempt,
+  submit,
+  workflowOf,
+} from "./testing";
 import { runWorkflow } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
@@ -66,7 +75,7 @@ describe("the run's event log", () => {
     });
     await runWorkflow(workflow, null, {
       runRoot,
-      run: { dir: run.dir, id: "r1", attempt: 1 },
+      run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 1)) },
       runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(forking()) },
       decisions: {
         providers: { fake: createFakeDecisionProvider() },
@@ -93,7 +102,6 @@ describe("the run's event log", () => {
       "turn plan worker",
       "agent-forked tests",
       "agent-opened tests",
-      "session-known tests",
       "operation-started plan tests turn",
       "turn plan tests",
       "decision-asked plan",
@@ -122,11 +130,26 @@ describe("the run's event log", () => {
       callPath: [],
       cwd: process.cwd(),
     });
-    expect(events.filter((event) => event.kind.startsWith("decision-"))).toMatchObject([
+    const decided = events.filter((event) => event.kind.startsWith("decision-"));
+    expect(decided).toMatchObject([
       { decision: 1, key: "bug", alias: "jev", provider: "fake", model: "jev" },
       { decision: 1, outcome: "answered" },
     ]);
+    // Both of a decision's lines name its operation.
+    const operations = decided.map((event) => "operation" in event && event.operation);
+    expect(operations[0]).toEqual(expect.any(String));
+    expect(operations[1]).toBe(operations[0]);
+    expect(events.find((event) => event.kind === "agent-opened")).toMatchObject({
+      skills: { skills: "operator" },
+    });
     expect(await readTurns(run.dir)).toEqual(turns);
+    // The sessions are `run.jsonl`'s, a fork's once it opens, none on the log's lines.
+    expect(lines.some((line) => "sessions" in line)).toBe(false);
+    const { view } = await readRunLines(run.dir);
+    expect(view.sessions.all.map(({ agent, operation }) => [agent, operation])).toEqual([
+      ["worker", turns[0]!.operationId],
+      ["tests", undefined],
+    ]);
   });
 
   test("a turn that throws before it is delivered is written as failed, with no start", async () => {
@@ -240,7 +263,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 1)) },
         runtime: {
           aliases: { review: { harness: "fake", model: "fake" } },
           host: {
@@ -297,7 +320,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 1)) },
         runtime: {
           aliases: { review: { harness: "fake", model: "fake" } },
           host: {
@@ -320,7 +343,7 @@ describe("the run's event log", () => {
     expect(forked).toHaveProperty("after", expect.any(String));
   });
 
-  test("a session named while its turn runs is known before the turn ends", async () => {
+  test("a session named while its turn runs is recorded, naming its operation", async () => {
     const runRoot = runDirs.tempRunDir();
     const adapter = createFakeAdapter({
       harnesses: ["codex"],
@@ -340,23 +363,20 @@ describe("the run's event log", () => {
       }),
       { runRoot, adapter },
     );
-    // On the operation's start when it is delivered by then, or on a line of its own after.
-    const lines = await readEvents(join(runRoot, "staged", "r1"));
-    const turn = lines.findIndex((line) => line.kind === "turn");
-    const named = lines
-      .slice(0, turn)
-      .flatMap((line) =>
-        line.kind === "operation-started"
-          ? line.sessions.map(({ id }) => id)
-          : line.kind === "session-known"
-            ? [line.session.id]
-            : [],
-      );
-    expect(named).toEqual(["thread-9"]);
-    const started = lines.find((line) => line.kind === "operation-started");
-    expect(lines.find((line) => line.kind === "session-known")).toMatchObject({
-      operationId: started && "operationId" in started ? started.operationId : "none",
-    });
+    const dir = join(runRoot, "staged", "r1");
+    const started = (await readEvents(dir)).find((line) => line.kind === "operation-started");
+    const turn = (await readTurns(dir))[0]!;
+    const { view } = await readRunLines(dir);
+    // The only session it had, recorded as it was named, before its turn settled.
+    expect(view.sessions.all).toMatchObject([
+      {
+        agent: "worker",
+        harness: "codex",
+        session: "thread-9",
+        operation: started && "operationId" in started ? started.operationId : "none",
+      },
+    ]);
+    expect(Date.parse(view.sessions.all[0]!.at)).toBeLessThanOrEqual(Date.parse(turn.settledAt!));
   });
 
   test("a write that fails is said on stderr only, once for events and for each turn", async () => {
@@ -369,7 +389,7 @@ describe("the run's event log", () => {
       sandbox: null,
     });
     // An append to a directory fails.
-    await mkdir(join(run.dir, "turns.jsonl"));
+    await mkdir(logFile(run.dir));
     const said: string[] = [];
     await runWorkflow(
       workflowOf(async (context) => {
@@ -383,7 +403,7 @@ describe("the run's event log", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", attempt: 1 },
+        run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 1)) },
         runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(forking()) },
         deadline: future(),
         onLog: (message) => said.push(message),
@@ -413,7 +433,7 @@ describe("reading the log", () => {
       outcome: "answered",
       sessions: [],
     };
-    await writeFile(join(run.dir, "turns.jsonl"), `${JSON.stringify(line)}\n`);
+    await writeFile(logFile(run.dir), `${JSON.stringify(line)}\n`);
     expect(await readTurns(run.dir)).toEqual([{ kind: "turn", ...line } as never]);
   });
   test("skips a kind or version it does not know and a line that does not parse", async () => {
@@ -429,7 +449,7 @@ describe("reading the log", () => {
     const dir = join(runRoot, "staged", "r1");
     const before = await readEvents(dir);
     await appendFile(
-      join(dir, "turns.jsonl"),
+      logFile(dir),
       [
         JSON.stringify({ version: 1, attempt: 1, kind: "from-a-later-awf", at: "" }),
         JSON.stringify({ version: 9, attempt: 1, kind: "stage-started", at: "", stage: "x" }),
@@ -463,7 +483,7 @@ describe("reading the log", () => {
       settledAt: "2026-10-01T00:01:00.000Z",
       sessions: [{ harness: "codex", id: "s" }],
     };
-    await writeFile(join(run.dir, "turns.jsonl"), `${JSON.stringify(old)}\n`);
+    await writeFile(logFile(run.dir), `${JSON.stringify(old)}\n`);
     expect(await readTurns((await openRun(runRoot, "staged", "r1")).dir)).toEqual([old as never]);
   });
 
@@ -474,7 +494,7 @@ describe("reading the log", () => {
       return null;
     });
     await runAttempt(workflow, { runRoot });
-    const file = join(runRoot, "staged", "r1", "turns.jsonl");
+    const file = logFile(join(runRoot, "staged", "r1"));
     await appendFile(file, '{"version":1,"attempt":1,"ki');
     await runAttempt(workflow, { runRoot, attempt: 2, fromStage: "plan" });
     const text = await readFile(file, "utf8");

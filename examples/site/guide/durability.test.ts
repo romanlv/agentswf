@@ -16,7 +16,7 @@ test("a review that never comes stops the attempt in review, after plan and impl
     },
   });
   expect(run.ending).toMatchObject({ kind: "stopped", stage: "review" });
-  expect(run.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+  expect(run.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
     ["plan", "succeeded"],
     ["implement", "succeeded"],
     ["review", "stopped"],

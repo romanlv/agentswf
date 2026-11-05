@@ -1,14 +1,11 @@
-import {
-  STAGE_RECORD_VERSION,
-  type StageNeed,
-  type StageRecord,
-  type TurnRecord,
-} from "@agentswf/contract/records";
+import type { RunView, StageLine, StageNeed } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
 import type { RunEventBody } from "./run-event-log";
-import { replaceRecord, replaceStale, stageNameProblem, writeStageRecord } from "./runs";
-import { planStage, planStageByContent, type StageRedo } from "./stage-plan";
+import type { RunLines } from "./run-lines";
+import { planStage, planStageByContent } from "./run-policy/stage-plan";
+import { recordedStages, StageReuse, upcomingStages } from "./run-policy/stages";
+import { stageNameProblem } from "./runs";
 import { placeholderOf } from "./stage-schema";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 
@@ -28,11 +25,11 @@ export type StageProgress = Omit<StageSummary, "value" | "outcome" | "spanMs"> &
   outcome?: StageOutcome;
   startedAt: number;
   endedAt?: number;
-  /** When a reused stage's record ended, which the view ages. */
+  /** When a reused stage's line was written, which the view ages. */
   recordedAt?: number;
 };
 
-/** A stage without its value, which its stage record keeps. */
+/** A stage without its value, which its stage line keeps. */
 export function withoutValue<Stage extends { value?: JsonValue }>(
   stage: Stage,
 ): Omit<Stage, "value"> {
@@ -48,22 +45,24 @@ export type StageEntry = {
   summary(value: JsonValue): string | undefined;
 };
 
-/** A stage entered: reused from its record or a value given without running, or run. */
+/** A stage entered: reused from its line or a value given without running, or run. */
 type EnteredStage =
   /** `release` once the value is handed back: until then the stage counts as open. */
   | { kind: "reuse"; value: JsonValue | undefined; release(): void }
   | { kind: "run"; stage: OpenStage };
 
 /**
- * One attempt's stages: which are entered, which one is open, and each one's record, written into
- * the run's `stages/` when it ends. A stage is a name entered at most once per attempt, one at a
- * time. Until the attempt's start point each is reused or stops it, as the stage plan says; the
- * rest is the runner's.
+ * One attempt's stages: which are entered, which one is open, and each one's end, a `stage` line of
+ * `run.jsonl`. A stage is a name entered at most once per attempt, one at a time. Until the
+ * attempt's start point each is reused or stops it, as the stage plan says; the rest is the
+ * runner's.
  */
 export class StageLedger {
   /** Each stage entered, in order, as it stands. */
   readonly #stages = new Map<string, StageProgress & { value?: JsonValue }>();
   readonly #reused = new Set<string>();
+  /** The line each stage reused from an earlier attempt was reused from. */
+  readonly #reusedLines = new Map<string, StageLine>();
   /** Whether the attempt has reached its start point, after which every stage runs. */
   #started = false;
   readonly #writes = new Set<Promise<void>>();
@@ -86,29 +85,27 @@ export class StageLedger {
    */
   readonly #looked = new Set<string>();
   #needed: WorkflowStopped | undefined;
-  /** The run's stage records as they stand, this attempt's included: what a stage by content reuses. */
-  readonly #records: Map<string, StageRecord>;
-
-  /** The redo stale records are judged by: the options', then this attempt's own. */
-  #redo: StageRedo | undefined;
-  /** Whether this attempt has entered the redo's stage, after which a stale record reruns. */
-  #afterRedo = false;
+  /** What each stage entered may reuse, this attempt's own lines included. */
+  readonly #reuse: StageReuse;
+  /** The run's stages as the attempt began, each by its latest line, in the order they started. */
+  readonly #recorded: StageLine[];
+  /** Of those, the ones a continue may still come to: none the last redo left behind. */
+  readonly #upcoming: string[];
+  readonly #attempt: number;
 
   constructor(
     private readonly options: {
-      runDir: string;
-      attempt: number;
+      /** The attempt's writer on `run.jsonl`, which each stage's end is a line of. */
+      lines: Pick<RunLines, "attempt" | "append">;
+      /** `run.jsonl` as the attempt began: what a continue may reuse, and the last redo. */
+      run?: Pick<RunView, "stages" | "redo">;
+      /** Each earlier attempt's `meta.version`, which a line it wrote was written under. */
+      versions?: ReadonlyMap<number, string>;
       workflowVersion?: string;
-      /** The attempt's turns as they settled, which name the stage each ran in. */
-      turns: () => readonly TurnRecord[];
-      /** The run's stage records as the attempt began: what a continue may reuse. */
-      records?: ReadonlyMap<string, StageRecord>;
       /** `--from-stage`: the stage the attempt starts at. */
       fromStage?: string;
-      /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
+      /** `--values`: the values of stages before `fromStage` that have no line to reuse. */
       values?: ReadonlyMap<string, JsonValue>;
-      /** A run of a workflow with `events`: the last `--from-stage` an attempt redid. */
-      redo?: StageRedo;
       /**
        * A run of a workflow with `events`: a stage runs once ever, reused wherever it is entered,
        * as `planStageByContent` says, and no `values`. Its start point is `fromStage` alone.
@@ -119,8 +116,11 @@ export class StageLedger {
       now?: () => Date;
     },
   ) {
-    this.#records = new Map(options.records);
-    this.#redo = options.redo;
+    const run = options.run ?? { stages: {} };
+    this.#attempt = options.lines.attempt;
+    this.#reuse = new StageReuse(run, this.#attempt);
+    this.#recorded = recordedStages(run);
+    this.#upcoming = upcomingStages(run).map((line) => line.name);
   }
 
   /** The stage open now, if one is. */
@@ -134,13 +134,12 @@ export class StageLedger {
   }
 
   /**
-   * The run's stage records as the attempt began, in the order they started. Before the start
-   * point nothing runs, so for an attempt that never reached it they are still the run's.
+   * The run's stages as the attempt began, each by its latest line, in the order they started.
+   * Before the start point nothing runs, so for an attempt that never reached it they are still the
+   * run's.
    */
-  get recorded(): StageRecord[] {
-    return [...(this.options.records?.values() ?? [])].sort((a, b) =>
-      a.started.localeCompare(b.started),
-    );
+  get recorded(): StageLine[] {
+    return this.#recorded;
   }
 
   /** The stop that ended the attempt, even if the workflow caught it. */
@@ -150,7 +149,7 @@ export class StageLedger {
 
   /**
    * Each stage entered that has ended, in order: reused, run, or stopped by the plan as it was
-   * entered, which ran nothing and has no record.
+   * entered, which ran nothing and wrote no line.
    */
   get summaries(): StageSummary[] {
     return [...this.#stages.values()].flatMap(
@@ -169,11 +168,11 @@ export class StageLedger {
     // By content, an earlier event's stage may never be entered again: none is upcoming.
     const upcoming = this.options.byContent
       ? []
-      : this.recorded.map((record) => record.stage).filter((stage) => !this.#stages.has(stage));
-    const recorded = (stage: string) => this.options.records?.get(stage)?.ended;
+      : this.#upcoming.filter((stage) => !this.#stages.has(stage));
     return {
       stages: [...this.#stages.values()].map((entered) => {
-        const ended = entered.source === "reused" ? recorded(entered.stage) : undefined;
+        const ended =
+          entered.source === "reused" ? this.#reusedLines.get(entered.stage)?.at : undefined;
         const stage = withoutValue(entered);
         return ended === undefined ? stage : { ...stage, recordedAt: Date.parse(ended) };
       }),
@@ -208,10 +207,9 @@ export class StageLedger {
 
   /**
    * Enters `name`: reused or provided when the plan says so, or opened to run. A value provided is
-   * recorded before it is handed back. Throws why it can't be: a bad name, a second entry, another
-   * one open, or a record that stops the attempt. Entered after a stop, the stop was caught, and
-   * that fails the attempt. Reaching the start point, it moves the records it outdates to
-   * `replaced/`.
+   * written as its line before it is handed back. Throws why it can't be: a bad name, a second
+   * entry, another one open, or a line that stops the attempt. Entered after a stop, the stop was
+   * caught, and that fails the attempt.
    */
   async enter(name: string, entry: StageEntry): Promise<EnteredStage> {
     // Looking on, a stop caught is the one for the values missing, which ends the attempt anyway.
@@ -220,9 +218,13 @@ export class StageLedger {
     this.#check(name);
     const at = this.#now().getTime();
     if (this.options.byContent) return this.#enterByContent(name, entry, at);
+    const line = this.#reuse.enter(name);
+    const lineVersion = line && this.options.versions?.get(line.attempt);
     const decision = planStage(
       {
-        records: this.options.records ?? new Map(),
+        ...(line === undefined ? {} : { line }),
+        ...(lineVersion === undefined ? {} : { lineVersion }),
+        recorded: this.#recorded.map((each) => each.name),
         ...(this.options.fromStage === undefined ? {} : { fromStage: this.options.fromStage }),
         ...(this.options.values === undefined ? {} : { values: this.options.values }),
         ...(this.options.workflowVersion === undefined
@@ -261,8 +263,8 @@ export class StageLedger {
     }
     if (decision.kind === "reuse" || decision.kind === "provide") {
       const held = this.#hold(name, decision.value);
-      let record: StageRecord;
-      if (decision.kind === "reuse") record = decision.record;
+      let line: StageLine;
+      if (decision.kind === "reuse") line = decision.line;
       else {
         const written = this.#provide(name, decision.value, entry, at);
         // Its failure is the stage's, thrown below.
@@ -273,13 +275,14 @@ export class StageLedger {
           ),
         );
         try {
-          record = await written;
+          line = await written;
         } catch (error) {
           held.release();
           throw error;
         }
       }
       this.#reused.add(name);
+      if (decision.kind === "reuse") this.#reusedLines.set(name, line);
       this.options.event?.(
         {
           kind: "stage-ended",
@@ -289,7 +292,7 @@ export class StageLedger {
         },
         at,
       );
-      const { attempt, summary, provided } = record;
+      const { attempt, summary, provided } = line;
       this.#stages.set(name, {
         stage: name,
         source: "reused",
@@ -303,41 +306,21 @@ export class StageLedger {
       });
       return held;
     }
-    // Open while the records it outdates are moved, so no other stage enters beside it.
-    const stage = this.#opened(name, at);
     if (decision.start) {
-      try {
-        await replaceStale(this.options.runDir, name, this.#reused);
-      } catch (error) {
-        // Not entered after all: nothing ran, so nothing is recorded, and no stage is left open.
-        this.#stages.delete(name);
-        this.#open = undefined;
-        throw error;
-      }
       this.#started = true;
+      this.#reuse.redoFrom(name);
     }
-    return { kind: "run", stage };
+    return { kind: "run", stage: this.#opened(name, at, decision.start) };
   }
 
   /**
-   * Enters a stage by content: reused from its succeeded record, this attempt's included, run when
-   * it has none or a failed one, which its own record then replaces. After the redo's stage in this
-   * attempt, a record older than the redo is stale and runs again: see `StageRedo`.
+   * Enters a stage by content: reused from its succeeded line, this attempt's included, run when it
+   * has none or a failed one. After the redo's stage in this attempt, a line older than the redo is
+   * outdated and runs again: see `StageRedo`.
    */
   async #enterByContent(name: string, entry: StageEntry, at: number): Promise<EnteredStage> {
     if (!this.#started && name === this.options.fromStage) return this.#startByContent(name, at);
-    const record = this.#records.get(name);
-    const redo = this.#redo;
-    // Entered already in this attempt, it has its value here: one stage, one value.
-    const stale =
-      redo !== undefined &&
-      this.#afterRedo &&
-      record !== undefined &&
-      record.attempt < redo.attempt &&
-      !this.#stages.has(name);
-    if (name === redo?.stage) this.#afterRedo = true;
-    if (stale) return { kind: "run", stage: this.#opened(name, at) };
-    const decision = planStageByContent(record, entry.result);
+    const decision = planStageByContent(this.#reuse.enter(name), entry.result);
     if (decision.kind === "stop") {
       this.#stopped = new WorkflowStopped(decision.reason, name, true);
       this.#stoppedAt(name, at);
@@ -348,7 +331,8 @@ export class StageLedger {
       this.#reused.add(name);
       // Entered again in the attempt that ran or reused it: nothing more to show or log.
       if (this.#stages.get(name)?.outcome === "succeeded") return held;
-      const { attempt, summary } = decision.record;
+      this.#reusedLines.set(name, decision.line);
+      const { attempt, summary } = decision.line;
       this.options.event?.(
         { kind: "stage-ended", stage: name, outcome: "succeeded", source: "reused" },
         at,
@@ -369,17 +353,16 @@ export class StageLedger {
   }
 
   /**
-   * `--from-stage` reached by content: it runs, and this attempt is the redo. Its old record moves to
-   * `replaced/` only as its new one is written, as a failed record's does, so an attempt that dies
-   * while it runs leaves the old one, and the redo, which nothing then shows, is issued again. The
-   * stages after it rerun as they are entered, not all at once: one never entered keeps its record.
+   * `--from-stage` reached by content: it runs, and this attempt is the redo, which its line says.
+   * An attempt that dies while it runs writes no line, so the old one stands and the redo, which
+   * nothing then shows, is issued again. The stages after it rerun as they are entered, not all at
+   * once: one never entered keeps its line.
    */
   #startByContent(name: string, at: number): EnteredStage {
-    const stage = this.#opened(name, at);
+    this.#reuse.enter(name);
+    this.#reuse.redoFrom(name);
     this.#started = true;
-    this.#redo = { stage: name, attempt: this.options.attempt };
-    this.#afterRedo = true;
-    return { kind: "run", stage };
+    return { kind: "run", stage: this.#opened(name, at, true) };
   }
 
   /** A stage the plan stopped as it was entered: shown stopped, though it ran nothing. */
@@ -389,7 +372,7 @@ export class StageLedger {
       stage: name,
       source: "ran",
       outcome: "stopped",
-      attempt: this.options.attempt,
+      attempt: this.#attempt,
       startedAt: at,
       endedAt: at,
     });
@@ -457,34 +440,29 @@ export class StageLedger {
     return (interrupted ? undefined : this.#stopForNeeded()) ?? failure;
   }
 
-  /** Records a value given for a stage, or none for one that returns nothing: no turn ran it. */
+  /** Writes a value given for a stage, or none for one that returns nothing: no turn ran it. */
   async #provide(
     name: string,
     value: JsonValue | undefined,
     entry: StageEntry,
     at: number,
-  ): Promise<StageRecord> {
+  ): Promise<StageLine> {
     const time = new Date(at).toISOString();
     const summary = value === undefined ? undefined : entry.summary(value);
-    const record: StageRecord = {
-      version: STAGE_RECORD_VERSION,
-      stage: name,
-      attempt: this.options.attempt,
+    const line: StageLine = {
+      kind: "stage",
+      attempt: this.#attempt,
+      at: time,
+      name,
       outcome: "succeeded",
       started: time,
-      ended: time,
-      ...(this.options.workflowVersion === undefined
-        ? {}
-        : { workflowVersion: this.options.workflowVersion }),
-      sessions: [],
       ...(summary === undefined ? {} : { summary }),
       ...(value === undefined ? {} : { value }),
       provided: true,
     };
-    // A record it replaces, one that failed or went stale, is kept as a redone stage's is.
-    if (this.options.records?.has(name)) await replaceRecord(this.options.runDir, name);
-    await writeStageRecord(this.options.runDir, record);
-    return record;
+    await this.options.lines.append(line);
+    this.#reuse.wrote(line);
+    return line;
   }
 
   #check(name: string): void {
@@ -503,61 +481,55 @@ export class StageLedger {
     }
   }
 
-  #opened(name: string, startedAt: number): OpenStage {
+  /**
+   * Opens `name` to run, from `startedAt`, the one clock read its line's `started` and the log's
+   * `stage-started` both carry, which `awf runs` pairs them by. `redo` on the stage the attempt
+   * started at.
+   */
+  #opened(name: string, startedAt: number, redo = false): OpenStage {
     const entered: StageProgress & { value?: JsonValue } = {
       stage: name,
       source: "ran",
-      attempt: this.options.attempt,
+      attempt: this.#attempt,
       startedAt,
     };
     this.#stages.set(name, entered);
     this.options.event?.({ kind: "stage-started", stage: name }, startedAt);
     let ended: Promise<void> | undefined;
-    // A record that fails to be written fails the stage with that error, whatever its work did.
-    const end = (fields: Pick<StageRecord, "outcome" | "reason" | "summary" | "value">) => {
+    // A line that fails to be written fails the stage with that error, whatever its work did.
+    const end = (fields: Pick<StageLine, "outcome" | "reason" | "summary" | "value">) => {
       if (ended) return ended;
       if (this.#open === stage) this.#open = undefined;
       const at = this.#now();
-      const record: StageRecord = {
-        version: STAGE_RECORD_VERSION,
-        stage: name,
-        attempt: this.options.attempt,
+      const line: StageLine = {
+        kind: "stage",
+        attempt: this.#attempt,
+        at: at.toISOString(),
+        name,
         outcome: fields.outcome,
         ...(fields.reason === undefined ? {} : { reason: fields.reason }),
         started: new Date(startedAt).toISOString(),
-        ended: at.toISOString(),
-        ...(this.options.workflowVersion === undefined
-          ? {}
-          : { workflowVersion: this.options.workflowVersion }),
-        sessions: sessionsOf(this.options.turns(), name),
         ...(fields.summary === undefined ? {} : { summary: fields.summary }),
         ...(fields.value === undefined ? {} : { value: fields.value }),
+        ...(redo ? { redo: true as const } : {}),
       };
       Object.assign(entered, {
-        outcome: record.outcome,
+        outcome: line.outcome,
         endedAt: at.getTime(),
-        ...(record.summary === undefined ? {} : { summary: record.summary }),
-        ...(record.value === undefined ? {} : { value: record.value }),
+        ...(line.summary === undefined ? {} : { summary: line.summary }),
+        ...(line.value === undefined ? {} : { value: line.value }),
       });
-      // By content, a failed record this one replaces is kept, as a redone stage's is.
-      const replacing = this.options.byContent && this.#records.has(name);
-      // Copied, then overwritten: dying between the two leaves the old record, as dying while the
-      // stage runs does, never a redo's stage without one and stale records after it.
-      ended = (replacing ? replaceRecord(this.options.runDir, name, true) : Promise.resolve())
-        .then(() => writeStageRecord(this.options.runDir, record))
-        .then(
-          () => {
-            this.#records.set(name, record);
-          },
-          (error: unknown) => {
-            entered.outcome = "failed";
-            throw error;
-          },
-        );
-      // Its outcome once the record is written: one that is not fails the stage.
+      ended = this.options.lines.append(line).then(
+        () => this.#reuse.wrote(line),
+        (error: unknown) => {
+          entered.outcome = "failed";
+          throw error;
+        },
+      );
+      // Its outcome once the line is written: one that is not fails the stage.
       const logEnd = () =>
         this.options.event?.(
-          { kind: "stage-ended", stage: name, outcome: entered.outcome ?? record.outcome },
+          { kind: "stage-ended", stage: name, outcome: entered.outcome ?? line.outcome },
           at.getTime(),
         );
       ended.then(logEnd, logEnd);
@@ -580,7 +552,7 @@ export class StageLedger {
   }
 
   /**
-   * Leaves the open stage `name` unended and unrecorded, as the run parked at a wait in it: the
+   * Leaves the open stage `name` unended and without a line, as the run parked at a wait in it: the
    * next attempt runs it again.
    */
   abandon(name: string): void {
@@ -598,8 +570,8 @@ export class StageLedger {
   }
 
   /**
-   * Fails the stage still open, once what ran in it has settled, and waits for every record: none
-   * is written after the attempt ends.
+   * Fails the stage still open, once what ran in it has settled, and waits for every line: none is
+   * written after the attempt ends.
    */
   async close(): Promise<void> {
     this.seal("the attempt ended");
@@ -623,18 +595,4 @@ export class StageLedger {
     if (first instanceof WorkflowStopped) return first.stage;
     return this.#failures.get(first) ?? this.#closedOpen;
   }
-}
-
-/** The session each of the stage's turns ran on, once per agent and session. */
-function sessionsOf(turns: readonly TurnRecord[], stage: string): StageRecord["sessions"] {
-  const seen = new Map<string, StageRecord["sessions"][number]>();
-  for (const turn of turns) {
-    const session = turn.sessions.at(-1);
-    if (turn.stage !== stage || !session) continue;
-    const key = `${turn.agent}\0${session.harness}\0${session.id}`;
-    if (!seen.has(key)) {
-      seen.set(key, { agent: turn.agent, harness: session.harness, session: session.id });
-    }
-  }
-  return [...seen.values()];
 }

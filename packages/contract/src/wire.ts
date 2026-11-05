@@ -423,7 +423,7 @@ export type HolderWireRequest = {
 };
 
 /**
- * awf telling a live run of a workflow with `events` that its mailbox has a new event, which its
+ * awf telling a live run of a workflow with `events` that it has a new event, which its
  * wait then reads; answered `{ v: 1, code: "nudged" }`. Only a wake: the event is already appended,
  * so a nudge that fails loses nothing.
  * @internal

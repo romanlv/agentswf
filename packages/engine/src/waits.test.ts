@@ -1,35 +1,28 @@
 import { afterAll, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import type { JsonObject } from "@agentswf/contract/workflow";
-import {
-  appendMailbox,
-  foldMailbox,
-  RunMailbox,
-  RunParked,
-  readMailbox,
-  type TurnEnd,
-  timerEventId,
-} from "./mailbox";
+import type { EventLine, RunLine } from "@agentswf/contract/records";
+import { timerEventId } from "./event-ids";
+import { appendIn } from "./in-lines";
+import { claimRunLines, readRunLines } from "./run-lines";
 import { createTempRunDirs } from "./testing";
+import { RunParked, RunWaits, readWaits } from "./waits";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
 const at = "2026-10-25T12:00:00.000Z";
-const event = (id: string, name = "dd.changes"): MailboxRecord => ({
-  version: MAILBOX_RECORD_VERSION,
+const event = (id: string, name = "dd.changes"): EventLine => ({
   at,
-  kind: "event",
   id,
   name,
   data: { id },
   from: "operator",
 });
 
-function mailbox(runDir: string, attempt = 1, now?: () => number): RunMailbox {
-  return new RunMailbox({
+/** Attempt `attempt`'s waits, its claim made. */
+async function waitsOf(runDir: string, attempt = 1, now?: () => number): Promise<RunWaits> {
+  return new RunWaits({
     runDir,
-    attempt,
+    lines: await claimRunLines(runDir, attempt, new Date().toISOString()),
     locked: (work) => work(),
     ...(now ? { now } : {}),
   });
@@ -37,44 +30,46 @@ function mailbox(runDir: string, attempt = 1, now?: () => number): RunMailbox {
 
 async function withEvents(...ids: string[]): Promise<string> {
   const runDir = runDirs.tempRunDir();
-  for (const id of ids) await appendMailbox(runDir, event(id));
+  for (const id of ids) await appendIn(runDir, event(id));
   return runDir;
 }
 
+const stateOf = (runDir: string) => readWaits(runDir, Date.now());
+const kinds = async (runDir: string) => (await readRunLines(runDir)).lines.map((line) => line.kind);
 const ids = (events: { id: string }[]) => events.map((e) => e.id);
 /** A run whose agents hold no window. */
 const NO_WINDOW = { timeout: async () => false, liveUntil: () => undefined };
 
 test("a wait takes every waiting event in arrival order, and the next acknowledges them", async () => {
   const runDir = await withEvents("a", "b");
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   expect(ids(await box.receive(undefined))).toEqual(["a", "b"]);
-  await appendMailbox(runDir, event("c"));
+  await appendIn(runDir, event("c"));
   expect(ids(await box.receive(undefined))).toEqual(["c"]);
-  expect(foldMailbox(await readMailbox(runDir)).unacknowledged).toEqual([]);
+  expect((await stateOf(runDir)).unacknowledged).toEqual([]);
 });
 
 test("an id appended twice is one event, the first kept", async () => {
   const runDir = await withEvents("a");
-  await appendMailbox(runDir, { ...event("a"), data: { second: true } } as MailboxRecord);
-  const taken = await mailbox(runDir).receive(undefined);
+  await appendIn(runDir, { ...event("a"), data: { second: true } });
+  const taken = await (await waitsOf(runDir)).receive(undefined);
   expect(taken).toEqual([{ id: "a", name: "dd.changes", data: { id: "a" }, from: "operator", at }]);
 });
 
 test("after a crash, the first wait returns the batch taken and not acknowledged, alone", async () => {
   const runDir = await withEvents("a", "b");
-  expect(ids(await mailbox(runDir, 1).receive(undefined))).toEqual(["a", "b"]);
+  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined))).toEqual(["a", "b"]);
   // The attempt died handling them; meanwhile c arrived.
-  await appendMailbox(runDir, event("c"));
-  const next = mailbox(runDir, 2);
+  await appendIn(runDir, event("c"));
+  const next = await waitsOf(runDir, 2);
   expect(ids(await next.receive(undefined))).toEqual(["a", "b"]);
   expect(ids(await next.receive(undefined))).toEqual(["c"]);
 });
 
-test("a timer due fires into the mailbox as timer:due, at its due time, from its name", async () => {
+test("a timer due is taken as timer:due, at its due time, from its name, never written as an event", async () => {
   const runDir = runDirs.tempRunDir();
   const due = Date.parse(at) + 60_000;
-  const box = mailbox(runDir, 1, () => due + 5_000);
+  const box = await waitsOf(runDir, 1, () => due + 5_000);
   box.setTimer("retry", due, "1m");
   expect(await box.receive("retrying")).toEqual([
     {
@@ -85,41 +80,50 @@ test("a timer due fires into the mailbox as timer:due, at its due time, from its
       at: new Date(due).toISOString(),
     },
   ]);
-  const kinds = (await readMailbox(runDir)).map((r) => r.kind);
-  expect(kinds).toEqual(["timer", "wait", "event", "took"]);
+  expect(await kinds(runDir)).toEqual(["claimed", "timer", "wait", "took"]);
+  const { lines } = await readRunLines(runDir);
+  expect(lines.at(-1)).toMatchObject({ took: [{ id: timerEventId("retry"), timer: "retry" }] });
 });
 
 test("a timer still to come is waited for, and a rerun keeps the time first set", async () => {
   const runDir = runDirs.tempRunDir();
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   const started = Date.now();
   box.setTimer("retry", started + 80, "80ms");
   expect(ids(await box.receive(undefined))).toEqual([timerEventId("retry")]);
   expect(Date.now() - started).toBeGreaterThanOrEqual(70);
-  const again = mailbox(runDir, 2);
+  const again = await waitsOf(runDir, 2);
   await again.open();
   const { timer, asked } = again.setTimer("retry", Date.now() + 10_000, "10s");
   expect(timer.due).toBe(new Date(started + 80).toISOString());
   expect(asked).toBe("10s");
 });
 
-test("a cancelled timer doesn't fire, and its timer:due not taken is withdrawn", async () => {
+test("a cancelled timer doesn't fire, and one due and not taken is withdrawn", async () => {
   const runDir = runDirs.tempRunDir();
   const due = Date.parse(at);
-  const box = mailbox(runDir, 1, () => due + 1);
+  let clock = due + 1;
+  const box = await waitsOf(runDir, 1, () => clock);
   box.setTimer("quiet", due + 10_000, "10s");
   box.setTimer("late", due, "0m");
-  await appendMailbox(runDir, { ...event("a"), at: new Date(due + 1).toISOString() });
-  expect(ids(await box.receive(undefined)).sort()).toEqual(["a", timerEventId("late")].sort());
+  box.setTimer("dropped", due, "0m");
+  await appendIn(runDir, { ...event("a"), at: new Date(due + 1).toISOString() });
+  // Due, and not taken by a wait that doesn't name it: cancelled, it is withdrawn.
+  const select = [{ name: "dd.changes" }, { name: "timer:due", from: "late" }];
+  expect((await box.select(select, undefined)).id).toBe(timerEventId("late"));
+  await box.cancelTimer("dropped");
   await box.cancelTimer("quiet");
-  const state = foldMailbox(await readMailbox(runDir));
+  clock = due + 60_000;
+  const state = await readWaits(runDir, clock);
   expect(state.timers.get("quiet")?.cancelled).toBe(true);
+  expect(state.unacknowledged).toEqual(["a"]);
+  expect(ids(await box.receive(undefined))).toEqual(["a"]);
 });
 
 test("a race takes only what it names, recorded, and a rerun gets the same answer", async () => {
   const runDir = await withEvents("a");
-  await appendMailbox(runDir, event("b", "dd.closed"));
-  const box = mailbox(runDir);
+  await appendIn(runDir, event("b", "dd.closed"));
+  const box = await waitsOf(runDir);
   const branches = [
     ["closed", { name: "dd.closed" }],
     ["nudge", { name: "timer:due", from: "ask@nudge" }],
@@ -130,73 +134,73 @@ test("a race takes only what it names, recorded, and a rerun gets the same answe
   expect(won.branch).toBe("closed");
   expect(won.event.id).toBe("b");
   // The loser, the race's own timer, is cancelled; what it didn't name stays.
-  const state = foldMailbox(await readMailbox(runDir));
+  const state = await stateOf(runDir);
   expect(state.timers.get("ask@nudge")?.cancelled).toBe(true);
   expect(state.unacknowledged).toEqual(["a"]);
-  const again = await mailbox(runDir, 2).race("ask", branches, owned, undefined);
+  const again = await (await waitsOf(runDir, 2)).race("ask", branches, owned, undefined);
   expect(again).toEqual(won);
 });
 
 test("a race leaves a loop's batch held: after a crash, the next receive returns it", async () => {
   const runDir = await withEvents("a");
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   expect(ids(await box.receive(undefined))).toEqual(["a"]);
-  await appendMailbox(runDir, event("b", "dd.closed"));
+  await appendIn(runDir, event("b", "dd.closed"));
   await box.race("closed", [["closed", { name: "dd.closed" }]], new Map(), undefined);
   // The attempt died handling a: the race acknowledged nothing of the loop's.
-  expect(ids(await mailbox(runDir, 2).receive(undefined))).toEqual(["a"]);
+  expect(ids(await (await waitsOf(runDir, 2)).receive(undefined))).toEqual(["a"]);
 });
 
 test("select takes one event it names at a time; after a crash, the one held comes back once", async () => {
   const runDir = await withEvents("a", "b");
-  await appendMailbox(runDir, event("c", "dd.closed"));
+  await appendIn(runDir, event("c", "dd.closed"));
   const takes = [{ name: "dd.changes" }];
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   expect((await box.select(takes, undefined)).id).toBe("a");
-  const again = mailbox(runDir, 2);
+  const again = await waitsOf(runDir, 2);
   expect((await again.select(takes, undefined)).id).toBe("a");
   expect((await again.select(takes, undefined)).id).toBe("b");
-  expect(foldMailbox(await readMailbox(runDir)).unacknowledged).toEqual(["c"]);
+  expect((await stateOf(runDir)).unacknowledged).toEqual(["c"]);
 });
 
 test("ready events are taken in order of their at: a timer fired late takes its place", async () => {
   const runDir = runDirs.tempRunDir();
   const due = Date.parse(at);
-  await appendMailbox(runDir, { ...event("later"), at: new Date(due + 1_000).toISOString() });
-  const box = mailbox(runDir, 1, () => due + 5_000);
+  await appendIn(runDir, { ...event("later"), at: new Date(due + 1_000).toISOString() });
+  const box = await waitsOf(runDir, 1, () => due + 5_000);
   box.setTimer("early", due, "0m");
   expect(ids(await box.receive(undefined))).toEqual([timerEventId("early"), "later"]);
 });
 
 test("a waiting receive takes an event appended later, nudged or not", async () => {
   const runDir = runDirs.tempRunDir();
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   const waiting = box.receive(undefined);
-  await appendMailbox(runDir, event("a"));
+  await appendIn(runDir, event("a"));
   box.nudge();
   expect(ids(await waiting)).toEqual(["a"]);
   // A nudge lost: the poll still finds it.
   const unnudged = box.receive(undefined);
-  await appendMailbox(runDir, event("b"));
+  await appendIn(runDir, event("b"));
   expect(ids(await unnudged)).toEqual(["b"]);
 });
 
 test("a wait in a stage holds its batch: acknowledged at once, and read back by the stage", async () => {
   const runDir = await withEvents("a");
-  const box = mailbox(runDir);
+  const box = await waitsOf(runDir);
   expect(ids(await box.receive(undefined, "approval-1"))).toEqual(["a"]);
-  await appendMailbox(runDir, event("b"));
+  await appendIn(runDir, event("b"));
   // A later attempt, rerun from the top, gets the stage's batch, not b.
-  const next = mailbox(runDir, 2);
+  const next = await waitsOf(runDir, 2);
   expect(ids((await next.batchOf("approval-1")) ?? [])).toEqual(["a"]);
   expect(ids(await next.receive(undefined))).toEqual(["b"]);
 });
 
 test("a stage that took its batch and failed, or died before its record, gets it again", async () => {
   const runDir = await withEvents("a");
-  expect(ids(await mailbox(runDir, 1).receive(undefined, "approval-1"))).toEqual(["a"]);
-  await appendMailbox(runDir, event("b"));
-  const rerun = mailbox(runDir, 2);
+  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined, "approval-1"))).toEqual(["a"]);
+  await appendIn(runDir, event("b"));
+  const rerun = await waitsOf(runDir, 2);
   expect(ids(await rerun.receive(undefined, "approval-1"))).toEqual(["a"]);
   // Nothing was written for it, and b still waits for the loop.
   expect(ids(await rerun.receive(undefined))).toEqual(["b"]);
@@ -204,9 +208,9 @@ test("a stage that took its batch and failed, or died before its record, gets it
 
 test("a first wait in a stage leaves a crash's held batch to the first wait outside one", async () => {
   const runDir = await withEvents("a");
-  expect(ids(await mailbox(runDir, 1).receive(undefined))).toEqual(["a"]);
-  await appendMailbox(runDir, event("b"));
-  const next = mailbox(runDir, 2);
+  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined))).toEqual(["a"]);
+  await appendIn(runDir, event("b"));
+  const next = await waitsOf(runDir, 2);
   expect(ids(await next.receive(undefined, "approval-1"))).toEqual(["b"]);
   expect(ids(await next.receive(undefined))).toEqual(["a"]);
 });
@@ -215,14 +219,14 @@ test("an event sent as the run parks is taken: parking checks again under the ru
   const runDir = runDirs.tempRunDir();
   let parked = false;
   let first = true;
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     // A sender that got the lock just before the park did: its event is in when the park looks.
     locked: async (work) => {
       if (first) {
         first = false;
-        await appendMailbox(runDir, event("late"));
+        await appendIn(runDir, event("late"));
       }
       return work();
     },
@@ -241,9 +245,9 @@ test("an event sent as the run parks is taken: parking checks again under the ru
 test("with nothing to take and nothing running, the wait parks: its ending written under the lock", async () => {
   const runDir = runDirs.tempRunDir();
   const order: string[] = [];
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: async (work) => {
       order.push("lock");
       const result = await work();
@@ -259,8 +263,9 @@ test("with nothing to take and nothing running, the wait parks: its ending writt
     },
   });
   await expect(box.receive("idle")).rejects.toBeInstanceOf(RunParked);
-  // The wait's own record, then the check and the ending, each under the lock.
-  expect(order).toEqual(["lock", "unlock", "lock", "park idle", "unlock"]);
+  // The wait's own line is the attempt's, written without the lock; the last check and the ending
+  // are made under it.
+  expect(order).toEqual(["lock", "park idle", "unlock"]);
 });
 
 test("while a turn runs, the wait doesn't park, and parks once it has ended", async () => {
@@ -269,9 +274,9 @@ test("while a turn runs, the wait doesn't park, and parks once it has ended", as
   setTimeout(() => {
     busy = false;
   }, 50);
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: (work) => work(),
     parking: { ...NO_WINDOW, idle: () => !busy, park: async () => undefined },
   });
@@ -285,9 +290,9 @@ test("in an agent's window the wait sleeps to its end, looking once, then parks"
   const end = Date.now() + 1_200;
   let looks = 0;
   const live: number[] = [];
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: (work) => work(),
     parking: {
       idle: () => {
@@ -311,12 +316,12 @@ test("in an agent's window the wait sleeps to its end, looking once, then parks"
 
 test("a due onTimeout runs before the wait parks, after an event already there is taken", async () => {
   const runDir = runDirs.tempRunDir();
-  await appendMailbox(runDir, event("first"));
+  await appendIn(runDir, event("first"));
   const calls: string[] = [];
   let due = true;
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: (work) => work(),
     parking: {
       idle: () => true,
@@ -324,7 +329,7 @@ test("a due onTimeout runs before the wait parks, after an event already there i
         if (!due) return false;
         due = false;
         calls.push("handler");
-        await appendMailbox(runDir, event("during"));
+        await appendIn(runDir, event("during"));
         return true;
       },
       liveUntil: () => undefined,
@@ -349,9 +354,9 @@ test("a window that passes between the wait's two looks is handled, not parked p
   const END = 1;
   const calls: string[] = [];
   let owed = true;
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: (work) => work(),
     parking: {
       idle: () => true,
@@ -373,7 +378,7 @@ test("a window that passes between the wait's two looks is handled, not parked p
 
 test("a race recorded before its loser's cancel was written cancels it on the rerun", async () => {
   const runDir = await withEvents("a");
-  await appendMailbox(runDir, event("b", "dd.closed"));
+  await appendIn(runDir, event("b", "dd.closed"));
   const branches = [
     ["closed", { name: "dd.closed" }],
     ["nudge", { name: "timer:due", from: "ask@nudge" }],
@@ -381,50 +386,64 @@ test("a race recorded before its loser's cancel was written cancels it on the re
   const owned = new Map([["nudge", "ask@nudge"]]);
   // The attempt died after its win and before its cancel.
   const due = new Date(Date.now() + 60_000).toISOString();
-  for (const record of [
-    { kind: "timer", attempt: 1, name: "ask@nudge", due, when: "1m" },
-    { kind: "wait", attempt: 1, race: "ask" },
-    { kind: "took", attempt: 1, ids: ["b"], race: "ask", branch: "closed" },
-  ])
-    await appendMailbox(runDir, {
-      version: MAILBOX_RECORD_VERSION,
-      at,
-      ...record,
-    } as MailboxRecord);
-  const again = mailbox(runDir, 2);
+  const first = await claimRunLines(runDir, 1, at);
+  const lines: RunLine[] = [
+    { kind: "timer", attempt: 1, at, name: "ask@nudge", due, when: "1m" },
+    { kind: "wait", attempt: 1, at, race: "ask" },
+    { kind: "race", attempt: 1, at, name: "ask", branch: "closed", took: [{ id: "b" }] },
+  ];
+  for (const line of lines) await first.append(line);
+  const again = await waitsOf(runDir, 2);
   await again.open();
   expect((await again.race("ask", branches, owned, undefined)).branch).toBe("closed");
-  expect(foldMailbox(await readMailbox(runDir)).timers.get("ask@nudge")?.cancelled).toBe(true);
+  expect((await stateOf(runDir)).timers.get("ask@nudge")?.cancelled).toBe(true);
 });
 
 test("a rerun's first select leaves a held event it doesn't take waiting, not acknowledged", async () => {
   const runDir = await withEvents("x");
-  await appendMailbox(runDir, event("y", "dd.closed"));
-  const box = mailbox(runDir);
+  await appendIn(runDir, event("y", "dd.closed"));
+  const box = await waitsOf(runDir);
   expect((await box.select([{ name: "dd.changes" }], undefined)).id).toBe("x");
   expect((await box.select([{ name: "dd.closed" }], undefined)).id).toBe("y");
   // The attempt died handling y; the rerun's first select takes dd.changes only.
-  await appendMailbox(runDir, event("z"));
-  const again = mailbox(runDir, 2);
+  await appendIn(runDir, event("z"));
+  const again = await waitsOf(runDir, 2);
   expect((await again.select([{ name: "dd.changes" }], undefined)).id).toBe("z");
   expect((await again.select([{ name: "dd.closed" }], undefined)).id).toBe("y");
 });
 
-test("a turn's end written before outcomes had `answered` reads back with it", async () => {
+test("two waits at once, in parallel branches, never take one event both", async () => {
+  const runDir = await withEvents("a");
+  const box = await waitsOf(runDir);
+  const first = box.receive(undefined, "left");
+  const second = box.receive(undefined, "right");
+  await Bun.sleep(50);
+  await appendIn(runDir, event("b"));
+  box.nudge();
+  const taken = [...(await first), ...(await second)].map((e) => e.id).sort();
+  expect(taken).toEqual(["a", "b"]);
+});
+
+test("a turn's end wakes every wait idle at once, not only the last to start", async () => {
   const runDir = runDirs.tempRunDir();
-  const end = (id: string, outcome: JsonObject): MailboxRecord => ({
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "event",
-    id,
-    name: "agent:ended",
-    from: "reviewer",
-    data: { turn: id, meta: null, outcome: { ...outcome, usage: {} } },
-  });
-  await appendMailbox(runDir, end("a", { kind: "answered", value: "" }));
-  await appendMailbox(runDir, end("b", { kind: "blocked", reason: "a prompt" }));
-  const outcomes = (await readMailbox(runDir)).map(
-    (line) => (line as unknown as { data: TurnEnd }).data.outcome.answered,
-  );
-  expect(outcomes).toEqual([true, false]);
+  const box = await waitsOf(runDir);
+  const end = (agent: string) =>
+    box.endTurn(agent, {
+      turn: `${agent}-1`,
+      meta: null,
+      outcome: { answered: true, kind: "answered", value: "done" } as never,
+    });
+  // No parking: a run that waits in its process. The second wait to start is the one a single
+  // waker would have kept.
+  const first = box.select([{ name: "agent:ended", from: "a" }], undefined);
+  await Bun.sleep(20);
+  const second = box.select([{ name: "agent:ended", from: "b" }], undefined);
+  await Bun.sleep(20);
+  await end("b");
+  expect((await second).from).toBe("b");
+  const started = Date.now();
+  await end("a");
+  expect((await first).from).toBe("a");
+  // Woken by the nudge, not found by the poll a second later.
+  expect(Date.now() - started).toBeLessThan(500);
 });

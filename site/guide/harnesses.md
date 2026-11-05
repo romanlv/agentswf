@@ -96,7 +96,7 @@ headless or not.
 
 ### What the record says
 
-`output.json` marks each agent's turns `subscription`, `metered` or `unknown`:
+`out.json` marks each agent's turns `subscription`, `metered` or `unknown`:
 
 | Harness | `subscription` | `metered` | `unknown` |
 | --- | --- | --- | --- |

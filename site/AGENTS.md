@@ -129,7 +129,7 @@ One page owns each of these; every other page says it in a clause at most and li
 | Fact | Owner |
 | --- | --- |
 | The words: workflow, run, agent, turn, outcome, harness, TUI, stage, nudge, `wf`, `wfa` | `/guide/how-it-works` |
-| What a run keeps (output.json, report.md), briefly | `/guide/how-it-works#the-record`; the full layout on `/reference/data` |
+| What a run keeps (out.json, report.md), briefly | `/guide/how-it-works#the-record`; the full layout on `/reference/data` |
 | What `awf init` writes and never overwrites | `/guide/quick-start` |
 | Harness requirements (logins, binaries, Herdr, srt, docker) | `/guide/install` |
 | Subscription vs metered, headless claude needs `metered: true`, API keys in the environment refused | `/guide/harnesses` |

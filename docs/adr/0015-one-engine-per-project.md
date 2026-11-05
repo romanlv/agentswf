@@ -1,4 +1,4 @@
-# 0014 — One engine per project
+# 0015 — One engine per project
 
 **Decided:** 2026-11-04, in [[040-workflows-from-code|story 040]].
 **Amends:** `site/guide/install.md`, which said a workflow needs nothing installed and that
@@ -38,8 +38,8 @@ global, whose parser refuses unknown options and whose reader refuses newer reco
 
 ## Costs, accepted
 
-- A global older than this decision doesn't hand over. It refuses a run with recorded args (a newer
-  record version, [[0015-a-run-started-from-code-records-its-args|ADR 0015]]), but runs a project's
-  other runs on itself until updated.
+- A global older than this decision doesn't hand over. It refuses every run of `format` 1
+  ([[0014-a-run-settles-its-facts-as-lines|ADR 0014]]), recorded args included
+  ([[0016-a-run-started-from-code-records-its-args|ADR 0016]]), until updated.
 - A local clone at a release's version is not told apart from the release; its developer runs the
   clone's own `awf`.

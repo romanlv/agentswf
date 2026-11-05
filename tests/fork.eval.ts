@@ -1,7 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ForkResult } from "../examples/fork/workflow";
+import { type ForkResult, keyOf } from "../examples/fork/workflow";
 import type { OutputRecord, SettledOperation } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { assertLiveOptIn, interruption } from "./live";
@@ -75,9 +75,7 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
       found.push(`${check.name}: the worker recalled ${worker.codename} and ${worker.release}`);
     }
     if (unread(check.name)) continue;
-    const first = record.usage.find(
-      (usage) => usage.agent === `fork-${check.name.replaceAll(":", "-")}`,
-    );
+    const first = record.usage.find((usage) => usage.agent === `fork-${keyOf(check.name)}`);
     const share = cachedShare(first);
     if (share === undefined || share < CACHED) {
       found.push(`${check.name}: the fork's first turn read ${share ?? "nothing"} from the cache`);
@@ -121,9 +119,7 @@ if (import.meta.main) {
         checks: succeeded.map((check) => ({
           ...check,
           cached: cachedShare(
-            record?.usage.find(
-              (usage) => usage.agent === `fork-${check.name.replaceAll(":", "-")}`,
-            ),
+            record?.usage.find((usage) => usage.agent === `fork-${keyOf(check.name)}`),
           ),
         })),
         estimateUsd: record?.accounting.totals.estimate,

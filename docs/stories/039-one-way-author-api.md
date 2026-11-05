@@ -720,7 +720,7 @@ Architecture and scope review:
   `--target` form refuses one.
 - A misspelled `{key}:ended` type-checked; it no longer does.
 - `wf.signal` on an agent's end, a second way to wait on it, is refused.
-- The mailbox's record names are documented as permanent.
+- The event names awf records (`participant:reply`, `agent:ended`) are documented as permanent.
 
 Correctness and proof review:
 - A reused stage around a wait handed back awf's record names where attempt 1 handed out the

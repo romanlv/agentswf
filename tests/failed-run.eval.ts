@@ -7,7 +7,7 @@ import { assertLiveOptIn } from "./live";
 
 /**
  * Story 003 against a live harness: a run that crashes, and one cancelled mid-turn, each after one
- * headless codex agent has answered, must keep that spend in `output.json`. Two short codex runs on
+ * headless codex agent has answered, must keep that spend in `out.json`. Two short codex runs on
  * gpt-6-luna and the ChatGPT subscription, about 20 s and under a cent at list prices.
  */
 const FIXTURE = join(import.meta.dir, "fixtures/spend-then-stop.ts");
@@ -45,7 +45,7 @@ async function scenario(mode: Observed["mode"]): Promise<Observed> {
   const printed = JSON.parse(output.join("\n")) as OutputRecord;
   // The file, not the printed copy: `--json` prints the record even when saving it failed.
   const record = JSON.parse(
-    await Bun.file(join(printed.artifacts, "output.json")).text(),
+    await Bun.file(join(printed.artifacts, "out.json")).text(),
   ) as OutputRecord;
   const { tokens, estimate } = record.accounting.totals;
   return {

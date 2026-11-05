@@ -43,12 +43,12 @@ describe("the loops page's review loop", () => {
       args,
       agents: {
         implementer: [done, noAnswer.failed("harness crashed")],
-        "implementer#2": done,
+        "implementer-2": done,
         reviewer: [rejected("Accept week 53"), approved],
       },
     });
     expect(run.value).toEqual({ approved: true, rounds: 2 });
-    const handover = run.turnsOf("implementer#2")[0]!.prompt;
+    const handover = run.turnsOf("implementer-2")[0]!.prompt;
     expect(handover).toContain("Take over from an agent that stopped");
     expect(handover).toContain("Make these changes:\nAccept week 53");
   });
@@ -58,7 +58,7 @@ describe("the loops page's review loop", () => {
       args,
       agents: {
         implementer: noAnswer.timedOut("no progress"),
-        "implementer#2": noAnswer.failed("harness crashed"),
+        "implementer-2": noAnswer.failed("harness crashed"),
         reviewer: approved,
       },
     });
@@ -78,7 +78,7 @@ describe("the loops page's review loop", () => {
       kind: "stopped",
       reason: expect.stringContaining("login"),
     });
-    expect(run.agents.map((agent) => agent.key)).not.toContain("implementer#2");
+    expect(run.agents.map((agent) => agent.key)).not.toContain("implementer-2");
   });
 
   test("a reviewer that never answers stops the run", async () => {

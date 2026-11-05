@@ -22,7 +22,7 @@ export class EngineRefused extends Error {
 }
 
 /**
- * The engine a project's runs run on (ADR 0014): the `agentswf` installed above it; else, for a
+ * The engine a project's runs run on (ADR 0015): the `agentswf` installed above it; else, for a
  * project with none above it, the one its workflow files resolve, as in a workspace whose root
  * holds `.awf/` and whose packages each have a `node_modules`. Files that resolve two versions, or
  * one other than the project's, are refused: one project runs on one engine.

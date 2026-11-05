@@ -1,10 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type { JsonValue } from "@agentswf/contract/workflow";
 import Type from "typebox";
-import { readStageRecords } from "./runs";
-import { createTempRunDirs, DOC, runAttempt, workflowOf } from "./testing";
+import { writeJson } from "./files";
+import { claimRunLines, readRunLines } from "./run-lines";
+import { crashedRedo } from "./run-policy/stages";
+import { openRun, readAttempts } from "./runs";
+import { createTempRunDirs, DOC, lastLines, runAttempt, workflowOf } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowRunError } from "./workflow-runner";
 import { answer, type TestRun } from "./workflow-testing";
@@ -87,7 +89,7 @@ describe("testWorkflow over recorded stages", () => {
     expect(run.value).toEqual({ doc: "docs/a.md", branch: "feat/a", qa: "preview ok" });
     expect(run.compactions).toEqual([]);
     expect(run.turns.map((turn) => [turn.stage, turn.prompt])).toEqual([["qa", "QA feat/a"]]);
-    expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([
+    expect(run.stages.map(({ name, attempt }) => [name, attempt])).toEqual([
       ["doc-review", 1],
       ["implement", 1],
       ["qa", 2],
@@ -130,7 +132,7 @@ describe("testWorkflow over recorded stages", () => {
       },
     );
     expect(run.value).toBe("feat/a");
-    expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([
+    expect(run.stages.map(({ name, attempt }) => [name, attempt])).toEqual([
       ["doc-review", 1],
       ["implement", 2],
       ["qa", 2],
@@ -168,13 +170,13 @@ describe("testWorkflow over recorded stages", () => {
     [
       "a value where none is expected",
       { "doc-review": { path: "a" } },
-      "doc-review's record holds a value, and the stage no longer has a result",
+      "doc-review's line holds a value, and the stage no longer has a result",
       undefined,
     ],
     [
       "none where one is",
       { "doc-review": undefined },
-      "doc-review's record holds no value, and the stage's result now expects one",
+      "doc-review's line holds no value, and the stage's result now expects one",
       DOC,
     ],
   ])(
@@ -212,7 +214,7 @@ describe("testWorkflow over recorded stages", () => {
       { earlier: { stages: { "doc-review": { file: "a" } } } },
     );
     expect(() => run.value).toThrow(
-      "stop was caught: doc-review's record no longer fits its result schema",
+      "stop was caught: doc-review's line no longer fits its result schema",
     );
     // The stage the plan stopped at was neither run nor reused, and qa never became a start point.
     expect(run.stages).toEqual([]);
@@ -227,7 +229,7 @@ describe("testWorkflow over recorded stages", () => {
       { earlier: { stages: { "doc-review": { file: "a" } } } },
     );
     expect(() => returned.value).toThrow(
-      "stop was caught: doc-review's record no longer fits its result schema",
+      "stop was caught: doc-review's line no longer fits its result schema",
     );
     expect(stopOf(returned)).toBeUndefined();
   });
@@ -288,7 +290,7 @@ describe("a new run started at a stage", () => {
       values: { "doc-review": { path: "docs/a.md" } },
     });
     expect(stopOf(run)).toMatchObject({ stage: "review", needs: [{ stage: "review" }] });
-    expect(run.stages.map(({ stage, provided, summary }) => [stage, provided, summary])).toEqual([
+    expect(run.stages.map(({ name, provided, summary }) => [name, provided, summary])).toEqual([
       ["doc-review", true, "docs/a.md"],
       ["implement", true, undefined],
     ]);
@@ -300,7 +302,7 @@ describe("a new run started at a stage", () => {
       values: { "doc-review": { path: "docs/a.md" }, review: { branch: "feat/a" } },
     });
     expect(run.value).toEqual({ path: "docs/a.md on feat/a" });
-    expect(run.stages.map(({ stage, provided }) => [stage, provided ?? false])).toEqual([
+    expect(run.stages.map(({ name, provided }) => [name, provided ?? false])).toEqual([
       ["doc-review", true],
       ["implement", true],
       ["review", true],
@@ -320,7 +322,7 @@ describe("a new run started at a stage", () => {
   });
 });
 
-describe("a continue's records", () => {
+describe("a continue's lines", () => {
   const attempt = (
     root: string,
     n: number,
@@ -328,12 +330,21 @@ describe("a continue's records", () => {
     fromStage?: string,
     values?: Record<string, JsonValue>,
   ) => runAttempt(workflow, { runRoot: root, attempt: n, fromStage, values });
+  /** Each stage's latest line. */
   const outcomes = async (root: string) =>
-    [...(await readStageRecords(join(root, "staged", "r1"))).values()]
-      .map(({ stage, attempt, outcome }) => `${stage}:${attempt}:${outcome}`)
+    [...(await lastLines(join(root, "staged", "r1"))).values()]
+      .map(({ name, attempt, outcome }) => `${name}:${attempt}:${outcome}`)
       .sort();
-  const replaced = async (root: string) =>
-    (await readdir(join(root, "staged", "r1", "replaced")).catch(() => [] as string[])).sort();
+  /** Each stage's lines, every attempt's, in order. */
+  const history = async (root: string) =>
+    Object.fromEntries(
+      Object.entries((await readRunLines(join(root, "staged", "r1"))).view.stages).map(
+        ([name, { history: lines }]) => [
+          name,
+          lines.map((line) => `${line.attempt}:${line.outcome}`),
+        ],
+      ),
+    );
   /** doc-review and implement succeed; qa fails while `qaFails`. */
   const flow = (qaFails: boolean, extra?: string) =>
     workflowOf(async (workflow) => {
@@ -346,7 +357,7 @@ describe("a continue's records", () => {
       return null;
     });
 
-  test("a plain continue reuses what succeeded, redoes the failed stage, and moves its old record", async () => {
+  test("a plain continue reuses what succeeded, and redoes the failed stage, whose old line stays", async () => {
     const root = runDirs.tempRunDir();
     await expect(attempt(root, 1, flow(true))).rejects.toBeInstanceOf(WorkflowRunError);
     expect(await outcomes(root)).toEqual([
@@ -360,22 +371,25 @@ describe("a continue's records", () => {
       "implement:1:succeeded",
       "qa:2:succeeded",
     ]);
-    expect(await replaced(root)).toEqual(["qa.1.json"]);
+    expect((await history(root)).qa).toEqual(["1:failed", "2:succeeded"]);
   });
 
-  test("--from-stage moves every record it didn't reuse, a removed stage's too", async () => {
+  test("--from-stage marks its stage's line a redo and reruns what follows; a removed stage's line stays", async () => {
     const root = runDirs.tempRunDir();
     await attempt(root, 1, flow(false, "notify"));
     await attempt(root, 2, flow(false), "implement");
-    expect(await outcomes(root)).toEqual([
-      "doc-review:1:succeeded",
-      "implement:2:succeeded",
-      "qa:2:succeeded",
-    ]);
-    expect(await replaced(root)).toEqual(["implement.1.json", "notify.1.json", "qa.1.json"]);
+    expect(await history(root)).toEqual({
+      "doc-review": ["1:succeeded"],
+      implement: ["1:succeeded", "2:succeeded"],
+      qa: ["1:succeeded", "2:succeeded"],
+      notify: ["1:succeeded"],
+    });
+    const { view } = await readRunLines(join(root, "staged", "r1"));
+    expect(view.redo).toEqual({ attempt: 2, stage: "implement" });
+    expect(view.stages.qa?.last.redo).toBeUndefined();
   });
 
-  test("an attempt that stops before its start point moves nothing", async () => {
+  test("an attempt that stops before its start point writes no line", async () => {
     const root = runDirs.tempRunDir();
     const versioned = (version: string) =>
       workflowOf(
@@ -393,7 +407,7 @@ describe("a continue's records", () => {
     const cause = await stopped.catch((error: WorkflowRunError) => error.cause);
     expect(String(cause)).toContain("doc-review was recorded by 1.2.0; this is 2.0.0");
     expect(await outcomes(root)).toEqual(before);
-    expect(await replaced(root)).toEqual([]);
+    expect(Object.values(await history(root)).flat()).toEqual(["1:succeeded", "1:succeeded"]);
   });
 
   test("a continue reuses what was provided, and takes values for the rest", async () => {
@@ -410,20 +424,55 @@ describe("a continue's records", () => {
     ]);
   });
 
-  test("after a crash mid-stage, or mid-move, a continue starts at that stage", async () => {
+  test("after a crash mid-stage, a continue starts at that stage", async () => {
     const root = runDirs.tempRunDir();
     await attempt(root, 1, flow(false));
-    // As an attempt from implement on leaves them when it dies after moving only its start
-    // stage's record: implement has none, and qa's is stale.
-    const stages = join(root, "staged", "r1", "stages");
-    await rename(join(stages, "implement.json"), join(root, "staged", "r1", "implement.1.json"));
-    await attempt(root, 3, flow(false));
+    // As `--from-stage implement` leaves it when its process dies with implement running: an
+    // attempt with no ending, and no line for its stage.
+    const dir = join(root, "staged", "r1");
+    await writeJson(join(dir, "attempts", "2.json"), {
+      kind: "attempt",
+      attempt: 2,
+      file: "staged",
+      flags: { fromStage: "implement" },
+      pid: Bun.spawnSync(["true"]).pid,
+      processStart: "2026-11-01T00:00:00Z",
+      started: new Date().toISOString(),
+    });
+    await claimRunLines(dir, 2, new Date().toISOString());
+    const run = await openRun(root, "staged", "r1");
+    const resumes = crashedRedo(await readAttempts(run), (await readRunLines(dir)).view);
+    expect(resumes).toBe("implement");
+    await attempt(root, 3, flow(false), resumes);
     expect(await outcomes(root)).toEqual([
       "doc-review:1:succeeded",
       "implement:3:succeeded",
       "qa:3:succeeded",
     ]);
-    expect(await replaced(root)).toEqual(["qa.1.json"]);
+  });
+
+  test("after a crash past the redo's stage, a continue reuses it and reruns what follows", async () => {
+    const root = runDirs.tempRunDir();
+    await attempt(root, 1, flow(false));
+    // As `--from-stage implement` leaves it when it dies once implement's line is written.
+    const dir = join(root, "staged", "r1");
+    const two = await claimRunLines(dir, 2, new Date().toISOString());
+    const at = new Date().toISOString();
+    await two.append({
+      kind: "stage",
+      attempt: 2,
+      at,
+      name: "implement",
+      outcome: "succeeded",
+      started: at,
+      redo: true,
+    });
+    await attempt(root, 3, flow(false));
+    expect(await outcomes(root)).toEqual([
+      "doc-review:1:succeeded",
+      "implement:2:succeeded",
+      "qa:3:succeeded",
+    ]);
   });
 
   test("a stage stopped in one attempt runs again in the next", async () => {
@@ -440,7 +489,7 @@ describe("a continue's records", () => {
     expect(await outcomes(root)).toEqual(["doc-review:1:succeeded", "qa:1:stopped"]);
     await attempt(root, 2, stopping(false));
     expect(await outcomes(root)).toEqual(["doc-review:1:succeeded", "qa:2:succeeded"]);
-    expect(await replaced(root)).toEqual(["qa.1.json"]);
+    expect((await history(root)).qa).toEqual(["1:stopped", "2:succeeded"]);
   });
 });
 
@@ -459,7 +508,7 @@ describe("workflow.stop", () => {
     const first = await runTest(flow);
     expect(() => first.value).toThrow("no preview environment");
     expect(stopOf(first)).toEqual({ reason: "no preview environment", stage: "qa" });
-    expect(first.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    expect(first.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
       ["doc-review", "succeeded"],
       ["qa", "stopped"],
     ]);
@@ -506,7 +555,7 @@ describe("workflow.stop", () => {
     expect(stopOf(inside)).toBeUndefined();
     expect(inside.stages).toEqual([
       expect.objectContaining({
-        stage: "qa",
+        name: "qa",
         outcome: "failed",
         reason: "stop was caught: no preview",
       }),
@@ -565,7 +614,7 @@ describe("workflow.stop", () => {
     );
     expect(() => afterCaught.value).toThrow("stop was caught: in a");
     expect(stopOf(afterCaught)).toBeUndefined();
-    expect(afterCaught.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    expect(afterCaught.stages.map(({ name, outcome }) => [name, outcome])).toEqual([
       ["a", "failed"],
     ]);
   });

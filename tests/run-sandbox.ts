@@ -263,7 +263,7 @@ export default defineReviewVariant({
     ? (JSON.parse(readFileSync(join(results, trialFile), "utf8")) as Trial)
     : undefined;
   const runs = join(ws.root, "runs");
-  const record = [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runs })]
+  const record = [...new Bun.Glob("*/*/out.json").scanSync({ cwd: runs })]
     .map((file) => JSON.parse(readFileSync(join(runs, file), "utf8")) as OutputRecord)
     .find((candidate) => candidate.workflow.name === "run-sandbox-probe");
   const transcripts = record ? sandboxTranscripts(record) : "";
@@ -325,5 +325,5 @@ export default defineReviewVariant({
 }
 
 function outputs(runs: string): number {
-  return existsSync(runs) ? [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runs })].length : 0;
+  return existsSync(runs) ? [...new Bun.Glob("*/*/out.json").scanSync({ cwd: runs })].length : 0;
 }

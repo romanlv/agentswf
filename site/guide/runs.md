@@ -56,7 +56,7 @@ A refusal, such as an id that's taken or a flag a continue can't take, exits 2 a
 attempt.
 
 A completed attempt prints what the workflow's `present` makes of its value; a workflow without
-`present` prints the whole `output.json` record. Any other ending prints the stage it ended in,
+`present` prints the whole `out.json` record. Any other ending prints the stage it ended in,
 why, and the exact command to go on.
 
 `awf runs` and `awf logs`, which read runs rather than start them, exit 0 on any read that worked,
@@ -113,11 +113,10 @@ that succeeded. Use it when a stage's record is wrong, after a fix you want this
 on a completed run: a plain continue of a completed run is refused, with its recorded stages
 listed to choose from.
 
-A run with [events](/guide/events) redoes the same way, on a continue, and its record differs
-from a plain run's only in when the later records move: each as the code reaches its stage, not
-all at once. The stages before it are reused by content. After it, in this attempt and every later
-one, a stage whose record is older than the redo runs again when the code enters it, so an attempt
-that parks partway still leaves the next wake to redo the rest. A race keeps the answer it
+A run with [events](/guide/events) redoes the same way, on a continue. The stages before it are
+reused by content. After it, in this attempt and every later one, a stage whose record is older
+than the redo runs again when the code enters it, so an attempt that parks partway still leaves
+the next wake to redo the rest. A race keeps the answer it
 recorded, so a stage after one runs on the same event; an event `receive` or `select` took and
 acknowledged isn't taken again, so a stage that handled one isn't reached, keeps its record and
 isn't redone. An attempt that would park before it reaches the stage stops instead, as one that
@@ -153,7 +152,7 @@ with no `result` needs no value. `--values` goes only with `--from-stage`.
 
 ## The record
 
-A run's record, `output.json` and the rest, is kept in `.awf/runs/{workflow}/{id}`:
+A run's record, `out.json` and the rest, is kept in `.awf/runs/{workflow}/{id}`:
 [How it works](/guide/how-it-works#the-record) says what's in it, and [Data](/reference/data) has
 the layout. A new run whose first attempt ends before its workflow starts, such as a harness that
 fails to install, leaves no folder, so the same command starts it again.

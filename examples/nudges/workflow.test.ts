@@ -13,11 +13,13 @@ const reply = (during: string, text: string) => ({
   data: { text },
 });
 const HOUR = 3_600_000;
-/** When each nudge went out, in hours from the first, as the run's clock had it. */
+/** When each nudge went out, in hours from the first: the times its waits took, read from state. */
 const nudgedAt = (run: Awaited<ReturnType<typeof testWorkflow>>) => {
-  const posts = run.mailbox.filter((r) => r.kind === "event" && r.name === "at:due");
-  const first = Date.parse(posts[0]?.at ?? "");
-  return posts.map((r) => Math.round((Date.parse(r.at) - first) / HOUR));
+  const posts = run.run.flatMap((line) =>
+    line.kind === "took" ? line.took.flatMap(({ due }) => (due === undefined ? [] : [due])) : [],
+  );
+  const first = Date.parse(posts[0] ?? "");
+  return posts.map((due) => Math.round((Date.parse(due) - first) / HOUR));
 };
 
 describe("nudges", () => {

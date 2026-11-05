@@ -62,7 +62,7 @@ export type EventWorkflow = Workflow<JsonValue, JsonValue, EventSchemas>;
 export type LoadedWorkflow = { file: string; workflow: AnyWorkflow };
 
 /**
- * Imports the workflow `file` names, once its project is known to run on this engine (ADR 0014),
+ * Imports the workflow `file` names, once its project is known to run on this engine (ADR 0015),
  * and checks what `tsc` would have checked of it.
  */
 export async function loadWorkflowFile(

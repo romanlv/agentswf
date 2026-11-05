@@ -1,13 +1,25 @@
 import { afterAll, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
-import { MAILBOX_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
+import { rm } from "node:fs/promises";
+import { readRun } from "@agentswf/contract/records";
 import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
-import { appendMailbox } from "./mailbox";
+import { createFakeAdapter } from "@agentswf/harness/testing";
+import { exists } from "./files";
+import { appendIn } from "./in-lines";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { createRun, readStageRecords } from "./runs";
-import { answering, caseRun, createTempRunDirs, future, startCase } from "./testing";
+import { readRunLines } from "./run-lines";
+import { createRun, logFile } from "./runs";
+import {
+  answering,
+  caseRun,
+  claimLines,
+  createTempRunDirs,
+  DOC,
+  future,
+  lastLines,
+  startCase,
+  submit,
+} from "./testing";
 import { keptSessionsOf, runWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
@@ -32,7 +44,7 @@ test("a run started by its id, with no event, parks at its first wait", async ()
     { id: "kombo" },
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "nothing yet" });
-  expect(run.stages.map((record) => record.stage)).toEqual(["setup"]);
+  expect(run.stages.map((line) => line.name)).toEqual(["setup"]);
   const unnamed = await testWorkflow(caseRun(async (workflow) => workflow.runId));
   expect(unnamed.value).toBe("test");
   await expect(
@@ -74,7 +86,7 @@ test("a stage entered twice in a run with events runs once", async () => {
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.value).toBe(1);
-  expect(run.stages.map((s) => s.stage)).toEqual(["close-e1"]);
+  expect(run.stages.map((s) => s.name)).toEqual(["close-e1"]);
 });
 
 test("a stage around a wait returns its batch, and one returning other events fails", async () => {
@@ -302,7 +314,7 @@ test("a wait in a stage that parks leaves the stage unrecorded, for the next att
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "approval" });
-  expect(run.stages.map((s) => s.stage)).toEqual([]);
+  expect(run.stages.map((s) => s.name)).toEqual([]);
 });
 
 test("a wait beside an open stage doesn't park until the stage ends", async () => {
@@ -323,27 +335,143 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
   expect(order).toEqual(["slow done"]);
-  expect(run.stages).toMatchObject([{ stage: "slow", outcome: "succeeded" }]);
+  expect(run.stages).toMatchObject([{ name: "slow", outcome: "succeeded" }]);
 });
 
-test("an event run's agents reopen on the last session of each root agent", () => {
-  const turn = (agent: string, session: string, callPath: string[] = []): TurnRecord => ({
-    version: 1,
-    attempt: 1,
-    kind: "turn",
-    outcome: "answered",
+test("an event run's agents reopen on each agent's latest session line", () => {
+  const session = (attempt: number, agent: string, id: string) => ({
+    kind: "session",
+    attempt,
+    at: new Date().toISOString(),
     agent,
-    operationId: session,
-    execution: { harness: "claude", model: "m" },
-    callPath,
-    sessions: [{ harness: "claude", id: session }],
+    harness: "claude",
+    session: id,
   });
-  const kept = keptSessionsOf([
-    turn("investigator", "s1"),
-    turn("investigator", "s2"),
-    turn("child", "s3", ["call-1"]),
+  const kept = keptSessionsOf(
+    readRun([
+      { kind: "claimed", attempt: 1, at: new Date().toISOString() },
+      session(1, "investigator", "s1"),
+      session(1, "investigator", "s2"),
+      session(1, "child", "s3"),
+      { kind: "claimed", attempt: 2, at: new Date().toISOString() },
+      session(2, "investigator", "s4"),
+      // Written by attempt 1 after attempt 2 claimed the run: fenced.
+      session(1, "child", "s5"),
+    ]).sessions,
+  );
+  expect([...kept]).toEqual([
+    ["investigator", { harness: "claude", sessionRef: "s4" }],
+    ["child", { harness: "claude", sessionRef: "s3" }],
   ]);
-  expect([...kept]).toEqual([["investigator", { harness: "claude", sessionRef: "s2" }]]);
+});
+
+test("an event run continues on its agents' sessions with its log deleted between attempts", async () => {
+  const workflow = caseRun(async (wf) => {
+    const worker = await wf.agents.open({ key: "worker", runtime: "codex" });
+    await worker.run({ prompt: "Look.", schema: DOC });
+    await wf.receive({ label: "next" });
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const adapter = () =>
+    createFakeAdapter({
+      harnesses: ["codex"],
+      continues: true,
+      script: (context) => ({
+        act: async () => {
+          // A session named as the turn runs, as codex's stream names its thread.
+          if (!context.activation.continues) context.nameSession("thread-1");
+          await submit(context.binding!, { path: "x" });
+        },
+      }),
+    });
+  const attempt = async (n: number, fake: ReturnType<typeof adapter>) =>
+    runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: "k",
+        ...(await claimLines(run.dir, n)),
+        events: true,
+        park: async () => undefined,
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+      deadline: future(),
+    });
+  const parked = (error: unknown) => expect(String(error)).toContain("parked");
+  const first = adapter();
+  await attempt(1, first).then(() => expect.unreachable(), parked);
+  expect(first.activations[0]?.continues).toBeUndefined();
+  const recorded = (await readRunLines(run.dir)).view.sessions.latest.worker;
+  // Its harness's own session, seen after the one its turn named.
+  expect(recorded).toMatchObject({
+    attempt: 1,
+    agent: "worker",
+    harness: "codex",
+    session: "fake-worker",
+  });
+  expect(await exists(logFile(run.dir))).toBe(true);
+  await rm(logFile(run.dir));
+  const second = adapter();
+  await attempt(2, second).then(() => expect.unreachable(), parked);
+  expect(second.activations[0]?.continues).toEqual({ harness: "codex", sessionRef: "fake-worker" });
+});
+
+test("a session its agent reports after its last turn settled is the one a continue resumes", async () => {
+  let binding: { endpoint: string; operationId: string } | undefined;
+  const workflow = caseRun(async (wf) => {
+    const worker = await wf.agents.open({ key: "worker", runtime: "codex" });
+    await worker.run({ prompt: "Look.", schema: DOC });
+    // As the agent's `wfa` names its session once its turn is over: refused, and still seen.
+    if (binding) await submit(binding, { path: "late" }, "thread-late");
+    await wf.receive({ label: "next" });
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const adapter = () =>
+    createFakeAdapter({
+      harnesses: ["codex"],
+      continues: true,
+      script: (context) => ({
+        act: async () => {
+          binding = context.binding;
+          await submit(context.binding!, { path: "x" });
+        },
+      }),
+    });
+  const attempt = async (n: number, fake: ReturnType<typeof adapter>) =>
+    runWorkflow(workflow, null, {
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: "k",
+        ...(await claimLines(run.dir, n)),
+        events: true,
+        park: async () => undefined,
+      },
+      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+      deadline: future(),
+    });
+  const parked = (error: unknown) => expect(String(error)).toContain("parked");
+  await attempt(1, adapter()).then(() => expect.unreachable(), parked);
+  binding = undefined;
+  const second = adapter();
+  await attempt(2, second).then(() => expect.unreachable(), parked);
+  expect(second.activations[0]?.continues).toEqual({ harness: "codex", sessionRef: "thread-late" });
 });
 
 test("a participant routed to the code needs a workflow with events", async () => {
@@ -376,10 +504,12 @@ test("a race takes the first of what it names, under its branch, and cancels its
     { ...startCase, event: { ...startCase.event, eventId: "c0" } },
   );
   expect(run.value).toEqual({ key: "changes", id: "c0", started: "c0" });
-  expect(run.mailbox.filter((r) => r.kind.startsWith("timer"))).toMatchObject([
-    { kind: "timer", name: "first@nudge", when: "1h" },
-    { kind: "timer-cancelled", name: "first@nudge" },
+  const timers = run.run.filter((line) => line.kind === "timer");
+  expect(timers).toMatchObject([
+    { name: "first@nudge", when: "1h" },
+    { name: "first@nudge", when: "1h", cancelled: true },
   ]);
+  expect(timers[0]).not.toHaveProperty("cancelled");
 });
 
 test("a timer due wins a race; a wait it doesn't name leaves an event for a later receive", async () => {
@@ -497,7 +627,7 @@ test("a race's name answers once an attempt; a refused race sets none of its tim
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
-test("--from-stage reruns what a replay enters: a stage behind an acknowledged receive keeps its record", async () => {
+test("--from-stage reruns what a replay enters: a stage behind an acknowledged receive keeps its line", async () => {
   const handled: string[] = [];
   const workflow = caseRun(async (wf) => {
     await wf.stage("setup", async () => undefined);
@@ -516,22 +646,21 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
     cwd: process.cwd(),
     sandbox: null,
   });
-  await appendMailbox(run.dir, {
-    version: MAILBOX_RECORD_VERSION,
+  await appendIn(run.dir, {
     at: new Date().toISOString(),
-    kind: "event",
     id: "e1",
     name: "dd.changes",
     data: { case: "k" },
     from: "operator",
   });
-  const attempt = (n: number, fromStage?: string) =>
+  const attempt = async (n: number, fromStage?: string) =>
     runWorkflow(workflow, null, {
       runRoot,
       run: {
         dir: run.dir,
         id: "k",
-        attempt: n,
+
+        ...(await claimLines(run.dir, n)),
         events: true,
         park: async () => undefined,
         ...(fromStage === undefined ? {} : { fromStage }),
@@ -542,12 +671,12 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
   const parked = (error: unknown) => expect(String(error)).toContain("parked");
   await attempt(1).then(() => expect.unreachable(), parked);
   expect(handled).toEqual(["e1"]);
-  expect([...(await readStageRecords(run.dir)).keys()].sort()).toEqual(["handle-e1", "setup"]);
+  expect([...(await lastLines(run.dir)).keys()].sort()).toEqual(["handle-e1", "setup"]);
   // Redone from setup: e1 was acknowledged, so the replay never hands it back, and its stage,
-  // never entered, keeps its record and isn't run again.
+  // never entered, keeps its line and isn't run again.
   await attempt(2, "setup").then(() => expect.unreachable(), parked);
   expect(handled).toEqual(["e1"]);
-  const records = await readStageRecords(run.dir);
-  expect([records.get("setup")?.attempt, records.get("handle-e1")?.attempt]).toEqual([2, 1]);
-  expect(readdirSync(join(run.dir, "replaced"))).toEqual(["setup.1.json"]);
+  const lines = await lastLines(run.dir);
+  expect([lines.get("setup")?.attempt, lines.get("handle-e1")?.attempt]).toEqual([2, 1]);
+  expect(lines.get("setup")?.redo).toBe(true);
 });

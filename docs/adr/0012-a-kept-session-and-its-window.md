@@ -8,8 +8,9 @@ resume authority", and its §10 row on agent retention; ADR 0008, one pane per a
 ## What was decided
 
 - **A run of a workflow with `events` keeps each root agent's native session across attempts.**
-  `turns.jsonl` names the session each turn ran on; a continue reopens each root agent on its last
-  one (`keptSessionsOf`), without its instructions again, and a pane agent's pane opens at its
+  `run.jsonl` names each agent's session in a `session` line as soon as it is known
+  ([[0014-a-run-settles-its-facts-as-lines|ADR 0014]]); a continue reopens each root agent on its
+  latest one (`keptSessionsOf`), without its instructions again, and a pane agent's pane opens at its
   first turn of the attempt. An agent with skills or a sandbox, whose home is made anew, or one the
   code now opens on another harness, starts afresh. A continue after a crash opens agents on new
   sessions (034's Q17). So for these runs, and only these, a native session reference is resume

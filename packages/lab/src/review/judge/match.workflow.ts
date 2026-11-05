@@ -5,7 +5,8 @@
 // Match first, the review scorer (story 011, decision 4). Jev matches each finding, text against
 // text, to what the key already knows and to the earlier findings (`matching.ts`); voters with the
 // code label only what it leaves (`voting.ts`). Every Jev answer, each option's probability, is in
-// the run's `decisions/`, so a script can re-settle them at another cut without asking again.
+// the run's `ops/match:{index}.{n}/decision.json`, so a script can re-settle them at another cut
+// without asking again.
 //
 //   --sure {p}                       the cut a match must reach to settle a finding (default 0.9);
 //                                    1 settles nothing, so the voters label every finding: the panel

@@ -108,7 +108,10 @@ export type Answers<Q extends Record<string, Question>> = { readonly [K in keyof
 export type DecisionAliasName = string;
 
 export interface DecisionSpec<Q extends Record<string, Question> = Record<string, Question>> {
-  /** Names the call in its record, and its prefix before `:` is its accounting stage. Not unique. */
+  /**
+   * Names the call in its record, and its prefix before `:` is its accounting stage. Not unique: the
+   * `n`th asking is `ops/{key}.{n}/`. A name, as an agent's key is, and never an agent's key.
+   */
   key: string;
   model: DecisionAliasName;
   /** What every question is asked about. The provider bills it once per call, however many questions. */
@@ -121,7 +124,7 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
   deadline?: AbsoluteDeadline;
 }
 
-/** One `decide` call, as the run keeps it in `output.json`. */
+/** One `decide` call, as the run keeps it in its `decision.json` and `out.json` shows it. */
 export type DecisionRecord = {
   callPath: string[];
   key: string;
@@ -149,7 +152,10 @@ export type DecisionRecord = {
   /** Summed over attempts, as far as the provider reported them. */
   tokens?: { input: number; output: number };
   requestId?: string;
-  /** The request and its answers, relative to the run's artifacts, for fitting thresholds offline. */
+  /**
+   * The request and its answers, for fitting thresholds offline: `ops/{key}.{n}/decision.json`,
+   * relative to the run's folder.
+   */
   artifact: string;
 };
 

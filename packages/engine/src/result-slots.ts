@@ -4,8 +4,8 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { GivenInput, ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
+import { recordAnswer, writeAcceptedExclusive } from "./ops";
 import { evaluateGiven } from "./result-validation";
-import { recordCandidate, writeAcceptedExclusive, writeCall } from "./runs";
 
 export type ResultRejectionCode = ResultSubmitCode;
 export type ResultSlotAccepted = {
@@ -52,8 +52,7 @@ export type ResultSlotRegistryOptions = {
   waitMinimumMs?: number;
 };
 interface ResultSlotPersistence {
-  writeCall: typeof writeCall;
-  recordCandidate: typeof recordCandidate;
+  recordAnswer: typeof recordAnswer;
   writeAcceptedExclusive: typeof writeAcceptedExclusive;
 }
 type SubmissionInput = {
@@ -84,7 +83,7 @@ type Slot = ResultSlotSpec & {
 export function createResultSlotRegistry(options: ResultSlotRegistryOptions): ResultSlotRegistry {
   const now = options.now ?? Date.now;
   const schedule = options.schedule ?? scheduleExpiry;
-  const persistence = options.persistence ?? { writeCall, recordCandidate, writeAcceptedExclusive };
+  const persistence = options.persistence ?? { recordAnswer, writeAcceptedExclusive };
   const persistenceMs = duration(options.persistenceMs, 5_000);
   const auditMs = duration(options.auditMs, 1_000);
   const waitDefaultMs = duration(options.waitDefaultMs, 120_000);
@@ -106,7 +105,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
     try {
       await bounded(
         Promise.resolve().then(() =>
-          persistence.recordCandidate(options.runDir, slot.operationId, {
+          persistence.recordAnswer(options.runDir, slot.operationId, {
             at: new Date(now()).toISOString(),
             source: input.source,
             // Flags as given, whether or not they convert, so the record shows what the agent typed.
@@ -143,26 +142,6 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
       });
       const slot: Slot = { ...spec, state: "open", settle, cancelExpiry: () => {}, revision: 0 };
       slots.set(spec.operationId, slot);
-      try {
-        await bounded(
-          Promise.resolve().then(() =>
-            persistence.writeCall(options.runDir, {
-              callId: spec.operationId,
-              question: spec.question,
-              ...(spec.schema ? { schema: spec.schema } : {}),
-            }),
-          ),
-          persistenceMs,
-          "call persistence timed out",
-        );
-      } catch (error) {
-        if (error instanceof SlotTimeoutError) {
-          // The old write may still publish; its operation ID must never be reused.
-          slot.state = "failed";
-          slot.settle({ kind: "failed", reason: error.message });
-        } else slots.delete(spec.operationId);
-        throw error;
-      }
       if (slot.state === "open") expireAt(slot);
       return { operationId: spec.operationId, settled };
     },

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { InboxItemJson } from "@agentswf/contract/records";
 import { deprecationLine } from "./deprecations";
 import { emitCommand } from "./emit-command";
-import { foldMailbox, readMailbox } from "./mailbox";
+import { readIn } from "./in-lines";
 import { runOperatorCli } from "./operator-cli";
 import { findRunByRef } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
@@ -67,7 +67,7 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
   // first wake: live, so nudged.
   await until(async () =>
     (
-      await Bun.file(join(run.dir, "turns.jsonl"))
+      await Bun.file(join(run.dir, "log.jsonl"))
         .text()
         .catch(() => "")
     ).includes('"participant-connected"'),
@@ -87,10 +87,8 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
     // Parked with nothing new to take: not continued again.
     "duplicate e2e-thread/k: nothing-due",
   ]);
-  const replies = foldMailbox(await readMailbox(run.dir));
-  expect([...replies.events.values()].filter((e) => e.name === "participant:reply")).toHaveLength(
-    2,
-  );
+  const replies = await readIn(run.dir);
+  expect(replies.filter((e) => e.name === "participant:reply")).toHaveLength(2);
   expect(await Bun.file(join(root, "replies.txt")).text()).toBe(
     "1729.001 is it the index? engineer\n1729.002 never mind \n",
   );
@@ -117,7 +115,7 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
     { id: "2.p1", text: "got: never mind", labels: { title: "kombo" } },
   ]);
   // The continue connected the same participant to its code again.
-  const connected = (await Bun.file(join(run.dir, "turns.jsonl")).text())
+  const connected = (await Bun.file(join(run.dir, "log.jsonl")).text())
     .split("\n")
     .filter((line) => line.includes('"participant-connected"'))
     .map((line) => JSON.parse(line) as { attempt: number; to?: string });
@@ -189,7 +187,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     cli(["e2e-declared/k", "thread:reply", JSON.stringify(data), "--event-id", id]);
   await until(async () =>
     (
-      await Bun.file(join(run.dir, "turns.jsonl"))
+      await Bun.file(join(run.dir, "log.jsonl"))
         .text()
         .catch(() => "")
     ).includes('"participant":"lead"'),
@@ -209,8 +207,8 @@ test("a participant declared as thread:reply replies by awf emit, received under
   expect(await Bun.file(join(root, "replies.txt")).text()).toBe(
     "thread:reply thread 1729.001 is it the index? engineer\nthread:reply thread 1729.002 never mind \n",
   );
-  // The mailbox keeps awf's record name, from the participant's key.
-  const recorded = [...foldMailbox(await readMailbox(run.dir)).events.values()];
+  // `in.jsonl` keeps awf's record name, from the participant's key.
+  const recorded = await readIn(run.dir);
   expect(recorded.filter((e) => e.name === "participant:reply").map((e) => [e.id, e.from])).toEqual(
     [
       ["1729.001", "thread"],
@@ -218,7 +216,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     ],
   );
   // Its replies go to the code; lead's, undeclared, to agents.
-  const connected = (await Bun.file(join(run.dir, "turns.jsonl")).text())
+  const connected = (await Bun.file(join(run.dir, "log.jsonl")).text())
     .split("\n")
     .filter((line) => line.includes('"participant-connected"'))
     .map((line) => JSON.parse(line) as { attempt: number; participant: string; to?: string });
@@ -266,9 +264,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     ),
   ).toBe(1);
   expect(JSON.parse(refused[0]!)).toMatchObject({ code: "no-participant" });
-  expect(recorded.length, "nothing refused was appended").toBe(
-    foldMailbox(await readMailbox(run.dir)).events.size,
-  );
+  expect(recorded.length, "nothing refused was appended").toBe((await readIn(run.dir)).length);
   // Checked against the file the run's last attempt ran: one that no longer declares the reply
   // refuses it (2); one that is gone can't be loaded (1).
   // (Runs of their own, each recording a file this process hasn't imported.)
@@ -307,7 +303,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
   // send --event-id to a participant connected to agents is refused, as it always was, even when
   // the file it would be checked against is gone: the moved run, given k's connections.
   const moved = await openRun(join(root, ".awf", "runs"), "e2e-declared", "moved");
-  await Bun.write(join(moved.dir, "turns.jsonl"), Bun.file(join(run.dir, "turns.jsonl")));
+  await Bun.write(join(moved.dir, "log.jsonl"), Bun.file(join(run.dir, "log.jsonl")));
   const toLead: string[] = [];
   expect(
     await runOperatorCli(

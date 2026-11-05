@@ -1,5 +1,5 @@
 // A project whose `agentswf` is a copy of this engine at another version, driven through the global
-// `awf`: every command, and the attempt a wake launches, runs on the copy (ADR 0014).
+// `awf`: every command, and the attempt a wake launches, runs on the copy (ADR 0015).
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
@@ -154,7 +154,7 @@ function invocations(): { version: string; argv: string[] }[] {
 
 /** What a run's last attempt returned, once it has. */
 async function completed(project: string, ref: string): Promise<unknown> {
-  const output = join(project, ".awf/runs", ref, "output.json");
+  const output = join(project, ".awf/runs", ref, "out.json");
   const giveUp = Date.now() + 30_000;
   for (;;) {
     if (existsSync(output)) {

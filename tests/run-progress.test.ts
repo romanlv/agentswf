@@ -6,8 +6,15 @@ import {
   progressEvents,
   renderProgress,
 } from "../packages/engine/src/progress-view";
-import { createRun, writeStageRecord } from "../packages/engine/src/runs";
-import { createTempRunDirs, future, startNew, submit } from "../packages/engine/src/testing";
+import { createRun } from "../packages/engine/src/runs";
+import {
+  claimLines,
+  createTempRunDirs,
+  future,
+  startNew,
+  submit,
+  writeAttempt,
+} from "../packages/engine/src/testing";
 import type { RunnableWorkflow } from "../packages/engine/src/workflow-runner";
 import { startWorkflow, type WorkflowRunSnapshot } from "../packages/engine/src/workflow-runner";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
@@ -289,24 +296,23 @@ describe("run progress by stage", () => {
       cwd: runRoot,
       sandbox: null,
     });
-    await writeStageRecord(dir, {
-      version: 1,
-      stage: "implement",
+    const { lines: one } = await claimLines(dir, 1);
+    await one.append({
+      kind: "stage",
       attempt: 1,
+      at: "2026-10-02T16:10:00Z",
+      name: "implement",
       outcome: "succeeded",
       started: "2026-10-02T16:00:00Z",
-      ended: "2026-10-02T16:10:00Z",
-      sessions: [],
       summary: "feat/a",
     });
-    await writeStageRecord(dir, {
-      version: 1,
-      stage: "qa",
+    await one.append({
+      kind: "stage",
       attempt: 1,
+      at: "2026-10-02T16:12:00Z",
+      name: "qa",
       outcome: "failed",
       started: "2026-10-02T16:11:00Z",
-      ended: "2026-10-02T16:12:00Z",
-      sessions: [],
     });
     const workflow: RunnableWorkflow<null, null> = {
       meta: { name: "staged", description: "stages" },
@@ -322,7 +328,7 @@ describe("run progress by stage", () => {
     };
     const handle = await startWorkflow(workflow, null, {
       runRoot,
-      run: { dir, id: "r1", attempt: 2 },
+      run: { dir, id: "r1", ...(await claimLines(dir, 2)) },
       runtime: {
         aliases: {},
         host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
@@ -336,6 +342,50 @@ describe("run progress by stage", () => {
       { stage: "qa", source: "ran", attempt: 2, outcome: "failed" },
     ]);
     expect(upcoming).toEqual([]);
+  });
+
+  test("a stage the last redo's attempt left behind is not upcoming", async () => {
+    const runRoot = runDirs.tempRunDir();
+    const run = await createRun(runRoot, {
+      id: "r1",
+      workflow: "staged",
+      argv: [],
+      cwd: runRoot,
+      sandbox: null,
+    });
+    const line = (name: string, attempt: number, minute: number, redo = false) => ({
+      kind: "stage" as const,
+      attempt,
+      at: `2026-10-0${attempt}T16:1${minute}:00Z`,
+      name,
+      outcome: "succeeded" as const,
+      started: `2026-10-0${attempt}T16:0${minute}:00Z`,
+      ...(redo ? { redo: true as const } : {}),
+    });
+    const { lines: one } = await claimLines(run.dir, 1);
+    for (const each of [line("a", 1, 0, true), line("b", 1, 1), line("gone", 1, 2)])
+      await one.append(each);
+    // Attempt 2 started at b, after reusing a, and ran every stage after it; its code no longer
+    // has gone, which came after b, so wrote it no line.
+    await (await claimLines(run.dir, 2)).lines.append(line("b", 2, 0, true));
+    const ended = { ended: "2026-10-02T16:20:00Z", outcome: "completed" as const };
+    await writeAttempt(run, ended);
+    await writeAttempt(run, ended);
+    const handle = await startWorkflow(
+      { meta: { name: "staged", description: "stages" }, run: async () => null },
+      null,
+      {
+        runRoot,
+        run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 3)) },
+        runtime: {
+          aliases: {},
+          host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
+        },
+        deadline: future(),
+      },
+    );
+    await handle.result;
+    expect(handle.inspect().upcoming).toEqual(["a", "b"]);
   });
 
   test("a stage the run's stop ends is shown ended, as its record is", async () => {

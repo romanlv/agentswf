@@ -42,7 +42,7 @@ export default defineWorkflow({
   async run(wf) {
     const openReviewer = (n: number) =>
       wf.agents.open({
-        key: n === 1 ? "reviewer" : `reviewer#${n}`,
+        key: n === 1 ? "reviewer" : `reviewer-${n}`,
         runtime: { alias: "codex", placement: "headless" },
         instructions: "Review merge requests. Read the code; change nothing.",
       });

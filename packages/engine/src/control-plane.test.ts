@@ -4,9 +4,9 @@ import { createConnection } from "node:net";
 import { dirname } from "node:path";
 import { type ControlResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
+import { readAccepted } from "./ops";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();

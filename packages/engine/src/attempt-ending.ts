@@ -1,5 +1,5 @@
 import { constants } from "node:os";
-import type { StageRecord } from "@agentswf/contract/records";
+import type { StageLine } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type AttemptOutcome,
@@ -12,9 +12,9 @@ import {
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
 import { messageOf } from "./errors";
-import { RunParked } from "./mailbox";
 import type { Paint } from "./progress-view";
 import { FromStageUnreached, primaryFailure, WorkflowStopped } from "./stopped";
+import { RunParked } from "./waits";
 import {
   type SettledRun,
   WorkflowCancelledError,
@@ -36,7 +36,7 @@ export type AttemptEnd = {
    * Given when the attempt never reached its `--from-stage`, which no one command goes on from:
    * the run's stages to choose from.
    */
-  choose?: readonly StageRecord[];
+  choose?: readonly StageLine[];
 };
 
 /** What a started run came to: the result it returned, or what it threw. */

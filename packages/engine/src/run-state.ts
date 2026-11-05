@@ -1,20 +1,23 @@
 import { dirname, join } from "node:path";
-import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
+import type { AttemptRecord, ClaimedAttempt, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
-import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
 import { checkProjectEngine } from "./project-engine";
 import { listProjects, projectOf, projectRunRoot, rootProject } from "./projects";
 import { lockHeld, runLockFile } from "./run-lock";
+import { nextTimer, untakenAtReturn, type WaitState } from "./run-policy/waits";
 import {
+  claimedOf,
   entries,
   idProblem,
   openRun,
   probeProcess,
   type Run,
-  readAttempts,
+  RunUnreadable,
+  readAttemptFiles,
   sameStart,
 } from "./runs";
+import { readWaits } from "./waits";
 
 /** What `ps` says of a process: its start, `gone`, or `unknown`. */
 export type ProcessStatus = (pid: number) => string | "gone" | "unknown";
@@ -30,12 +33,20 @@ export type RunStatus = {
   run: Run;
   /** `{workflow}/{id}`. */
   ref: string;
-  attempts: AttemptRecord[];
+  /** The attempts that ran, in order: what its state is decided from. */
+  attempts: ClaimedAttempt[];
+  /** Every attempt file, in order, a background launch that never claimed its number included. */
+  files: AttemptRecord[];
   state: RunState;
   /** False for a `running` whose process could not be asked about. */
   checked: boolean;
-  /** A run of a workflow with `events` at its wait, live or parked: what its mailbox says. */
+  /** A run of a workflow with `events` at its wait, live or parked: what its last `wait` line says. */
   waiting?: WaitingJson;
+  /**
+   * A completed run of a workflow with `events`: how many events no wait took by when it returned,
+   * from its lines. Its last batch taken was handled, as the code returned after it.
+   */
+  unacknowledged?: number;
 };
 
 /** How long a run folder with no attempt yet may be an `awf run` still starting. */
@@ -46,12 +57,8 @@ export async function runStatus(
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): Promise<RunStatus> {
-  let status = statusOf(run, await readAttempts(run), probe, at);
-  // A plain run's mailbox holds only the launches that failed, which only a run a program started
-  // has (story 040).
-  const records = await readMailbox(run.dir);
-  const launchFailed = records.some((record) => record.kind === "launch-failed");
-  if (status.attempts.length === 0 && (launchFailed || status.state === "interrupted")) {
+  let status = statusOf(run, await readAttemptFiles(run), probe, at);
+  if (status.attempts.length === 0 && (status.files.length > 0 || status.state === "interrupted")) {
     // Its launch failed, or is past the minute an attempt has to claim it: unless a live sender
     // holds its lock, launching it, nothing runs it.
     const { workflow, id } = run.record;
@@ -59,19 +66,34 @@ export async function runStatus(
     status = { ...status, state: launching ? "running" : "interrupted", checked: true };
   }
   if (!run.record.events) {
-    const stuck =
-      status.state !== "running" && launchesFailed(status.attempts, records) >= STUCK_AFTER;
+    // A plain run's failed attempt is final; only a program's start, whose launches failed, sticks.
+    const stuck = status.state !== "running" && launchesFailed(status.files) >= STUCK_AFTER;
     return stuck ? { ...status, state: "stuck" } : status;
   }
-  const waiting = waitingOf(status, records);
-  const stuck = status.state !== "running" && stuckOf(status.attempts, records);
-  return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
+  // A `run.jsonl` that can't be read shows no wait; `awf runs` says why it can't be read.
+  const waiting =
+    status.state === "running" || status.state === "parked"
+      ? await readWaits(run.dir, at).then(
+          (state) => waitingOf(status, state),
+          () => undefined,
+        )
+      : undefined;
+  const returned = status.state === "completed" ? status.attempts.at(-1)?.ended : undefined;
+  const unacknowledged =
+    returned === undefined
+      ? undefined
+      : await readWaits(run.dir, Date.parse(returned)).then(untakenAtReturn, () => undefined);
+  const stuck = status.state !== "running" && stuckOf(status.files);
+  return {
+    ...status,
+    ...(waiting ? { waiting } : {}),
+    ...(unacknowledged === undefined ? {} : { unacknowledged }),
+    ...(stuck ? { state: "stuck" } : {}),
+  };
 }
 
 /** An event run's wait, while it is running or parked there: its label and `until`. */
-function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): WaitingJson | undefined {
-  if (status.state !== "running" && status.state !== "parked") return undefined;
-  const state = foldMailbox(records);
+function waitingOf(status: RunStatus, state: WaitState): WaitingJson | undefined {
   const wait = state.lastWait;
   // A wait an earlier attempt died in is not this one's.
   if (!wait?.waiting || wait.attempt !== status.attempts.at(-1)?.attempt) return undefined;
@@ -82,26 +104,30 @@ function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): Waitin
   };
 }
 
-/** As `runStatus`, from its attempts as already read. */
+/**
+ * As `runStatus`, from its attempt files as already read: decided from the attempts that ran, so a
+ * launch that never claimed its number leaves a parked run parked.
+ */
 export function statusOf(
   run: Run,
-  attempts: AttemptRecord[],
+  files: readonly AttemptRecord[],
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): RunStatus {
+  const attempts = claimedOf(files);
+  const head = { run, ref: `${run.record.workflow}/${run.record.id}`, attempts, files: [...files] };
   const last = attempts.at(-1);
-  const ref = `${run.record.workflow}/${run.record.id}`;
   // Between its folder and its first attempt's claim: an `awf run` starting, or, past a minute,
   // one refused or killed before it claimed one.
   if (!last) {
     const starting = at - Date.parse(run.record.created) < STARTING_MS;
-    return { run, ref, attempts, state: starting ? "running" : "interrupted", checked: !starting };
+    return { ...head, state: starting ? "running" : "interrupted", checked: !starting };
   }
-  if (last.outcome !== undefined) return { run, ref, attempts, state: last.outcome, checked: true };
+  if (last.outcome !== undefined) return { ...head, state: last.outcome, checked: true };
   const now = probe(last.pid);
-  if (now === "unknown") return { run, ref, attempts, state: "running", checked: false };
+  if (now === "unknown") return { ...head, state: "running", checked: false };
   const same = now !== "gone" && sameStart(now, last.processStart);
-  return { run, ref, attempts, state: same ? "running" : "interrupted", checked: true };
+  return { ...head, state: same ? "running" : "interrupted", checked: true };
 }
 
 const ALSO_RUNNING_CHECKED = 20;
@@ -118,16 +144,33 @@ export async function listRuns(
   runRoot: string,
   known?: (dir: string) => Run | undefined,
 ): Promise<Run[]> {
-  const runs: Run[] = [];
+  return (await listRunEntries(runRoot, known)).filter(
+    (each): each is Run => !(each instanceof RunUnreadable),
+  );
+}
+
+/**
+ * The same, with each run of a `format` this awf does not read in its place by `created`, the
+ * last when it has none: `awf runs` lists them `unreadable`.
+ */
+export async function listRunEntries(
+  runRoot: string,
+  known?: (dir: string) => Run | undefined,
+): Promise<(Run | RunUnreadable)[]> {
+  const runs: (Run | RunUnreadable)[] = [];
   for (const workflow of await entries(runRoot).catch(() => [])) {
     for (const id of await entries(join(runRoot, workflow)).catch(() => [])) {
       const run =
         known?.(join(runRoot, workflow, id)) ??
-        (await openRun(runRoot, workflow, id).catch(() => undefined));
+        (await openRun(runRoot, workflow, id).catch((error: unknown) =>
+          error instanceof RunUnreadable ? error : undefined,
+        ));
       if (run) runs.push(run);
     }
   }
-  return runs.sort((a, b) => b.record.created.localeCompare(a.record.created));
+  const created = (each: Run | RunUnreadable) =>
+    each instanceof RunUnreadable ? (each.created ?? "") : each.record.created;
+  return runs.sort((a, b) => created(b).localeCompare(created(a)));
 }
 
 /**
@@ -164,8 +207,16 @@ export async function findRun(
     const run = await openRun(runRoot, workflow, id);
     return { status: await runStatus(run, probe), alsoRunning: [] };
   }
-  const found = (await listRuns(runRoot)).filter((run) => run.record.id === ref);
-  if (found.length === 0) throw new RunNotFound(`no run ${ref} under ${runRoot}`);
+  const listed = await listRunEntries(runRoot);
+  const found = listed.filter(
+    (run): run is Run => !(run instanceof RunUnreadable) && run.record.id === ref,
+  );
+  if (found.length === 0) {
+    // A run of an earlier format says so, as it does named by its workflow.
+    const old = listed.find((run) => run instanceof RunUnreadable && run.ref.endsWith(`/${ref}`));
+    if (old) throw old;
+    throw new RunNotFound(`no run ${ref} under ${runRoot}`);
+  }
   if (found.length > 1) {
     const refs = found.map((run) => `${run.record.workflow}/${ref}`).join(", ");
     throw new RunNotFound(`${ref} names a run of more than one workflow: ${refs}`);
@@ -176,24 +227,22 @@ export async function findRun(
 /** Failed or crashed attempts in a row, counted together, after which a run is `stuck` (Q13). */
 export const STUCK_AFTER = 3;
 
-/** Launches since the last attempt that never claimed one. */
-function launchesFailed(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[],
-): number {
-  const since = attempts.at(-1)?.started ?? "";
-  return records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
+/** Launches that never claimed their number since the last attempt that did. */
+function launchesFailed(files: readonly AttemptRecord[]): number {
+  let n = 0;
+  for (const file of [...files].reverse()) {
+    if (file.kind !== "failed-launch") break;
+    n++;
+  }
+  return n;
 }
 
 /**
- * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
- * that never claimed one, counted together; any other ending resets them.
+ * Failed, timed-out or crashed attempts at the end of the run, a background launch that never
+ * claimed its number among them, as its launcher wrote it failed; any other ending resets them.
  */
-function failuresInARow(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[],
-): number {
-  let n = launchesFailed(attempts, records);
+function failuresInARow(attempts: readonly AttemptRecord[]): number {
+  let n = 0;
   for (const attempt of [...attempts].reverse()) {
     const failed =
       attempt.outcome === undefined ||
@@ -209,13 +258,10 @@ function failuresInARow(
  * Whether an event run is `stuck` (Q13): failed, crashed or failed to launch three times in a row,
  * whatever its last ending says, short of one the operator or the code chose.
  */
-export function stuckOf(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[],
-): boolean {
+export function stuckOf(attempts: readonly AttemptRecord[]): boolean {
   const last = attempts.at(-1)?.outcome;
   if (last === "completed" || last === "stopped" || last === "cancelled") return false;
-  return failuresInARow(attempts, records) >= STUCK_AFTER;
+  return failuresInARow(attempts) >= STUCK_AFTER;
 }
 
 /**
@@ -260,12 +306,15 @@ async function findAnywhere(
   place: { runRoot: string },
   home: string,
 ): Promise<RunStatus> {
-  // Here first: what `--cwd` names wins.
-  let here: RunNotFound;
+  // Here first: what `--cwd` names wins. A run an earlier awf made is said only where no run
+  // that reads has the ref.
+  let here: RunNotFound | RunUnreadable;
+  let old: RunUnreadable | undefined;
   try {
     return (await findRun(place.runRoot, ref)).status;
   } catch (error) {
-    if (!(error instanceof RunNotFound)) throw error;
+    if (error instanceof RunUnreadable) old = error;
+    else if (!(error instanceof RunNotFound)) throw error;
     here = error;
   }
   const found: RunStatus[] = [];
@@ -273,7 +322,8 @@ async function findAnywhere(
     try {
       found.push((await findRun(projectRunRoot(project), ref)).status);
     } catch (error) {
-      if (!(error instanceof RunNotFound)) throw error;
+      if (error instanceof RunUnreadable) old ??= error;
+      else if (!(error instanceof RunNotFound)) throw error;
     }
   }
   // Workflows of one name in two projects make the same ref: naming the project is the caller's.
@@ -282,6 +332,7 @@ async function findAnywhere(
       `${ref} is a run in ${found.length} projects, ${found.map((each) => each.run.record.cwd).join(" and ")}; --cwd names one`,
     );
   if (found[0]) return found[0];
+  if (old) throw old;
   // Nowhere: a ref that can't name a run, malformed or naming two workflows, says why.
   if (malformedRef(ref) || here.message.includes("more than one workflow")) throw here;
   throw new RunNotFound(`no run ${ref} under ${place.runRoot}, or in a project awf knows`);

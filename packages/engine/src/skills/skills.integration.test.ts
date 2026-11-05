@@ -160,7 +160,7 @@ describe("agent skills", () => {
     }, runRoot);
     const found = result.skills?.[0]?.home ?? "";
     const { dir } = await openRun(runRoot, "skills", result.runId);
-    expect(found.startsWith(join(dir, "agents"))).toBe(true);
+    expect(found.startsWith(join(dir, "work", "agents"))).toBe(true);
     const log = await turns(join(found, "codex.log"));
     expect(log[0]).toContain("skill: alpha");
     expect(log[0]).not.toContain("operators-own");

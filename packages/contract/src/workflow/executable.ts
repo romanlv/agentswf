@@ -31,7 +31,7 @@ export type StageSummary = {
   summary?: string;
   /** Its value, for a stage that returns one and succeeded. */
   value?: JsonValue;
-  /** Reused from a value given rather than one a turn produced; see `StageRecord.provided`. */
+  /** Reused from a value given rather than one a turn produced; see a stage line's `provided`. */
   provided?: true;
 };
 
@@ -58,7 +58,7 @@ export type Ending<Result> =
   | {
       kind: "parked";
       stages: StageSummary[];
-      /** Its last wait's label and `until`, an ISO time, which the mailbox records. */
+      /** Its last wait's label and `until`, an ISO time, which its `wait` line records. */
       label?: string;
       until?: string;
     }

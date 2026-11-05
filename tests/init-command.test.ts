@@ -29,7 +29,7 @@ describe("awf init", () => {
     expect(init.output).toContain("created  hello/workflow.test.ts");
     expect(init.output).toContain("  bun install\n");
 
-    // It declares agentswf, its engine, which isn't installed yet (ADR 0014).
+    // It declares agentswf, its engine, which isn't installed yet (ADR 0015).
     const refused = await awf(["test"], dir);
     expect(refused.output).toContain("run bun install there");
     expect(refused.exitCode).toBe(2);

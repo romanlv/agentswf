@@ -102,6 +102,37 @@ type RunSandbox = {
   watched?: true;
 };
 
+/** A sandbox's record as it stands, its agents admitted so far with it. */
+function recordOf({
+  key,
+  provider,
+  resolved,
+  directory,
+  opened,
+  agents,
+}: RunSandbox): SandboxRecord {
+  const domains = new Set([...resolved.network, ...agents.flatMap((agent) => agent.domains)]);
+  return {
+    callPath: [],
+    key,
+    provider,
+    spec: {
+      cwd: resolved.cwd,
+      read: [...resolved.read],
+      write: [...resolved.write],
+      network: [...resolved.network],
+      ...(resolved.sockets.length > 0 ? { sockets: [...resolved.sockets] } : {}),
+      ...(resolved.webSearch ? { webSearch: true } : {}),
+      ...({ [provider]: resolved.environment } as SandboxEnvironment),
+    },
+    directory,
+    gitdirs: resolved.gitdirs.map((gitdir) => ({ ...gitdir })),
+    domains: [...domains].sort(),
+    ...(opened.record ? { provided: structuredClone(opened.record) } : {}),
+    agents: agents.map(({ agent, home }) => ({ callPath: [], agent, home })),
+  };
+}
+
 /**
  * One run's sandboxes: the ones the workflow opens, and the private ones inline specs make. The
  * engine keeps them here, apart from any provider: it resolves a spec, opens it through the
@@ -131,6 +162,8 @@ export class RunSandboxes {
       /** The run's credential write-backs, which a host agent's own home shares. */
       locks: CredentialLocks;
       log(message: string): void;
+      /** A sandbox as it opened, before any agent is admitted to it. */
+      opened?(record: SandboxRecord): void;
     },
   ) {
     this.#providers = options.sandboxes?.providers ?? { installed: {} };
@@ -292,30 +325,18 @@ export class RunSandboxes {
     return settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   }
 
+  /** The sandbox `agent` was last admitted to, by key, and the model domains its harness added. */
+  admitted(agent: string): { sandbox: string; domains: string[] } | undefined {
+    for (const sandbox of [...this.#opened].reverse()) {
+      const found = sandbox.agents.findLast((each) => each.agent === agent);
+      if (found) return { sandbox: sandbox.key, domains: [...found.domains] };
+    }
+    return undefined;
+  }
+
   /** Each sandbox the run opened, a private one closed after its agent failed too, with its agents. */
   records(): SandboxRecord[] {
-    return this.#opened.map(({ key, provider, resolved, directory, opened, agents }) => {
-      const domains = new Set([...resolved.network, ...agents.flatMap((agent) => agent.domains)]);
-      return {
-        callPath: [],
-        key,
-        provider,
-        spec: {
-          cwd: resolved.cwd,
-          read: [...resolved.read],
-          write: [...resolved.write],
-          network: [...resolved.network],
-          ...(resolved.sockets.length > 0 ? { sockets: [...resolved.sockets] } : {}),
-          ...(resolved.webSearch ? { webSearch: true } : {}),
-          ...({ [provider]: resolved.environment } as SandboxEnvironment),
-        },
-        directory,
-        gitdirs: resolved.gitdirs.map((gitdir) => ({ ...gitdir })),
-        domains: [...domains].sort(),
-        ...(opened.record ? { provided: structuredClone(opened.record) } : {}),
-        agents: agents.map(({ agent, home }) => ({ callPath: [], agent, home })),
-      };
-    });
+    return this.#opened.map(recordOf);
   }
 
   /**
@@ -370,6 +391,7 @@ export class RunSandboxes {
       throw error;
     }
     this.#opened.push(sandbox);
+    this.options.opened?.(recordOf(sandbox));
     // Landed after the run's sandboxes closed: it closes at once, and is still recorded.
     if (this.#closed) {
       await this.#close(sandbox).catch(() => undefined);

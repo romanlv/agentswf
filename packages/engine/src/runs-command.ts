@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
+import type { JsonValue } from "@agentswf/contract/workflow";
 import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
@@ -21,8 +22,9 @@ import {
   stateWord,
 } from "./run-commands";
 import { encodeCursor } from "./run-read";
-import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
+import { findRunByRef, listRunEntries, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
+import { isClaimed, RunUnreadable } from "./runs";
 
 export const runsUsage = help.trimEnd();
 
@@ -74,29 +76,34 @@ export async function runsCommand(
 }
 
 /** A run listed, or why it could not be read: one bad run does not hide the others. */
-type Listed = { status: RunStatus } | { ref: string; unreadable: string };
+type Listed =
+  | { status: RunStatus; estimate?: number; unknown: number }
+  | { ref: string; unreadable: string };
 
 async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
-  const runs = await listRuns(place.runRoot);
+  const runs = await listRunEntries(place.runRoot);
   const shown = runs.slice(0, limit);
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
-      runStatus(run, undefined, now).then(
-        (status) => ({ status }),
-        (error: unknown) => ({
-          ref: `${run.record.workflow}/${run.record.id}`,
-          unreadable: said(messageOf(error), 400),
-        }),
-      ),
+      run instanceof RunUnreadable
+        ? { ref: run.ref, unreadable: run.why }
+        : runStatus(run, undefined, now).then(
+            async (status) => {
+              return { status, ...(await estimateOf(status)) };
+            },
+            (error: unknown) => ({
+              ref: `${run.record.workflow}/${run.record.id}`,
+              unreadable: said(messageOf(error), 400),
+            }),
+          ),
     ),
   );
   const older = runs.length - shown.length;
   if (json) {
     const runsJson: RunsJson["runs"] = listed.map((each) => {
       if (!("status" in each)) return each;
-      const { status } = each;
+      const { status, estimate } = each;
       const { started, ended } = span(status, now);
-      const estimate = estimateOf(status.attempts);
       return {
         ref: status.ref,
         state: status.state,
@@ -125,16 +132,15 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
   const stateWidth = Math.max(13, ...states.map((each) => each.length + 2));
   const lines = listed.map((each, index) => {
     if (!("status" in each)) return `${each.ref.padEnd(width)}unreadable: ${each.unreadable}`;
-    const { status } = each;
+    const { status, estimate, unknown } = each;
     const { started, ms } = span(status, now);
-    const estimate = estimateOf(status.attempts);
     const waiting = waitingText(status);
     return [
       status.ref.padEnd(width),
       states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
       formatDuration(ms).padEnd(8),
-      money(estimate)
+      money(estimate, unknown)
         .join("")
         .concat(waiting ? "  " : ""),
       waiting,
@@ -150,7 +156,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
 /** A run at its wait: its label, and until when; a returned one, the events it never took. */
 function waitingText(status: RunStatus): string {
   const { waiting } = status;
-  const never = status.attempts.at(-1)?.unacknowledged;
+  const never = status.unacknowledged;
   if (!waiting) return never ? `${never} event${never === 1 ? "" : "s"} never taken` : "";
   const until = waiting.until ? `until ${dayTime(Date.parse(waiting.until))}` : "";
   return [waiting.label, until].filter(Boolean).join(" · ") || "waiting";
@@ -230,7 +236,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     [
       status.ref,
       stateWord(status, view.lastEventAt),
-      ...(attempt && status.attempts.length > 1
+      ...(attempt && status.files.length > 1
         ? [
             `attempt ${attempt.attempt}${attempt.flags.fromStage ? ` (from stage ${attempt.flags.fromStage})` : ""}`,
           ]
@@ -239,17 +245,22 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       status.state === "interrupted" && view.lastEventAt
         ? `last event ${clockTime(view.lastEventAt)}`
         : formatDuration(span(status, now).ms),
-      ...money(view.estimate),
+      ...money(view.estimate, view.unknownCost),
     ].join("  "),
   ];
-  for (const earlier of status.attempts.slice(0, -1)) {
+  // Every other attempt file, a launch that never claimed its number included.
+  for (const earlier of status.files) {
+    if (earlier.attempt === attempt?.attempt) continue;
     const took = earlier.ended
       ? `  ${formatDuration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
       : "";
-    const how = `${earlier.outcome ?? "interrupted"}${earlier.stage ? ` in ${earlier.stage}` : ""}`;
+    const stage = isClaimed(earlier) ? earlier.stage : undefined;
+    const how = isClaimed(earlier)
+      ? `${earlier.outcome ?? "interrupted"}${stage ? ` in ${stage}` : ""}`
+      : "failed to launch";
     lines.push(`  attempt ${earlier.attempt}  ${how}${took}`);
   }
-  const indent = status.attempts.length > 1 ? "  " : "";
+  const indent = status.files.length > 1 ? "  " : "";
   if (indent && attempt) lines.push(`  attempt ${attempt.attempt}`);
   const shown = new Set<string>();
   for (const stage of view.stages) {
@@ -264,6 +275,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     for (const agent of own) shown.add(agent.key);
     lines.push(...agentLines(own, indent, now));
   }
+  if (view.unread) lines.push(`${indent}  awf: ${view.unread}`);
   lines.push(
     ...agentLines(
       view.agents.filter((each) => !shown.has(each.key)),
@@ -289,7 +301,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
   if (status.state === "interrupted") return go ? [`continue: ${go}`] : [];
   const lines: string[] = [];
   if (view.attempt?.reason) lines.push(`reason: ${said(view.attempt.reason, 400)}`);
-  lines.push(`records: ${status.run.dir} (report.md, output.json)`);
+  lines.push(`records: ${status.run.dir} (run.jsonl, log.jsonl, ops/, out.json, report.md)`);
   if (status.state === "failed") {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
     const look = command(place, "awf", "logs", status.ref);
@@ -322,20 +334,26 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ...(status.waiting ? { waiting: status.waiting } : {}),
       dir: status.run.dir,
     },
-    attempts: status.attempts.map(({ attempt, started, ended, outcome, stage, reason }) => ({
-      attempt,
-      started,
-      ...(ended ? { ended } : {}),
-      state:
-        outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
-      ...(stage ? { stage } : {}),
-      ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
-    })),
-    stages: view.stages.map(({ stage, state, startedAt, endedAt }) => ({
+    // Every attempt file, a launch that never claimed its number included, `failed` with its reason.
+    attempts: status.files.map((each) => {
+      const { attempt, started, ended, outcome, reason } = each;
+      const stage = isClaimed(each) ? each.stage : undefined;
+      return {
+        attempt,
+        started,
+        ...(ended ? { ended } : {}),
+        state:
+          outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
+        ...(stage ? { stage } : {}),
+        ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
+      };
+    }),
+    stages: view.stages.map(({ stage, state, startedAt, endedAt, value }) => ({
       stage,
       state,
       ...(startedAt ? { started: new Date(startedAt).toISOString() } : {}),
       ...(endedAt ? { ended: new Date(endedAt).toISOString() } : {}),
+      ...(value === undefined ? {} : { value: masked(value) as JsonValue }),
     })),
     agents: view.agents.map((agent) => ({
       key: agent.key,

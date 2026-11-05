@@ -172,7 +172,7 @@ const CLIENT = "packages/engine/src/client";
 
 const RULES: Rule[] = [
   { dir: "packages/contract", allow: [], pure: true },
-  // A program's client hosts no run: it reaches the run record and the mailbox, never the
+  // A program's client hosts no run: it reaches the run record and in.jsonl, never the
   // operator's runtime, a provider or the author surface the loader serves (story 040). What it
   // loads transitively is `clientReachProblems`'.
   {
@@ -186,6 +186,14 @@ const RULES: Rule[] = [
   // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
   {
     dir: "packages/engine/src/accounting",
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
+    forbid: [ISSUES_REFS],
+    pure: true,
+  },
+  // The engine's policy over `run.jsonl`'s lines (story 041): what `readRun` publishes is the
+  // format; what the engine does with it is decided here, lines in, decisions out.
+  {
+    dir: "packages/engine/src/run-policy",
     allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [ISSUES_REFS],
     pure: true,

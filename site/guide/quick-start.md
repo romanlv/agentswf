@@ -131,7 +131,7 @@ the agent was billed: `subscription`, `metered` or `unknown`
 ([What the record says](/guide/harnesses#what-the-record-says)).
 
 Then it prints the result. `hello` has no `present` function, so awf prints the run's whole record
-as JSON, the same as its `output.json`. Trimmed:
+as JSON, the same as its `out.json`. Trimmed:
 
 ```json
 {
@@ -155,7 +155,7 @@ part-way goes on, is on [Runs](/guide/runs#how-an-attempt-ends).
 
 ## 5. Read what the run kept
 
-Every run is kept in `.awf/runs/{workflow}/{id}`, under the folder the run worked in. `output.json`
+Every run is kept in `.awf/runs/{workflow}/{id}`, under the folder the run worked in. `out.json`
 there is the record printed above; [the record](/guide/how-it-works#the-record) says what else the
 folder holds.
 

@@ -13,6 +13,9 @@ import { addTokens } from "./tokens";
 
 const NONE: TokenUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
+/** An operation as priced: `chargeUnread` when what it was billed per token can't be known. */
+export type PricedOperation = SettledOperation & { chargeUnread?: true };
+
 /** What ran between a run's stages, as a row of `byStage`. */
 export const NO_STAGE = "(no stage)";
 
@@ -23,7 +26,7 @@ export const NO_STAGE = "(no stage)";
  * key prefix, timed by what ran in it.
  */
 export function summarizeRun(
-  usage: readonly SettledOperation[],
+  usage: readonly PricedOperation[],
   prices: PriceTable,
   times: { startedAt: string; finishedAt: string },
   decisions: readonly SettledDecision[],
@@ -49,7 +52,7 @@ export function summarizeRun(
     (billing) => billing !== "unknown",
   );
   const figures = (
-    records: readonly SettledOperation[],
+    records: readonly PricedOperation[],
     asked: readonly SettledDecision[] = [],
   ): AccountingFigures => {
     const agents = figuresOf(records, prices);
@@ -92,7 +95,7 @@ export function summarizeRun(
   };
 }
 
-function figuresOf(records: readonly SettledOperation[], prices: PriceTable): AccountingFigures {
+function figuresOf(records: readonly PricedOperation[], prices: PriceTable): AccountingFigures {
   let tokens = NONE;
   let delegated = NONE;
   let charged: number | undefined;
@@ -116,6 +119,7 @@ function figuresOf(records: readonly SettledOperation[], prices: PriceTable): Ac
     // Another currency would need converting first; until then its charge is an unknown one.
     if (record.charged?.currency === "USD") charged = (charged ?? 0) + record.charged.amount;
     else if (record.charged) agent.billed = false;
+    if (record.chargeUnread) agent.billed = false;
     if (!record.spend) {
       agent.known = false;
       agent.priced = false;

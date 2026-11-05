@@ -10,8 +10,8 @@ import { listProjects, projectRunRoot } from "./projects";
 import type { Out } from "./run-commands";
 import { parsePlace } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
-import { listRuns } from "./run-state";
-import { readAttempts } from "./runs";
+import { listRunEntries, listRuns } from "./run-state";
+import { RunUnreadable, readAttempts } from "./runs";
 import { type Launch, wake } from "./wake";
 
 export const tickUsage = help.trimEnd();
@@ -44,9 +44,10 @@ export async function tickCommand(
   }
   const { place, json } = parsed;
   const woke: TickResultJson["woke"] = [];
+  const unreadable: string[] = [];
   let failed = false;
   const roots: string[] = [];
-  /** Each project's runs on its own engine (ADR 0014): this one, or its own in a child. */
+  /** Each project's runs on its own engine (ADR 0015): this one, or its own in a child. */
   const onItsEngine = async (project: string, root: string) => {
     let engine: ProjectEngine;
     try {
@@ -90,7 +91,7 @@ export async function tickCommand(
         out.stderr(`awf: ${project}, in ~/.awf/projects, is gone; its runs are not woken`);
         continue;
       }
-      // A project a plain run registered (ADR 0015) has nothing for a tick to wake; one on another
+      // A project a plain run registered (ADR 0016) has nothing for a tick to wake; one on another
       // engine is that engine's to judge, whose records this one may not read.
       const root = projectRunRoot(project);
       if (!(await listRuns(root)).some((run) => run.record.events) && onThisEngine(project))
@@ -98,7 +99,12 @@ export async function tickCommand(
       await onItsEngine(project, root);
     }
   for (const root of roots) {
-    for (const run of await listRuns(root)) {
+    for (const run of await listRunEntries(root)) {
+      if (run instanceof RunUnreadable) {
+        // One with events is one a tick would have woken: it is named, not an error.
+        if (run.events) unreadable.push(run.ref);
+        continue;
+      }
       if (!run.record.events) continue;
       const ref = `${run.record.workflow}/${run.record.id}`;
       try {
@@ -117,8 +123,16 @@ export async function tickCommand(
       }
     }
   }
-  if (json) out.stdout(JSON.stringify({ v: 1, woke } satisfies TickResultJson));
-  else for (const each of woke) out.stdout(`${each.did} ${each.ref}: ${each.why}`);
+  if (unreadable.length > 0 && !json) {
+    const runs = unreadable.length === 1 ? "1 run" : `${unreadable.length} runs`;
+    out.stderr(
+      `awf: ${runs} with events can't be read and ${unreadable.length === 1 ? "is" : "are"} not woken; awf runs says why`,
+    );
+  }
+  if (json) {
+    const result: TickResultJson = { v: 1, woke, ...(unreadable.length ? { unreadable } : {}) };
+    out.stdout(JSON.stringify(result));
+  } else for (const each of woke) out.stdout(`${each.did} ${each.ref}: ${each.why}`);
   return failed ? 1 : 0;
 }
 

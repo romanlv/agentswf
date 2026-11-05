@@ -5,7 +5,8 @@ import { probeProcess, processStart, sameStart } from "./runs";
 
 /**
  * `{root}/{workflow}/{run id}.lock`: the lock on a run, beside its run's folder so it exists before
- * the run does. Every append to the run's mailbox, and each decision made from it, holds it.
+ * the run does. Every sender's append to `in.jsonl` holds it, and so does a wait's last look before
+ * it parks.
  */
 export function runLockFile(runRoot: string, workflow: string, runId: string): string {
   return join(runRoot, workflow, `${runId}.lock`);

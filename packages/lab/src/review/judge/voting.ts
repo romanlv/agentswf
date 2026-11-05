@@ -3,7 +3,7 @@ import type {
   InlineSandboxSpec,
   WorkflowContext,
 } from "@agentswf/contract/workflow";
-import { runtimeName } from "../format/runtime";
+import { agentKeyOf, runtimeName } from "../format/runtime";
 import type { FindingLabel } from "../format/scoring";
 import { ANSWER, claimedIn, type JudgedCase } from "./case";
 import { labelProblems } from "./check";
@@ -58,7 +58,7 @@ async function ask(
 ): Promise<Asked> {
   const { by, runtime, sandbox } = voter;
   const open = (key: string) =>
-    wf.agents.open({ key, runtime, cwd: wf.cwd, ...(sandbox ? { sandbox } : {}) });
+    wf.agents.open({ key: agentKeyOf(key), runtime, cwd: wf.cwd, ...(sandbox ? { sandbox } : {}) });
   let agent = await open(by);
   let next = prompt;
   let fresh = false;
@@ -92,7 +92,7 @@ async function ask(
         `${by}: turn ${turn} ran past ${Math.round(turnMs / 60_000)} min; asking once more, fresh`,
       );
       fresh = true;
-      agent = await open(`${by}#fresh`);
+      agent = await open(`${by}-fresh`);
       next = prompt;
       turn = 2; // the fresh session gets the last of the three turns
       continue;

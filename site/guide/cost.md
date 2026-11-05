@@ -60,19 +60,23 @@ Where the time and tokens went:
 - **[Decisions](/guide/decisions)** get a line of their own, since a decision is not an agent:
   `4 decisions · 3k tokens · <$0.01 at list prices`.
 - **A continued run** adds the whole run after its attempt's figures:
-  `run: 2 attempts, 3m 10s, ~$1.30`. An attempt that was interrupted says so, and its cost is
-  unknown.
+  `run: 2 attempts, 3m 10s, ~$1.30`. An attempt that was interrupted is counted too: the next
+  attempt reads what its agents used as it starts.
 
-`awf runs` lists each run's time and estimate, so you can compare runs at a glance:
+`awf runs` lists each run's time and estimate, with a `?` after it when some agent's tokens
+couldn't be read, so you can compare runs at a glance:
 [Following runs](/guide/following-runs#awf-runs-where-a-run-stands).
 
 ## Where the numbers come from
 
-After the run ends, awf reads each agent's tokens from its harness's own session files and prices
-them with the price table built into awf: one list price per model, read from the vendors' pricing
-pages on a date. A newer awf brings a newer table; a finished run keeps the estimate it was given.
-`output.json` names the table it used, as `list prices 2026-10-07`, beside the totals, each stage's,
-model's and agent's share, and every turn's tokens by model.
+After an attempt ends, awf reads each agent's tokens from its harness's own session files and keeps
+them, unpriced, in each operation's `spend.json`. An attempt that was interrupted, or whose read a
+second Ctrl-C cut short, is read by the next one as it starts. A figure is priced when it is shown,
+with the price table built into awf: one list price per model, read from the vendors' pricing pages
+on a date. So `awf runs` and a continued run's total price every attempt with the table of the awf
+reading them. `out.json` keeps the attempt's figures priced as it ran, and names the table it used,
+as `list prices 2026-10-07`, beside the totals, each stage's, model's and agent's share, and every
+turn's tokens by model.
 
 The same table prices every agent, on a plan or per token. A plan isn't billed per token, but its
 allowance is drawn down roughly in proportion to what the tokens would cost, so one estimate

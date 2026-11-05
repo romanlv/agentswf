@@ -7,26 +7,26 @@ import {
   type RunStatus,
   type StartResult,
 } from "@agentswf/contract/client";
-import type { AttemptRecord, MailboxRecord, OutputRecord } from "@agentswf/contract/records";
+import type { AttemptRecord, ClaimedAttempt, OutputRecord } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
 import { messageOf } from "../errors";
 import { exists } from "../files";
-import { readMailbox } from "../mailbox";
 import { recordProject } from "../projects";
 import { shellLine } from "../run-commands";
 import { lockHeld, runLockFile, withRunLock } from "../run-lock";
 import { type RunState, runStatus, statusOf, stuckOf } from "../run-state";
 import {
+  claimedOf,
   createRun,
   generateId,
   idProblem,
   openRun,
-  outputFile,
+  outFile,
   type Run,
   RunRefused,
   RunTaken,
-  readAttempts,
+  readAttemptFiles,
 } from "../runs";
 import { wake } from "../wake";
 import { type AnyWorkflow, assertJsonValue } from "../workflow-loader";
@@ -133,11 +133,11 @@ export async function start(
         `${ref} is there already, started with other args; another id starts these`,
         ref,
       );
-    const attempts = await readAttempts(run);
-    if (attempts.length > 0) return { ok: true, run: runHandle(run, context), did: "exists" };
+    const files = await readAttemptFiles(run);
+    if (claimedOf(files).length > 0)
+      return { ok: true, run: runHandle(run, context), did: "exists" };
     // Never launched, or its launch failed: launched now, as a wake would, unless it is stuck.
-    if (stuckOf(attempts, await readMailbox(run.dir)))
-      return { ok: false, run: runHandle(run, context), did: "stuck" };
+    if (stuckOf(files)) return { ok: false, run: runHandle(run, context), did: "stuck" };
     return launched(run, "exists");
   });
 }
@@ -234,19 +234,20 @@ async function statusNow(run: Run): Promise<RunStatus<JsonValue>> {
   };
 }
 
-/** An ended attempt's ending, from its record and, for the last one, `output.json`. */
-async function endingOf(run: Run, attempt: AttemptRecord): Promise<Ending<JsonValue> | undefined> {
-  const output = await readFile(outputFile(run.dir), "utf8")
+/** An ended attempt's ending, from its record and, for the last one, `out.json`. */
+async function endingOf(run: Run, attempt: ClaimedAttempt): Promise<Ending<JsonValue> | undefined> {
+  const output = await readFile(outFile(run.dir), "utf8")
     .then((text) => JSON.parse(text) as OutputRecord)
     .catch(() => undefined);
   const own = output?.attempt === attempt.attempt ? output : undefined;
-  const stages = attempt.stages ?? [];
+  const stages = own?.stages ?? [];
   switch (attempt.outcome) {
     case undefined:
       return undefined;
     case "completed":
+      if (attempt.value !== undefined) return { kind: "completed", value: attempt.value, stages };
       return own?.outcome === "completed"
-        ? { kind: "completed", value: own.value as JsonValue, stages }
+        ? { kind: "completed", value: own.value, stages }
         : undefined;
     case "parked":
       return {
@@ -280,21 +281,25 @@ async function waitFor(
   pollMs: number,
 ): Promise<RunStatus<JsonValue>> {
   signal?.throwIfAborted();
-  const failedLaunches = (records: MailboxRecord[]) =>
-    records.filter((record) => record.kind === "launch-failed").length;
+  const failedLaunches = (files: readonly AttemptRecord[]) =>
+    files.filter((file) => file.kind === "failed-launch").length;
   // Read before the status: an attempt that rests and is continued between the two is still seen.
-  const at = await readAttempts(run);
-  let launches = failedLaunches(await readMailbox(run.dir));
+  const files = await readAttemptFiles(run);
+  const at = claimedOf(files);
+  let launches = failedLaunches(files);
   const now = await statusNow(run);
   if (final ? now.final : now.state !== "running") return now;
   const lockFile = runLockFile(run.root, run.record.workflow, run.record.id);
   // The attempt current at the call, or the first one after it.
   let watching =
-    at.at(-1)?.outcome === undefined && at.length > 0 ? at.at(-1)!.attempt : at.length + 1;
+    at.at(-1)?.outcome === undefined && at.length > 0
+      ? at.at(-1)!.attempt
+      : (files.at(-1)?.attempt ?? 0) + 1;
   for (;;) {
     await pause(pollMs, signal);
-    const attempts = await readAttempts(run);
-    let rested: AttemptRecord | undefined;
+    const all = await readAttemptFiles(run);
+    const attempts = claimedOf(all);
+    let rested: ClaimedAttempt | undefined;
     for (let i = 0; i < attempts.length; i++) {
       const attempt = attempts[i]!;
       if (attempt.attempt < watching) continue;
@@ -303,11 +308,10 @@ async function waitFor(
       rested = attempt;
       watching = attempt.attempt + 1;
     }
-    const records = await readMailbox(run.dir);
     // A launch that failed is a rest once its sender has let the run go; a sender holding the lock
     // is launching it again.
-    const launchFailed = failedLaunches(records) > launches && !(await lockHeld(lockFile));
-    if (launchFailed) launches = failedLaunches(records);
+    const launchFailed = failedLaunches(all) > launches && !(await lockHeld(lockFile));
+    if (launchFailed) launches = failedLaunches(all);
     const current = await statusNow(run);
     if (final) {
       if (current.final) return current;

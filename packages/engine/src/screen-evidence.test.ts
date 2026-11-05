@@ -1,9 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
-import { screenFile, writeScreen } from "./runs";
+import { screenFile, writeScreen } from "./ops";
 import { createTempRunDirs, runNew, submit } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 
@@ -46,14 +46,51 @@ test("a turn that ends without an answer keeps its pane's screen; an answered on
   });
   expect(kinds).toEqual(["blocked", "answered"]);
   const runDir = await onlyRun(runRoot);
-  const calls = await Array.fromAsync(new Bun.Glob("calls/*/call.json").scan({ cwd: runDir }));
-  const screens = await Array.fromAsync(new Bun.Glob("calls/*/screen.txt").scan({ cwd: runDir }));
-  expect(calls).toHaveLength(2);
-  expect(screens).toHaveLength(1);
-  const call = JSON.parse(await readFile(join(runDir, dirname(screens[0]!), "call.json"), "utf8"));
-  expect(JSON.stringify(call)).toContain("Edit.");
+  const ops = await Array.fromAsync(new Bun.Glob("ops/*/op.json").scan({ cwd: runDir }));
+  const screens = await Array.fromAsync(new Bun.Glob("ops/*/screen.txt").scan({ cwd: runDir }));
+  expect(ops.sort()).toEqual(["ops/worker.1/op.json", "ops/worker.2/op.json"]);
+  expect(screens).toEqual(["ops/worker.1/screen.txt"]);
+  const op = JSON.parse(await readFile(join(runDir, "ops/worker.1/op.json"), "utf8"));
+  expect(op).toMatchObject({ id: "worker.1", kind: "turn", attempt: 1, agent: "worker" });
+  expect(op.question).toContain("Edit.");
   expect(await readFile(join(runDir, screens[0]!), "utf8")).toBe(DIALOG);
   expect((await stat(join(runDir, screens[0]!))).mode & 0o777).toBe(0o600);
+});
+
+test("an agent whose start failed keeps the screen its pane showed, in its operation's folder", async () => {
+  const runRoot = runDirs.tempRunDir();
+  const startScreen = "codex: command not found\n";
+  const adapter = createFakeAdapter({
+    script: () => ({ state: "failed", detail: "agent start failed", screen: startScreen }),
+  });
+  const workflow: RunnableWorkflow<null, string> = {
+    meta: { name: "failed-start", description: "failed start" },
+    async run(wf) {
+      const agent = await wf.agents.open({ key: "worker", runtime: "review" });
+      const { outcome } = await agent.run({ prompt: "Start.", nudge: false });
+      return outcome.kind;
+    },
+  };
+  const result = await runNew(workflow, null, {
+    runRoot,
+    runtime: {
+      aliases: { review: { harness: "fake", model: "fake" } },
+      host: createSingleSessionHostFactory(adapter),
+    },
+  });
+  expect(result.value).toBe("failed");
+  const runDir = await onlyRun(runRoot);
+  expect(await readFile(screenFile(runDir, "worker.1"), "utf8")).toBe(startScreen);
+  expect(screenFile(runDir, "worker.1")).toBe(join(runDir, "ops", "worker.1", "screen.txt"));
+  expect(
+    JSON.parse(await readFile(join(runDir, "ops", "worker.1", "op.json"), "utf8")),
+  ).toMatchObject({
+    id: "worker.1",
+    kind: "turn",
+    attempt: 1,
+    agent: "worker",
+    question: "Start.",
+  });
 });
 
 test("a screen past the bound keeps its last whole lines", async () => {

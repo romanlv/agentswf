@@ -1,15 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENT_STATES,
   type AttemptRecord,
-  MAILBOX_RECORD_VERSION,
   type RunJson,
   type RunsJson,
 } from "@agentswf/contract/records";
 import { writeJson } from "./files";
-import { appendMailbox } from "./mailbox";
+import { runLinesFile } from "./run-lines";
 import { createRun, processStart, type Run } from "./runs";
 import { runsCommand } from "./runs-command";
 import { createTempRunDirs } from "./testing";
@@ -41,7 +40,7 @@ async function makeRun(
   mkdirSync(join(run.dir, "attempts"), { recursive: true });
   for (const [index, fields] of attempts.entries()) {
     await writeJson(join(run.dir, "attempts", `${index + 1}.json`), {
-      version: 1,
+      kind: "attempt",
       attempt: index + 1,
       file: join(cwd, "review.ts"),
       flags: { timeout: "1h" },
@@ -51,7 +50,7 @@ async function makeRun(
     });
   }
   writeFileSync(
-    join(run.dir, "turns.jsonl"),
+    join(run.dir, "log.jsonl"),
     lines.map((line) => `${JSON.stringify({ version: 1, attempt: 1, ...line })}\n`).join(""),
   );
   return run;
@@ -77,7 +76,6 @@ const turnFields = (agent: string, id: string, stage: string, from: number, to?:
   stage,
   deliveredAt: T(from),
   ...(to === undefined ? {} : { settledAt: T(to) }),
-  sessions: [],
   callPath: [],
 });
 
@@ -131,7 +129,7 @@ describe("awf runs", () => {
         new Date(T(13)).toTimeString().slice(0, 5),
       ),
     );
-    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c1\.\S+ --wait 90s$/);
+    expect(lines.at(-1)).toMatch(/^next: awf logs review\/r1 --after c2\.\S+ --wait 90s$/);
   });
 
   test("a failed run says why, where its records are, and where to look", async () => {
@@ -164,7 +162,9 @@ describe("awf runs", () => {
     expect(lines).toContain("reason: turn deadline exceeded (worker, turn 6)");
     expect(
       lines.some(
-        (line) => line.startsWith("records: ") && line.endsWith("(report.md, output.json)"),
+        (line) =>
+          line.startsWith("records: ") &&
+          line.endsWith("(run.jsonl, log.jsonl, ops/, out.json, report.md)"),
       ),
     ).toBe(true);
     expect(lines.at(-2)).toBe("see: awf logs implement-ticket/r2 --agent worker --limit 30");
@@ -217,7 +217,6 @@ describe("awf runs", () => {
           harness: "codex",
           state: "working",
           turns: 0,
-          sessions: [],
           live: { observedAt: T(14) },
         },
       ],
@@ -231,20 +230,39 @@ describe("awf runs", () => {
       exitCode: 0,
       stdout: `no runs under ${join(cwd, ".awf", "runs")}; started elsewhere? awf runs --cwd {dir}`,
     });
-    await makeRun(cwd, "review", "old", [
-      {
-        started: T(0),
-        ended: T(5),
-        outcome: "completed",
-        accounting: { totals: { estimate: 6.1 } } as never,
-      },
+    const old = await makeRun(cwd, "review", "old", [
+      { started: T(0), ended: T(5), outcome: "completed" },
     ]);
-    await makeRun(cwd, "review", "new", [{ started: T(10), ...ALIVE }]);
+    // Priced as it is read, from what its operation measured: 3.05M input tokens at $2/M.
+    spent(old, "fixer.1", 1, 3_050_000);
+    const running = await makeRun(cwd, "review", "new", [{ started: T(10), ...ALIVE }]);
+    // A running attempt's operation has no spend.json until it ends: not an unknown cost yet.
+    spent(running, "fixer.1", 1, 1_000_000);
+    mkdirSync(join(running.dir, "ops", "fixer.2"), { recursive: true });
+    writeFileSync(
+      join(running.dir, "ops", "fixer.2", "op.json"),
+      readFileSync(join(running.dir, "ops", "fixer.1", "op.json"), "utf8"),
+    );
     const listed = (await awfRuns(cwd)).stdout.split("\n");
     expect(listed[0]).toMatch(/^review\/new {2}running {6}\d\d-\d\d \d\d:\d\d {2}\S+/);
+    expect(listed[0]).toMatch(/\$2\.00$/);
     expect(listed[1]).toMatch(
       /^review\/old {2}completed {4}\d\d-\d\d \d\d:\d\d {2}5m00s {3}\$6\.10$/,
     );
+    // An operation whose usage isn't known makes the estimate a floor, marked so.
+    mkdirSync(join(old.dir, "ops", "fixer.2"), { recursive: true });
+    writeFileSync(
+      join(old.dir, "ops", "fixer.2", "op.json"),
+      readFileSync(join(old.dir, "ops", "fixer.1", "op.json"), "utf8").replace(
+        "fixer.1",
+        "fixer.2",
+      ),
+    );
+    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ {3}\$6\.10\?$/);
+    expect((await awfRuns(cwd, "review/old")).stdout.split("\n")[0]).toContain("$6.10?");
+    // Nothing known: no figure, and no bare mark.
+    rmSync(join(old.dir, "ops", "fixer.1", "spend.json"));
+    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ 5m00s$/);
     const missing = await awfRuns(cwd, "nope");
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toBe(
@@ -262,10 +280,10 @@ describe("awf runs", () => {
       [{ ...ALIVE }],
       [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
     );
-    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    mkdirSync(join(run.dir, "ops", "o1"), { recursive: true });
     const until = Date.parse(T(20));
     writeFileSync(
-      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      join(run.dir, "ops", "o1", "live.jsonl"),
       `${JSON.stringify({ version: 1, operationId: "o1", kind: "waiting", at: Date.parse(T(3)), sequence: 1, reason: "CI runs", until })}\n`,
     );
     const due = new Date(until).toTimeString().slice(0, 5);
@@ -292,10 +310,10 @@ describe("awf runs", () => {
       [{ ...ALIVE }],
       [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
     );
-    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    mkdirSync(join(run.dir, "ops", "o1"), { recursive: true });
     const until = Date.parse(T(20));
     writeFileSync(
-      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      join(run.dir, "ops", "o1", "live.jsonl"),
       `${JSON.stringify({ version: 1, operationId: "o1", kind: "awaiting-reply", at: Date.parse(T(3)), sequence: 0, until, peer: "reviewer" })}\n`,
     );
     const due = new Date(until).toTimeString().slice(0, 5);
@@ -367,6 +385,148 @@ describe("awf runs", () => {
     expect(lines[6]).toMatch(/^ {6}fixer +working +turn 1/);
   });
 
+  test("a stage entered twice in an attempt shows twice, each with its own line's outcome and value", async () => {
+    const cwd = runDirs.tempRunDir();
+    const second = (line: object) => ({ ...line, attempt: 2 });
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e1",
+      [
+        { started: T(0), ended: T(0), outcome: "parked" },
+        { started: T(1), ended: T(5), outcome: "parked" },
+      ],
+      [
+        second({
+          kind: "stage-ended",
+          at: T(1),
+          stage: "plan",
+          outcome: "succeeded",
+          source: "reused",
+        }),
+        second({ kind: "stage-started", at: T(1), stage: "notify" }),
+        second({ kind: "stage-ended", at: T(2), stage: "notify", outcome: "failed" }),
+        second({ kind: "stage-started", at: T(3), stage: "notify" }),
+        second({ kind: "stage-ended", at: T(4), stage: "notify", outcome: "succeeded" }),
+      ],
+    );
+    const stage = (attempt: number, name: string, started: number, fields: object) => ({
+      kind: "stage",
+      attempt,
+      at: T(started + 1),
+      name,
+      started: T(started),
+      ...fields,
+    });
+    writeFileSync(
+      join(run.dir, "run.jsonl"),
+      [
+        { kind: "claimed", attempt: 1, at: T(0) },
+        stage(1, "plan", 0, { outcome: "succeeded", value: { steps: 3 } }),
+        { kind: "claimed", attempt: 2, at: T(1) },
+        stage(2, "notify", 1, { outcome: "failed", reason: "slack down", value: "partial" }),
+        stage(2, "notify", 3, { outcome: "succeeded", value: { sent: true } }),
+      ]
+        .map((line) => `${JSON.stringify(line)}\n`)
+        .join(""),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e1", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      { stage: "plan", state: "reused", started: T(1), ended: T(1), value: { steps: 3 } },
+      { stage: "notify", state: "failed", started: T(1), ended: T(2), value: "partial" },
+      { stage: "notify", state: "succeeded", started: T(3), ended: T(4), value: { sent: true } },
+    ]);
+  });
+
+  test("entries of one stage that began at once take its lines in order; a provided one keeps its state; values are masked", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e2",
+      [{ started: T(1), ended: T(5), outcome: "parked" }],
+      [
+        { kind: "stage-ended", at: T(1), stage: "plan", outcome: "succeeded", source: "provided" },
+        { kind: "stage-started", at: T(2), stage: "notify" },
+        { kind: "stage-ended", at: T(2), stage: "notify", outcome: "failed" },
+        { kind: "stage-started", at: T(2), stage: "notify" },
+        // Its end never reached the log: the line's says when.
+      ],
+    );
+    writeFileSync(
+      join(run.dir, "run.jsonl"),
+      [
+        { kind: "claimed", attempt: 1, at: T(1) },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(1),
+          name: "plan",
+          outcome: "succeeded",
+          started: T(1),
+          value: { token: "abc", path: "a.md" },
+          provided: true,
+        },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(2),
+          name: "notify",
+          outcome: "failed",
+          started: T(2),
+          value: 1,
+        },
+        {
+          kind: "stage",
+          attempt: 1,
+          at: T(3),
+          name: "notify",
+          outcome: "succeeded",
+          started: T(2),
+          value: 2,
+        },
+      ]
+        .map((line) => `${JSON.stringify(line)}\n`)
+        .join(""),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e2", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      {
+        stage: "plan",
+        state: "provided",
+        started: T(1),
+        ended: T(1),
+        value: { token: "***", path: "a.md" },
+      },
+      { stage: "notify", state: "failed", started: T(2), ended: T(2), value: 1 },
+      { stage: "notify", state: "succeeded", started: T(2), ended: T(3), value: 2 },
+    ]);
+  });
+
+  test("a run whose run.jsonl can't be read shows its stages from the log, and says values are omitted", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "e3",
+      [{ started: T(1), ended: T(5), outcome: "completed" }],
+      [
+        { kind: "stage-started", at: T(1), stage: "plan" },
+        { kind: "stage-ended", at: T(2), stage: "plan", outcome: "succeeded" },
+      ],
+    );
+    writeFileSync(join(run.dir, "run.jsonl"), "not json\n");
+    const { stdout } = await awfRuns(cwd, "review/e3");
+    expect(stdout).toContain("stage plan     succeeded");
+    expect(stdout).toContain(
+      "awf: run.jsonl could not be read, so stages show no values: run.jsonl line 1: not JSON",
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/e3", "--json")).stdout) as RunJson;
+    expect(json.stages).toEqual([
+      { stage: "plan", state: "succeeded", started: T(1), ended: T(2) },
+    ]);
+  });
+
   test("lists twenty runs, says how many are older, and --limit lists more", async () => {
     const cwd = runDirs.tempRunDir();
     for (let minute = 0; minute < 22; minute += 1) {
@@ -414,13 +574,11 @@ describe("awf runs", () => {
           cwd: "/box",
           home,
         },
-        {
-          kind: "session-known",
-          at: T(1),
-          agent: "coder",
-          session: { harness: "claude", id: "s-1" },
-        },
       ],
+    );
+    writeFileSync(
+      join(cwd, ".awf", "runs", "review", "s1", "run.jsonl"),
+      `${JSON.stringify({ kind: "session", attempt: 1, at: T(1), agent: "coder", harness: "claude", session: "s-1" })}\n`,
     );
     const json = JSON.parse((await awfRuns(cwd, "review/s1", "--json")).stdout);
     expect(json.agents[0].sessions).toEqual([{ harness: "claude", id: "s-1", files: [file] }]);
@@ -508,6 +666,35 @@ describe("awf runs", () => {
   });
 });
 
+/** An agent operation of `run` that measured `input` tokens of claude-sonnet-5, settled. */
+function spent(run: Run, id: string, attempt: number, input: number): void {
+  mkdirSync(join(run.dir, "ops", id), { recursive: true });
+  const op = {
+    id,
+    attempt,
+    at: T(1),
+    kind: "turn",
+    agent: id.split(".")[0],
+    question: "Fix it.",
+    execution: { harness: "claude", model: "claude-sonnet-5" },
+    cwd: run.record.cwd,
+  };
+  writeFileSync(join(run.dir, "ops", id, "op.json"), JSON.stringify(op));
+  const tokens = { input, cacheRead: 0, cacheWrite: 0, output: 0 };
+  writeFileSync(
+    join(run.dir, "ops", id, "spend.json"),
+    JSON.stringify({
+      billing: "subscription",
+      spend: [{ model: "claude-sonnet-5", delegated: false, tokens }],
+    }),
+  );
+}
+
+/** A line attempt 1 of `run` settled, appended to its `run.jsonl`. */
+function settle(run: Run, line: Record<string, unknown>, at = T(3)): void {
+  appendFileSync(runLinesFile(run.dir), `${JSON.stringify({ attempt: 1, at, ...line })}\n`);
+}
+
 test("an event run at its wait shows the wait's label and next timer, live or parked", async () => {
   const cwd = runDirs.tempRunDir();
   const live = await makeRun(cwd, "dd-case", "kombo", [{ ...ALIVE, started: T(10) }]);
@@ -519,23 +706,8 @@ test("an event run at its wait shows the wait's label and next timer, live or pa
     [parked, "30 unseen", T(40)],
   ] as const) {
     await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
-    if (until)
-      await appendMailbox(run.dir, {
-        version: MAILBOX_RECORD_VERSION,
-        at: T(3),
-        kind: "timer",
-        attempt: 1,
-        name: "retry",
-        due: until,
-        when: until,
-      });
-    await appendMailbox(run.dir, {
-      version: MAILBOX_RECORD_VERSION,
-      at: T(3),
-      kind: "wait",
-      attempt: 1,
-      label,
-    });
+    if (until) settle(run, { kind: "timer", name: "retry", due: until, when: until });
+    settle(run, { kind: "wait", label });
   }
   const json = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
   expect(json.runs).toMatchObject([
@@ -553,25 +725,27 @@ test("an event run at its wait shows the wait's label and next timer, live or pa
     { ...ALIVE, started: T(11) },
   ]);
   await writeJson(join(later.dir, "run.json"), { ...later.record, events: true });
-  await appendMailbox(later.dir, {
-    version: MAILBOX_RECORD_VERSION,
-    at: T(1),
-    kind: "wait",
-    attempt: 1,
-    label: "stale",
-  });
+  settle(later, { kind: "wait", label: "stale" }, T(1));
   const again = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
   expect(again.runs.find((r) => r.ref === "dd-case/later")).not.toHaveProperty("waiting");
   expect(text).toContain("investigating");
   expect(text).toMatch(/30 unseen · until /);
 });
 
-test("an event run that returned says how many events no wait took", async () => {
+test("an event run that returned says how many events no wait took, from its lines", async () => {
   const cwd = runDirs.tempRunDir();
   const run = await makeRun(cwd, "dd-case", "done", [
-    { started: T(2), ended: T(3), outcome: "completed", unacknowledged: 2 },
+    { started: T(2), ended: T(3), outcome: "completed" },
   ]);
   await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
+  // The starting event, which the run's start takes, and two none took.
+  const event = (id: string, at: string, starts = false) =>
+    `${JSON.stringify({ at, id, name: "ping", data: null, from: "test", ...(starts ? { starts: true } : {}) })}\n`;
+  writeFileSync(
+    join(run.dir, "in.jsonl"),
+    event("e0", T(2), true) + event("e1", T(2)) + event("e2", T(2)),
+  );
+  settle(run, { kind: "claimed" }, T(2));
   expect((await awfRuns(cwd)).stdout).toContain("2 events never taken");
 });
 

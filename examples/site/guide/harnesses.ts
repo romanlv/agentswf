@@ -23,7 +23,7 @@ export const RUNTIMES = {
   // headless: a process per turn, nothing to watch
   quiet: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
   // headless claude is per token, and says so
-  meteredClaude: {
+  "metered-claude": {
     harness: "claude",
     model: "sonnet",
     placement: "headless",

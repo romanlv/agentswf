@@ -1,16 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import {
-  AT_DUE,
-  appendMailbox,
-  atEventId,
-  foldMailbox,
-  hasWork,
-  RunMailbox,
-  RunParked,
-  readMailbox,
-} from "./mailbox";
+import type { EventLine } from "@agentswf/contract/records";
+import { atEventId } from "./event-ids";
+import { appendIn } from "./in-lines";
+import { claimRunLines, readRunLines } from "./run-lines";
+import { hasWork } from "./run-policy/waits";
 import { caseRun, createTempRunDirs, startCase } from "./testing";
+import { RunParked, RunWaits, readWaits } from "./waits";
 import { testWorkflow } from "./workflow-testing";
 
 const HOUR = 3_600_000;
@@ -146,18 +141,25 @@ test("a read is refused what would never come due, and a race refuses a time rea
 
 const at = "2026-10-25T12:00:00.000Z";
 const T = Date.parse(at);
-const event = (id: string, name = "dd.changes"): MailboxRecord => ({
-  version: MAILBOX_RECORD_VERSION,
+const event = (id: string, name = "dd.changes"): EventLine => ({
   at,
-  kind: "event",
   id,
   name,
   data: {},
   from: "operator",
 });
+const AT_DUE = "at:due";
 
-function mailbox(runDir: string, attempt: number, now: () => number): RunMailbox {
-  return new RunMailbox({ runDir, attempt, locked: (work) => work(), now });
+/** Attempt `attempt`'s waits, its claim made. */
+async function waitsOf(runDir: string, attempt: number, now: () => number): Promise<RunWaits> {
+  const lines = await claimRunLines(runDir, attempt, new Date(now()).toISOString());
+  return new RunWaits({ runDir, lines, locked: (work) => work(), now });
+}
+
+/** Whether the run's last wait has something to take at `now`, as a wake asks. */
+async function dueAt(runDir: string, now: number): Promise<boolean> {
+  const state = await readWaits(runDir, now);
+  return hasWork(state, state.lastWait?.takes);
 }
 
 const nudgeAt = (due: number | null) => () => [
@@ -169,16 +171,16 @@ test("after a crash, a time returned comes back once if the state still says it,
   const runDir = runDirs.tempRunDir();
   const now = () => T + 2 * HOUR;
   const due = T + HOUR;
-  const first = await mailbox(runDir, 1, now).select(nudgeAt(due), undefined);
+  const first = await (await waitsOf(runDir, 1, now)).select(nudgeAt(due), undefined);
   expect(first).toMatchObject({ name: AT_DUE, from: "nudge", at: new Date(due).toISOString() });
   // The attempt died handling it; the state still says that time.
-  const again = await mailbox(runDir, 2, now).select(nudgeAt(due), undefined);
+  const again = await (await waitsOf(runDir, 2, now)).select(nudgeAt(due), undefined);
   expect(again.id).toBe(first.id);
   // It died again, and this time the handler had moved the time on: an event is taken instead.
-  await appendMailbox(runDir, event("x"));
-  const moved = await mailbox(runDir, 3, now).select(nudgeAt(T + 5 * HOUR), undefined);
+  await appendIn(runDir, event("x"));
+  const moved = await (await waitsOf(runDir, 3, now)).select(nudgeAt(T + 5 * HOUR), undefined);
   expect(moved.id).toBe("x");
-  const state = foldMailbox(await readMailbox(runDir));
+  const state = await readWaits(runDir, now());
   expect(state.unacknowledged).toEqual([]);
   expect(state.held).toEqual(["x"]);
 });
@@ -186,9 +188,9 @@ test("after a crash, a time returned comes back once if the state still says it,
 test("after a crash, a receive acknowledges a time a select returned rather than taking it", async () => {
   const runDir = runDirs.tempRunDir();
   const now = () => T + 2 * HOUR;
-  await mailbox(runDir, 1, now).select(nudgeAt(T + HOUR), undefined);
-  await appendMailbox(runDir, event("x"));
-  const taken = await mailbox(runDir, 2, now).receive(undefined);
+  await (await waitsOf(runDir, 1, now)).select(nudgeAt(T + HOUR), undefined);
+  await appendIn(runDir, event("x"));
+  const taken = await (await waitsOf(runDir, 2, now)).receive(undefined);
   expect(taken.map((e) => e.id)).toEqual(["x"]);
 });
 
@@ -196,9 +198,9 @@ test("a parked run waits until the time it read, wakes then, and not again for a
   const runDir = runDirs.tempRunDir();
   let clock = T;
   const parked: { until?: string }[] = [];
-  const box = new RunMailbox({
+  const box = new RunWaits({
     runDir,
-    attempt: 1,
+    lines: await claimRunLines(runDir, 1, at),
     locked: (work) => work(),
     now: () => clock,
     parking: {
@@ -213,19 +215,17 @@ test("a parked run waits until the time it read, wakes then, and not again for a
   const due = T + HOUR;
   await expect(box.select(nudgeAt(due), undefined)).rejects.toBeInstanceOf(RunParked);
   expect(parked).toEqual([{ until: new Date(due).toISOString() }]);
-  const state = foldMailbox(await readMailbox(runDir));
-  const takes = state.lastWait?.takes;
-  expect(hasWork(state, takes, due - 1)).toBe(false);
-  expect(hasWork(state, takes, due)).toBe(true);
+  expect(await dueAt(runDir, due - 1)).toBe(false);
+  expect(await dueAt(runDir, due)).toBe(true);
   // Woken, the rerun takes it; left in state, it is no deadline and nothing to wake for.
   clock = due;
-  expect((await mailbox(runDir, 2, () => clock).select(nudgeAt(due), undefined)).id).toBe(
+  expect((await (await waitsOf(runDir, 2, () => clock)).select(nudgeAt(due), undefined)).id).toBe(
     atEventId("nudge", new Date(due).toISOString()),
   );
   clock = due + 10 * HOUR;
-  const after = new RunMailbox({
+  const after = new RunWaits({
     runDir,
-    attempt: 3,
+    lines: await claimRunLines(runDir, 3, at),
     locked: (work) => work(),
     now: () => clock,
     parking: {
@@ -241,67 +241,44 @@ test("a parked run waits until the time it read, wakes then, and not again for a
   await after.select(nudgeAt(due), undefined);
   await expect(after.select(nudgeAt(due), undefined)).rejects.toBeInstanceOf(RunParked);
   expect(parked.at(-1)).toEqual({});
-  const end = foldMailbox(await readMailbox(runDir));
-  expect(hasWork(end, end.lastWait?.takes, clock)).toBe(false);
+  expect(await dueAt(runDir, clock)).toBe(false);
 });
 
 test("a time moved while the wait waits is seen, and recorded for a parked run's wake", async () => {
   const runDir = runDirs.tempRunDir();
   let clock = T;
   let due: number | null = null;
-  const box = mailbox(runDir, 1, () => clock);
+  const box = await waitsOf(runDir, 1, () => clock);
   const taken = box.select(() => nudgeAt(due)(), undefined);
   await Bun.sleep(20);
   due = T + HOUR;
   clock = T + 2 * HOUR;
   box.nudge();
   expect((await taken).from).toBe("nudge");
-  const waits = (await readMailbox(runDir)).filter((record) => record.kind === "wait");
+  const waits = (await readRunLines(runDir)).lines.filter((line) => line.kind === "wait");
   expect(waits.map((wait) => (wait.kind === "wait" ? wait.takes?.[1]?.due : undefined))).toEqual([
     undefined,
     new Date(T + HOUR).toISOString(),
   ]);
 });
 
-test("an at:due a crash tore from its took was never returned: no wait takes it, and its time comes again", async () => {
-  const runDir = runDirs.tempRunDir();
-  const due = new Date(T + HOUR).toISOString();
-  // The process died after appending the event, before its took.
-  await appendMailbox(runDir, {
-    version: MAILBOX_RECORD_VERSION,
-    at: due,
-    kind: "event",
-    id: atEventId("nudge", due),
-    name: AT_DUE,
-    data: {},
-    from: "nudge",
-  });
-  expect(foldMailbox(await readMailbox(runDir)).unacknowledged).toEqual([]);
-  await appendMailbox(runDir, event("x"));
-  const box = mailbox(runDir, 2, () => T + 2 * HOUR);
-  expect((await box.receive(undefined)).map((e) => e.id)).toEqual(["x"]);
-  // Still due, and never returned: the next wait returns it.
-  expect((await box.select(nudgeAt(T + HOUR), undefined)).id).toBe(atEventId("nudge", due));
-});
-
-test("a time moved while the take waited for the lock isn't taken", async () => {
+test("a time moved while the take read the lines isn't taken", async () => {
   const runDir = runDirs.tempRunDir();
   let due: number | null = T + HOUR;
-  let calls = 0;
-  const box = new RunMailbox({
-    runDir,
-    attempt: 1,
-    now: () => T + 2 * HOUR,
-    locked: async (work) => {
-      calls += 1;
-      // The take's lock: code beside the wait clears the time first.
-      if (calls === 2) due = null;
-      // The wait record for the cleared time: then an event comes.
-      if (calls === 3) await appendMailbox(runDir, event("x"));
-      return work();
-    },
-  });
-  expect((await box.select(() => nudgeAt(due)(), undefined)).id).toBe("x");
-  const names = (await readMailbox(runDir)).flatMap((r) => (r.kind === "event" ? [r.name] : []));
-  expect(names).toEqual(["dd.changes"]);
+  let reads = 0;
+  const box = await waitsOf(runDir, 1, () => T + 2 * HOUR);
+  const read = () => {
+    reads += 1;
+    // The take's own read: code beside the wait cleared the time first, and then an event came.
+    if (reads === 3) {
+      due = null;
+      void appendIn(runDir, event("x")).then(() => box.nudge());
+    }
+    return nudgeAt(due)();
+  };
+  expect((await box.select(read, undefined)).id).toBe("x");
+  const took = (await readRunLines(runDir)).lines.flatMap((line) =>
+    line.kind === "took" ? line.took : [],
+  );
+  expect(took).toEqual([{ id: "x" }]);
 });

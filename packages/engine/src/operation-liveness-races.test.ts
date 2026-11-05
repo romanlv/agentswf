@@ -120,8 +120,7 @@ function fixture(
     waitDefaultMs: 20,
     waitMinimumMs: 10,
     persistence: {
-      writeCall: async () => {},
-      recordCandidate: async () => {},
+      recordAnswer: async () => {},
       writeAcceptedExclusive: options.write ?? (async () => true),
     },
   });

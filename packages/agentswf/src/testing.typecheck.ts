@@ -80,7 +80,7 @@ export async function oneSignature(): Promise<void> {
   // @ts-expect-error The one form tests what defineWorkflow made.
   await testWorkflow(bare, {});
   await testWorkflow(withEvents, {
-    earlier: { stages: { plan: null }, mailbox: [] },
+    earlier: { stages: { plan: null }, events: [], run: [] },
     event: { name: "ping", data: { n: 1 } },
     fromStage: "plan",
   });
@@ -96,6 +96,8 @@ export async function removed(): Promise<void> {
   await testWorkflow(plain, { awaitReply: "anywhere" });
   // @ts-expect-error A message script ends a turn; it answers no call.
   await testWorkflow(plain, { messages: { a: () => answer("done") } });
+  // @ts-expect-error What an earlier attempt left is its events and run lines, not a mailbox.
+  await testWorkflow(withEvents, { earlier: { mailbox: [] } });
 }
 
 export async function deprecated(run: TestRun<string>): Promise<void> {
@@ -112,7 +114,6 @@ export async function deprecated(run: TestRun<string>): Promise<void> {
     id: "k",
     event: { name: "ping", data: { n: 1 }, id: "e-1" },
     events: [{ during: "a#1", name: "ping", data: { n: 2 }, id: "e-2" }],
-    mailbox: [],
   });
   void run.stopped?.reason;
   void run.parked?.label;

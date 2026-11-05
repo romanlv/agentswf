@@ -1,7 +1,19 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { submit } from "../packages/engine/src/testing";
+import type { SessionAccounting } from "../packages/harness/src/index";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import type {
@@ -18,6 +30,7 @@ import {
   AWF,
   awfArgv,
   containedArgv,
+  parseRecord,
   type Runner,
   type RunOutput,
   type RunRequest,
@@ -2147,5 +2160,87 @@ export default defineReviewScorer({ workflow: exact, argv: ["--mode", "plain"], 
         weightedRecall,
       }));
     expect(numbers(await report(ws, "canned"))).toEqual(numbers(before));
+  });
+});
+
+describe("awf run --json, as the lab parses it", () => {
+  test("keeps its shape: the record, its accounting priced as the attempt ran, and out.json the same", async () => {
+    const root = mkdtempSync(join(tmpdir(), "awf-lab-record-"));
+    roots.push(root);
+    await Bun.write(
+      join(root, "flow.js"),
+      `export default {
+        kind: "awf.workflow/v1",
+        meta: { name: "lab-record", description: "One agent answers." },
+        prepare() { return null; },
+        async run(workflow) {
+          const worker = await workflow.agents.open({ key: "worker", runtime: "pi" });
+          await worker.run({ prompt: "Go.", schema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] } });
+          return [];
+        },
+      };`,
+    );
+    const adapter = createFakeAdapter({
+      harnesses: ["pi"],
+      script: (context) => ({
+        sessionRef: "s-worker",
+        act: async () => {
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+    const accounting: SessionAccounting = {
+      pollMs: 5,
+      stalledMs: 50,
+      statusMs: 50,
+      async read(execution, sessions) {
+        return {
+          open: false,
+          records: sessions.map((session) => ({
+            key: session,
+            at: new Date().toISOString(),
+            model: execution.model,
+            delegated: false,
+            tokens: { input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 0 },
+          })),
+        };
+      },
+      async billing() {
+        return "subscription";
+      },
+    };
+    const output: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--json", "--no-watch", "flow.js"], {
+      cwd: root,
+      home: root,
+      stdout: (text) => output.push(text),
+      stderr: () => undefined,
+      installRuntime: async () => ({
+        config: {
+          aliases: { pi: { harness: "pi", model: "gpt-6-sol" } },
+          host: createSingleSessionHostFactory(adapter, accounting),
+        },
+        cleanup: async () => undefined,
+      }),
+    });
+    expect(exitCode).toBe(0);
+    const { record } = parseRecord(output.join("\n"));
+    expect(record).toBeDefined();
+    expect(record).toMatchObject({
+      version: OUTPUT_RECORD_VERSION,
+      outcome: "completed",
+      value: [],
+    });
+    // 1M input tokens of gpt-6-sol at $2/M, priced with the table the attempt ran with.
+    expect(summaryOf({ exitCode, stderr: "", ms: 1, record: record! })).toEqual({
+      id: record!.runId,
+      outcome: "completed",
+      models: ["gpt-6-sol"],
+      ms: record!.accounting.wallMs,
+      estimate: 2,
+      billing: "subscription",
+      complete: true,
+    });
+    expect(JSON.parse(await Bun.file(join(record!.artifacts, "out.json")).text())).toEqual(record);
   });
 });

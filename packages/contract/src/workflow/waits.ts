@@ -98,7 +98,7 @@ export type EventLike = { readonly name: string; readonly from: string; readonly
 
 /**
  * A due time recorded once under a name. The first call names the time; a later one under the
- * name, in this attempt or another, gets the recorded timer. Due, it fires into the mailbox as
+ * name, in this attempt or another, gets the recorded timer. Due, it fires as
  * `timer:due`, which `receive` takes beside the run's other events and a race takes as its branch.
  */
 export interface Timer extends Source<Taken<TimerDue>> {

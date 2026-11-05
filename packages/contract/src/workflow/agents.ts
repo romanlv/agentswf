@@ -6,6 +6,11 @@ import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 import type { Duration, EventLike, Source, Taken, Timeout } from "./waits";
 
+/**
+ * An agent's key in its run: a name, as events and stages are (lowercase letters, digits, `.`,
+ * `_`, `@` and `-`, starting with a letter or digit), since it names its operations' folders,
+ * `ops/{key}.{n}/`. Agents and decisions share the names. A colon is still accepted, deprecated.
+ */
 export type AgentKey = string;
 /**
  * Where a skill comes from, as a record keeps it; its name is the one its `SKILL.md` gives. A skill
@@ -488,7 +493,7 @@ export interface StartedTurn extends Source<Taken<AgentEnded>> {
     E extends EventLike = EventLike,
   >(event: E): event is E & AgentEndOf<E, Meta, T>;
   /**
-   * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
+   * Stops the turn; resolves once its `cancelled` end is recorded, or at once, `false`, when
    * it had ended already.
    */
   cancel(reason?: string): Promise<boolean>;

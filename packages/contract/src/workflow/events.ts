@@ -87,7 +87,7 @@ export type EventData<W, Name> = Name extends `${string}:reply`
     ? OutputOf<EventsOf<W>[Name]>
     : never;
 
-/** What a run's wait returns: one event from its mailbox. */
+/** What a run's wait returns: one of the events it can take. */
 export type WorkflowEvent<Name extends string = string, Data = JsonValue> = {
   readonly id: EventId;
   readonly name: Name;
@@ -249,7 +249,7 @@ export type EmitOptions = {
 };
 
 /**
- * What became of an event: `accepted`, appended to its run's mailbox; `duplicate`, its id is there
+ * What became of an event: `accepted`, appended to its run's `in.jsonl`; `duplicate`, its id is there
  * already; `refused`, its run has returned, or it has none and the event doesn't start one. What
  * awf then did to the run is its own concern.
  */

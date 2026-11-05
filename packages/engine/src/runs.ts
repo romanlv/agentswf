@@ -1,46 +1,37 @@
 import { randomBytes } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
-  ATTEMPT_RECORD_VERSION,
   type AttemptRecord,
-  type CallSpec,
-  type Candidate,
-  RUN_RECORD_ARGS_VERSION,
-  RUN_RECORD_VERSION,
+  type ClaimedAttempt,
+  type EventLine,
+  type FailedLaunch,
+  RUN_FORMAT,
   type RunLogLine,
   type RunPanes,
   type RunRecord,
+  type RunView,
   runLogLine,
-  STAGE_RECORD_VERSION,
-  type StageRecord,
+  type StageLine,
   type TurnRecord,
 } from "@agentswf/contract/records";
 import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
-import { exists, isCode, linkNew, writeJson } from "./files";
-import { appendLine, endTornLine, readLines } from "./jsonl";
+import { exists, isCode, linkNew, syncDir, writeJson, writeWhole } from "./files";
+import { inFile } from "./in-lines";
+import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
+import type { EarlierOps } from "./ops";
+import { type RunLines, readRunLines } from "./run-lines";
+import { upcomingStages } from "./run-policy/stages";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
- * `stages/{stage}.json`, `replaced/{stage}.{attempt}.json`, `turns.jsonl`, each operation's
- * `calls/{id}/` with its `call.json`, `candidates.jsonl` and `result.json`, and the last ended
- * attempt's `output.json` and `report.md`. The only module that knows where a run's records are;
- * what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
- * that work places. Only the live attempt writes, and the two claims, a run's folder renamed into
- * place and an attempt's file linked into place, are the only locks.
+ * `run.jsonl` (`run-lines.ts`), `log.jsonl`, `ops/` (`ops.ts`), the last ended attempt's
+ * `out.json` and `report.md`, and `work/`. With those two modules, the only one that knows where a
+ * run's records are; what the harness keeps in `work/`, such as agents' bundles and skills, the
+ * module doing that work places. Only the live attempt writes, and the two claims, a run's folder
+ * renamed into place and an attempt's file linked into place, are the only locks.
  */
 
 /** Where a project's runs are kept, unless `--run-root` says otherwise. */
@@ -58,7 +49,14 @@ export class RunRefused extends Error {
 
 export type Run = { root: string; dir: string; record: RunRecord };
 
-export type Attempt = { run: Run; file: string; record: AttemptRecord };
+/** An attempt's file, claimed. */
+export type AttemptFile = { run: Run; file: string; record: ClaimedAttempt };
+
+/**
+ * An attempt that holds its run: its file, the writer its claim on `run.jsonl` gave it, and what its
+ * claim's listing of `ops/` found.
+ */
+export type Attempt = AttemptFile & { lines: RunLines; ops: EarlierOps };
 
 /** The start time of process `pid` as an ISO time to the second, or undefined when it is gone. */
 export type ProcessProbe = (pid: number) => string | undefined;
@@ -73,7 +71,7 @@ export function idProblem(id: string): string | undefined {
     : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_', '@' and '-', starting with a letter or digit, up to 128`;
 }
 
-/** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */
+/** Why `name` can't name a stage; undefined when it can. */
 export function stageNameProblem(name: string): string | undefined {
   const problem = typeof name === "string" ? nameProblem(name) : "a string";
   return problem && `${JSON.stringify(name)} is not a stage's name: ${problem}`;
@@ -104,8 +102,10 @@ export function generateId(
  */
 export async function createRun(
   root: string,
-  record: Omit<RunRecord, "version" | "created" | "id"> & { id?: string },
+  record: Omit<RunRecord, "format" | "created" | "id"> & { id?: string },
   now: Date = new Date(),
+  /** The event that starts the run, in its `in.jsonl` before the run is in place. */
+  first?: EventLine,
 ): Promise<Run> {
   checkIds(record.workflow);
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -116,7 +116,7 @@ export async function createRun(
   for (let tries = 1; ; tries += 1) {
     const id = record.id ?? generateId(now);
     try {
-      return await claimRun(root, parent, { ...record, id }, now);
+      return await claimRun(root, parent, { ...record, id }, now, first);
     } catch (error) {
       if (record.id !== undefined || !(error instanceof RunTaken) || tries >= 5) throw error;
     }
@@ -129,28 +129,30 @@ export class RunTaken extends RunRefused {}
 async function claimRun(
   root: string,
   parent: string,
-  record: Omit<RunRecord, "version" | "created">,
+  record: Omit<RunRecord, "format" | "created">,
   now: Date,
+  first: EventLine | undefined,
 ): Promise<Run> {
   checkIds(record.id);
   const other = await takenInCase(parent, record.id);
   if (other !== undefined) throw new RunTaken(takenMessage(other));
-  const full: RunRecord = {
-    version: record.args === undefined ? RUN_RECORD_VERSION : RUN_RECORD_ARGS_VERSION,
-    ...record,
-    created: now.toISOString(),
-  };
+  const full: RunRecord = { format: RUN_FORMAT, ...record, created: now.toISOString() };
   const pending = join(parent, `.new-${randomBytes(6).toString("hex")}`);
   await mkdir(pending, { mode: 0o700 });
   const dir = join(parent, record.id);
   try {
     await writeJson(runFile(pending), full);
+    if (first) await writeWhole(inFile(pending), `${JSON.stringify(first)}\n`);
+    await syncDir(pending);
     await rename(pending, dir);
   } catch (error) {
     await rm(pending, { recursive: true, force: true });
     if (isCode(error, "ENOTEMPTY", "EEXIST", "EISDIR")) throw new RunTaken(takenMessage(record.id));
     throw error;
   }
+  // The run is in place and readable; a failed sync risks its entry only on a machine crash, so it
+  // must not refuse an id this call now holds.
+  await syncDir(parent).catch(() => undefined);
   return { root, dir, record: full };
 }
 
@@ -178,7 +180,7 @@ export async function checkFree(root: string, workflow: string, id: string): Pro
  * again: its first attempt was never claimed, or is `own`, which ended before it started. Whether
  * it did: not while another attempt is there.
  */
-export async function discardRun(run: Run, own?: Attempt): Promise<boolean> {
+export async function discardRun(run: Run, own?: AttemptFile): Promise<boolean> {
   const dir = attemptsDir(run.dir);
   const others = (await entries(dir)).filter((name) => join(dir, name) !== own?.file);
   if (others.length > 0) return false;
@@ -203,9 +205,60 @@ export async function openRun(root: string, workflow: string, id: string): Promi
       `no run ${id} of ${workflow} in ${root}; a run is kept under the directory it works in, which --cwd names`,
     );
   }
-  const record = await readRecord<RunRecord>(file, RUN_RECORD_ARGS_VERSION);
+  const record = await readRecord<RunRecord>(file);
+  if (record.format !== RUN_FORMAT || missingField(record)) {
+    throw new RunUnreadable(`${workflow}/${id}`, record);
+  }
   return { root, dir, record };
 }
+
+/**
+ * A run this awf does not read: its `run.json` has no `format`, made by an awf before the record
+ * had one, or one this awf doesn't know. Nothing else of it is read.
+ */
+export class RunUnreadable extends RunRefused {
+  /** `run.json`'s `created`, when it has one: where `awf runs` lists it. */
+  readonly created?: string;
+  /** Whether it is a run with events, which `awf tick` would have woken. */
+  readonly events: boolean;
+  readonly why: string;
+  constructor(
+    readonly ref: string,
+    record: { format?: unknown; created?: unknown; events?: unknown },
+  ) {
+    const why = unreadableWhy(record);
+    super(`${ref} is unreadable: ${why}`);
+    this.why = why;
+    this.name = "RunUnreadable";
+    if (typeof record.created === "string") this.created = record.created;
+    this.events = record.events === true;
+  }
+}
+
+function unreadableWhy(record: { format?: unknown }): string {
+  const { format } = record;
+  if (format === undefined) {
+    return "an earlier awf made it, before run.json had a format; this awf does not read it";
+  }
+  if (format !== RUN_FORMAT) {
+    return `its run.json is format ${said(format)}; this awf reads format ${RUN_FORMAT} only`;
+  }
+  return `its run.json has no ${missingField(record)} of the right type`;
+}
+
+/** The first field format 1 requires of `run.json` that `record` lacks, or has of another type. */
+function missingField(record: object): string | undefined {
+  const fields = record as Record<string, unknown>;
+  const strings = ["id", "workflow", "cwd", "created"] as const;
+  const string = strings.find((field) => typeof fields[field] !== "string");
+  if (string) return string;
+  const { argv } = fields;
+  if (!Array.isArray(argv) || !argv.every((each) => typeof each === "string")) return "argv";
+  if (!("sandbox" in fields)) return "sandbox";
+  return undefined;
+}
+
+const said = (value: unknown) => JSON.stringify(value)?.slice(0, 40) ?? String(value);
 
 /**
  * What a continue may be given: nothing that changes the run. argv is the run's, and its working
@@ -253,22 +306,58 @@ export function panesChanged(record: RunRecord, given: RunPanes | undefined): st
 }
 
 /**
- * The run's attempts, in order. One that doesn't parse, or is newer than this awf, refuses; one
+ * The attempts that ran, in order: every attempt file but a background launch that never claimed
+ * its number. What a run does next, and how it shows, is decided from these.
+ */
+export async function readAttempts(run: Pick<Run, "dir">): Promise<ClaimedAttempt[]> {
+  return claimedOf(await readAttemptFiles(run));
+}
+
+/** Where background launch `launch` of a run writes its output. */
+export function launchLog(runDir: string, launch: string): string {
+  return join(runDir, "launches", `${launch}.log`);
+}
+
+/** Whether `attempt` claimed its number and ran, rather than being a launch that never did. */
+export function isClaimed(attempt: AttemptRecord): attempt is ClaimedAttempt {
+  return attempt.kind !== "failed-launch";
+}
+
+/** The attempts of `attempts` that claimed their number, in order. */
+export function claimedOf(attempts: readonly AttemptRecord[]): ClaimedAttempt[] {
+  return attempts.filter(isClaimed);
+}
+
+/**
+ * Every attempt file, in order, a failed launch's included: what `stuck` counts and the next
+ * number follows. One that doesn't parse refuses, and `run.json`'s `format` is their version; one
  * gone since the folder was listed was a refused attempt removing its own claim.
  */
-export async function readAttempts(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
+export async function readAttemptFiles(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
   const dir = attemptsDir(run.dir);
   const numbered = await attemptNames(run);
   const records = await Promise.all(
-    numbered.map((name) =>
-      readRecord<AttemptRecord>(join(dir, name), ATTEMPT_RECORD_VERSION, { missing: true }),
-    ),
+    numbered.map(async (name) => {
+      const file = join(dir, name);
+      const record = await readRecord<AttemptRecord>(file, { missing: true });
+      const problem = record && attemptProblem(record);
+      if (problem) throw new RunRefused(`${file} could not be read: ${problem}`);
+      return record;
+    }),
   );
   return records.filter((record) => record !== undefined).sort((a, b) => a.attempt - b.attempt);
 }
 
+/** Why `record` isn't an attempt file this awf reads: its number and kind are what it relies on. */
+function attemptProblem(record: AttemptRecord): string | undefined {
+  const { attempt, kind } = record as { attempt?: unknown; kind?: unknown };
+  if (!Number.isSafeInteger(attempt) || (attempt as number) < 1) return "no positive attempt";
+  if (kind !== "attempt" && kind !== "failed-launch") return `kind ${said(kind)} is unknown`;
+  return undefined;
+}
+
 /** No ending, and its process still the one that started it. */
-export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStart): boolean {
+export function isLive(attempt: ClaimedAttempt, probe: ProcessProbe = processStart): boolean {
   return attempt.ended === undefined && sameProcess(attempt.pid, attempt.processStart, probe);
 }
 
@@ -296,24 +385,28 @@ export function sameStart(now: string, started: string): boolean {
 
 /** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
 export type AttemptRefusal =
-  | { kind: "running"; attempt: AttemptRecord }
-  /** `stages` are the run's records, in the order they began, from which `--from-stage` redoes. */
-  | { kind: "completed"; stages: StageRecord[] };
+  | { kind: "running"; attempt: ClaimedAttempt }
+  /**
+   * `stages`, each recorded stage's latest line in the order they started, but those the last
+   * redo left behind, are what `--from-stage` redoes.
+   */
+  | { kind: "completed"; stages: StageLine[] };
 
 /**
- * Why the run whose attempts and stage records these are takes no attempt now, or undefined when
- * it takes one. A completed run takes one only to redo a stage, which `fromStage` says.
+ * Why the run whose attempts and `run.jsonl` these are takes no attempt now, or undefined when it
+ * takes one. A completed run takes one only to redo a stage, which `fromStage` says.
  */
 export function attemptRefusal(
-  attempts: readonly AttemptRecord[],
-  records: ReadonlyMap<string, StageRecord>,
+  attempts: readonly ClaimedAttempt[],
+  run: Pick<RunView, "stages" | "redo">,
   options: { fromStage: boolean; probe?: ProcessProbe },
 ): AttemptRefusal | undefined {
   const live = attempts.find((attempt) => isLive(attempt, options.probe));
   if (live) return { kind: "running", attempt: live };
-  if (attempts.at(-1)?.outcome !== "completed" || options.fromStage) return undefined;
-  const stages = [...records.values()].sort((a, b) => a.started.localeCompare(b.started));
-  return { kind: "completed", stages };
+  const last = attempts.at(-1);
+  if (last?.outcome !== "completed" || options.fromStage) return undefined;
+  // A stage the code no longer has keeps its line, but the last redo left it behind.
+  return { kind: "completed", stages: upcomingStages(run) };
 }
 
 /**
@@ -325,7 +418,7 @@ export function attemptRefusal(
  */
 export async function claimAttempt(
   run: Run,
-  fields: Pick<AttemptRecord, "file" | "workflowVersion" | "flags">,
+  fields: Pick<ClaimedAttempt, "file" | "workflowVersion" | "flags" | "launch">,
   options: {
     now?: Date;
     pid?: number;
@@ -333,7 +426,7 @@ export async function claimAttempt(
     /** `--from-stage`: a run that completed is continued only to redo a stage of it. */
     fromStage?: boolean;
   } = {},
-): Promise<{ attempt: Attempt; interrupted: AttemptRecord[] } | { refused: AttemptRefusal }> {
+): Promise<{ attempt: AttemptFile; interrupted: ClaimedAttempt[] } | { refused: AttemptRefusal }> {
   const probe = options.probe ?? processStart;
   const pid = options.pid ?? process.pid;
   const started = probe(pid);
@@ -343,15 +436,17 @@ export async function claimAttempt(
   const dir = attemptsDir(run.dir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await sweep(dir);
-  const earlier = await readAttempts(run);
+  // Numbered past every file, a failed launch's included.
+  const earlier = await readAttemptFiles(run);
   let n = (earlier.at(-1)?.attempt ?? 0) + 1;
   for (;;) {
-    const record: AttemptRecord = {
-      version: ATTEMPT_RECORD_VERSION,
+    const record: ClaimedAttempt = {
       attempt: n,
+      kind: "attempt",
       file: fields.file,
       ...(fields.workflowVersion === undefined ? {} : { workflowVersion: fields.workflowVersion }),
       flags: fields.flags,
+      ...(fields.launch === undefined ? {} : { launch: fields.launch }),
       pid,
       processStart: started,
       started: (options.now ?? new Date()).toISOString(),
@@ -362,8 +457,9 @@ export async function claimAttempt(
       // Unclaimed on any refusal or failure, so no attempt is left without an ending.
       const unclaim = () => unlink(file).catch(() => undefined);
       try {
+        await syncDir(dir);
         const before = (await readAttempts(run)).filter((other) => other.attempt < n);
-        const refused = attemptRefusal(before, await readStageRecords(run.dir), {
+        const refused = attemptRefusal(before, (await readRunLines(run.dir)).view, {
           fromStage: options.fromStage ?? false,
           probe,
         });
@@ -382,94 +478,67 @@ export async function claimAttempt(
   }
 }
 
-/** Writes the attempt's ending into its file, whole. */
-export async function endAttempt(
-  attempt: Attempt,
-  ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
-    outcome: AttemptOutcome;
+/**
+ * A background launch that ended without claiming attempt `attempt`, the number it would have
+ * claimed: linked as that attempt's file, failed, with no process, so `stuck` counts it. False when
+ * the launched attempt claimed the number after all, which then says what happened.
+ */
+export async function recordFailedLaunch(
+  run: Run,
+  failed: {
+    attempt: number;
+    launch: string;
+    file: string;
+    started: string;
+    reason: string;
   },
   now: Date = new Date(),
-): Promise<AttemptRecord> {
-  const { stage, reason, stages, accounting, unacknowledged } = ending;
-  const record: AttemptRecord = {
+): Promise<boolean> {
+  const dir = attemptsDir(run.dir);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const record: FailedLaunch = {
+    attempt: failed.attempt,
+    kind: "failed-launch",
+    launch: failed.launch,
+    file: failed.file,
+    started: failed.started,
+    ended: now.toISOString(),
+    outcome: "failed",
+    reason: failed.reason,
+  };
+  const linked = await linkNew(join(dir, `${failed.attempt}.json`), record);
+  if (linked) await syncDir(dir);
+  return linked;
+}
+
+/** Writes the attempt's ending into its file, whole. */
+export async function endAttempt(
+  attempt: AttemptFile,
+  ending: Pick<ClaimedAttempt, "stage" | "reason" | "value"> & { outcome: AttemptOutcome },
+  now: Date = new Date(),
+): Promise<ClaimedAttempt> {
+  const { stage, reason, value } = ending;
+  const record: ClaimedAttempt = {
     ...attempt.record,
     ended: now.toISOString(),
     outcome: ending.outcome,
     ...(stage === undefined ? {} : { stage }),
     ...(reason === undefined ? {} : { reason }),
-    ...(stages === undefined ? {} : { stages }),
-    ...(accounting === undefined ? {} : { accounting }),
-    ...(unacknowledged === undefined ? {} : { unacknowledged }),
+    ...(ending.outcome === "completed" && value !== undefined ? { value } : {}),
   };
   await writeJson(attempt.file, record);
   attempt.record = record;
   return record;
 }
 
-/** Writes a stage's record into the run's `stages/`, whole, replacing the one before. */
-export async function writeStageRecord(runDir: string, record: StageRecord): Promise<void> {
-  const dir = stagesDir(runDir);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await writeJson(join(dir, `${record.stage}.json`), record);
-}
-
-/** The run's current stage records, by stage. One that doesn't parse, or is newer, refuses. */
-export async function readStageRecords(runDir: string): Promise<Map<string, StageRecord>> {
-  const dir = stagesDir(runDir);
-  const names = (await entries(dir)).filter((name) => name.endsWith(".json"));
-  const records = await Promise.all(
-    names.map((name) => readRecord<StageRecord>(join(dir, name), STAGE_RECORD_VERSION)),
-  );
-  return new Map(records.map((record) => [record.stage, record]));
-}
-
-/**
- * At an attempt's start point: moves every record in `stages/` it hasn't reused to `replaced/`, as
- * `{stage}.{attempt}.json`, the start stage's own first. Each is one rename, so a crash part way
- * leaves the start stage without a record, and the next continue starts there and moves the rest.
- */
-export async function replaceStale(
-  runDir: string,
-  start: string,
-  reused: ReadonlySet<string>,
-): Promise<string[]> {
-  const dir = stagesDir(runDir);
-  const recorded = (await entries(dir))
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => name.slice(0, -".json".length));
-  const stale = [start, ...recorded.filter((name) => name !== start)].filter(
-    (name) => recorded.includes(name) && !reused.has(name),
-  );
-  for (const name of stale) await replaceRecord(runDir, name);
-  return stale;
-}
-
-/**
- * Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`, or, for a stage by
- * content replaced again in the same attempt, `{stage}.{attempt}+{n}.json` from 2: no name has a
- * `+`, so neither reads as another stage's. `copy` leaves it in `stages/` for the new record to
- * overwrite, so an attempt that dies between the two leaves the old one, not none.
- */
-export async function replaceRecord(runDir: string, stage: string, copy = false): Promise<void> {
-  const file = join(stagesDir(runDir), `${stage}.json`);
-  const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
-  const replaced = join(runDir, "replaced");
-  await mkdir(replaced, { recursive: true, mode: 0o700 });
-  let target = join(replaced, `${stage}.${record.attempt}.json`);
-  for (let n = 2; await exists(target); n++) {
-    target = join(replaced, `${stage}.${record.attempt}+${n}.json`);
-  }
-  await (copy ? copyFile(file, target) : rename(file, target));
-}
-
-/** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
+/** Appends a line to the run's event log, `log.jsonl`, which only the live attempt writes. */
 export async function appendEvent(runDir: string, line: RunLogLine): Promise<void> {
-  await appendLine(turnsFile(runDir), JSON.stringify(line));
+  await appendLine(logFile(runDir), JSON.stringify(line));
 }
 
 /** Ends a line a crash left torn, so the next line appended starts a line of its own. */
-export async function endTurnsLine(runDir: string): Promise<void> {
-  await endTornLine(turnsFile(runDir));
+export async function endLogLine(runDir: string): Promise<void> {
+  await endTornLine(logFile(runDir));
 }
 
 /** The run's event log in the order written, less a line a crash tore and the kinds this awf does not know. */
@@ -500,7 +569,7 @@ export async function readEventsFrom(
 ): Promise<{ lines: { number: number; line: RunLogLine }[]; mark: LogMark }> {
   let bytes: Buffer;
   try {
-    const file = await open(turnsFile(runDir), "r");
+    const file = await open(logFile(runDir), "r");
     try {
       const { size } = await file.stat();
       bytes = Buffer.alloc(Math.max(0, size - from.offset));
@@ -541,7 +610,7 @@ export async function readEventsFrom(
 
 /** The event log's size in bytes, 0 before it is written. */
 export async function logSize(runDir: string): Promise<number> {
-  return (await stat(turnsFile(runDir)).catch(() => undefined))?.size ?? 0;
+  return (await stat(logFile(runDir)).catch(() => undefined))?.size ?? 0;
 }
 
 async function attemptNames(run: Pick<Run, "dir">): Promise<string[]> {
@@ -573,93 +642,19 @@ export async function readTurns(runDir: string): Promise<TurnRecord[]> {
   );
 }
 
-/** The last ended attempt's `output.json`. */
-export function outputFile(runDir: string): string {
-  return join(runDir, "output.json");
+/** The last ended attempt's `out.json`, a view: what `awf run --json` printed. */
+export function outFile(runDir: string): string {
+  return join(runDir, "out.json");
+}
+
+/** Harness scratch: `skills/`, `agents/`, `staging/` and `forks/`. Only the attempt that made it uses it. */
+export function workDir(runDir: string): string {
+  return join(runDir, "work");
 }
 
 /** The last ended attempt's `report.md`. */
 export function reportFile(runDir: string): string {
   return join(runDir, "report.md");
-}
-
-/** Writes an operation's call, whole, before its result slot opens. */
-export async function writeCall(runDir: string, spec: CallSpec): Promise<void> {
-  const dir = callDir(runDir, spec.callId);
-  await mkdir(dir, { recursive: true });
-  await writeJson(join(dir, "call.json"), spec);
-}
-
-export async function recordCandidate(
-  runDir: string,
-  callId: string,
-  candidate: Candidate,
-): Promise<void> {
-  const dir = callDir(runDir, callId);
-  await mkdir(dir, { recursive: true });
-  await appendLine(join(dir, "candidates.jsonl"), JSON.stringify(candidate));
-}
-
-/** The most of a screen kept: its last lines, where a pane's scrollback came with it. */
-const SCREEN_BYTES = 64 * 1024;
-
-/** An operation's `screen.txt`: what its pane showed as it ended without an answer. */
-export function screenFile(runDir: string, operationId: string): string {
-  return join(callDir(runDir, operationId), "screen.txt");
-}
-
-export async function writeScreen(
-  runDir: string,
-  operationId: string,
-  screen: string,
-): Promise<void> {
-  const bytes = Buffer.from(screen);
-  const kept = bytes.length <= SCREEN_BYTES ? screen : tailOf(bytes);
-  await mkdir(callDir(runDir, operationId), { recursive: true });
-  await writeFile(screenFile(runDir, operationId), kept, { mode: 0o600 });
-}
-
-/** Its last whole lines within the bound, or its last bytes where one line is longer. */
-function tailOf(bytes: Buffer): string {
-  const tail = bytes.subarray(bytes.length - SCREEN_BYTES);
-  const line = tail.indexOf(10);
-  const whole = line === -1 || line === tail.length - 1 ? tail : tail.subarray(line + 1);
-  // A cut inside a character drops its continuation bytes.
-  let start = 0;
-  while (start < whole.length && (whole[start]! & 0xc0) === 0x80) start += 1;
-  return whole.subarray(start).toString();
-}
-
-/** A call's candidates, as tests check them; a run never reads them back. */
-export async function readCandidates(runDir: string, callId: string): Promise<Candidate[]> {
-  return readLines<Candidate>(join(callDir(runDir, callId), "candidates.jsonl"));
-}
-
-/** Claims an operation's one accepted result with `value`; false when another holds it. */
-export async function writeAcceptedExclusive(
-  runDir: string,
-  callId: string,
-  value: unknown,
-): Promise<boolean> {
-  const dir = callDir(runDir, callId);
-  await mkdir(dir, { recursive: true });
-  return linkNew(join(dir, "result.json"), { value, at: new Date().toISOString() });
-}
-
-/** Null distinguishes "no value yet" from a call whose accepted value happens to be null. */
-export async function readAccepted(
-  runDir: string,
-  callId: string,
-): Promise<{ value: unknown } | null> {
-  let text: string;
-  try {
-    text = await readFile(join(callDir(runDir, callId), "result.json"), "utf8");
-  } catch (error) {
-    if (isCode(error, "ENOENT")) return null;
-    throw error;
-  }
-  const { value } = JSON.parse(text) as { value: unknown };
-  return { value };
 }
 
 function runFile(runDir: string): string {
@@ -670,41 +665,28 @@ function attemptsDir(runDir: string): string {
   return join(runDir, "attempts");
 }
 
-function stagesDir(runDir: string): string {
-  return join(runDir, "stages");
+/** The run's event log, `log.jsonl`: read, never acted on. */
+export function logFile(runDir: string): string {
+  return join(runDir, "log.jsonl");
 }
 
-function turnsFile(runDir: string): string {
-  return join(runDir, "turns.jsonl");
-}
-
-function callDir(runDir: string, callId: string): string {
-  return join(runDir, "calls", callId);
-}
-
-async function readRecord<T extends { version: number }>(file: string, known: number): Promise<T>;
-async function readRecord<T extends { version: number }>(
+async function readRecord<T>(file: string): Promise<T>;
+async function readRecord<T>(file: string, options: { missing: true }): Promise<T | undefined>;
+async function readRecord<T>(
   file: string,
-  known: number,
-  options: { missing: true },
-): Promise<T | undefined>;
-async function readRecord<T extends { version: number }>(
-  file: string,
-  known: number,
   options: { missing?: true } = {},
 ): Promise<T | undefined> {
-  let record: T;
+  let record: unknown;
   try {
-    record = JSON.parse(await readFile(file, "utf8")) as T;
+    record = JSON.parse(await readFile(file, "utf8"));
   } catch (error) {
     if (options.missing && isCode(error, "ENOENT")) return undefined;
     throw new RunRefused(`${file} could not be read: ${(error as Error).message}`);
   }
-  if (typeof record?.version !== "number") throw new RunRefused(`${file} has no version`);
-  if (record.version > known) {
-    throw new RunRefused(`${file} is version ${record.version}, newer than this awf reads`);
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new RunRefused(`${file} could not be read: not a JSON object`);
   }
-  return record;
+  return record as T;
 }
 
 /** So no run is committed by accident, as pytest and ruff keep their caches. */
@@ -792,7 +774,7 @@ const runPs: Ps = (pid) => {
 const PREVIOUS_GONE_MS = 5 * 60_000;
 
 /**
- * Waits until the attempt before `n`, a parked one closing its agents or one that crashed with
+ * Waits until the last attempt before `n` that ran, a parked one closing its agents or one that crashed with
  * its process left, is gone; past five minutes, cancels it, then kills it if it ignores that.
  * Its agents' sessions are then this attempt's.
  */
@@ -801,9 +783,13 @@ export async function previousGone(
   n: number,
   notice: (text: string) => void,
 ): Promise<void> {
-  const previous = (await readAttempts(run)).find((each) => each.attempt === n - 1);
-  if (!previous) return;
-  const alive = () => sameProcess(previous.pid, previous.processStart, processStart);
+  // The last attempt before `n` that ran: a launch that never claimed its number had no process.
+  const previous = (await readAttempts(run)).filter((each) => each.attempt < n).at(-1);
+  // One that ran in this process, as a workflow's tests run attempts, has ended: waiting for it
+  // would be waiting for ourselves.
+  if (!previous || previous.pid === process.pid) return;
+  const { pid } = previous;
+  const alive = () => sameProcess(pid, previous.processStart, processStart);
   const started = Date.now();
   const giveUp = started + PREVIOUS_GONE_MS;
   let said = false;
@@ -821,7 +807,7 @@ export async function previousGone(
       // A cancel first, which closes its agents and sandboxes; only a process that ignores it is killed.
       const signal = (name: NodeJS.Signals) => {
         try {
-          process.kill(previous.pid, name);
+          process.kill(pid, name);
         } catch {
           // Gone between the look and the signal.
         }

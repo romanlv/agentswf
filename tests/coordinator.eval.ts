@@ -126,7 +126,7 @@ if (import.meta.main) {
   );
   const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
   const text = record
-    ? await readFile(join(record.artifacts, "turns.jsonl"), "utf8").catch(() => "")
+    ? await readFile(join(record.artifacts, "log.jsonl"), "utf8").catch(() => "")
     : "";
   const lines = text
     .split("\n")

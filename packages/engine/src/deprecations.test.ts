@@ -1,5 +1,4 @@
 import { afterAll, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
 import {
   AgentEnded,
   defineExecutableWorkflow,
@@ -10,13 +9,14 @@ import {
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { DEPRECATIONS, type Deprecated, deprecationLine } from "./deprecations";
-import { appendMailbox } from "./mailbox";
+import { appendIn } from "./in-lines";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun } from "./runs";
 import {
   answering,
   caseEvents,
   caseRun,
+  claimLines,
   createTempRunDirs,
   DOC,
   future,
@@ -425,10 +425,8 @@ test("a stage around receive replayed by a continue logs, as each attempt logs i
     cwd: process.cwd(),
     sandbox: null,
   });
-  await appendMailbox(run.dir, {
-    version: MAILBOX_RECORD_VERSION,
+  await appendIn(run.dir, {
     at: new Date().toISOString(),
-    kind: "event",
     id: "e1",
     name: "dd.changes",
     data: { case: "k" },
@@ -438,7 +436,7 @@ test("a stage around receive replayed by a continue logs, as each attempt logs i
     const logs: string[] = [];
     const result = await runWorkflow(workflow, null, {
       runRoot,
-      run: { dir: run.dir, id: "k", attempt: n },
+      run: { dir: run.dir, id: "k", ...(await claimLines(run.dir, n)) },
       runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
       deadline: future(),
       onLog: (text) => logs.push(text),
@@ -468,10 +466,8 @@ test("a stage around receive hands back a declared reply under its name, taken a
     cwd: process.cwd(),
     sandbox: null,
   });
-  await appendMailbox(run.dir, {
-    version: MAILBOX_RECORD_VERSION,
+  await appendIn(run.dir, {
     at: new Date().toISOString(),
-    kind: "event",
     id: "m1",
     name: "participant:reply",
     data: { text: "hi" },
@@ -481,7 +477,7 @@ test("a stage around receive hands back a declared reply under its name, taken a
     (
       await runWorkflow(workflow, null, {
         runRoot,
-        run: { dir: run.dir, id: "k", attempt: n },
+        run: { dir: run.dir, id: "k", ...(await claimLines(run.dir, n)) },
         runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
         deadline: future(),
       })
@@ -523,7 +519,7 @@ test("a reply.… met only by a compaction logs", async () => {
   expect(said(run)).toEqual({ "test-reply": 1 });
 });
 
-test("an event's id, the start's or a scripted one's, is its id in the mailbox, logged once", async () => {
+test("an event's id, the start's or a scripted one's, is its id in in.jsonl, logged once", async () => {
   const run = await testWorkflow(
     caseRun(async (wf) => {
       const agent = await wf.agents.open({ key: "a", runtime: "claude" });
@@ -573,7 +569,7 @@ test("args given second, with no options, and meta and run alone still work, log
   expect((await testWorkflow(listed, ["a", "b"])).value).toBe(2);
 });
 
-test("a test's recorded and mailbox work as earlier's stages and mailbox, each logged once", async () => {
+test("a test's recorded works as earlier's stages, logged once", async () => {
   const run = await testWorkflow(
     caseRun(async (wf) => {
       const plan = await wf.stage("plan", { result: DOC }, async () => ({ path: "new.md" }));
@@ -581,21 +577,21 @@ test("a test's recorded and mailbox work as earlier's stages and mailbox, each l
     }),
     {
       recorded: { plan: { path: "old.md" } },
-      mailbox: [
-        {
-          version: MAILBOX_RECORD_VERSION,
-          at: new Date().toISOString(),
-          kind: "event",
-          id: "e-1",
-          name: "dd.changes",
-          data: { case: "k" },
-          from: "operator",
-        },
-      ],
+      earlier: {
+        events: [
+          {
+            at: new Date().toISOString(),
+            id: "e-1",
+            name: "dd.changes",
+            data: { case: "k" },
+            from: "operator",
+          },
+        ],
+      },
     },
   );
   expect(run.value).toEqual({ plan: { path: "old.md" }, taken: ["e-1"] });
-  expect(said(run)).toEqual({ "test-recorded": 1, "test-mailbox": 1 });
+  expect(said(run)).toEqual({ "test-recorded": 1 });
 });
 
 test('to: "code", is(e) on it and a scripted participant:reply work as before, each logged once', async () => {
@@ -746,5 +742,5 @@ test("a deprecation that names no subject reads whole", () => {
 });
 
 function eventIds(run: TestRun<JsonValue>): string[] {
-  return run.mailbox.flatMap((record) => (record.kind === "event" ? [record.id] : []));
+  return run.events.map((line) => line.id);
 }

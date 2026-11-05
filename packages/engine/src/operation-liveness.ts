@@ -91,6 +91,8 @@ export type OperationStop = { kind: "cancelled" | "timed-out"; reason: string };
 type Options = {
   operationId: string;
   agentId: string;
+  /** Why its `op.json` wasn't written: the operation fails as it opens, before anything runs. */
+  unrecorded?: string;
   question: string;
   schema: JsonSchema;
   /** Absent when nothing bounds it. */
@@ -264,6 +266,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   });
   let slot: Awaited<ReturnType<ResultSlotRegistry["open"]>>;
   try {
+    if (options.unrecorded !== undefined) throw new Error(options.unrecorded);
     slot = await options.slots.open({
       operationId: options.operationId,
       agentId: options.agentId,

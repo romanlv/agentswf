@@ -180,8 +180,8 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
 
   /**
    * Waits for the first of `branches` and returns it under its branch's name, recorded under
-   * `name`, so a rerun gets the same answer back. It takes only what it names: the rest stays in
-   * the mailbox for a later wait, and doesn't wake a run parked here. Of two ready, the earlier
+   * `name`, so a rerun gets the same answer back. It takes only what it names: the rest stays
+   * for a later wait, and doesn't wake a run parked here. Of two ready, the earlier
    * wins. A duration as a branch is a timer of the race's own, `{name}@{branch}`, cancelled when
    * another branch wins; a `wf.timer()` passed in is the code's to cancel.
    */
@@ -194,7 +194,7 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   /**
    * A loop over the events `branches` take, one at a time, each under its branch's name, until the
    * loop returns or breaks. An event is acknowledged when the loop asks for the next; after a crash,
-   * the one taken and not acknowledged comes back once. What no branch names stays in the mailbox.
+   * the one taken and not acknowledged comes back once. What no branch names stays for a later wait.
    */
   select<B extends Branches>(branches: Checked<B>, options?: WaitOptions): AsyncIterable<Next<B>>;
 

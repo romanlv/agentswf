@@ -19,9 +19,9 @@ import { abortableSleep, deadlineWithin, runUntilStopped, waitForDeadline } from
  */
 const FINISHING_GRACE_MILLISECONDS = 10_000;
 /** Reading spend waits for files a released turn is still writing; it gives up after this. */
-const ACCOUNTING_GRACE_MILLISECONDS = 20_000;
+export const ACCOUNTING_GRACE_MILLISECONDS = 20_000;
 /** Beyond that, the host's bound on a billing status command, and this much more. */
-const STATUS_SLACK_MILLISECONDS = 2_000;
+export const STATUS_SLACK_MILLISECONDS = 2_000;
 
 /** One logical agent, as the run knows it. */
 export type AccountedAgent = {
@@ -62,6 +62,8 @@ export type OperationTags = Pick<OperationRecord, "stage" | "label" | "cause">;
 
 /** One agent's part of the run's ledger. */
 export type AgentLedger = {
+  /** Where it runs now: its sandbox's folder once it has one. */
+  cwd(): string;
   /** `execution` is read as the operation settles: the agent's settings it ran at. */
   reserve(
     operationId: string,
@@ -125,6 +127,7 @@ export function createRunLedger({
     agent(agent) {
       agents.push(agent);
       return {
+        cwd: () => agent.cwd,
         reserve(operationId, execution, tags = {}) {
           const operation: Operation = { agent, costs: [] };
           operations.push(operation);

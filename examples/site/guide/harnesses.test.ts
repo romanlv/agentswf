@@ -75,7 +75,7 @@ test("each runtime shape resolves to a harness, model, effort and placement", as
     },
     cursor: { harness: "cursor", model: "gpt-5.6-luna-high" },
     quiet: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-    meteredClaude: {
+    "metered-claude": {
       harness: "claude",
       model: "sonnet",
       placement: "headless",

@@ -10,10 +10,12 @@ import {
 } from "@agentswf/contract/records";
 import { emitCommand } from "../emit-command";
 import { writeJson } from "../files";
+import { readIn } from "../in-lines";
 import { inboxCommand } from "../inbox-command";
-import { foldMailbox, RunMailbox, readMailbox } from "../mailbox";
+import { claimRunLines } from "../run-lines";
 import { appendEvent, createRun, openRun, processStart, type Run, readAttempts } from "../runs";
 import { createTempRunDirs, writeAttempt } from "../testing";
+import { RunWaits } from "../waits";
 import type { Launch } from "../wake";
 import { loadWorkflowFile } from "../workflow-loader";
 import { clientWith } from "./index";
@@ -65,7 +67,7 @@ async function imported(file: string) {
 /** A launch that claims the attempt as `awf run --continue` would. */
 function fakeLaunch(): Launch & { launched: string[] } {
   const launched: string[] = [];
-  const launch = (async (run: Run, file: string) => {
+  const launch = (async (run: Run, file: string, _launch: string) => {
     launched.push(file);
     await writeAttempt(run, { ...ALIVE, file });
   }) as Launch & { launched: string[] };
@@ -227,8 +229,8 @@ describe("emit, as awf emit --json gives it", () => {
     });
     expect(reply).toMatchObject({ outcome: "accepted", did: "continued" });
     same(reply, await cli(p, ["review/b", "thread:reply", '{"text":"ok","author":"sam"}']));
-    const records = foldMailbox(await readMailbox((await openRun(p.runRoot, "review", "a")).dir));
-    expect([...records.events.values()].at(-1)).toMatchObject({
+    const lines = await readIn((await openRun(p.runRoot, "review", "a")).dir);
+    expect(lines.at(-1)).toMatchObject({
       name: "participant:reply",
       from: "thread",
       data: { text: "ok", author: "sam" },
@@ -240,7 +242,7 @@ describe("emit, as awf emit --json gives it", () => {
 });
 
 describe("source", () => {
-  test("is kept in the mailbox, set by the client and by awf emit --source", async () => {
+  test("is kept in in.jsonl, set by the client and by awf emit --source", async () => {
     const p = await project();
     await runsOf(p).emit(
       p.review,
@@ -265,8 +267,8 @@ describe("source", () => {
       ["a", "github"],
       ["b", "gitlab"],
     ] as const) {
-      const records = await readMailbox((await openRun(p.runRoot, "review", id)).dir);
-      expect(records.find((record) => record.kind === "event")).toMatchObject({
+      const lines = await readIn((await openRun(p.runRoot, "review", id)).dir);
+      expect(lines[0]).toMatchObject({
         source,
         from: "operator",
       });
@@ -406,13 +408,9 @@ describe("source, to the run", () => {
       { sha: "a" },
       { eventId: "e1", source: "github" },
     );
-    const state = foldMailbox(await readMailbox((await openRun(p.runRoot, "review", "a")).dir));
-    expect(state.started).toMatchObject({ id: "e1", source: "github" });
-    const box = new RunMailbox({
-      runDir: (await openRun(p.runRoot, "review", "a")).dir,
-      attempt: 1,
-      locked: (work) => work(),
-    });
+    const runDir = (await openRun(p.runRoot, "review", "a")).dir;
+    const lines = await claimRunLines(runDir, 2, new Date().toISOString());
+    const box = new RunWaits({ runDir, lines, locked: (work) => work() });
     await box.open();
     expect(box.started).toEqual({
       id: "e1",
@@ -456,8 +454,8 @@ describe("from review", () => {
     await runsOf(p).emit(p.review, "a", "thread:reply", { text: "ok" }, { source: "slack" });
     await cli(p, ["review/b", "thread:reply", '{"text":"ok"}', "--source", "slack"]);
     for (const id of ["a", "b"]) {
-      const records = await readMailbox((await openRun(p.runRoot, "review", id)).dir);
-      expect(records.findLast((record) => record.kind === "event")).toMatchObject({
+      const lines = await readIn((await openRun(p.runRoot, "review", id)).dir);
+      expect(lines.at(-1)).toMatchObject({
         name: "participant:reply",
         from: "thread",
         source: "slack",

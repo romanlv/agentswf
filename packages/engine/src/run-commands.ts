@@ -1,11 +1,13 @@
 import { resolve } from "node:path";
-import type { AttemptRecord, RunLogLine } from "@agentswf/contract/records";
+import type { RunLogLine } from "@agentswf/contract/records";
 import { maskCredentials } from "@agentswf/harness";
+import { runEstimate, unknownOps } from "./accounting/spent";
 import { continueCommand, shellWord } from "./attempt-view";
 import type { RunCommand } from "./run-command";
 import { type Cursor, encodeCursor } from "./run-read";
 import { RunNotFound, type RunStatus } from "./run-state";
 import { runRootOf } from "./runs";
+import { readSpent } from "./spend";
 
 /** What `awf runs` and `awf logs` share: where they look, and how they say a run. */
 
@@ -205,18 +207,36 @@ export function span(
   return { started, ...(ended === undefined ? {} : { ended }), ms: (ended ?? now) - started };
 }
 
-/** At list prices, over the attempts that kept one: never what was billed. */
-export function estimateOf(attempts: readonly AttemptRecord[]): number | undefined {
-  const known = attempts.flatMap((each) =>
-    each.accounting?.totals.estimate === undefined ? [] : [each.accounting.totals.estimate],
+/**
+ * At list prices, today's, over the run's agent operations that recorded their spend, never what
+ * was billed; and how many operations' usage isn't known, which makes it a floor.
+ */
+export async function estimateOf(
+  status: RunStatus,
+): Promise<{ estimate?: number; unknown: number }> {
+  const spent = await readSpent(status.run.dir, status.attempts, { decisions: false }).catch(
+    () => undefined,
   );
-  return known.length > 0 ? known.reduce((total, each) => total + each, 0) : undefined;
+  if (!spent) return { unknown: 0 };
+  const estimate = runEstimate(spent);
+  // A running attempt's operations are read as it ends: not yet unknown.
+  const live = status.state === "running" ? status.attempts.at(-1)?.attempt : undefined;
+  return {
+    ...(estimate === undefined ? {} : { estimate }),
+    unknown: unknownOps(
+      spent.map((each) => (each.attempt === live ? { ...each, unsettled: 0 } : each)),
+    ),
+  };
 }
 
-/** `$6.10`; `<$0.01` for less, and nothing for none. */
-export function money(estimate: number | undefined): string[] {
+/**
+ * `$6.10`; `<$0.01` for less, and nothing for none; `?` after a figure when some cost is unknown,
+ * which makes it a floor.
+ */
+export function money(estimate: number | undefined, unknown = 0): string[] {
   if (!estimate) return [];
-  return [estimate < 0.005 ? "<$0.01" : `$${estimate.toFixed(2)}`];
+  const shown = estimate < 0.005 ? "<$0.01" : `$${estimate.toFixed(2)}`;
+  return [unknown > 0 ? `${shown}?` : shown];
 }
 
 export function clockTime(at: number | string): string {

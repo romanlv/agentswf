@@ -49,14 +49,13 @@ test("a rollback while it is parked continues it, and nothing is checked", async
   const first = await parked();
   const run = await testWorkflow(postDeploy, {
     id: "api-v42",
-    // What `awf emit … deploy.rolled-back` appends while the run is parked.
     earlier: {
-      mailbox: [
-        ...first.mailbox,
+      run: first.run,
+      // What `awf emit … deploy.rolled-back` appends while the run is parked.
+      events: [
+        ...first.events,
         {
-          version: 1,
           at: new Date().toISOString(),
-          kind: "event",
           id: "rollback-v42",
           name: "deploy.rolled-back",
           data: { version: "v42" },

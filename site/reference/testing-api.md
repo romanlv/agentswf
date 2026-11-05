@@ -95,7 +95,7 @@ test("a reader that never answers is nudged once, then the summary says why", as
 | [`maxTurns`](#time) | 20 | turns started before the test fails |
 | [`files`](#files) | none | files laid out under the run's directory first |
 | [`cwd`](#files) | a temporary directory, removed after | where the agents work |
-| [`earlier`](#continuing-an-earlier-attempt) | none | the `stages` and `mailbox` an earlier attempt left |
+| [`earlier`](#continuing-an-earlier-attempt) | none | the `stages`, `events` and `run` lines an earlier attempt left |
 | [`fromStage`, `values`](#continuing-an-earlier-attempt) | none | where the attempt starts, and the values before it |
 
 A [workflow with events](#a-workflow-with-events) takes these too, but not `values`, and adds
@@ -355,10 +355,15 @@ the sandbox evals check what a real provider enforces.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
   with a `reason`.
-- **`run.decisions`**, **`run.logs`** and **`run.stages`** are the decision calls, log lines and
-  stage records.
+- **`run.decisions`** and **`run.logs`** are the decision calls and log lines.
+- **`run.stages`** is each stage the attempt entered, in order: its `name`, `outcome`, `attempt`,
+  `started`, `at` (when it ended), `summary`, `reason` and `value`, and `provided` for a value
+  given. A stage it reused gives the earlier attempt's, and a stage the plan stopped as it was
+  entered, which ran nothing, is absent.
 - **`run.timers`** is each timer, its `due` time, and `state`: `fired`, `cancelled` or `pending`.
-- **`run.emits`** and **`run.mailbox`** are for
+- **`run.run`** is the run's `run.jsonl` as it left it ([Data](/reference/data#run-jsonl)): its
+  stages, timers, sessions, and what its waits took.
+- **`run.emits`** and **`run.events`** are for
   [a workflow with events](#a-workflow-with-events).
 
 Under `parallel`, read agents by key, not by index. To prove two agents work at once, make one's
@@ -397,12 +402,14 @@ expect(run.emits).toEqual([]);
   `prepare` is called with no argv, as for a run an event starts.
 - **`events`** are sent in the order given, each while an agent's `n`th turn runs
   (`during: "{agent}#{n}"`), before its script answers, or once it has ended
-  (`after: "{agent}#{n}"`) and the run waits live in a `keepAlive` window. Each is one the
-  workflow declares, a participant's `{key}:reply` included, from its key, with its data checked
-  as `awf emit` checks it; an agent's `{key}:ended` is awf's to send. An event whose turn never
-  runs, or an `after` event the run parked before sending, fails the test.
+  (`after: "{agent}#{n}"`) and the run waits live in a `keepAlive` window. `n` counts the agent's
+  turns in the test, a nudge's included and its compactions not, so it isn't the `n` of an
+  operation's folder, `ops/{agent}.{n}/` ([Data](/reference/data#ops)). Each is one the workflow declares, a participant's
+  `{key}:reply` included, from its key, with its data checked as `awf emit` checks it; an agent's
+  `{key}:ended` is awf's to send. An event whose turn never runs, or an `after` event the run
+  parked before sending, fails the test.
 - **`eventId`**, optional on `event` and on each of `events`, is the event's id in the run's
-  mailbox, as `awf emit --event-id` gives it, `awf.start` and `awf.test.{n}` by default; one given
+  `in.jsonl`, as `awf emit --event-id` gives it, `awf.start` and `awf.test.{n}` by default; one given
   twice fails the test. Each is stamped with
   the test's clock as it is sent.
 - `n` counts the turns the workflow started: a nudge or a wake for a message keeps the turn's
@@ -410,11 +417,12 @@ expect(run.emits).toEqual([]);
 - A `keepAlive` with no `window` lasts 100 ms in a test rather than the hour, so a
   kept-alive workflow's test doesn't stall in it. A compaction `onTimeout` asks for is in
   `run.compactionsOf(key)`.
-- **`earlier: { mailbox }`** lays out what an earlier attempt left in the mailbox, and the test is
-  its continue: [Continuing an earlier attempt](#continuing-an-earlier-attempt).
+- **`earlier: { events, run }`** lays out the events an earlier attempt was sent and what its
+  waits did with them, and the test is its continue:
+  [Continuing an earlier attempt](#continuing-an-earlier-attempt).
 - The test returns when the run parks or returns; `run.value` throws for a parked run.
 - **`run.ending`** is `parked`, with the `label` and `until` of the wait it parked at;
-  **`run.mailbox`** is its mailbox as it left it.
+  **`run.events`** is the events the run was sent, its `in.jsonl` as it left it.
 - **`run.emits`** is every event it sent another workflow, `{ ref, name, data, eventId? }`, the
   `eventId` its `wf.emit` gave; a test starts no other run, so none is delivered.
 
@@ -422,12 +430,17 @@ expect(run.emits).toEqual([]);
 
 ## Continuing an earlier attempt
 
-`earlier` runs the workflow as a continue, attempt 2, over what an earlier attempt left:
+`earlier` runs the workflow as a continue over what an earlier attempt left, attempt 2, or the
+attempt after the latest its `run` lines name:
 
 - **`stages`**, the stages it recorded, keyed by name: each value, or `undefined` for a stage
   that returns nothing. A continue reuses them without calling their work.
-- **`mailbox`**, what it left in the run's mailbox, in order: its events, timers, and what its
-  waits and turns wrote. A starting `event` is appended after them, as the event that woke it.
+- **`events`**, the events it was sent, in order, as `in.jsonl` lines. A starting `event` is
+  appended after them, as the event that woke it.
+- **`run`**, what it settled, in order, as `run.jsonl` lines: its timers, what its waits and races
+  took, and the turns it began. A turn begun and never ended gets its failed end as the test's
+  attempt begins, as a continue after a crash does. A parked test's `run.run` and `run.events`,
+  given here, continue it.
 
 `fromStage` and `values` start at a stage, as `--from-stage` and `--values` do; `values` without
 `fromStage` is refused. A workflow with events takes `fromStage` only with `earlier`, as `awf run`
@@ -499,13 +512,12 @@ on [the `awf` reference](/reference/awf#test).
 These still compile and work until 0.1.0. Each test that uses one logs it once, in `run.logs`,
 as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read. An
 old option given with its replacement, `timeoutMs` with `timeout`, `stallMs` with `stall`,
-`recorded` with `earlier.stages` or `mailbox` with `earlier.mailbox`, is refused.
+or `recorded` with `earlier.stages`, is refused.
 
 | Old form | Instead |
 | --- | --- |
 | `testWorkflow(workflow, args, options)`, and `testWorkflow(workflow, args)` with args that aren't an object | `testWorkflow(workflow, { args, … })`. Three arguments are always the old form; with two, an object second is the options. The old form still takes a workflow's `meta` and `run` alone; the one form takes what `defineWorkflow` made. |
 | `recorded` | `earlier: { stages }`. |
-| `mailbox` | `earlier: { mailbox }`. |
 | The `EventTestOptions<Events, Args>` type | `TestOptions<Args, Events>`, the one options type. |
 | `reply.silent()`, `reply.failed()` and the rest | `noAnswer.silent()`, `noAnswer.failed()`: the same calls. A reply answers. |
 | `message.silent()` in a message script | Return nothing. |

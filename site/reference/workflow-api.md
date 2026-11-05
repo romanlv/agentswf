@@ -149,7 +149,7 @@ The guide: [Workflows](/guide/workflows).
 | `run(wf, args)` | The workflow. `args` and the result are JSON. |
 | `prepare({ argv, cwd })` | Turns the command line (`argv` after `--`, and `cwd`) into `args`. Required when `run` takes arguments: a workflow whose `args` aren't `null` without `prepare` fails `tsc`. Left out, the workflow takes none: its args are `null`, and any argv is refused. A throw ends the run before any agent opens. A run an event starts has no argv, and gets what `prepare` makes of none. |
 | `id(args)` | Optional. The run's id, such as a ticket's key: letters (either case), digits, `.`, `_`, `@` and `-`, starting with a letter or digit, at most 128 characters; an id differing from another only in case is refused. `awf run --id` overrides it. With neither, awf makes one, except for a workflow with `starts`, whose run is then refused: its senders name its runs. A run's ref is `{workflow}/{id}`. |
-| `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `output.json`; `--json` always prints the record. |
+| `present(value, ending)` | Optional. What a completed attempt prints. Without it, or when it returns `undefined` or throws, `awf run` prints the whole record, `out.json`; `--json` always prints the record. |
 | `report(value, ending)` | Optional. Markdown saved as `report.md` beside the run. Called however the attempt ended, so a stopped run can still hand off what its stages found: `value` is `undefined` unless it completed. `undefined` writes no report. |
 | `file`, `events`, `starts` | A workflow whose runs take events: see [Events](#events). |
 
@@ -163,7 +163,7 @@ attempt entered: `stage`, `source` (`"ran"` or `"reused"`), `outcome` (`succeede
 | `parked` | `label?`, its last wait's label, and `until?`, an ISO time: a workflow with events waiting with nothing to do. |
 | `stopped`, `failed`, `timed-out`, `cancelled` | `stage?`, the stage it ended in; `reason`; `continue`, the command that goes on; `needs?`, the stages whose values `--values` must give to start part-way, each `{ stage, schema }`, when it stopped for them. |
 
-The result, every agent's usage and how the attempt ended are kept in `output.json`, in
+The result, every agent's usage and how the attempt ended are kept in `out.json`, in
 `.awf/runs/{workflow}/{id}` under the working directory, for failed and cancelled runs too.
 [The record](/guide/how-it-works#the-record) says what else a run keeps.
 
@@ -179,7 +179,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 
 | Field | |
 | --- | --- |
-| `key` | Required. The agent's name in this run, such as `review-security`. Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
+| `key` | Required. The agent's name in this run, such as `review-security`: lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit, as an event's or a stage's name is, since it names the agent's [operations](/reference/data#ops). Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved, and so is a key a decision in the run already has. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
 | `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
@@ -526,7 +526,7 @@ ask all your questions together. The guide: [Decisions](/guide/decisions).
 
 | Field | |
 | --- | --- |
-| `key` | Required. Names the call in its record; not unique. |
+| `key` | Required. Names the call in its record; not unique. A name, as an agent's key is, and never one an agent in the run has. |
 | `model` | Required. A decision model alias: `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter, which needs `OPENROUTER_API_KEY` in the environment or a `.env` where you run `awf`. |
 | `state` | Required. What every question is about: a string, a JSON object or an array. |
 | `questions` | Required, at least one. Each is answered on its own. |
@@ -705,11 +705,10 @@ The fields `defineWorkflow` adds:
   entered, in any attempt and any version of the code, while its value fits. A wait goes outside
   a stage: [`wf.race`](#race) is recorded under its own name.
 - **`--from-stage {stage}`** on a continue redoes that stage and every one after it, as in a plain
-  run, but a later record moves to `replaced/` as the code reaches its stage, not all at once. The
-  stages before it are reused by content. Its own record moves as its new one is written. After it, in this
+  run, each as the code reaches it. The stages before it are reused by content. After it, in this
   attempt and every later one, a stage first entered after it whose record an attempt before the
-  redo wrote runs again, its record replaced; one never entered keeps its record. So an attempt
-  that parks partway leaves the next wake, which carries no flag, to redo the rest. The mailbox is
+  redo wrote runs again, writing a new one; one never entered keeps its record. So an attempt
+  that parks partway leaves the next wake, which carries no flag, to redo the rest. The events are
   untouched: a race keeps its recorded answer, but an event a `receive` or `select` took and
   acknowledged isn't taken again, so a stage that handled one isn't reached and keeps its record.
   An attempt that would park, or return, before reaching the stage stops instead, `never reached`.
@@ -755,7 +754,7 @@ again by the wake's rerun.
 `agent.turn` is the started turn until a wait takes its end, restored on a continue for an end no
 wait took, and `null` otherwise. Meanwhile the agent refuses `start`, `run`, `compact`, `set`,
 `fork` and messages from other agents. `agent.turn.cancel(reason?)` stops it, and resolves once
-its `cancelled` end is in the mailbox, or `false` at once when it had ended already; a tool call
+its `cancelled` end is recorded for a wait to take, or `false` at once when it had ended already; a tool call
 it has running is aborted through `call.signal`, and the end waits for the handler, at most 5 s
 more. A wait takes its end by naming the agent, `{ done: agent }`: an agent has at most one
 started turn.
@@ -803,8 +802,8 @@ having an agent take it. Connect the participant as any other, without `to`:
 `awf emit {ref} {key}:reply '{"text":"approved","author":"dana"}' --event-id {message id}`
 delivers one, and continues a parked run: the id is the message's own, so a resend is a
 duplicate. An undeclared `{key}:reply`, or data that doesn't fit `ParticipantReply`, is refused. It
-is checked against the definition alone: one sent before the run connects the participant waits in
-the mailbox for the run's next wait. Only a run that is there takes one; `awf emit --target` refuses it.
+is checked against the definition alone: one sent before the run connects the participant waits
+for the run's next wait. Only a run that is there takes one; `awf emit --target` refuses it.
 A race or select takes them as `wf.signal("{key}:reply")`, the whole event. A participant whose
 reply isn't declared still answers the agents that ask it; its messages never reach the code. A
 parked run keeps it connected.
@@ -817,8 +816,8 @@ typo fails `tsc`, and a number that isn't plain throws; a bound also refuses one
 `"0s"`, which a timer takes as now. A string read from data is
 checked with `duration(text)`, which returns it as a `Duration` and throws, saying the grammar,
 for anything else: `const every = duration(event.data.every)`. A timer is a time recorded once under a
-name; due, it fires into the mailbox as `timer:due`, from
-its name, at its due time. A **source** is something a wait can take: a timer, a declared event
+name; due, a wait takes it as `timer:due`, from its name, at its due time, beside the run's
+other events. A **source** is something a wait can take: a timer, a declared event
 (`wf.signal(name)`, `wf.signal("thread:reply")` for a participant's messages), or an agent (the end of the turn it
 started). Three waits take sources, beside `receive`:
 
@@ -842,7 +841,7 @@ What a branch hands back: a reply as its `text` and `author`, a turn's end as it
 | `branches` | Required, at least one, none named `key`. Each is a [source](#waiting-on-time) or a duration. |
 | `options.label` | What `awf runs` shows while the run waits here: a string, or a function asked when the wait begins. |
 
-- **It takes only what it names:** the rest stays in the mailbox for a later wait, and doesn't wake
+- **It takes only what it names:** the rest stays for a later wait, and doesn't wake
   a run parked at the race.
 - **Recorded under `name`**, so a rerun gets the same answer back and walks on: a race in a loop is
   named per round, and a name answers once an attempt. Races and sleeps share their names.
@@ -863,7 +862,7 @@ one at a time, as `{ key, [key]: … }`, until the loop returns or breaks.
 | `options.label` | A string, or a function asked at each wait: what `awf runs` shows. |
  An event is acknowledged
 when the loop asks for the next; after a crash, the one taken and not acknowledged comes back once.
-What no branch names stays in the mailbox. A branch is a source, not a duration: a timer in a loop is `wf.timer()`'s. It throws in a stage or a tool's
+What no branch names stays for a later wait. A branch is a source, not a duration: a timer in a loop is `wf.timer()`'s. It throws in a stage or a tool's
 handler.
 
 ### wf.timer {#timer}
@@ -925,7 +924,7 @@ hand.
 
 `wf.emit(target, run, name, data, { eventId? })` sends an event to the run `run` of the workflow
 `target`, imported from its file, so a wrong name or shape fails `tsc`; `awf emit --target {file}`
-checks the same at run time ([Sending events with `awf emit`](/guide/hosting-events#sending-events-with-awf-emit)). Either returns `accepted`; `duplicate`, the id is in the run's mailbox
+checks the same at run time ([Sending events with `awf emit`](/guide/hosting-events#sending-events-with-awf-emit)). Either returns `accepted`; `duplicate`, the run has an event of that id
 already; or `refused`, the run returned, or it has none and `starts` doesn't list the event. A name
 `target` doesn't declare, or data its schema refuses, throws. An id
 names one occurrence for good; without one, nothing deduplicates the event. A sender is refused
@@ -950,7 +949,7 @@ takes, and `awf tick` continues it once that is due: [`awf tick` on a schedule](
 `wf.usage()` returns this scope's finished operations and its descendants', in the order they were
 dispatched: each one's agent, settings, times, sessions, stage and label, and for one a message
 started, `cause`. Costs are priced after the run, from each agent's tokens: each stage's line gains
-what its agents cost, and one summary closes the run. `output.json` keeps the tokens, each stage's
+what its agents cost, and one summary closes the run. `out.json` keeps the tokens, each stage's
 share and the price table used.
 
 <a id="plan-allowance"></a>

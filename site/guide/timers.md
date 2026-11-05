@@ -6,9 +6,9 @@ description: "Waiting on time in a run with events: race and sleep on a timer, a
 # Timers
 
 A run with [events](/guide/events) can wait days for a time to come: a reminder, a deadline, a
-quiet day after a release. A **timer** is that time, recorded once under a name. When it comes
-due, it fires into the run's mailbox as a `timer:due` event, which a wait takes like any other
-event, and the run parks in between with no process left.
+quiet day after a release. A **timer** is that time, recorded once under a name. Once it is due, a
+wait takes it as a `timer:due` event, like any other event, and the run parks in between with no
+process left.
 
 ## A first timer
 
@@ -133,8 +133,8 @@ branch. In a `receive` loop, `timer.is(e)` picks out one timer's event, and any 
 - **A parked run** has no process, so nothing fires until `awf tick` runs and continues it: with a
   tick every five minutes, a timer fires up to five minutes late.
   [Hosting events](/guide/hosting-events) sets the tick up.
-- **A wait takes only what it names.** A due timer the current wait doesn't name stays in the
-  mailbox for a later one, and doesn't wake a run parked at that wait.
+- **A wait takes only what it names.** A due timer the current wait doesn't name stays for a later
+  one, and doesn't wake a run parked at that wait.
 - **Of two ready, the earlier wins:** a timer and an event both waiting are taken in order of
   their time.
 - **In a test the clock is virtual.** Where the run would park with a timer to come, the clock
@@ -156,7 +156,7 @@ branch. In a `receive` loop, `timer.is(e)` picks out one timer's event, and any 
 - [Waiting on time](/reference/workflow-api#waiting-on-time) in the workflow API:
   [`wf.timer`](/reference/workflow-api#timer),
   [`wf.at`](/reference/workflow-api#at), [`wf.after`](/reference/workflow-api#after).
-- [Events](/guide/events): the mailbox, `receive`, `race` and `select`.
+- [Events](/guide/events): sending and taking events, `receive`, `race` and `select`.
 - [Hosting events](/guide/hosting-events): `awf tick`, which fires a parked run's timers.
 - [`examples/approval-reminders`](https://github.com/romanlv/agentswf/tree/main/examples/approval-reminders):
   the approval loop above as a whole workflow, with its test.

@@ -1,8 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
 import type { OperationLivenessKind, OperationLivenessRecord } from "@agentswf/contract/records";
 import { createOperationEvents } from "./operation-events";
+import { liveFile } from "./ops";
 import { createTempRunDirs } from "./testing";
 import { readOperationEvents } from "./testing/operation-events";
 
@@ -150,9 +151,8 @@ test("encoded reason size is bounded without splitting unicode and signals trunc
 test("reader reports missing, malformed, foreign and truncated diagnostics as incomplete", async () => {
   const runDir = dirs.tempRunDir();
   expect(await readOperationEvents(runDir, "absent")).toEqual({ records: [], incomplete: true });
-  const directory = join(runDir, "calls", "operation");
-  await mkdir(directory, { recursive: true });
-  const path = join(directory, "liveness.jsonl");
+  const path = liveFile(runDir, "operation");
+  await mkdir(dirname(path), { recursive: true });
   const valid = JSON.stringify({ version: 1, operationId: "operation", ...event("dispatched") });
   await writeFile(path, `${valid}\nnot-json\n{"version":`);
   let read = await readOperationEvents(runDir, "operation");

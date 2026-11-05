@@ -826,7 +826,7 @@ record. Nothing is delivered again on a later attempt.
 
 ## The record
 
-The record is the run's event log, `turns.jsonl` ([[runs-and-stages#Each file]]): each message and
+The record is the run's event log, `log.jsonl` ([[run-record]]): each message and
 owed-answer event is a line of its own kind, written by the side that saw it and keyed by attempt,
 agent and message id like the log's other lines. So `awf logs` shows messaging beside the turns it
 caused, and `--agent` follows one side of it. `cause` goes on operation, turn and usage records, and

@@ -3,8 +3,8 @@ import { isAbsolute, join } from "node:path";
 import type { ClientErrorCode } from "@agentswf/contract/client";
 import {
   type EmitResultJson,
+  type EventLine,
   emitOk,
-  MAILBOX_RECORD_VERSION,
   type RunPanes,
 } from "@agentswf/contract/records";
 import { parseJsonSchema, validate } from "@agentswf/contract/schema";
@@ -19,7 +19,7 @@ import {
 } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { exists } from "./files";
-import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
+import { appendIn, readIn } from "./in-lines";
 import { checkProjectEngine, EngineRefused } from "./project-engine";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -109,7 +109,7 @@ export async function emitEvent(
  * `awf emit {ref} {key}:reply …`: a participant's message to the code of a run that is there,
  * checked against the definition in the file a wake would run, its last attempt's, and delivered.
  * It never starts a run, and doesn't ask whether the participant has connected: one sent before
- * the run connects it waits in the mailbox for the run's next wait.
+ * the run connects it waits in `in.jsonl` for the run's next wait.
  */
 export async function emitToRun(
   status: RunStatus,
@@ -182,8 +182,8 @@ export type Delivery = {
 
 /**
  * The one way in, for every event a run of a workflow with events gets: a sender's, a participant's reply, or awf's
- * own. Under the run's lock it finds a duplicate, refuses the event, or creates the run, appends
- * the event and wakes the run.
+ * own. Under the run's lock it finds a duplicate, refuses the event, or appends the event, to a run
+ * there or into a new one's `in.jsonl` before the run exists, and wakes the run.
  */
 export async function deliver(
   delivery: Delivery,
@@ -217,29 +217,27 @@ export async function deliver(
         throw new EmitError(`${ref} is a run of a workflow without events, which take none`);
       // Not appended again, but it still wakes the run: a sender retrying after a launch that failed
       // sends the same id.
-      if (delivery.deduplicate && foldMailbox(await readMailbox(run.dir)).events.has(event.id))
+      if (delivery.deduplicate && (await readIn(run.dir)).some((line) => line.id === event.id))
         return result("duplicate", await wake(run, { ...woken, nudgeLive: false }));
       if ((await readAttempts(run)).at(-1)?.outcome === "completed")
         return result("refused", { did: "none", why: "returned" });
     }
-    const starts = !run;
-    if (!run) {
+    if (run) await appendIn(run.dir, event);
+    else {
       if (!start) return result("refused", { did: "none", why: "not-a-start" });
       checkStartArgs(start.target, start.project);
+      // In the folder before it is renamed into place: no run exists without its first event.
+      const first: EventLine = { ...event, starts: true };
       try {
-        run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
+        run = await createEventRun(runRoot, workflow, runId, start.project, file, context, [], {
+          first,
+        });
       } catch (error) {
         // A disk that tells case apart: another case's run is found only as the folder is claimed.
         if (error instanceof RunTaken) throw new EmitError(messageOf(error), "id");
         throw error;
       }
     }
-    await appendMailbox(run.dir, {
-      version: MAILBOX_RECORD_VERSION,
-      kind: "event",
-      ...event,
-      ...(starts ? { starts: true as const } : {}),
-    });
     return result("accepted", await wake(run, woken));
   });
 }
@@ -268,19 +266,25 @@ async function createEventRun(
   file: string | undefined,
   context: Pick<WakeContext, "home" | "environment">,
   argv: readonly string[] = [],
-  panes?: RunPanes,
+  given: { panes?: RunPanes; first?: EventLine } = {},
 ): Promise<Run> {
-  const run = await createRun(runRoot, {
-    id,
-    workflow,
-    argv: [...argv],
-    cwd: project,
-    sandbox: null,
-    events: true,
-    env: { PATH: context.environment.PATH ?? "" },
-    ...(file ? { file } : {}),
-    ...(panes ? { panes } : {}),
-  });
+  const { panes, first } = given;
+  const run = await createRun(
+    runRoot,
+    {
+      id,
+      workflow,
+      argv: [...argv],
+      cwd: project,
+      sandbox: null,
+      events: true,
+      env: { PATH: context.environment.PATH ?? "" },
+      ...(file ? { file } : {}),
+      ...(panes ? { panes } : {}),
+    },
+    undefined,
+    first,
+  );
   await recordProject(context.home, project);
   return run;
 }
@@ -327,12 +331,14 @@ export async function openEventRun(
     } catch (error) {
       throw new EmitError(`prepare: ${messageOf(error)}`, "prepare");
     }
-    const run = await createEventRun(runRoot, workflow, id, project, file, context, argv, panes);
+    const run = await createEventRun(runRoot, workflow, id, project, file, context, argv, {
+      ...(panes ? { panes } : {}),
+    });
     return { run: ref, created: true, ...(await wake(run, woken)) };
   });
 }
 
-/** The project `file`'s runs live in, which must run on this engine (ADR 0014). */
+/** The project `file`'s runs live in, which must run on this engine (ADR 0015). */
 async function targetProject(file: string, home: string): Promise<string> {
   const project = await projectOf(file, home).catch((error: unknown) => {
     throw new EmitError(messageOf(error), "project");
@@ -361,7 +367,7 @@ function fileOf(target: EventWorkflow): string {
 }
 
 /**
- * `{key}:reply`'s event as the mailbox records it: `participant:reply` from its key, whatever the
+ * `{key}:reply`'s event as `in.jsonl` records it: `participant:reply` from its key, whatever the
  * workflow declares it as, so a wait takes it by one name.
  */
 export function replyRecord(

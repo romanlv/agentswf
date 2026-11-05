@@ -403,7 +403,7 @@ structured result. The operator CLI is a wrapper over it, never the only way in.
 **The run record is a public format with an external reader.** An optimizer scores runs it did not
 observe live: outcomes, attempts, nudges, timings, tokens, and both dollar columns, serialized and
 stable. That is the strongest reason the record formats live in `contract`, and it means changing
-them is a breaking change, not an implementation detail ([[run-record-layout]]).
+them is a breaking change, not an implementation detail ([[run-record|the run's record]]).
 
 ## 8. Telemetry and cost — a package, but not yet
 
