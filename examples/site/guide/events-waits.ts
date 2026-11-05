@@ -1,23 +1,24 @@
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+import { typed } from "agentswf/typebox";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-const Shipped = Type.Object(
-  { version: Type.String(), flag: Type.String() },
-  { additionalProperties: false },
+export const SHIPPED = typed(
+  Type.Object(
+    { version: Type.String(), flag: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export const SHIPPED: OutputSchema<Type.Static<typeof Shipped>> = Shipped;
-const Incident = Type.Object(
-  { version: Type.String(), summary: Type.String() },
-  { additionalProperties: false },
+export const INCIDENT = typed(
+  Type.Object(
+    { version: Type.String(), summary: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export const INCIDENT: OutputSchema<Type.Static<typeof Incident>> = Incident;
-export const SMOKE = Type.Object(
-  { passed: Type.Boolean() },
-  { additionalProperties: false },
+export const SMOKE = typed(
+  Type.Object({ passed: Type.Boolean() }, { additionalProperties: false }),
 );
-export const REMOVED = Type.Object(
-  { commit: Type.String() },
-  { additionalProperties: false },
+export const REMOVED = typed(
+  Type.Object({ commit: Type.String() }, { additionalProperties: false }),
 );
 
 export default defineWorkflow({
@@ -42,7 +43,7 @@ export default defineWorkflow({
       "smoke",
       { result: Type.Boolean() },
       async () => {
-        const { outcome } = await engineer.run<Type.Static<typeof SMOKE>>({
+        const { outcome } = await engineer.run({
           prompt: `Run the smoke tests against ${version}. Did they pass?`,
           schema: SMOKE,
         });
@@ -67,7 +68,7 @@ export default defineWorkflow({
       "remove-flag",
       { result: REMOVED },
       async () => {
-        const { outcome } = await engineer.run<Type.Static<typeof REMOVED>>({
+        const { outcome } = await engineer.run({
           prompt:
             `${version} has held for two weeks. ` +
             `Remove the ${flag} flag and its dead branch, and commit.`,

@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   type AgentExecution,
   defineWorkflow,
@@ -6,7 +7,6 @@ import {
   type WorkflowInvocation,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * Every harness and placement that switches, on cheap models: each opens at one effort, is set to
@@ -61,7 +61,7 @@ export const RUNTIMES = {
 
 type RuntimeName = keyof typeof RUNTIMES;
 
-const ANSWER = outputSchema(
+const ANSWER = typed(
   Type.Object({ word: Type.String(), shell: Type.String() }, { additionalProperties: false }),
 );
 

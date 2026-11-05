@@ -1,20 +1,18 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /** The agent the calling session's number is checked by: cheap, and headless so it opens no tab. */
 const HELPER: ExecutionConfig = { harness: "codex", model: "gpt-6-luna", placement: "headless" };
 
-const PICKED = outputSchema(
+const PICKED = typed(
   Type.Object(
     { number: Type.Integer({ minimum: 1000, maximum: 9999 }) },
     { additionalProperties: false },
   ),
 );
-const DOUBLED = outputSchema(
-  Type.Object({ answer: Type.Integer() }, { additionalProperties: false }),
-);
-const RECALLED = outputSchema(
+const DOUBLED = typed(Type.Object({ answer: Type.Integer() }, { additionalProperties: false }));
+const RECALLED = typed(
   Type.Object({ number: Type.Integer(), agrees: Type.Boolean() }, { additionalProperties: false }),
 );
 

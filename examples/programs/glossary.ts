@@ -1,12 +1,12 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 import { RUNTIME } from "./runtime";
 
 const Term = Type.Object({ term: Type.String({ minLength: 1 }) }, { additionalProperties: false });
 export const TERM: OutputSchema<Type.Static<typeof Term>> = Term;
 export const CLOSE: OutputSchema<null> = Type.Null();
-const DEFINITION = outputSchema(
+const DEFINITION = typed(
   Type.Object({ definition: Type.String() }, { additionalProperties: false }),
 );
 

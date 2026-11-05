@@ -24,7 +24,7 @@ process authority.
 
 Most workflows are tested beside their file, every agent's answers scripted, through the real
 engine, for free. `quick-check/`, `keep-alive/` and `sandbox-probe/` have no test, as they exist
-to watch real agents, `output-schema/` is a helper checked by its typecheck, and `event-sketches/`' tests are placeholders until the sketches run. Run them
+to watch real agents, and `event-sketches/`' tests are placeholders until the sketches run. Run them
 with `bun test examples`, or one folder's, `bun test examples/feature-delivery`.
 Outside this repository `awf test` does the same; [Testing](../site/guide/testing.md) says how to
 write one.
@@ -52,7 +52,6 @@ write one.
 | Example | What it shows | Explained in |
 | --- | --- | --- |
 | `quick-check/` | one agent per runtime named (`-- codex pi`) answers questions with known answers: a harness smoke test for a few cents | [Harnesses](../site/guide/harnesses.md) |
-| `output-schema/` | the TypeBox-to-output-schema helper the examples share, with its type tests | [Agents](../site/guide/agents.md) |
 | `compaction/` | one agent per harness compacted with a focus, then asked what it kept (`-- claude pi`) | [Agents](../site/guide/agents.md) |
 | `fork/` | a worker forked per harness, compacted or not, and each asked what it knows | [Agents](../site/guide/agents.md) |
 | `effort/` | one agent per harness switched to another effort, then another model | [Agents](../site/guide/agents.md) |

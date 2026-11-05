@@ -1,16 +1,16 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const DONE = Type.Object(
-  { summary: Type.String() },
-  { additionalProperties: false },
+export const DONE = typed(
+  Type.Object({ summary: Type.String() }, { additionalProperties: false }),
 );
-export const VERDICT = Type.Object(
-  { approved: Type.Boolean(), changes: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const VERDICT = typed(
+  Type.Object(
+    { approved: Type.Boolean(), changes: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
-type Done = Type.Static<typeof DONE>;
-type Verdict = Type.Static<typeof VERDICT>;
 
 export default defineWorkflow({
   meta: {
@@ -31,10 +31,10 @@ export default defineWorkflow({
     });
     let prompt = `Implement this task: ${task}`;
     for (let round = 1; round <= 3; round++) {
-      const work = await implementer.run<Done>({ prompt, schema: DONE });
+      const work = await implementer.run({ prompt, schema: DONE });
       if (!work.outcome.answered)
         return wf.stop(`implementer: ${work.outcome.reason}`);
-      const review = await reviewer.run<Verdict>({
+      const review = await reviewer.run({
         prompt: "Review the change.",
         schema: VERDICT,
       });

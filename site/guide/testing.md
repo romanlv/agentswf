@@ -108,9 +108,9 @@ awf test --watch                        # rerun on a change
 <!--@include: @/../packages/engine/src/help/test.txt-->
 ```
 
-`awf test` serves `agentswf/workflow`, `agentswf/client`, `agentswf/testing` and `typebox` itself,
-so a folder of workflows that declares no `agentswf` needs no `bun install` to be tested; one that declares
-`agentswf` runs on the one it installs. The runtime aliases `claude` and `codex` resolve
+`awf test` serves `agentswf/workflow`, `agentswf/typebox`, `agentswf/client`, `agentswf/testing`
+and `typebox` itself, so a folder of workflows that declares no `agentswf` needs no `bun install` to
+be tested; one that declares `agentswf` runs on the one it installs. The runtime aliases `claude` and `codex` resolve
 as they do on `awf run`; `runtimes` in the options adds or replaces others.
 
 ## Catches

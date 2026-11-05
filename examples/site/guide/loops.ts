@@ -1,16 +1,16 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const DONE = Type.Object(
-  { summary: Type.String() },
-  { additionalProperties: false },
+export const DONE = typed(
+  Type.Object({ summary: Type.String() }, { additionalProperties: false }),
 );
-export const VERDICT = Type.Object(
-  { approved: Type.Boolean(), changes: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const VERDICT = typed(
+  Type.Object(
+    { approved: Type.Boolean(), changes: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
-type Done = Type.Static<typeof DONE>;
-type Verdict = Type.Static<typeof VERDICT>;
 
 export type Result =
   | { approved: true; rounds: number }
@@ -42,7 +42,7 @@ export default defineWorkflow({
     let replaced = false;
     for (let round = 1; round <= ROUNDS; round++) {
       // #region branch
-      let work = await implementer.run<Done>({
+      let work = await implementer.run({
         prompt,
         schema: DONE,
         timeout: TURN,
@@ -62,7 +62,7 @@ export default defineWorkflow({
           `Take over from an agent that stopped. The task: ${task}`,
           "Its change so far is in the working tree.",
         ].join("\n");
-        work = await implementer.run<Done>({
+        work = await implementer.run({
           prompt: round === 1 ? handover : `${handover}\n${prompt}`,
           schema: DONE,
           timeout: TURN,
@@ -76,7 +76,7 @@ export default defineWorkflow({
       // #endregion branch
 
       // #region feedback
-      const review = await reviewer.run<Verdict>({
+      const review = await reviewer.run({
         prompt:
           round === 1
             ? `Review the change. Its author says: ${work.outcome.value.summary}`

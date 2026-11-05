@@ -1,7 +1,8 @@
 // What the tool types must allow and refuse; type-checked, never run.
+
+import { typed } from "agentswf/typebox";
 import { type AgentDirectory, type JsonObject, type ToolSpec, tool } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 declare const agents: AgentDirectory;
 
@@ -11,7 +12,7 @@ void agents.open({
   tools: {
     close: tool({
       description: "Typed from its schema.",
-      input: outputSchema(
+      input: typed(
         Type.Object({
           status: Type.Union([Type.Literal("closed"), Type.Literal("noise")]),
           count: Type.Optional(Type.Integer()),
@@ -33,7 +34,7 @@ void agents.open({
     explicit: tool<{ id: string }>({ description: "No input.", handler: ({ id }) => id }),
     later: tool({ description: "Async, returns nothing.", handler: async () => {} }),
     unwrapped: tool({
-      description: "A TypeBox schema not wrapped in outputSchema types as JsonObject, not never.",
+      description: "A TypeBox schema not wrapped in typed types as JsonObject, not never.",
       input: Type.Object({ id: Type.String() }),
       handler: (input) => {
         const object: JsonObject = input;
@@ -52,7 +53,7 @@ void agents.open({
     scalar: tool({
       description: "Not an object.",
       // @ts-expect-error A non-object schema fails.
-      input: outputSchema(Type.String()),
+      input: typed(Type.String()),
       handler: () => 1,
     }),
     // @ts-expect-error A handler returning what isn't JSON fails.
@@ -63,7 +64,7 @@ void agents.open({
 // A spec kept apart from `open` still takes a typed tool.
 const kept: ToolSpec = tool({
   description: "Kept.",
-  input: outputSchema(Type.Object({ id: Type.String() })),
+  input: typed(Type.Object({ id: Type.String() })),
   handler: ({ id }) => id,
 });
 void kept;

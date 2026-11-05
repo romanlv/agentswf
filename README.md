@@ -172,10 +172,11 @@ has.
 
 ```ts
 // hello/workflow.ts
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
+export const ANSWER = typed(Type.Object({ answer: Type.Integer() }, { additionalProperties: false }));
 
 export default defineWorkflow({
   meta: { name: "hello", description: "Ask one agent a question with a known answer." },
@@ -184,7 +185,7 @@ export default defineWorkflow({
       key: "hello",
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });
-    const { outcome } = await agent.run<Type.Static<typeof ANSWER>>({
+    const { outcome } = await agent.run({
       prompt: "What is 17 multiplied by 23? Work it out yourself; do not run any code.",
       schema: ANSWER,
       timeout: "3m",

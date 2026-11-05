@@ -1,20 +1,21 @@
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+import { typed } from "agentswf/typebox";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-const Deployed = Type.Object(
-  { service: Type.String(), version: Type.String() },
-  { additionalProperties: false },
+export const DEPLOYED = typed(
+  Type.Object(
+    { service: Type.String(), version: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export const DEPLOYED: OutputSchema<Type.Static<typeof Deployed>> = Deployed;
-const RolledBack = Type.Object(
-  { version: Type.String() },
-  { additionalProperties: false },
+export const ROLLED_BACK = typed(
+  Type.Object({ version: Type.String() }, { additionalProperties: false }),
 );
-export const ROLLED_BACK: OutputSchema<Type.Static<typeof RolledBack>> =
-  RolledBack;
-export const CHECK = Type.Object(
-  { healthy: Type.Boolean(), notes: Type.String() },
-  { additionalProperties: false },
+export const CHECK = typed(
+  Type.Object(
+    { healthy: Type.Boolean(), notes: Type.String() },
+    { additionalProperties: false },
+  ),
 );
 
 // #region workflow
@@ -41,7 +42,7 @@ export default defineWorkflow({
     if (next.rolledBack) return { service, version, checked: false };
 
     const checker = await wf.agents.open({ key: "checker", runtime: "codex" });
-    const { outcome } = await checker.run<Type.Static<typeof CHECK>>({
+    const { outcome } = await checker.run({
       prompt:
         `Read the last hour of ${service}'s logs and metrics ` +
         `since ${version} went out. Is it healthy?`,

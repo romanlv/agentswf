@@ -1,11 +1,9 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 import { RUNTIME } from "./runtime";
 
-const SUMMARY = outputSchema(
-  Type.Object({ summary: Type.String() }, { additionalProperties: false }),
-);
+const SUMMARY = typed(Type.Object({ summary: Type.String() }, { additionalProperties: false }));
 
 /**
  * One paragraph that introduces a glossary's definitions. A program starts it with its args;

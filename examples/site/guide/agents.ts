@@ -1,19 +1,23 @@
 // #region first
+
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const SCOPE = Type.Object(
-  {
-    files: Type.Array(Type.String(), {
-      description: "Every file the fix would change.",
-    }),
-    risk: Type.Union([
-      Type.Literal("low"),
-      Type.Literal("medium"),
-      Type.Literal("high"),
-    ]),
-  },
-  { additionalProperties: false },
+export const SCOPE = typed(
+  Type.Object(
+    {
+      files: Type.Array(Type.String(), {
+        description: "Every file the fix would change.",
+      }),
+      risk: Type.Union([
+        Type.Literal("low"),
+        Type.Literal("medium"),
+        Type.Literal("high"),
+      ]),
+    },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -28,7 +32,7 @@ export default defineWorkflow({
       instructions:
         "You read code to answer questions about it. You never change it.",
     });
-    const { outcome } = await scoper.run<Type.Static<typeof SCOPE>>({
+    const { outcome } = await scoper.run({
       prompt:
         "Read ISSUE.md. Which files would its fix change, and how risky is it?",
       schema: SCOPE,
@@ -39,12 +43,14 @@ export default defineWorkflow({
 });
 // #endregion first
 
-export const PLAN = Type.Object(
-  {
-    steps: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-    files: Type.Array(Type.String()),
-  },
-  { additionalProperties: false },
+export const PLAN = typed(
+  Type.Object(
+    {
+      steps: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+      files: Type.Array(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
 );
 export type Plan = Type.Static<typeof PLAN>;
 
@@ -59,14 +65,14 @@ export const planAndReview = defineWorkflow({
       key: "planner",
       runtime: { alias: "codex", effort: "high" },
     });
-    const first = await planner.run<Plan>({
+    const first = await planner.run({
       prompt: "Read ISSUE.md and plan its fix.",
       schema: PLAN,
     });
     if (!first.outcome.answered)
       return wf.stop(`no plan: ${first.outcome.reason}`);
     // The same session: it remembers the issue and the plan it just made.
-    const cut = await planner.run<Plan>({
+    const cut = await planner.run({
       prompt: "Cut your plan down to the smallest change that fixes the issue.",
       schema: PLAN,
     });

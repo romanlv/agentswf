@@ -1,10 +1,14 @@
 // #region file
+
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const CHECK = Type.Object(
-  { problems: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const CHECK = typed(
+  Type.Object(
+    { problems: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -22,7 +26,7 @@ export default defineWorkflow({
     const checker = await wf.agents.open({ key: "checker", runtime: "codex" });
     const checked: { file: string; problems: string[] }[] = [];
     for (const file of args.files) {
-      const { outcome } = await checker.run<Type.Static<typeof CHECK>>({
+      const { outcome } = await checker.run({
         prompt: `Check every command and API that ${file} shows against the code.`,
         schema: CHECK,
       });

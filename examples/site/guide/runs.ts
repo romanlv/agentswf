@@ -1,16 +1,16 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const PLAN = Type.Object(
-  { doc: Type.String() },
-  { additionalProperties: false },
+export const PLAN = typed(
+  Type.Object({ doc: Type.String() }, { additionalProperties: false }),
 );
-export const BUILT = Type.Object(
-  { branch: Type.String(), summary: Type.String() },
-  { additionalProperties: false },
+export const BUILT = typed(
+  Type.Object(
+    { branch: Type.String(), summary: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-type Plan = Type.Static<typeof PLAN>;
-type Built = Type.Static<typeof BUILT>;
 
 export default defineWorkflow({
   meta: {
@@ -29,7 +29,7 @@ export default defineWorkflow({
           key: "planner",
           runtime: "claude",
         });
-        const { outcome } = await planner.run<Plan>({
+        const { outcome } = await planner.run({
           prompt: `Write an implementation plan for ${ticket} in docs/${ticket}.md.`,
           schema: PLAN,
         });
@@ -46,7 +46,7 @@ export default defineWorkflow({
           key: "builder",
           runtime: "codex",
         });
-        const { outcome } = await builder.run<Built>({
+        const { outcome } = await builder.run({
           // A fresh agent: the prompt names the plan.
           prompt: `Implement ${plan.doc} on a new branch.`,
           schema: BUILT,

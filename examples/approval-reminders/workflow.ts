@@ -1,16 +1,16 @@
+import { typed } from "agentswf/typebox";
 import { type Duration, defineWorkflow, ParticipantReply } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * A doc to approve, and how often to remind and when to give up, as durations: `"2d"` and `"14d"` in
  * earnest. The schema subset has no pattern, so a timer refuses one that isn't, where it is given.
  */
-export const Submitted = outputSchema(
+export const Submitted = typed(
   Type.Object({ doc: Type.String(), remindEvery: Type.String(), expiresIn: Type.String() }),
 );
 
-export const Reminder = outputSchema(Type.Object({ text: Type.String() }));
+export const Reminder = typed(Type.Object({ text: Type.String() }));
 
 /**
  * Story 037's first case: a doc waits for approval, with a reminder each `remindEvery` drafted by

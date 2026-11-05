@@ -1,8 +1,8 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
-export const Note = outputSchema(Type.Object({ text: Type.String() }));
+export const Note = typed(Type.Object({ text: Type.String() }));
 
 /** Short, so the live check waits minutes rather than claude's cache hour, the default. */
 export const WINDOW = "90s";

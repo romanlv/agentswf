@@ -65,8 +65,8 @@ it one turn, and returns what came back:
   answer must have: awf tells the agent how to answer, checks the answer against the schema, and
   sends a **nudge** to an agent that ends its turn without one.
 - **`outcome.answered`** is true when the agent gave an answer that passed the check. The
-  schema checks the answer at run time; the type argument, `agent.run<Type.Static<typeof ANSWER>>`,
-  is what types `outcome.value` in your editor. Any other outcome (no answer, a timeout, a
+  schema checks the answer at run time, and wrapping it in `typed(...)` is what types
+  `outcome.value` in your editor. Any other outcome (no answer, a timeout, a
   failure) carries a `reason`, and the workflow returns that instead of throwing.
 
 The control flow is plain TypeScript: a second agent, a loop or a `Promise.all` is code you add

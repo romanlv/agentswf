@@ -1,15 +1,18 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const TRIAGE = Type.Object(
-  {
-    label: Type.Union([
-      Type.Literal("bug"),
-      Type.Literal("feature"),
-      Type.Literal("spam"),
-    ]),
-  },
-  { additionalProperties: false },
+export const TRIAGE = typed(
+  Type.Object(
+    {
+      label: Type.Union([
+        Type.Literal("bug"),
+        Type.Literal("feature"),
+        Type.Literal("spam"),
+      ]),
+    },
+    { additionalProperties: false },
+  ),
 );
 
 export default defineWorkflow({
@@ -28,7 +31,7 @@ export default defineWorkflow({
       runtime: "codex",
       sandbox: { srt: {} },
     });
-    const { outcome } = await triager.run<Type.Static<typeof TRIAGE>>({
+    const { outcome } = await triager.run({
       prompt: `Label this issue against the code in this repository:\n\n${args.issue}`,
       schema: TRIAGE,
     });

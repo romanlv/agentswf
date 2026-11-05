@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { answer, testWorkflow } from "agentswf/testing";
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, tool } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 import toolsWorkflow, { Summary, tools } from "./workflow";
 
 describe("tools", () => {
@@ -74,7 +74,7 @@ describe("tools", () => {
           tools: {
             close: tool({
               description: "Close an item.",
-              input: outputSchema(Type.Object({ id: Type.String() })),
+              input: typed(Type.Object({ id: Type.String() })),
               handler: (input) => {
                 closed.push(input.id);
                 return "Closed.";

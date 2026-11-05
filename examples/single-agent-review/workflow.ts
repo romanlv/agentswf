@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   defineWorkflow,
   type ExecutionConfig,
@@ -5,7 +6,6 @@ import {
   type WorkflowInvocation,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * One agent reviews a change in one turn, with a public review skill or none: the baseline every
@@ -17,7 +17,7 @@ type PublicSkill = Extract<SkillSource, { repo: string }>;
 
 const SEVERITIES = ["must-fix", "should-fix", "could-fix", "nit"] as const;
 
-export const FINDINGS_SCHEMA = outputSchema(
+export const FINDINGS_SCHEMA = typed(
   Type.Object(
     {
       findings: Type.Array(

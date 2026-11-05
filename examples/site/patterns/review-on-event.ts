@@ -1,24 +1,30 @@
 // #region open
-import { defineWorkflow, type OutputSchema } from "agentswf/workflow";
+
+import { typed } from "agentswf/typebox";
+import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */
-const ChangesData = Type.Object(
-  { mr: Type.Number(), base: Type.String(), head: Type.String() },
-  { additionalProperties: false },
+export const Changes = typed(
+  Type.Object(
+    { mr: Type.Number(), base: Type.String(), head: Type.String() },
+    { additionalProperties: false },
+  ),
 );
-export type Change = Type.Static<typeof ChangesData>;
-export const Changes: OutputSchema<Change> = ChangesData;
+export type Change = Type.Static<typeof Changes>;
 
-const ClosedData = Type.Object(
-  { mr: Type.Number(), merged: Type.Boolean() },
-  { additionalProperties: false },
+export const Closed = typed(
+  Type.Object(
+    { mr: Type.Number(), merged: Type.Boolean() },
+    { additionalProperties: false },
+  ),
 );
-export const Closed: OutputSchema<Type.Static<typeof ClosedData>> = ClosedData;
 
-export const Review = Type.Object(
-  { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
-  { additionalProperties: false },
+export const Review = typed(
+  Type.Object(
+    { approved: Type.Boolean(), findings: Type.Array(Type.String()) },
+    { additionalProperties: false },
+  ),
 );
 export type ReviewValue = Type.Static<typeof Review>;
 

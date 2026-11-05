@@ -1,10 +1,10 @@
+import { typed } from "agentswf/typebox";
 import {
   AgentEnded,
   type AgentRef,
   choice,
   defineWorkflow,
   type JsonObject,
-  type OutputSchema,
   ParticipantReply,
   score,
   tool,
@@ -20,16 +20,17 @@ declare const backlog: {
 };
 declare function postToSlack(text: string): Promise<void>;
 
-export const FINDINGS = Type.Object(
-  { findings: Type.Array(Type.Object({ file: Type.String(), problem: Type.String() })) },
-  { additionalProperties: false },
+export const FINDINGS = typed(
+  Type.Object(
+    { findings: Type.Array(Type.Object({ file: Type.String(), problem: Type.String() })) },
+    { additionalProperties: false },
+  ),
 );
 export type Findings = Type.Static<typeof FINDINGS>;
-export const PLAN = Type.Object({ steps: Type.Array(Type.String()) });
-export const PICKED = Type.Object({ number: Type.Number() });
-export const VERDICT = Type.Object({ approved: Type.Boolean() });
-const Doc = Type.Object({ path: Type.String() });
-export const DOC: OutputSchema<Type.Static<typeof Doc>> = Doc;
+export const PLAN = typed(Type.Object({ steps: Type.Array(Type.String()) }));
+export const PICKED = typed(Type.Object({ number: Type.Number() }));
+export const VERDICT = typed(Type.Object({ approved: Type.Boolean() }));
+export const DOC = typed(Type.Object({ path: Type.String() }));
 
 export const agents = defineWorkflow({
   meta: { name: "workflow-api-agents", description: "The workflow API page's agent calls." },
@@ -43,7 +44,7 @@ export const agents = defineWorkflow({
     // #endregion open
 
     // #region run
-    const { outcome } = await reviewer.run<Type.Static<typeof FINDINGS>>({
+    const { outcome } = await reviewer.run({
       prompt: "Review the diff on this branch against main.",
       schema: FINDINGS,
       timeout: "15m",
@@ -111,17 +112,19 @@ export const agents = defineWorkflow({
     // #endregion forkcaller
 
     // #region tool
-    const CloseItem = Type.Object({
-      id: Type.String(),
-      status: Type.Union([Type.Literal("done"), Type.Literal("wontfix")]),
-      why: Type.String(),
-    });
+    const CloseItem = typed(
+      Type.Object({
+        id: Type.String(),
+        status: Type.Union([Type.Literal("done"), Type.Literal("wontfix")]),
+        why: Type.String(),
+      }),
+    );
 
     const triager = await wf.agents.open({
       key: "triager",
       runtime: "codex",
       tools: {
-        close_item: tool<Type.Static<typeof CloseItem>>({
+        close_item: tool({
           description: "Close an open item as done or won't fix, saying why.",
           input: CloseItem,
           handler: ({ id, status, why }) => {
@@ -156,7 +159,7 @@ export const composing = defineWorkflow({
       LENSES,
       async (lens) => {
         const agent = await wf.agents.open({ key: `review-${lens}`, runtime: "codex" });
-        const { outcome } = await agent.run<Findings>({
+        const { outcome } = await agent.run({
           prompt: `Review for ${lens}.`,
           schema: FINDINGS,
         });
@@ -264,10 +267,8 @@ declare function openCase(runId: string): Kase;
 declare function promptFor(given: string[]): string;
 declare function focusFor(view: string): string;
 
-const Changes = Type.Object({ case: Type.String() }, { additionalProperties: false });
-const Closed = Type.Object({ case: Type.String() }, { additionalProperties: false });
-export const CHANGES: OutputSchema<Type.Static<typeof Changes>> = Changes;
-export const CLOSED: OutputSchema<Type.Static<typeof Closed>> = Closed;
+export const CHANGES = typed(Type.Object({ case: Type.String() }, { additionalProperties: false }));
+export const CLOSED = typed(Type.Object({ case: Type.String() }, { additionalProperties: false }));
 
 // #region events
 export const ddCase = defineWorkflow({

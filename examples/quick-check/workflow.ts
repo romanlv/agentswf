@@ -1,3 +1,4 @@
+import { typed } from "agentswf/typebox";
 import {
   defineWorkflow,
   type ExecutionConfig,
@@ -6,7 +7,6 @@ import {
   type WorkflowInvocation,
 } from "agentswf/workflow";
 import Type from "typebox";
-import { outputSchema } from "../output-schema";
 
 /**
  * A cheap model for each, so a check costs cents. Codex, pi and cursor run headless, and pi and
@@ -28,7 +28,7 @@ export const RUNTIMES = {
 
 type RuntimeName = keyof typeof RUNTIMES;
 
-const ANSWER_SCHEMA = outputSchema(
+const ANSWER_SCHEMA = typed(
   Type.Object({ answer: Type.Integer() }, { additionalProperties: false }),
 );
 /**

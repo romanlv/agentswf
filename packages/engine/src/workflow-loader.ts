@@ -14,6 +14,7 @@ import {
 import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
+import * as typeboxSurface from "./author-typebox";
 import { realPath } from "./files";
 import { checkProjectEngine } from "./project-engine";
 import { projectOf } from "./projects";
@@ -26,6 +27,7 @@ import { idProblem } from "./runs";
  */
 const AUTHOR_SURFACE: Record<string, Record<string, unknown>> = {
   "agentswf/workflow": workflowSurface,
+  "agentswf/typebox": typeboxSurface,
   typebox,
   "typebox/value": typeboxValue,
 };

@@ -1,7 +1,7 @@
+import { typed } from "agentswf/typebox";
 import { defineWorkflow, type ExecutionConfig, type WorkflowInvocation } from "agentswf/workflow";
 import Type from "typebox";
 import Value from "typebox/value";
-import { outputSchema } from "../output-schema";
 
 /**
  * Agents given one of two probe skills each, on the host and in one srt sandbox (story 007). The
@@ -54,7 +54,7 @@ const PLAN = Type.Object({
 
 export type SkillsPlan = Type.Static<typeof PLAN>;
 
-export const REPORT = outputSchema(
+export const REPORT = typed(
   Type.Object(
     {
       stamp: Type.String({ description: "The build's release stamp, or empty." }),
