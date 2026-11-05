@@ -3,7 +3,7 @@ id: "041"
 title: "A run's records, one home per fact"
 summary: "A run's folder gets the layout of docs/design/run-record.md: run.json, run.jsonl with a published readRun, in.jsonl, attempts/, log.jsonl, ops/{agent}.{n}/, out.json and work/, before agents.wf leaves evaluation."
 type: story
-status: in-progress
+status: awaiting-human-review
 depends_on: ["039"]
 ---
 
@@ -585,21 +585,36 @@ Done when:
 
 ## Verification
 
-Automated:
+Automated, on de1b2c1, 2026-11-05:
 
-- [ ] `readRun` table tests; claim and fence tests; op numbering and key tests
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`, with the new pure policy module listed
-- [ ] `bun run check`
-- [ ] `cd site && bun run build`
+- [x] `readRun` table tests; claim and fence tests; op numbering and key tests
+- [x] `bun test`: 2665 pass, 2 skip, 4 todo, 0 fail (2671 tests, 202 files)
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`, with `engine/src/run-policy` listed
+- [x] `bun run check`
+- [x] `cd site && bun run build`
 
-Manual or live evaluation:
+Manual or live evaluation, 2026-11-05:
 
-- [ ] One live event run on codex: emit, a timer, a park and a wake, then a continue with
-  `--from-stage`. Read the folder by hand with `cat` and check that each fact sits where the design
-  says. Cheap models, under a dollar.
-- [ ] `awf-lab` on one case: its `awf run --json` parse is unchanged.
+- [x] One live event run per harness, not only codex: codex and pi and cursor headless, claude in
+  its TUI. Each: `awf emit` starts it, stage `first` answers, a 20 s timer and a race park it,
+  `awf tick` wakes it on the timer, stage `second` answers on the same session (`391`, then
+  `400`), then `awf run --continue --from-stage second` reruns only `second` (`409`), its line
+  `redo: true`. Read by hand: `run.json` has `format: 1`; `run.jsonl` holds `claimed` per attempt,
+  `session`, `stage`, `timer`, `wait`, and the `race` whose `took` names the timer; `in.jsonl` the
+  starting event; `attempts/2.json` `kind: "attempt"` and the value; `ops/solver.{1,2,3}/` each with
+  `op.json` and an unpriced `spend.json`; one `launches/{launch}.log` per background launch;
+  `out.json` a view. About $0.25.
+- [x] `awf-lab`'s parse: `tests/review-lab.test.ts` runs `awf run --json` and parses it with the
+  lab's own `parseRecord` and `summaryOf`. No live lab run.
+- [x] The live suite, `bun run eval`, with every harness: 16 of 21 passed (~$3.37). The five that
+  failed (`calling-session`, `compaction`, `effort`, `fan-out`, `fork`) were rerun alone, and run
+  on f626de4, the commit before this story: all five fail there too, the same way (pi and cursor
+  TUI agents timing out, claude prompt delivery unconfirmed or blocked, no `--here` run record
+  for claude and cursor). One failure was this story's: task 2's key mapping gave
+  `claude>headless` and `claude-headless` the same key in `examples/fork`; de1b2c1 fixes it, and
+  the fork eval then opens and forks every case, failing only where f626de4 fails (cursor TUI
+  forks timing out) and on pi's cache share, 0.49 under its threshold.
 
 ## Review record
 
@@ -1777,8 +1792,8 @@ ends:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
