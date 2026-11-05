@@ -108,7 +108,11 @@ type WorkflowParts<Args extends JsonValue, Result extends JsonValue> = {
 type WithoutEvents<Args extends JsonValue, Result extends JsonValue> = {
   readonly events?: undefined;
   readonly starts?: undefined;
-  readonly file?: undefined;
+  /**
+   * `import.meta.path`: by which a program's client finds the workflow and its project, where its
+   * runs are kept, whoever starts or continues them.
+   */
+  readonly file?: string;
   run(context: WorkflowContext<NoEvents>, args: Args): Promise<Result>;
 };
 
@@ -143,6 +147,9 @@ type StartsAndFile<Events extends EventSchemas> =
       readonly file?: string;
     };
 
+/** A workflow that gives `file`, `import.meta.path`, which `defineWorkflow` keeps in its type. */
+export type Located = { readonly file: string };
+
 /** A workflow, as its file exports it: with `events` when its runs take them. */
 export type Workflow<
   Args extends JsonValue = JsonValue,
@@ -163,21 +170,27 @@ type PrepareSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
 /**
  * Defines a workflow. One whose args are `null` may leave out `prepare`: then it takes no arguments,
  * and any argv is refused. With `events`, a name with a colon fails `tsc` unless it is awf's,
- * `{key}:reply: ParticipantReply` or `{key}:ended: AgentEnded`, and `starts` needs `file`; its events are concrete here, as a helper generic over them can't make the context follow
- * them.
+ * `{key}:reply: ParticipantReply` or `{key}:ended: AgentEnded`, and `starts` needs `file`; its
+ * events are concrete here, as a helper generic over them can't make the context follow them. One
+ * that gives `file` keeps it in its type, `Located`, for a program's client; with `events`, only
+ * when its type arguments are inferred, not given.
  */
 export function defineWorkflow<
   Args extends JsonValue = null,
   Result extends JsonValue = JsonValue,
   Events extends EventSchemas = never,
+  File extends string | undefined = string | undefined,
 >(
   spec: PrepareSpec<Args, Result> & { readonly events: DeclaredEvents<Events> } & EventsRun<
       Args,
       Result,
       Events
     > &
-    StartsAndFile<Events>,
-): Workflow<Args, Result, Events>;
+    StartsAndFile<Events> & { readonly file?: File },
+): Workflow<Args, Result, Events> & ([File] extends [string] ? Located : unknown);
+export function defineWorkflow<Args extends JsonValue = null, Result extends JsonValue = JsonValue>(
+  spec: PrepareSpec<Args, Result> & WithoutEvents<Args, Result> & Located,
+): Workflow<Args, Result> & Located;
 export function defineWorkflow<Args extends JsonValue = null, Result extends JsonValue = JsonValue>(
   spec: PrepareSpec<Args, Result> & WithoutEvents<Args, Result>,
 ): Workflow<Args, Result>;

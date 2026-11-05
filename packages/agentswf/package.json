@@ -18,7 +18,8 @@
   },
   "exports": {
     "./workflow": "./src/workflow.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./client": "./src/client.ts"
   },
   "files": [
     "src",

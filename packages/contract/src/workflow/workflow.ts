@@ -4,8 +4,8 @@ import type { DecisionDirectory } from "./decisions";
 import type {
   EmitOptions,
   EmitOutcome,
+  EventData,
   EventSchemas,
-  OutputOf,
   OwnEvent,
   OwnEventOf,
   OwnNames,
@@ -144,7 +144,7 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
     target: Workflow<JsonValue, JsonValue, Target>,
     run: string,
     name: Name,
-    data: OutputOf<Target[Name]>,
+    data: EventData<Workflow<JsonValue, JsonValue, Target>, Name>,
     options?: EmitOptions,
   ): Promise<EmitOutcome>;
 

@@ -87,10 +87,10 @@ async function sender(): Promise<void> {
   await context.emit(caseRun, "kombo", "agent:ended", { case: "kombo" });
 }
 
+// @ts-expect-error An event of the workflow's own has no colon in its name.
 defineWorkflow({
   meta: { name: "colon", description: "A name with a colon is awf's." },
   file: import.meta.path,
-  // @ts-expect-error An event of the workflow's own has no colon in its name.
   events: { "dd:changes": Changes },
   run: async () => null,
 });

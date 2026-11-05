@@ -72,6 +72,21 @@ export type EventId = string;
 /** The prefix of the ids awf makes, which no sender may use. */
 export const AWF_ID_PREFIX = "awf.";
 
+/** A workflow's declared `events`; `never` for a workflow without them. */
+export type EventsOf<W> = W extends { readonly events: infer Events extends EventSchemas }
+  ? Events
+  : never;
+
+/**
+ * The data event `Name` of workflow `W` carries: a `{key}:reply`'s is `ParticipantReply`, whatever
+ * schema copy the workflow declares it with; any other's is what its schema accepts.
+ */
+export type EventData<W, Name> = Name extends `${string}:reply`
+  ? ParticipantReply
+  : Name extends keyof EventsOf<W>
+    ? OutputOf<EventsOf<W>[Name]>
+    : never;
+
 /** What a run's wait returns: one event from its mailbox. */
 export type WorkflowEvent<Name extends string = string, Data = JsonValue> = {
   readonly id: EventId;
@@ -83,6 +98,11 @@ export type WorkflowEvent<Name extends string = string, Data = JsonValue> = {
    * `awf emit`.
    */
   readonly from: string;
+  /**
+   * The integration that sent it, as `awf emit --source` or a program's client named it, such as
+   * `github`; absent for every other event.
+   */
+  readonly source?: string;
   /** When it was appended, an ISO time; for `timer:due`, when the timer was due. */
   readonly at: string;
 };

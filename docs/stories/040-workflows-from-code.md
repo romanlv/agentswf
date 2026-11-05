@@ -3,7 +3,7 @@ id: "040"
 title: "A program drives a workflow's runs, typed from the workflow"
 summary: "An ordinary Bun program imports a workflow and emits events to it, starts runs, and waits on them in-process, each call checked by tsc from the workflow's own definition, on the engine the project depends on."
 type: story
-status: ready
+status: in-progress
 epic: authoring
 discovered_in: "a question about driving workflows from a webhook handler, 2026-11-04"
 depends_on: ["034", "039"]
@@ -214,10 +214,11 @@ Out of scope:
   because `WorkflowContext.emit`, author surface, uses it too.
 - `src/records.ts`: the mailbox event's `source?`; the run record's `args`.
 - `src/workflow/executable.ts`: `WithoutEvents.file?: string`; `defineWorkflow` keeps a given
-  `file` in its return type by overloads, plain and with events, that take `& { file: string }` and
-  return `& { readonly file: string }`, so it holds with explicit type arguments
-  (`defineWorkflow<FeatureArgs, Handoff>`, `examples/feature-delivery/workflow.ts:108`) too; the
-  events form's `StartsAndFile` (`executable.ts:127`) stops widening it to `file?`.
+  `file` in its return type, `Located`: a plain workflow by an overload taking `& Located`, so it
+  holds with explicit type arguments (`defineWorkflow<FeatureArgs, Handoff>`,
+  `examples/feature-delivery/workflow.ts:108`) too; one with events by inferring a `File` type
+  parameter, so it holds only when its type arguments are inferred. Three overloads, not four:
+  past three, `tsc` reports only the last overload's error (task 1).
 
 ### packages/engine
 
@@ -505,7 +506,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The surface and the two ADRs, approved: types in `@agentswf/contract/client`, the
+- [x] 1. The surface and the two ADRs, approved: types in `@agentswf/contract/client`, the
   typecheck file, no behaviour.
 - [ ] 2. One engine per project.
 - [ ] 3. `emit`, replies, `source` and `inbox`.
@@ -817,6 +818,37 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+Built in the worktree `../worktrees/awf-workflows-from-code`, branch `workflows-from-code`.
+
+### Task 1, 2026-11-04
+
+- Approval: the user asked for the story to be implemented after the review rounds above, which
+  listed the refinement proposals under Decisions; that is taken as approving them, the types and
+  both ADRs, as the approval gates are checked by the implementer in an approved story.
+- Built: `packages/contract/src/client.ts` (`@agentswf/contract/client`): `Client`, `Run`,
+  `RunStatus`, `StartResult`, `ClientError`, `ClientErrorCode`, `ClientOptions`, `Sendable`,
+  `Startable`, re-exporting `Ending`, `EventData`, `EventsOf` and `Located`; `EventsOf` and
+  `EventData` in `workflow/events.ts`, which `wf.emit` now types its data with;
+  `WorkflowEvent.source?`; `WithoutEvents.file?: string`; `agentswf/client` re-exports the
+  contract's module, and gains `client` with task 3; ADRs 0014 and 0015.
+- `EventsOf` matches `events` structurally rather than through `Workflow<any, any, infer E>`: the
+  same result, with no import of `executable.ts` into `events.ts`.
+- `defineWorkflow` has three overloads: events, inferring a `File` type parameter; plain with
+  `file`; plain. A fourth (events with `file`) would make `tsc` report only the last overload's
+  error for every mistake in a `defineWorkflow` call. Costs, accepted: an events workflow given
+  explicit type arguments isn't `Located`, which no workflow in the repo does; a `file` typed
+  `string | undefined` on an events workflow is typed `Located`; a mistake in a `defineWorkflow`
+  call that gives `file` is reported at the call, each overload's error listed, not at the
+  property, so `events.typecheck.ts`'s colon case moved its `@ts-expect-error` to the call.
+- `Startable` lists the plain form last, so a plain workflow without `file` is told `file` is what
+  it lacks.
+- Review (one subagent, both lenses, with `tsc` probes): no blocking finding. Folded in: the Code
+  map's overload text; ADR 0015 says "a new record version", not 2, as story 041 may replace
+  `version` with `format`; ADR 0014 says `tick --all` passes over a project declared and not
+  installed; a misplaced `biome-ignore`. Accepted as above: explicit type arguments on an events
+  workflow, the `string | undefined` file, errors at the call. A union-typed event name accepts
+  either event's data, as `wf.emit` always has; the schema check at run time refuses it.
 
 ## Human review
 
