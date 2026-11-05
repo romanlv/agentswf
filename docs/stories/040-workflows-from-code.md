@@ -40,7 +40,7 @@ cursor = items.at(-1)?.cursor ?? cursor;                 // the next read starts
 await runs.emit(review, `pr-${pr.number}`, "thread:reply", { text, author });
 
 // A script: start a run with typed args, and wait until nothing will continue it.
-const started = await runs.start(release, { version: "1.4.0" }, { id: "v1.4.0" });
+const started = await runs.start(release, { version: "1.4.0", dryRun: false }, { id: "v1.4.0" });
 const done = await started.run.wait({ final: true });   // { state, final, ending? }
 ```
 
@@ -118,7 +118,8 @@ In scope:
 - Recorded args: a run started from code records its args, and its attempts use them.
 - `file` on a workflow without events, and `defineWorkflow` keeping `file` in its type when given.
 - A plain run started from code: in the workflow's project, registered, its `PATH` and `file`
-  recorded, as an event run's are.
+  recorded, as an event run's are; and continued after a failure or crash by `awf run {file}
+  --id {id} --continue`, which finds it there.
 - The fake client in `agentswf/testing`.
 - `packages/agentswf/src/client.typecheck.ts`.
 - An example driver beside an event workflow, and a site guide page.
@@ -136,7 +137,8 @@ Out of scope:
   event run does, with no deadline; each option is additive later.
 - A runtime check of args from code. They are checked by `tsc` and as JSON; `prepare` doesn't run.
   An args schema on the workflow would be an author-surface addition, later.
-- Showing a run's recorded args in `awf runs`.
+- Showing a run's recorded args in `awf runs`, and received events, with their `source`, in `awf
+  inbox` and `awf logs`.
 - Node. The packages are Bun-only until [[node-runtime]].
 - A limit on live runs, and a spend ceiling ([[live-spend-limits]]). `starts` bounds which events
   open a run; verifying a webhook's signature is the program's.
@@ -169,6 +171,8 @@ Out of scope:
 - Fact: since story 039 a participant's reply goes by `awf emit {run} {key}:reply`, data
   `ParticipantReply`; it never starts a run (`emitToRun`). `wf.emit` refuses replies: a workflow
   doesn't speak as a participant. A participant's `post` lands in `awf inbox` (`InboxItemJson`).
+  Story 039's task 10 removes the deprecated `participant:reply`; the client's reply typing knows
+  only declared `{key}:reply` names, so task 3 starts after it.
 - Fact: `EmitResultJson` is published as `awf emit --json`, with `did`, `why`, `error`.
 - Fact: the mailbox reader keeps a record by `version` and `kind` only, so an optional field there
   is additive. `run.json` is different: a field that changes what an attempt does is ignored by an
@@ -201,16 +205,19 @@ Out of scope:
 
 - `src/client.ts`, new, exported as `@agentswf/contract/client`, outside `author` (which
   `agentswf/workflow` re-exports and the loader serves to every workflow): `Client`, `Run`,
-  `RunStatus`, `StartResult`, `ClientError`, `EventData`, `Sendable`, `EventsOf`, `Located`, and
-  `Startable`; `Ending` is the existing one in `workflow/executable.ts`.
-- `src/workflow/events.ts`: `WorkflowEvent.source?`, `EmitOptions.source?`; `EventData` shared with
-  `WorkflowContext.emit`.
+  `RunStatus`, `StartResult`, `ClientError` (a class, pure: no I/O), `ClientErrorCode`, `Sendable`,
+  `EventsOf`, `Located`, and `Startable`;
+  `Ending` is the existing one in `workflow/executable.ts`, and `EventData` the one in
+  `workflow/events.ts`, both re-exported.
+- `src/workflow/events.ts`: `WorkflowEvent.source?`, read only (`wf.emit` gives none: its `from` is
+  the sending run); `EventData`, new here
+  because `WorkflowContext.emit`, author surface, uses it too.
 - `src/records.ts`: the mailbox event's `source?`; the run record's `args`.
 - `src/workflow/executable.ts`: `WithoutEvents.file?: string`; `defineWorkflow` keeps a given
   `file` in its return type by overloads, plain and with events, that take `& { file: string }` and
   return `& { readonly file: string }`, so it holds with explicit type arguments
   (`defineWorkflow<FeatureArgs, Handoff>`, `examples/feature-delivery/workflow.ts:108`) too; the
-  events form's `StartsAndFile` (`executable.ts:126`) stops widening it to `file?`.
+  events form's `StartsAndFile` (`executable.ts:127`) stops widening it to `file?`.
 
 ### packages/engine
 
@@ -225,20 +232,25 @@ Out of scope:
 - `src/workflow-loader.ts`: checks a plain workflow's `file` against its path, as an event one's.
 - `src/emit.ts` `emitEvent`, `emitToRun`, `deliver`, `createEventRun`: the client's emit and reply
   paths; `source` written. `emitToRun` loads the target's file through the loader
-  (`emit.ts:103`); the client's reply checks against the value it is given instead, so no
-  author-surface plugin is registered in the program. `openEventRun` (`emit.ts:259`), `awf run
+  (`emit.ts:102`); the client's reply checks against the value it is given instead, so no
+  author-surface plugin is registered in the program. `openEventRun` (`emit.ts:240`), `awf run
   --id`'s path, wakes a run that exists; `start` doesn't reuse it, since it launches only a run
   with no attempt.
 - `src/run-prepare.ts`, `src/runs.ts` `createRun`, `src/projects.ts` `recordProject`: a run created
-  from code, with args, registered; attempts that use recorded args.
+  from code, with args, registered; attempts that use recorded args; a plain workflow that gives
+  `file` keeps its runs in its project's run root, registered, without `eventRunRefusal`.
+- `src/run-lock.ts`: a reader of the run lock's live holder, judged as `claim` judges one gone.
 - `src/run-state.ts` `statusOf`, `stuckOf`; `src/runs.ts` `readAttempts`; `src/attempt-output.ts`:
   `status` and `wait`.
 - `src/inbox-command.ts`: the reader `inbox()` shares.
 - `src/mailbox.ts`: `source` into the event a wait returns.
-- `src/client/`, new; `package.json` `exports` gains `./client`.
+- `src/client/`, new; `package.json` `exports` gains `./client` and `./hand-over`, the bin's
+  import, so the hand-over loads none of the engine.
 - `src/workflow-testing/`: the fake client.
-- `src/wake.ts` `detachedLaunch`: unchanged; it spawns the `operator-cli.ts` beside itself, which
-  is at the project's version, the project's own after a hand-over.
+- `src/wake.ts` `detachedLaunch`: it spawns the `operator-cli.ts` beside itself, which is at the
+  project's version, the project's own after a hand-over. After the claim it waits up to 5 s for
+  the coordinator socket (`wake.ts:229`), which a plain run opens only when a participant connects;
+  it waits for it only for a run with events, so a plain `start` returns at the claim.
 
 ### packages/agentswf
 
@@ -281,15 +293,15 @@ type Client = {
     options?: { eventId?: string; source?: string },
   ): Promise<EmitResultJson>;
   start<Args extends JsonValue, Result extends JsonValue>(
-    workflow: Startable<Args, Result>, args: Args, options?: { id?: string },
+    workflow: Startable<Args, Result>, args: NoInfer<Args>, options?: { id?: string },
   ): Promise<StartResult<Result>>;
-  get<Result extends JsonValue>(workflow: Startable<any, Result>, run: string): Promise<Run<Result>>;
+  get<Result extends JsonValue>(workflow: Startable<any, Result>, run: string): Promise<Run<Result>>; // ClientError if it isn't there
   inbox(workflow: Startable<any, any>, options?: { after?: string }): Promise<InboxItemJson[]>;
 };
 
 type StartResult<Result> = {
   run: Run<Result>;
-  did: "started" | "exists" | "launch-failed";
+  did: "started" | "exists" | "launch-failed" | "stuck";
   error?: string;
 };
 
@@ -297,7 +309,7 @@ type Run<Result> = {
   readonly id: string;
   readonly ref: string;                                   // {workflow}/{id}, for awf runs and logs
   status(): Promise<RunStatus<Result>>;
-  wait(options?: { final?: boolean }): Promise<RunStatus<Result>>;
+  wait(options?: { final?: boolean; signal?: AbortSignal }): Promise<RunStatus<Result>>;
 };
 
 type RunStatus<Result> = {
@@ -317,23 +329,74 @@ declare function client(options?: { home?: string; environment?: Record<string, 
 
 - `emit` and `wf.emit` share `EventData`. They differ in two ways, both because the client stands
   outside the run: it may send a participant's reply, which a workflow can't, and it returns the
-  CLI's result. A reply goes to a run that exists and never starts one.
-- `start` is "make sure this run exists and has been launched". Without `id`, the workflow's
-  `id(args)` names the run, or else a new id as `awf run` makes one. A new id is created with its
-  args and launched: `started`. An id already there is `exists`, its args not compared, and if it has
-  never had an attempt it is launched now, so a retry after a failed launch works for a plain run as
-  for an event one. A launch that fails is `launch-failed`, the run kept. For a workflow with
+  CLI's result. A reply goes to a run that exists and never starts one; to an id with no run it
+  throws `no-run`, where `awf emit {run}` exits 1 with no JSON (`emit-command.ts:50`).
+- `start` is "make sure this run exists and has been launched". `args` is `NoInfer<Args>`, so
+  `Args` is inferred from the workflow alone: inferred from both, `null` widened it, and `start`
+  took `null` for any workflow and anything for one without args (tsc probe, round 6). Without
+  `id`, the workflow's `id(args)` names the run, or else, for a workflow without `starts`, a new id
+  as `awf run` makes one; a workflow with `starts` and no `id()` is refused (`no-id`), as `awf run`
+  refuses it (`run-prepare.ts:86`), since its senders name its runs. A new id is created with its
+  args and launched: `started`. An id already there with the same args, compared as canonical JSON
+  (`canonical-json.ts`), is `exists`, and if it has never had an attempt it is launched now, so a
+  retry after a failed launch works for a plain run as for an event one; that call is `exists` too,
+  since the run was there, and `launch-failed` if the launch fails again. An id already there with
+  other args, or with no `args` field (begun by `emit` or by `awf run`, which records argv), throws
+  `other-args`, as `awf run --id` refuses other argv (`openEventRun`): a second `start` with
+  `dryRun: true` must not quietly return the first run. `get` reaches such a run. A launch that
+  fails is `launch-failed`, the run kept; three in a row make the run stuck (`stuckOf` counts the
+  mailbox's `launch-failed`), and a `start` then is `stuck`, launching nothing, as `wake` does.
+  For a workflow with
   `starts`, `start` is how a run gets args: a run begun by `emit` gets what `prepare` makes of none,
   and one begun by `start` has no starting event, so its first `receive` waits.
+- A plain run that failed or crashed is not continued by `start` (`exists`, nothing launched) nor
+  by `tick`, which passes over runs without events (`tick-command.ts:55`). `awf run {file}
+  --id {id} --continue` continues it: a plain workflow that gives `file` keeps its runs in its file's
+  project's run root, registered, whoever starts or continues them, as an event workflow's are.
+  Only that part of the event rule (`run-prepare.ts:72-82`) is extended: `eventRunRefusal` is not,
+  so `awf run` keeps `--values`, `--from-stage`, `--timeout`, `--sandbox`, `--cwd` and an explicit
+  `--run-root` for it, and a CLI start works in the shell's directory or `--cwd` as today. A run
+  started from code works in the project root. No plain workflow gives `file` today, so no run
+  moves. The client gains a `continue` when a program needs one, additively.
 - `wait()` resolves at the run's next rest after the call, or at once if it isn't running;
   `wait({ final: true })` at the first rest whose `final` is true. A crash is a rest (`interrupted`).
-  `wait` and `status` reject only when awf can't read the run.
-- `ClientError { code, message, ref? }`: an unknown or refused name, data a schema refuses, an id
-  the grammar refuses, a workflow whose `file` isn't its own path, a project with no `agentswf`, a
-  project at another version than the client's. Whether `file` is its own path: the client imports
-  `file`, which its module cache already holds, and checks its default export is the value given,
-  as the loader does (`workflow-loader.ts:89`). A project with no `agentswf` is refused because it
-  runs on whichever global `awf` is installed, which the client can't vouch is its version.
+  A rest is read from the attempt records, not by sampling `state`: an attempt current at the call,
+  or any later one, gaining an `outcome` or found dead by its pid; or a `launch-failed` appended to
+  the mailbox after the call, the run's lock free. Sampled, a park a wake continued between two
+  polls would read `running` both times and be missed.
+  `wait` and `status` reject only when awf can't read the run, and `wait` when its `signal` aborts,
+  with the signal's reason: a final wait on a parked run, or on an event run that failed with
+  nothing to wake it, would otherwise never resolve. `get` of an id with no run throws `no-run`.
+- A run with no attempt whose mailbox holds a `launch-failed` is `interrupted` at once, not
+  `running` for the minute `statusOf` gives an attempt to claim it (`run-state.ts:80`): `awf runs`
+  reads it so too, and a `wait()` after `launch-failed` resolves at once. While a live sender holds
+  the run's lock it is `running`, since that sender is launching it again: a plain run read
+  `interrupted` then would be `final`, and another program's final wait would resolve mid-launch.
+  The lock is read without taking it; a holder whose process is gone, a webhook killed mid-launch,
+  is not live. The rule applies only to a run with no attempt, in `status()` and `awf runs` alike.
+- A plain run reads its mailbox only for `launch-failed`, which only a run started from code has:
+  those count toward `stuck`, and a plain run's failed attempts don't, so a plain run continued and
+  failing three times is `failed` in `awf runs`, as today (`run-state.ts:48`, `records.ts:827`).
+- A run started from code is detached, with no terminal. What its agents ask a person and what it
+  posts land in `inbox()` and `awf inbox` as an event run's do (story 032), and an answer goes by
+  `awf reply` from a shell until the client gains it; until then the run waits, `running`, as long
+  as the question's `timeoutMs` allows. The guide says so.
+- `class ClientError extends Error { code: ClientErrorCode; ref?: string }`, declared in
+  `@agentswf/contract/client` and exported as a value by `agentswf/client`, so a handler can
+  `instanceof` it and the fake throws the same class. Its `code` is one of: `event`, an unknown or
+  refused name or data a schema refuses; `id`, a run or event id the grammar refuses, or one
+  `id(args)` returns; `no-id`; `prepare`, a starting event whose `prepare` refuses no argv
+  (`checkStartArgs`, `emit.ts:195`) or an `id(args)` that throws; `file`, a workflow whose `file`
+  isn't its own path; `project`, a workflow directly in home (`projects.ts:16`); `no-engine`, a
+  project with no `agentswf`, or one declared and not installed; `other-engine`, a project at
+  another version than the client's; `no-run`; `other-args`; `cursor`, an `after` made for another
+  run or filter (`inbox-command.ts:124`). Every `EmitError` and `RunRefused` the shared code throws
+  maps to one; anything else, such as a run awf can't read or an I/O failure, rejects as it is. Whether `file` is its own
+  path: the client imports `file`, which its module cache already holds, and checks that its default
+  export is the value given. The loader takes the default export (`workflow-loader.ts:72`) and
+  compares real paths (`:91`); the identity check is new, and refuses a workflow exported only by
+  name, which the loader refuses too. A project with no `agentswf` is refused because it runs on
+  whichever global `awf` is installed, which the client can't vouch is its version.
 - `inbox(workflow, { after })` is `awf inbox --workflow {name} --after {cursor} --json` in the
   workflow's project: every item of its runs, oldest first, each with its `cursor`. A bot passes
   the last item's cursor to its next read and relays each item once.
@@ -353,17 +416,32 @@ declare function client(options?: { home?: string; environment?: Record<string, 
   the check below.
   It compares that installed version with its own; if they differ it warns and runs
   `[process.execPath, "--no-env-file", {the project's awf}, ...argv]` as a child, stdio inherited,
-  SIGINT left to the process group, SIGTERM and SIGHUP forwarded, and exits with the child's code.
-  `AWF_ENGINE` is set on the child, which never hands over again. `init`, `help` and `--version`
-  don't hand over; `--version` prints the global's and the project's.
+  SIGTERM and SIGHUP forwarded, and exits with the child's code or signal. SIGINT reaches the child
+  through the process group, and the parent ignores it and waits, so the shell's prompt doesn't
+  return while the child is still ending its run.
+  `AWF_ENGINE`, the path of the engine the child is, is set on it, and an `awf` skips the hand-over
+  only when it names that `awf`'s own engine: a guard against a loop, since the child, walking from
+  the same directory, finds itself at its own version and wouldn't hand over anyway. Agents inherit
+  a foreground run's environment (`harness/src/command.ts:232`); the `awf` an agent runs is the
+  global on its `PATH`, which `AWF_ENGINE` doesn't name, so it hands over as any command does, in
+  the run's project or another. `init`, `help`, `--version` and
+  `tick --all` don't hand over; `--version` prints the global's and the project's. `tick --all`
+  names no project, so the cwd's would be the wrong one to hand it to: an engine older than this
+  story would wake every project's runs on itself, today's bug.
 - **Checked where it is used.** An engine that resolves a command's file or run (`run`, `test`,
   `emit`, `runs`, `logs`, `inbox` and `reply` given a run) refuses one whose project's engine is
   at another version, and names the project to run from; so does `wf.emit`, for its target. One
   project, one engine: a file in a project whose directory resolves an `agentswf` at another
-  version is refused.
+  version is refused. A project with no `agentswf` has no engine of its own, so any engine runs its
+  runs, as every engine does today; the client alone refuses it (`no-engine`). One declared and not
+  installed is refused by every engine, naming `bun install`.
 - **`awf tick --all`** runs, for each project in `~/.awf/projects`, that project's engine as
-  `tick --run-root {project}/.awf/runs --json`, itself in-process when the project is at its
-  version, and merges the results.
+  `[process.execPath, "--no-env-file", {the project's awf}, "tick", "--run-root",
+  "{project}/.awf/runs", "--json"]`, in the project's directory with `AWF_ENGINE` set, as the
+  hand-over launches it, so the child never hands over by its own cwd; itself in-process when the
+  project is at its version, and merges the results. A project with no `agentswf` is ticked in-process; one declared
+  and not installed is reported and passed over, as a project that is gone is, and the others are
+  ticked.
 - **Cost:** none when the versions match; when they differ, a second Bun start, ~10 ms, because
   the hand-over runs before the engine is imported, and a warning that names the mismatch.
 - **Transition:** a global `awf` that predates this story doesn't hand over. It refuses a run with
@@ -376,7 +454,10 @@ declare function client(options?: { home?: string; environment?: Record<string, 
 ### Recorded args
 
 - The run record gains `args`, written when a run is started from code, at a new record version, so
-  an engine that predates it refuses the run instead of preparing empty argv. An attempt of a run
+  an engine that predates it refuses the run instead of preparing empty argv. Every run started
+  from code has the field, `null` included for a workflow without args, and `argv: []`; only such a
+  run is written at that version, and every other run keeps today's, so an older engine still reads
+  and wakes them. An attempt of a run
   with `args` skips `prepare` and runs with them. `id(args)` still names the run.
 - A continue follows the stage rule: a plain run stops across a major `meta.version`, recorded with
   the args; an event run continues, as its stage records do.
@@ -386,7 +467,9 @@ declare function client(options?: { home?: string; environment?: Record<string, 
 ### `source`
 
 - The mailbox event and `WorkflowEvent` gain `source?: string`, an id's grammar. `from` keeps its
-  closed meaning. `awf emit --source` sets it; `awf inbox` and `awf logs` show it.
+  closed meaning. `awf emit --source` sets it, the mailbox record keeps it, and the event a wait
+  returns carries it. Neither `awf inbox` nor `awf logs` shows a received event today; showing
+  them, with `source`, is a new item in two published JSON formats, later.
 - Not `via`: that name is taken in the same records, inbox messages carrying `via: OutsideVia`, a
   closed `"terminal" | "command" | "test"` (`records.ts:636`).
 
@@ -395,8 +478,11 @@ declare function client(options?: { home?: string; environment?: Record<string, 
 - `agentswf/testing` exports `fakeClient(script?)`, imported only by a program's tests, as
   `testWorkflow` is by a workflow's: a `Client` that keeps its calls in order and runs the real
   one's pure checks (`checkEvent`, `fileOf`, `idProblem`, the event-id grammar), so a test sees the
-  `ClientError` the real one throws. Unscripted, an emit is `accepted`, `did: "started"` for an id's
-  first and `"nudged"` after; a start is `started`; a `Run` rests as the script says.
+  `ClientError` the real one throws. Unscripted, it keeps the ids it has seen and answers as the
+  real one's rules do: an event to a new id is `started` if it may start one and refused
+  `not-a-start` if not, and `nudged` to an id seen; a reply to an unseen id throws `no-run`; a
+  start is `started` for a new id, `exists` for one seen with the same args, and `other-args` for
+  other args; a `Run` rests as the script says.
 
 Alternatives rejected:
 
@@ -460,10 +546,15 @@ Settled with the user, 2026-11-04:
   the event-id grammar kept, the guide showing how to hash a foreign id; replies through `emit`;
   the project's `agentswf` for every operation.
 
-Settled in refinement, each the default unless the user says otherwise: the fake client in
-`agentswf/testing`, beside `testWorkflow`; a client outside a project's engine refused; one engine
-per project directory; a started run in its project root; `start` idempotent by id; `inbox` in the
-client.
+- `start` is idempotent by id and args: the same args are `exists`, other args a `ClientError`, as
+  `awf run --id` refuses other argv (review round 5).
+- A detached run's questions are read with `inbox()` and answered with `awf reply`; the client
+  gains a reply later (review round 5).
+
+Proposed in refinement, for the user's approval at task 1: the fake client in `agentswf/testing`,
+beside `testWorkflow`; a client outside a project's engine refused; a project with no `agentswf`
+refused by the client; one engine per project directory; a started run in its project root;
+`inbox` in the client; `wait`'s `signal`.
 
 ## Task execution rule
 
@@ -494,10 +585,12 @@ Done when:
 
 - `client.typecheck.ts` compiles; it accepts an event and a declared reply, and refuses an
   undeclared name, refused data, `{key}:ended`, an undeclared reply key, an emit to a plain
-  workflow, args `prepare` doesn't return, and a workflow without `file`; it infers `Result` on a
+  workflow, args `prepare` doesn't return, `null` args for a workflow that takes some, args for
+  one that takes none, and a workflow without `file`; it infers `Result` on a
   `Run` for a plain, an event and a no-args workflow, and keeps `file` through `defineWorkflow`
   with explicit type arguments.
-- The user has approved the types and both ADRs, recorded under Implementation notes.
+- The user has approved the types, both ADRs and the refinement proposals under Decisions,
+  recorded under Implementation notes.
 
 ### 2. One engine per project
 
@@ -511,23 +604,34 @@ Done when:
   author surface, with and without an `.awf/` in the project yet; a folder with no `agentswf` runs
   on the global one; one declared and not installed is refused with
   `bun install`; the same version runs on the global with no hand-over and no warning; a different
-  one warns once; `AWF_ENGINE` stops a second hand-over; `awf --version` prints both versions.
+  one warns once; an `awf` that `AWF_ENGINE` names doesn't hand over, and one it doesn't name
+  does, so an agent of a handed-over run that runs the global `awf`, in its own project or another,
+  hands over; `awf --version` prints both versions;
+  Ctrl-C during a handed-over `awf run` returns the prompt only after the child has exited, with
+  its code.
 - A foreground command still reads no `.env`, and a detached attempt still reads the project's.
 - A file whose directory resolves an `agentswf` at another version than its project's is refused,
   and so are a CLI command, a `wf.emit` and a client reaching a project at another version, each
   naming the project to run from.
-- Manual: the published beta.5 as the project's engine, under a global built from this branch, and
-  a global older than this story, which refuses or passes over a run with args.
+- `awf tick --all` from inside a third project at another version runs on the global and wakes each
+  project on its own engine, a project with no `agentswf` in-process, and reports and passes over
+  one declared and not installed.
+- An engine at this story's version runs a `--target` or `wf.emit` into a project with no
+  `agentswf`.
+- Manual: the published beta.5 as the project's engine, under a global built from this branch,
+  including `awf tick --all` run from inside it; and a global older than this story, which refuses
+  or passes over a run with args.
 
 ### 3. Emit, replies, `source` and `inbox`
 
 Done when:
 
 - Tests show a run started by its first event, a live run nudged, a parked run continued, a
-  duplicate id, a returned run refused, a launch that failed, a reply to a run, and a reply to no
-  run refused, each the `EmitResultJson` that `awf emit --json` gives for the same case.
-- `source` reaches the event a wait returns, `awf emit --source` sets it, and `awf inbox` and
-  `awf logs` show it.
+  duplicate id, a returned run refused, a launch that failed and a reply to a run, each the
+  `EmitResultJson` that `awf emit --json` gives for the same case; a reply to no run throws
+  `no-run`.
+- `source` reaches the event a wait returns, `awf emit --source` sets it, and the mailbox record
+  keeps it.
 - `inbox(workflow, { after })` returns what `awf inbox --workflow --after --json` lists, and a read
   from the last item's cursor returns only what came after.
 - A reply from the client registers no author-surface plugin in the program.
@@ -536,15 +640,44 @@ Done when:
 
 Done when:
 
-- A run started from code, plain and with events, completes, fails, parks and continues; its
+- A run started from code completes and fails, plain and with events; an event run parks and an
+  event continues it; its
   record is `awf run`'s plus its args and, for a plain run, the `env`, `file` and project an event
   run records; its args are used by every attempt, `prepare` not run.
-- `start` of an id already there is `exists`; of one with no attempt, launches it; a launch that
-  fails is `launch-failed` and a second `start` launches it; with no `id`, `id(args)` names it.
-- A plain workflow whose `file` isn't its own path is refused, by the client and by the loader.
+- `start` of an id already there with the same args is `exists`; with other args, or of a run the
+  CLI started with argv, throws a `ClientError`; of one with no attempt, launches it; a launch that
+  fails is `launch-failed` and a second `start` launches it; with no `id`, `id(args)` names it,
+  and a workflow with `starts` and no `id()` throws `no-id`; with neither `id` nor `id(args)` on a
+  workflow without `starts`, a new id is generated; a run begun by `emit` throws `other-args`; the
+  same args in another key order are `exists`; a no-args workflow started twice by id is `exists`;
+  a `start` that relaunches a run with no attempt is `exists`.
+- A plain run started from code that failed is continued by `awf run {file} --id {id} --continue` run
+  from outside its project, and `start` of it is `exists` with nothing launched. On a plain
+  workflow with `file`, `awf run` still takes `--from-stage`, `--timeout` and `--cwd`, and its runs
+  land in the project.
+- A plain run whose launch failed three times is `stuck`; one whose continues failed three times is
+  `failed`.
+- A lock left by a sender killed mid-launch doesn't hold a run with no attempt at `running`.
+- A plain `start` returns once its attempt has claimed the run, with no wait for a socket.
+- While a second `start` holds the lock relaunching a run whose launch failed, `status()` from
+  another program is `running` and a final wait there doesn't resolve.
+- Three launches that fail make a `start` `stuck`; after one, `status()` is `interrupted` at once
+  and `wait()` resolves at once.
+- `get` of an id with no run throws `no-run`.
+- A run started from code is written at the new record version with `args`, `null` for a no-args
+  workflow, and `argv: []`; every other run at today's.
+- A plain workflow whose `file` isn't its own path is refused, by the client and by the loader; a
+  workflow whose default export isn't the value given, the client refuses with `file`.
+- The client refuses a project with no `agentswf`, and one declared and not installed, with
+  `no-engine`; each `ClientErrorCode` is thrown by at least one test, and is an `instanceof
+  ClientError` imported from `agentswf/client`.
 - A second program gets the run by workflow and id and reads the same status.
-- `wait()` resolves at a park and at a crash; `wait({ final: true })` waits across a park and a
-  failed attempt a wake continues, and resolves on a stuck run and on a plain run's failure.
+- `wait()` resolves at a park and at a crash, and at a park a wake continued before its next
+  poll; `wait({ final: true })` waits across a park and a
+  failed attempt a wake continues, and resolves on a stuck run and on a plain run's failure; an
+  aborted `signal` rejects a pending wait with its reason.
+- A plain run started from code whose agent asks a person shows the question in `inbox()`, and an
+  `awf reply` to it lets the run go on.
 - A plain run started from code is found by `awf runs` from elsewhere.
 - A continue of a plain run across a major `meta.version` stops; an event run's continues.
 
@@ -554,7 +687,8 @@ Done when:
 
 - A handler's test records its emits and starts in order with their typed data, scripts a
   `launch-failed` and a rest, and sees the `ClientError` the real client throws for a mixed-case
-  event id.
+  event id. Unscripted, it refuses a non-starting event to a new id as `not-a-start`, throws
+  `no-run` for a reply to an unseen id, and answers a second `start` of an id `exists`.
 
 ### 6. An example and the guide
 
@@ -565,8 +699,9 @@ Done when:
   `PATH` with the harnesses, Bun, not a serverless function) and that the project's `agentswf` is
   the engine. It shows `eventId` from a delivery id, hashing one the grammar refuses, a handler
   that responds before an emit that may launch, an inbox read by cursor, that a failed event run
-  waits for its next event or `awf tick`, that a redeployed workflow needs the program restarted,
-  and that verifying the sender is the program's job.
+  waits for its next event or `awf tick`, a final wait bounded by a `signal`, that a person
+  answers a started run's questions with `awf reply`, that a redeployed workflow needs the program
+  restarted, and that verifying the sender is the program's job.
 - `site/guide/install.md`'s updating section says `bun add -g agentswf` updates a folder with no
   `agentswf`, and `bun add -d agentswf` an `awf init` project; the site builds.
 
@@ -618,6 +753,57 @@ Manual or live evaluation:
   post on every read; the transition note overclaimed; a failed event run's final wait needs an
   event or a tick; several scope items had no Done-when. Disposition: all folded in; `via` renamed
   `source`; the questions moved to Decisions.
+- Round 5, a review against the code (every cited line checked): `start` returned `exists` for an
+  id started with other args, where `awf run --id` refuses other argv; a detached plain run's
+  person questions had no stated home; the hand-over's parent could exit on Ctrl-C before its
+  child; `get` of a missing id was unspecified; a final wait had no way out; whether every new run
+  or only one with `args` takes the new record version was unstated; `EventData` had two homes;
+  task 3's order against 039's task 10 was unstated; refinement defaults read as settled. Disposition:
+  all folded in, the defaults moved to task 1's approval. Considered and not taken: one engine per
+  project as its own story; it stays task 2, and can be split out unchanged if task 1's approval
+  wants it.
+- Round 6, a fresh adversarial review with a scratch `tsc` probe: `start` inferred `Args` from both
+  parameters, so `null` passed for every workflow and anything for one without args; a reply to no
+  run promised an `EmitResultJson` the CLI never gives; `start` on a run begun by `emit` fit no
+  stated case; `start` without `id` on a workflow with `starts` and no `id()` contradicted `awf
+  run`; `tick --all` handed over by cwd to whatever engine the cwd's project pins; the file check
+  cited the wrong loader line and `ClientError.code` had no values. Disposition: all folded in;
+  `args: NoInfer<Args>` probed to refuse both and still infer.
+- Round 7, a fresh review with a `tsc` probe of the whole surface (every Outcome call compiles,
+  every task 1 refusal fires): `ClientError` was neither a declared class nor a published value, and
+  its codes missed `prepare`, `id(args)`, a workflow in home, a bad cursor and an engine declared and
+  not installed; `null` args and `argv` were unstated in the record and JSON comparison ignored key
+  order; `start` had no answer for a stuck run and a failed launch read `running` for a minute; a
+  project with no `agentswf` was unstated under the engine check and `tick --all`; `source` on
+  `wf.emit` appeared only in the Code map; the fake's defaults contradicted the real rules; several
+  promises had no Done-when; the Outcome's `release` args disagreed with Decisions; the bin's import
+  of the hand-over needed its own export; four line citations were off. Disposition: all folded in;
+  `wf.emit` takes no `source`.
+- Round 8, a fresh consistency review: `tick --all`'s per-project child had no bin, cwd or
+  `AWF_ENGINE`, so it could hand over by the shell's cwd again; nothing continued a plain run that
+  failed, since `start` is `exists`, `tick` passes it over and `awf run --continue` looked in the
+  cwd; a wait sampling `state` could miss a park a wake continued between polls; a run relaunching
+  under the lock read `interrupted`, final for a plain run; a relaunch's `did` was unstated.
+  Disposition: all folded in; a plain workflow with `file` lives in its project as an event one
+  does, and the client's `continue` is left additive.
+- Round 9, a review of round 8's text against the code: extending the event project rule whole
+  would have taken six `awf run` options from plain workflows with `file` (`eventRunRefusal`); a
+  plain run never reads its mailbox, so a failed launch never counted for it, and counting its
+  failed attempts would change `awf runs`; `wait` couldn't see a failed launch, which has no
+  attempt; a dead sender's lock would hold a run at `running` for ever; `AWF_ENGINE` leaked to a
+  foreground run's agents and stopped their hand-over in another project. Disposition: all folded
+  in; only the run root and registration move for a plain workflow with `file`.
+- Round 10, a review of round 9's text against the code: `AWF_ENGINE` naming the target engine let
+  the global `awf` an agent of a handed-over run ran in its own project skip the hand-over, and the
+  version check then refused it; a plain `start` held the lock 5 s more waiting for a socket a
+  plain run doesn't open. Disposition: both folded in; `AWF_ENGINE` guards only the engine it names.
+- Round 11, a review of round 10's text against the code: the doc wrote `awf run {file} --continue
+  {id}`, where `--continue` takes no value and the run is named by `--id` (`run-command.ts:98`).
+  Disposition: written `awf run {file} --id {id} --continue`, as `detachedLaunch` runs it.
+- Round 12, a full read against the code: `awf inbox` and `awf logs` were promised to show
+  `source`, but neither shows a received event, so keeping it meant a new item in two published
+  JSON formats. Disposition: cut to what exists; showing received events moved out of scope.
+  Nothing else material.
 
 ## Readiness
 
