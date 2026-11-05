@@ -1,20 +1,26 @@
-import { closeSync, openSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
-import {
-  MAILBOX_RECORD_VERSION,
-  type MailboxRecord,
-  type WakeDid,
-  type WakeWhy,
-} from "@agentswf/contract/records";
+import type { WakeDid, WakeWhy } from "@agentswf/contract/records";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
 import { coordinatorSocketPath, liveCoordinatorSocket } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { coordinatorDir } from "./machine";
-import { appendMailbox, foldMailbox, hasWork, readMailbox, readyFor } from "./mailbox";
+import { wakeCause } from "./run-policy/waits";
 import { statusOf, stuckOf } from "./run-state";
-import { type Run, readAttempts, sameProcess } from "./runs";
+import {
+  claimedOf,
+  generateId,
+  launchLog,
+  type Run,
+  readAttemptFiles,
+  readAttempts,
+  recordFailedLaunch,
+  sameProcess,
+} from "./runs";
 import { exchange } from "./socket-exchange";
+import { readWaits } from "./waits";
 
 /**
  * What `wake` did to a run: why it did nothing when it did nothing, and what was due when it
@@ -29,9 +35,10 @@ export type Woken = {
 
 /**
  * Starts or continues a run's attempt, returning once that attempt has claimed its number, so
- * its pid is recorded while the run's lock is held.
+ * its pid is recorded while the run's lock is held. `launch` names it: its output is
+ * `launches/{launch}.log`, and the attempt it starts records it.
  */
-export type Launch = (run: Run, file: string) => Promise<void>;
+export type Launch = (run: Run, file: string, launch: string) => Promise<void>;
 
 export type WakeContext = {
   home: string;
@@ -39,7 +46,7 @@ export type WakeContext = {
   /** The file a sender named; absent, the run's last attempt's. */
   file?: string;
   launch?: Launch;
-  /** Asks a live run's wait to read its mailbox again; false when it couldn't be reached. */
+  /** Asks a live run's wait to read its events again; false when it couldn't be reached. */
   nudge?: (run: Run) => Promise<boolean>;
   now?: () => number;
   /** False for a duplicate: a live run has the event already, and a nudge would tell it nothing. */
@@ -51,38 +58,46 @@ export type WakeContext = {
  * continue it, or nothing. The caller holds the run's lock. A limit on live runs goes here.
  */
 export async function wake(run: Run, context: WakeContext): Promise<Woken> {
-  const attempts = await readAttempts(run);
-  let read: MailboxRecord[] | undefined;
-  const mailbox = async () => {
-    read ??= await readMailbox(run.dir);
-    return read;
-  };
+  // Every attempt file, for `stuck` and the next number; what to do is decided from those that ran.
+  const files = await readAttemptFiles(run);
+  const claimed = claimedOf(files);
+  const now = () => new Date(context.now?.() ?? Date.now());
   const launch = async (
     did: "started" | "continued",
     cause: NonNullable<Woken["cause"]>,
   ): Promise<Woken> => {
-    const file = context.file ?? attempts.at(-1)?.file ?? run.record.file;
+    const file = context.file ?? claimed.at(-1)?.file ?? run.record.file;
+    const started = now();
+    const id = generateId(started, randomBytes(3).toString("hex"));
     try {
       if (file === undefined) throw new Error(`${run.record.id} has no file to run`);
-      await (context.launch ?? detachedLaunch(context))(run, file);
+      await (context.launch ?? detachedLaunch(context))(run, file, id);
       return { did, cause };
     } catch (error) {
-      // The event is in the mailbox; the next wake tries again, until Q13's limit.
+      // The event is in `in.jsonl`; the next wake tries again, until Q13's limit.
       const reason = messageOf(error);
-      read = undefined;
-      await appendMailbox(run.dir, {
-        version: MAILBOX_RECORD_VERSION,
-        at: new Date(context.now?.() ?? Date.now()).toISOString(),
-        kind: "launch-failed",
-        reason,
-      });
+      const recorded = await recordFailedLaunch(
+        run,
+        {
+          attempt: (files.at(-1)?.attempt ?? 0) + 1,
+          launch: id,
+          file: file ?? "",
+          started: started.toISOString(),
+          reason,
+        },
+        now(),
+      ).catch(() => true);
+      // Its number is taken by an attempt that claimed it after all: the launch started it.
+      if (!recorded) return { did, cause };
       return { did: "none", why: "launch-failed", error: reason };
     }
   };
-  const stuck = async () => stuckOf(attempts, await mailbox());
-  if (attempts.length === 0)
-    return (await stuck()) ? { did: "none", why: "stuck" } : launch("started", "event");
-  const { state } = statusOf(run, attempts);
+  // A launch that never claimed its number counts towards `stuck` only: the run is woken as it was
+  // before it.
+  const stuck = () => stuckOf(files);
+  if (claimed.length === 0)
+    return stuck() ? { did: "none", why: "stuck" } : launch("started", "event");
+  const { state } = statusOf(run, files);
   switch (state) {
     case "running":
       if (context.nudgeLive === false) return { did: "none" };
@@ -90,18 +105,17 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
         ? { did: "nudged" }
         : { did: "none", why: "nudge-failed" };
     case "parked": {
-      if (await stuck()) return { did: "none", why: "stuck" };
+      if (stuck()) return { did: "none", why: "stuck" };
       // Only for what the wait it parked at would take: an event it names, or its timer due.
-      const state = foldMailbox(await mailbox());
-      const takes = state.lastWait?.takes;
-      if (!hasWork(state, takes, context.now?.() ?? Date.now()))
-        return { did: "none", why: "nothing-due" };
-      return launch("continued", readyFor(state, takes).length > 0 ? "event" : "timer");
+      const at = now().getTime();
+      const state = await readWaits(run.dir, at);
+      const cause = wakeCause(state, state.lastWait?.takes);
+      return cause ? launch("continued", cause) : { did: "none", why: "nothing-due" };
     }
     case "interrupted":
     case "failed":
     case "timed-out":
-      return (await stuck())
+      return stuck()
         ? { did: "none", why: "stuck" }
         : launch("continued", state === "interrupted" ? "crashed" : "failed");
     case "stopped":
@@ -184,16 +198,17 @@ const CLAIM_MILLISECONDS = 60_000;
 
 /**
  * Runs `awf run {file} --id {id} --continue` in a session of its own (Q4), so it outlives the sender's
- * terminal, in the run's project with its recorded `PATH`, its output in the run's `process.log`.
- * Bun reads the project's `.env` there, as at every start, so a rotated token reaches it.
+ * terminal, in the run's project with its recorded `PATH`, its output in `launches/{launch}.log`,
+ * and `AWF_LAUNCH` naming it to the attempt. Bun reads the project's `.env` there, as at every
+ * start, so a rotated token reaches it.
  */
 function detachedLaunch(context: WakeContext): Launch {
-  return async (run, file) => {
+  return async (run, file, launch) => {
     const before = (await readAttempts(run)).length;
-    // Only what this launch writes is quoted if it fails: the log holds every attempt's output.
-    const from = Bun.file(join(run.dir, "process.log")).size;
-    const log = openSync(join(run.dir, "process.log"), "a", 0o600);
-    const env = attemptEnvironment(context.environment, run);
+    const path = launchLog(run.dir, launch);
+    mkdirSync(join(run.dir, "launches"), { recursive: true, mode: 0o700 });
+    const log = openSync(path, "a", 0o600);
+    const env = { ...attemptEnvironment(context.environment, run), AWF_LAUNCH: launch };
     let child: ReturnType<typeof Bun.spawn>;
     try {
       child = Bun.spawn({
@@ -238,8 +253,7 @@ function detachedLaunch(context: WakeContext): Launch {
         return;
       }
       if (child.exitCode !== null || child.signalCode !== null) {
-        const tail = await Bun.file(join(run.dir, "process.log"))
-          .slice(from)
+        const tail = await Bun.file(path)
           .text()
           .then((text) => text.trim().split("\n").slice(-3).join(" / "))
           .catch((error: unknown) => messageOf(error));
@@ -247,13 +261,10 @@ function detachedLaunch(context: WakeContext): Launch {
       }
       if (Date.now() > giveUp) {
         // One that claimed meanwhile goes on. Left running, one that did not could still claim the
-        // run later and race the next launch.
+        // run later, past the failed attempt its launcher writes: it is stopped, and waited for.
         if ((await readAttempts(run)).length > before) continue;
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          // It ended meanwhile.
-        }
+        await stopGroup(child);
+        if ((await readAttempts(run)).length > before) continue;
         throw new Error(
           `the attempt of ${run.record.id} did not start within ${CLAIM_MILLISECONDS / 1000} s`,
         );
@@ -261,4 +272,17 @@ function detachedLaunch(context: WakeContext): Launch {
       await Bun.sleep(25);
     }
   };
+}
+
+/**
+ * Kills a launched child's process group outright, and waits for it: a `SIGTERM` would be a cancel
+ * to `awf run`, which ends an event run for good.
+ */
+async function stopGroup(child: ReturnType<typeof Bun.spawn>): Promise<void> {
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // It ended meanwhile.
+  }
+  await child.exited;
 }

@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { appendFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
-  MAILBOX_RECORD_VERSION,
-  type MailboxRecord,
+  type EventLine,
+  type RunLine,
+  readRun,
   type SandboxRecord,
   type StageLine,
   type StageNeed,
@@ -33,12 +34,14 @@ import { continueCommand } from "../attempt-view";
 import { type Deprecated, RunDeprecations } from "../deprecations";
 import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
-import { appendMailbox, foldMailbox, RunParked, readMailbox } from "../mailbox";
+import { appendIn, readIn } from "../in-lines";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { type EarlierOps, listOps } from "../ops";
-import { claimRunLines, type RunLines, readRunLines } from "../run-lines";
+import { claimRunLines, type RunLines, readRunLines, runLinesFile } from "../run-lines";
+import type { TimerState } from "../run-policy/waits";
 import { createRun, idProblem, readEvents, readTurns } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
+import { RunParked, readWaits } from "../waits";
 import { assertJsonValue, type EventWorkflow } from "../workflow-loader";
 import type { RunnableWorkflow } from "../workflow-runner";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
@@ -106,18 +109,27 @@ type EventOptions<Events extends EventSchemas> = [Events] extends [never]
       events?: readonly ScriptedEvent<Events>[];
     };
 
-/** What an earlier attempt left: given, the test's attempt is that run's continue, attempt 2. */
+/**
+ * What an earlier attempt left: given, the test's attempt is that run's continue, the attempt after
+ * the latest its lines name, attempt 2 when they name none later than 1.
+ */
 export type EarlierAttempt = {
   /**
    * The stages it recorded, by name: each value, or `undefined` for a stage that returns nothing,
-   * reused without calling their work, as `awf run --continue` would.
+   * reused without calling their work, as `awf run --continue` would. Written as attempt 1's
+   * `stage` lines.
    */
   stages?: Readonly<Record<string, JsonValue | undefined>>;
   /**
-   * What it left in the run's mailbox, in order: its events, timers, and what its waits and turns
-   * wrote. A starting `event` is appended after them, as the event that woke it.
+   * The events senders gave the run, its `in.jsonl`, in order. A starting `event` is appended
+   * after them, as the event that woke it.
    */
-  mailbox?: readonly MailboxRecord[];
+  events?: readonly EventLine[];
+  /**
+   * What the run settled, its `run.jsonl` lines, in order, after `stages`: its timers, what its
+   * waits and races took, and the turns it began, as `run.run` gives them.
+   */
+  run?: readonly RunLine[];
 };
 
 type CommonTestOptions = {
@@ -186,8 +198,6 @@ type CommonTestOptions = {
   earlier?: EarlierAttempt;
   /** @deprecated Give `earlier: { stages }`. */
   recorded?: Readonly<Record<string, JsonValue | undefined>>;
-  /** @deprecated Give `earlier: { mailbox }`. */
-  mailbox?: readonly MailboxRecord[];
   /**
    * The stage the attempt starts at, as `--from-stage`: a continue of `earlier`, or a new run
    * started there. A workflow with events takes it only with `earlier`, as `awf run` takes it only
@@ -232,13 +242,8 @@ const OPTION_KEYS: readonly (keyof AnyTestOptions)[] = [
   "events",
 ];
 /** Taken, logged, until story 039's last task removes them; never suggested. */
-const DEPRECATED_KEYS: readonly (keyof AnyTestOptions)[] = [
-  "timeoutMs",
-  "stallMs",
-  "recorded",
-  "mailbox",
-];
-const EARLIER_KEYS: readonly (keyof EarlierAttempt)[] = ["stages", "mailbox"];
+const DEPRECATED_KEYS: readonly (keyof AnyTestOptions)[] = ["timeoutMs", "stallMs", "recorded"];
+const EARLIER_KEYS: readonly (keyof EarlierAttempt)[] = ["stages", "events", "run"];
 
 /**
  * A test's options as `testWorkflow` was called: `(workflow, options?)`, or the deprecated
@@ -323,13 +328,13 @@ function optionsProblem(
   }
   const { earlier } = options;
   if (earlier === undefined) return undefined;
-  if (!isObject(earlier)) return "earlier is an object: { stages?, mailbox? }";
+  if (!isObject(earlier)) return "earlier is an object: { stages?, events?, run? }";
   const unknown = Object.keys(earlier).find(
     (key) => !EARLIER_KEYS.includes(key as keyof EarlierAttempt),
   );
   return unknown === undefined
     ? undefined
-    : `earlier has no ${JSON.stringify(unknown)}: it gives ${EARLIER_KEYS.join(" and ")}`;
+    : `earlier has no ${JSON.stringify(unknown)}: it gives ${EARLIER_KEYS.join(", ")}`;
 }
 
 /** What a test of the engine, not of a workflow, may give `runTest`. */
@@ -401,7 +406,7 @@ export type ScriptedEvent<Events extends EventSchemas> = (
     | { name: "participant:reply"; from: string; data: ParticipantReply }
   );
 
-/** An event's id in the run's mailbox, as `awf emit --event-id` gives it. */
+/** An event's id in the run's `in.jsonl`, as `awf emit --event-id` gives it. */
 type EventIds = {
   eventId?: string;
   /** @deprecated Give it as `eventId`. */
@@ -472,11 +477,13 @@ export type TestRun<Result> = {
   readonly parked?: { label?: string; until?: string };
   /** The run's timers in the order set: when each was due, and whether it fired or was cancelled. */
   timers: { name: string; due: string; state: "fired" | "cancelled" | "pending" }[];
+  /** The events senders gave the run, its `in.jsonl` as the run left it, in order. */
+  events: EventLine[];
   /**
-   * Its mailbox as the run left it: its events, timers, and what its waits and turns wrote, in
-   * order; a plain run's holds its timers alone.
+   * What the run settled, its `run.jsonl` as the run left it, in order: each attempt's `claimed`,
+   * and its stages, timers, sessions, what its waits and races took, and the turns it began.
    */
-  mailbox: MailboxRecord[];
+  run: RunLine[];
 };
 
 /**
@@ -575,7 +582,7 @@ export async function runTest<Result extends JsonValue>(
     return true;
   };
   const scripted =
-    withEvents && new ScriptedEvents(withEvents, options, earlier.mailbox ?? [], now, deprecated);
+    withEvents && new ScriptedEvents(withEvents, options, earlier.events ?? [], now, deprecated);
   const maxTurns = options.maxTurns ?? 20;
   if (!Number.isInteger(maxTurns) || maxTurns < 1)
     throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
@@ -595,11 +602,13 @@ export async function runTest<Result extends JsonValue>(
         );
       const due = scripted ? scripted.due(turn) : [];
       if (due.length === 0) return;
-      for (const record of due) await appendMailbox(run.dir, record);
+      for (const line of due) await appendIn(run.dir, line);
       nudge?.();
     },
   };
-  const attempt = earlier.continues ? 2 : 1;
+  const attempt = earlier.continues
+    ? Math.max(1, ...(earlier.run ?? []).map((line) => line.attempt)) + 1
+    : 1;
   const coordinators = new ParticipantScripts(options.participants, attempt, events);
   const stopWith = (message: string) => {
     problems.push(message);
@@ -648,7 +657,9 @@ export async function runTest<Result extends JsonValue>(
   };
   let sandboxOf = new Map<string, AgentSandbox>();
   const emits: EmittedEvent[] = [];
-  let mailbox: MailboxRecord[] = [];
+  let inLines: EventLine[] = [];
+  let runLines: RunLine[] = [];
+  let timers: TestRun<Result>["timers"] = [];
   let stages: StageLine[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
@@ -668,8 +679,9 @@ export async function runTest<Result extends JsonValue>(
   let ops: EarlierOps;
   try {
     if (earlier.stages) await recordEarlierAttempt(run.dir, earlier.stages);
-    for (const record of earlier.mailbox ?? []) await appendMailbox(run.dir, record);
-    if (started.record) await appendMailbox(run.dir, started.record);
+    if (earlier.run) await writeEarlierLines(run.dir, earlier.run);
+    for (const line of earlier.events ?? []) await appendIn(run.dir, line);
+    if (started.record) await appendIn(run.dir, started.record);
     ops = await listOps(run.dir);
     lines = await claimRunLines(run.dir, attempt, new Date(now()).toISOString());
   } catch (error) {
@@ -718,7 +730,7 @@ export async function runTest<Result extends JsonValue>(
               live: async (until: number) => {
                 liveUntil = until;
                 const due = scripted.ended(host.inFlight());
-                for (const record of due) await appendMailbox(run.dir, record);
+                for (const line of due) await appendIn(run.dir, line);
                 if (due.length > 0) nudge?.();
               },
               listenNudges: (given: () => void) => {
@@ -788,7 +800,9 @@ export async function runTest<Result extends JsonValue>(
     }
     host.settle(await readTurns(run.dir));
     messages = await messagesIn(run.dir);
-    mailbox = await readMailbox(run.dir);
+    inLines = await readIn(run.dir);
+    runLines = (await readRunLines(run.dir)).lines;
+    timers = timersOf((await readWaits(run.dir, now())).timers);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
   if (problems.length === 0 && scripted) problems.push(...scripted.unsent(host.inFlight()));
@@ -853,7 +867,8 @@ export async function runTest<Result extends JsonValue>(
     },
     turns: host.turns,
     emits,
-    mailbox,
+    events: inLines,
+    run: runLines,
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
     compactions: host.compactions,
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),
@@ -871,7 +886,7 @@ export async function runTest<Result extends JsonValue>(
     decisions: decisions.asked,
     logs,
     stages,
-    timers: timersOf(mailbox),
+    timers,
     ending,
   };
   // Not enumerable, so spreading the run reads neither.
@@ -892,11 +907,12 @@ export async function runTest<Result extends JsonValue>(
   return result;
 }
 
-function timersOf(records: readonly MailboxRecord[]): TestRun<unknown>["timers"] {
-  return [...foldMailbox(records).timers.values()].map(({ name, due, fired, cancelled }) => ({
+/** Each timer: taken, or due by the run's clock and not cancelled, is `fired`. */
+function timersOf(timers: ReadonlyMap<string, TimerState>): TestRun<unknown>["timers"] {
+  return [...timers.values()].map(({ name, due, taken, fired, cancelled }) => ({
     name,
     due,
-    state: fired ? "fired" : cancelled ? "cancelled" : "pending",
+    state: taken ? "fired" : cancelled ? "cancelled" : fired ? "fired" : "pending",
   }));
 }
 
@@ -976,12 +992,27 @@ async function recordEarlierAttempt(
   }
 }
 
+/**
+ * Writes `lines`, what an earlier attempt settled, into the run's `run.jsonl` as given, once
+ * `readRun` takes them: the test's claim comes after them.
+ */
+async function writeEarlierLines(dir: string, lines: readonly RunLine[]): Promise<void> {
+  try {
+    readRun(lines);
+  } catch (error) {
+    throw new Error(`earlier.run: ${messageOf(error)}`);
+  }
+  await appendFile(runLinesFile(dir), lines.map((line) => `${JSON.stringify(line)}\n`).join(""), {
+    mode: 0o600,
+  });
+}
+
 /** An event a test sends while its run goes on, once its turn begins. */
 type PendingEvent = {
   at: string;
   after: boolean;
   name: string;
-  record: MailboxRecord;
+  record: EventLine;
   /** Its turn, once begun: an `after` event waits for it to end. */
   turn?: TestTurn;
 };
@@ -993,8 +1024,8 @@ class ScriptedEvents {
   constructor(
     workflow: EventWorkflow,
     options: AnyTestOptions,
-    /** What the earlier attempt left in the mailbox, whose event ids are taken. */
-    earlier: readonly MailboxRecord[],
+    /** The events the earlier attempt left, whose ids are taken. */
+    earlier: readonly EventLine[],
     /** The run's clock, which stamps what is sent. */
     private readonly now: () => number,
     deprecated: (name: Deprecated) => void,
@@ -1010,7 +1041,7 @@ class ScriptedEvents {
       ids.add(id);
       return id;
     };
-    for (const record of earlier) if (record.kind === "event") ids.add(record.id);
+    for (const line of earlier) ids.add(line.id);
     if (options.event) idOf(eventIdOf(options.event, deprecated), `${AWF_ID_PREFIX}start`);
     this.#pending = (options.events ?? []).map((event, index) => {
       if ((event.during === undefined) === (event.after === undefined))
@@ -1044,24 +1075,24 @@ class ScriptedEvents {
         at,
         after,
         name: event.name,
-        record: { version: MAILBOX_RECORD_VERSION, kind: "event", ...sent },
+        record: sent,
       };
     });
   }
 
   /** The events due during `turn`, taken off the list, stamped now; those after it wait for it. */
-  due(turn: TestTurn): MailboxRecord[] {
+  due(turn: TestTurn): EventLine[] {
     const at = `${turn.agent}#${turn.n}`;
     for (const each of this.#pending) if (each.after && each.at === at) each.turn = turn;
     return this.#take((each) => !each.after && each.at === at);
   }
 
   /** The run waits live: the events after a turn that has ended, taken off the list. */
-  ended(inFlight: readonly TestTurn[]): MailboxRecord[] {
+  ended(inFlight: readonly TestTurn[]): EventLine[] {
     return this.#take((each) => each.turn !== undefined && !inFlight.includes(each.turn));
   }
 
-  #take(which: (each: PendingEvent) => boolean): MailboxRecord[] {
+  #take(which: (each: PendingEvent) => boolean): EventLine[] {
     const due = this.#pending.filter(which);
     for (const each of due) this.#pending.splice(this.#pending.indexOf(each), 1);
     return due.map((each) => ({ ...each.record, at: new Date(this.now()).toISOString() }));
@@ -1111,7 +1142,7 @@ function startOf(
   workflow: EventWorkflow | undefined,
   options: AnyTestOptions,
   deprecated: (name: Deprecated) => void,
-): { id: string; record?: MailboxRecord } {
+): { id: string; record?: EventLine } {
   const { event, id = "test" } = options;
   if (typeof id !== "string") throw new Error(`a run's id is a string, not ${JSON.stringify(id)}`);
   const problem = idProblem(id);
@@ -1123,10 +1154,8 @@ function startOf(
     throw new Error(
       `${event.name} doesn't start a run of ${workflow.meta.name}: its starts are ${starts.join(", ")}`,
     );
-  const record = {
-    version: MAILBOX_RECORD_VERSION,
+  const record: EventLine = {
     at: new Date().toISOString(),
-    kind: "event" as const,
     id: eventIdOf(event, deprecated) ?? `${AWF_ID_PREFIX}start`,
     name: event.name,
     data: event.data,
@@ -1137,30 +1166,24 @@ function startOf(
 }
 
 /**
- * What the earlier attempt left, from `earlier` or its deprecated forms, `recorded` and `mailbox`;
- * `continues` when it left anything, so the test's attempt is attempt 2.
+ * What the earlier attempt left, from `earlier` or its deprecated form `recorded`; `continues`
+ * when it left anything, so the test's attempt is a continue.
  */
 function earlierOf(
   options: AnyTestOptions,
   deprecated: (name: Deprecated) => void,
 ): EarlierAttempt & { continues: boolean } {
-  const { earlier = {}, recorded, mailbox } = options;
+  const { earlier = {}, recorded } = options;
   if (recorded !== undefined) {
     if (earlier.stages !== undefined)
       throw new Error("give earlier.stages alone: recorded is its deprecated form");
     deprecated("test-recorded");
   }
-  if (mailbox !== undefined) {
-    if (earlier.mailbox !== undefined)
-      throw new Error("give earlier.mailbox alone: mailbox is its deprecated form");
-    deprecated("test-mailbox");
-  }
   const stages = earlier.stages ?? recorded;
-  const left = earlier.mailbox ?? mailbox;
   return {
+    ...earlier,
     ...(stages === undefined ? {} : { stages }),
-    ...(left === undefined ? {} : { mailbox: left }),
-    continues: options.earlier !== undefined || stages !== undefined || left !== undefined,
+    continues: options.earlier !== undefined || stages !== undefined,
   };
 }
 

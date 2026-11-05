@@ -2,10 +2,10 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitCommand } from "./emit-command";
-import { appendMailbox } from "./mailbox";
+import { appendIn } from "./in-lines";
 import { runOperatorCli } from "./operator-cli";
 import { readRunLines } from "./run-lines";
-import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
+import { createRun, launchLog, openRun, previousGone, processStart, readAttempts } from "./runs";
 import { stopCrashed } from "./stop-crashed";
 import { createTempRunDirs, eventProject, lastLines, until, writeAttempt } from "./testing";
 import { wake } from "./wake";
@@ -71,7 +71,14 @@ test("an event starts a detached run, which parks; the next continues it, from a
   expect((await readAttempts(run)).map((a) => a.outcome)).toEqual(["parked", "completed"]);
   // It returned having taken every event; its output went to the run's log, not a terminal.
   expect((await readAttempts(run)).at(-1)?.unacknowledged).toBe(0);
-  expect(await Bun.file(join(run.dir, "process.log")).text()).toContain("◇ parked: 1 seen");
+  // Each launch has its own log, named by the launch its attempt records.
+  const attempts = await readAttempts(run);
+  const launches = attempts.map((each) => each.launch);
+  expect(launches.every((launch) => typeof launch === "string")).toBe(true);
+  expect(new Set(launches).size).toBe(2);
+  expect(await Bun.file(launchLog(run.dir, launches[0] as string)).text()).toContain(
+    "◇ parked: 1 seen",
+  );
   const output = JSON.parse(await Bun.file(join(run.dir, "output.json")).text()) as {
     ref: string;
     value: unknown;
@@ -345,8 +352,8 @@ test("a --from-stage never reached keeps the timers of the wait it was parked at
     return { code, text };
   };
   expect((await own("--from-stage", "nope")).code).toBe(3);
-  const mailbox = await Bun.file(join(run.dir, "mailbox.jsonl")).text();
-  expect(mailbox).not.toContain("timer-cancelled");
+  const lines = await Bun.file(join(run.dir, "run.jsonl")).text();
+  expect(lines).not.toContain('"cancelled":true');
   const next = await own();
   expect(next.code).toBe(0);
   expect(next.text).not.toContain("cancelled");
@@ -448,10 +455,8 @@ test("a continue claims its attempt first, so wake returns, then waits for the p
     ended: now,
     outcome: "parked",
   });
-  await appendMailbox(run.dir, {
-    version: 1,
+  await appendIn(run.dir, {
     at: now,
-    kind: "event",
     id: "c1",
     name: "dd.changes",
     data: { case: "k", n: 1 },
@@ -504,6 +509,7 @@ test("a continue after a crash stops what is left of the crashed attempt's group
     {
       version: 1,
       attempt: 1,
+      kind: "attempt",
       file: "/f.ts",
       flags: {},
       pid: attempt.pid,

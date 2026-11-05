@@ -1,11 +1,21 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunLine } from "@agentswf/contract/records";
+import { runOperatorCli, takeLaunch } from "./operator-cli";
 import type { RunCommand } from "./run-command";
 import { claimRunLines, readRunLines, runLinesFile } from "./run-lines";
 import { claimNext } from "./run-prepare";
-import { createRun, processStart } from "./runs";
+import { statusOf } from "./run-state";
+import {
+  createRun,
+  endAttempt,
+  launchLog,
+  processStart,
+  readAttemptFiles,
+  readAttempts,
+  recordFailedLaunch,
+} from "./runs";
 import { createTempRunDirs, writeAttempt } from "./testing";
 import type { LoadedWorkflow } from "./workflow-loader";
 
@@ -13,6 +23,7 @@ const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
 
 const AT = "2026-11-05T10:00:00.000Z";
+const GONE = { pid: Bun.spawnSync(["true"]).pid, processStart: "2026-10-11T09:00:00Z" };
 
 const stage = (attempt: number, name: string): RunLine => ({
   kind: "stage",
@@ -153,5 +164,98 @@ describe("the claim", () => {
     // The claim's writer is the attempt's.
     await attempt.lines.append(stage(2, "plan"));
     expect((await readRunLines(run.dir)).view.stages.plan?.settled?.attempt).toBe(2);
+  });
+  test("a failed launch hides no attempt: the claim waits for the one before it, a crashed one is stopped and not resumed", async () => {
+    const root = dirs.tempRunDir();
+    const make = (id: string) =>
+      createRun(join(root, "runs"), {
+        id,
+        workflow: "w",
+        argv: [],
+        cwd: root,
+        sandbox: null,
+        events: true,
+      });
+    const failed = (attempt: number) =>
+      recordFailedLaunch(run, {
+        attempt,
+        launch: `l${attempt}`,
+        file: "/flows/case.ts",
+        started: new Date().toISOString(),
+        reason: "down",
+      });
+    const run = await make("k");
+    const ended = { ended: new Date().toISOString(), outcome: "failed" as const };
+    await writeAttempt(run, { ...GONE, ...ended });
+    await writeAttempt(run, { ...GONE, ...ended });
+    // Attempt 3 parked, its process still closing its agents; then a launch never claimed 4.
+    const closing = Bun.spawn({ cmd: ["sleep", "0.4"] });
+    await Bun.sleep(50);
+    const parked = { ended: new Date().toISOString(), outcome: "parked" as const };
+    await writeAttempt(run, {
+      pid: closing.pid,
+      processStart: processStart(closing.pid)!,
+      ...parked,
+    });
+    expect(await failed(4)).toBe(true);
+    const status = statusOf(run, await readAttemptFiles(run));
+    expect(status).toMatchObject({ state: "parked", attempts: [{}, {}, { attempt: 3 }] });
+    expect(status.files.map((each) => each.attempt)).toEqual([1, 2, 3, 4]);
+    const loaded = { file: "/flows/case.ts", workflow: { meta: { name: "w" } } } as LoadedWorkflow;
+    const gone = closing.exited.then(() => Date.now());
+    const command = { continueId: "k" } as RunCommand;
+    const attempt = await claimNext(run, loaded, command, () => undefined, Date.now());
+    expect(attempt.record.attempt).toBe(5);
+    expect(Date.now()).toBeGreaterThanOrEqual(await gone);
+
+    // Attempt 3 crashed; then a launch never claimed 4. What a continue stops, and whether it
+    // reopens sessions, read the last attempt that ran: 3, with no ending.
+    const crashed = await make("c");
+    await writeAttempt(crashed, { ...GONE });
+    await writeAttempt(crashed, { ...GONE, ...ended });
+    await writeAttempt(crashed, { ...GONE });
+    await recordFailedLaunch(crashed, {
+      attempt: 4,
+      launch: "l4",
+      file: "/flows/case.ts",
+      started: new Date().toISOString(),
+      reason: "down",
+    });
+    const previous = (await readAttempts(crashed)).at(-1);
+    expect(previous).toMatchObject({ attempt: 3 });
+    expect(previous?.ended).toBeUndefined();
+    expect(statusOf(crashed, await readAttemptFiles(crashed)).state).toBe("interrupted");
+  });
+  test("a claim records the launch that started it only when that launch is this run's", async () => {
+    const root = dirs.tempRunDir();
+    const run = await createRun(join(root, "runs"), {
+      id: "k",
+      workflow: "w",
+      argv: [],
+      cwd: root,
+      sandbox: null,
+    });
+    const loaded = { file: "/flows/case.ts", workflow: { meta: { name: "w" } } } as LoadedWorkflow;
+    const command = { continueId: "k" } as RunCommand;
+    // A run an agent of another run starts inherits that run's launch, whose log isn't here.
+    const nested = await claimNext(run, loaded, command, () => undefined, Date.now(), "other");
+    expect(nested.record).not.toHaveProperty("launch");
+    await endAttempt(nested, { outcome: "failed" });
+    mkdirSync(join(run.dir, "launches"));
+    writeFileSync(launchLog(run.dir, "mine"), "");
+    const launched = await claimNext(run, loaded, command, () => undefined, Date.now(), "mine");
+    expect(launched.record.launch).toBe("mine");
+  });
+
+  test("awf reads AWF_LAUNCH once and keeps it from what it spawns", async () => {
+    process.env.AWF_LAUNCH = "parent";
+    await runOperatorCli(["--version"], { stdout: () => undefined, stderr: () => undefined });
+    expect(process.env.AWF_LAUNCH).toBeUndefined();
+    // An injected environment is a copy without it; the launch is kept for the claim alone.
+    const given = { environment: { PATH: "/bin", AWF_LAUNCH: "l1" } };
+    const taken = takeLaunch(given);
+    expect(taken.launchId).toBe("l1");
+    expect(taken.environment).toEqual({ PATH: "/bin" });
+    expect(given.environment.AWF_LAUNCH).toBe("l1");
   });
 });

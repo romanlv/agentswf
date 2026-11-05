@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
+import type { EventLine } from "@agentswf/contract/records";
 import { defineWorkflow, type Workflow } from "@agentswf/contract/workflow";
 import { caseRun, DOC } from "../testing";
 import { answer, testWorkflow } from ".";
@@ -75,16 +75,14 @@ describe("testWorkflow(workflow, options?)", () => {
 });
 
 describe("earlier", () => {
-  const event = (id: string, name: string): MailboxRecord => ({
-    version: MAILBOX_RECORD_VERSION,
+  const event = (id: string, name: string): EventLine => ({
     at: new Date().toISOString(),
-    kind: "event",
     id,
     name: "dd.changes",
     data: { case: name },
     from: "operator",
   });
-  /** Plans in a stage, then takes what the mailbox holds. */
+  /** Plans in a stage, then takes what the run's events hold. */
   const planned = (ran: string[]) =>
     caseRun(async (wf) => {
       const plan = await wf.stage("plan", { result: DOC }, async () => {
@@ -95,10 +93,10 @@ describe("earlier", () => {
       return { plan, taken: taken.map((e) => e.id) };
     });
 
-  test("a test continues an attempt's stages and mailbox, reusing both", async () => {
+  test("a test continues an attempt's stages and events, reusing both", async () => {
     const ran: string[] = [];
     const run = await testWorkflow(planned(ran), {
-      earlier: { stages: { plan: { path: "old.md" } }, mailbox: [event("e-1", "kombo")] },
+      earlier: { stages: { plan: { path: "old.md" } }, events: [event("e-1", "kombo")] },
     });
     expect(run.value).toEqual({ plan: { path: "old.md" }, taken: ["e-1"] });
     expect(ran).toEqual([]);
@@ -107,7 +105,7 @@ describe("earlier", () => {
   test("fromStage on a workflow with events redoes the stage of an earlier attempt", async () => {
     const ran: string[] = [];
     const run = await testWorkflow(planned(ran), {
-      earlier: { stages: { plan: { path: "old.md" } }, mailbox: [event("e-1", "kombo")] },
+      earlier: { stages: { plan: { path: "old.md" } }, events: [event("e-1", "kombo")] },
       fromStage: "plan",
     });
     expect(run.value).toEqual({ plan: { path: "new.md" }, taken: ["e-1"] });
@@ -124,9 +122,9 @@ describe("earlier", () => {
         recorded: { plan: { path: "old.md" } },
       }),
     ).rejects.toThrow("give earlier.stages alone");
-    await expect(
-      testWorkflow(planned([]), { earlier: { mailbox: [] }, mailbox: [] }),
-    ).rejects.toThrow("give earlier.mailbox alone");
+    await expect(testWorkflow(planned([]), { earlier: { mailbox: [] } } as never)).rejects.toThrow(
+      'earlier has no "mailbox": it gives stages, events, run',
+    );
   });
 
   test("an earlier given at all is the continue, attempt 2, empty or not", async () => {

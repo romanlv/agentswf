@@ -9,9 +9,10 @@ import { attemptAccounting } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
-import { foldMailbox, readMailbox } from "./mailbox";
+import { untakenAtReturn } from "./run-policy/waits";
 import { type Attempt, appendEvent, endAttempt, outputFile, reportFile } from "./runs";
 import { withoutValue } from "./stage-ledger";
+import { readWaits } from "./waits";
 import type { AnyWorkflow, LoadedWorkflow } from "./workflow-loader";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
@@ -36,6 +37,8 @@ export async function keepRecords(
     stderr: (text: string) => void;
     /** An event run's: runs `work` holding its run's lock. */
     locked?: (work: () => Promise<void>) => Promise<void>;
+    /** The run's clock, which says which of its timers were due when it returned. */
+    now?: () => number;
   },
 ): Promise<Kept> {
   const { attempt, stderr } = context;
@@ -107,12 +110,9 @@ export async function keepRecords(
   const writeEnding = async () => {
     const unacknowledged =
       ending.kind === "completed" && attempt.run.record.events
-        ? await readMailbox(dir).then(
+        ? await readWaits(dir, (context.now ?? Date.now)()).then(
             // The event that started the run is `wf.started`'s, taken or not.
-            (records) => {
-              const state = foldMailbox(records);
-              return state.unacknowledged.filter((id) => id !== state.started?.id).length;
-            },
+            untakenAtReturn,
             (error: unknown) => {
               stderr(`awf: what no wait took was not counted: ${messageOf(error)}`);
               return undefined;

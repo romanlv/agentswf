@@ -816,8 +816,8 @@ typo fails `tsc`, and a number that isn't plain throws; a bound also refuses one
 `"0s"`, which a timer takes as now. A string read from data is
 checked with `duration(text)`, which returns it as a `Duration` and throws, saying the grammar,
 for anything else: `const every = duration(event.data.every)`. A timer is a time recorded once under a
-name; due, it fires into the mailbox as `timer:due`, from
-its name, at its due time. A **source** is something a wait can take: a timer, a declared event
+name; due, a wait takes it as `timer:due`, from its name, at its due time, beside the run's
+other events. A **source** is something a wait can take: a timer, a declared event
 (`wf.signal(name)`, `wf.signal("thread:reply")` for a participant's messages), or an agent (the end of the turn it
 started). Three waits take sources, beside `receive`:
 

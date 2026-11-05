@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type AttemptRecord, readRun } from "@agentswf/contract/records";
+import { type ClaimedAttempt, readRun } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import { readAccepted, writeAcceptedExclusive } from "./ops";
 import {
@@ -21,7 +21,9 @@ import {
   processStart,
   type Run,
   RunRefused,
+  readAttemptFiles,
   readAttempts,
+  recordFailedLaunch,
 } from "./runs";
 import { createTempRunDirs } from "./testing";
 
@@ -47,7 +49,7 @@ const alive =
 async function claim(
   created: Run,
   options: { pid: number; probe: ProcessProbe },
-  claimed: Pick<AttemptRecord, "file" | "workflowVersion" | "flags"> = fields,
+  claimed: Pick<ClaimedAttempt, "file" | "workflowVersion" | "flags"> = fields,
 ) {
   const result = await claimAttempt(created, claimed, options);
   if ("refused" in result) throw new Error(`refused: ${result.refused.kind}`);
@@ -340,7 +342,7 @@ describe("runs", () => {
       { pid: 1, probe: alive(1) },
       { ...fields, workflowVersion: "1.2.1" },
     );
-    const written = JSON.parse(await readFile(attempt.file, "utf8")) as AttemptRecord;
+    const written = JSON.parse(await readFile(attempt.file, "utf8")) as ClaimedAttempt;
     // Records are the operator's alone.
     expect((await stat(attempt.file)).mode & 0o777).toBe(0o600);
     expect(written).toMatchObject({
@@ -376,7 +378,7 @@ test("a completed run is redone from the stages its last attempt entered, a remo
       { stage: "plan", source: "reused", outcome: "succeeded", attempt: 1, spanMs: 0 },
       { stage: "build", source: "ran", outcome: "succeeded", attempt: 2, spanMs: 0 },
     ],
-  } as unknown as AttemptRecord;
+  } as unknown as ClaimedAttempt;
   const refused = attemptRefusal([completed], view, { fromStage: false, probe: () => undefined });
   expect(refused?.kind === "completed" && refused.stages.map(({ name }) => name)).toEqual([
     "plan",
@@ -401,5 +403,67 @@ describe("an operation's accepted result", () => {
     const accepted = await readAccepted(runDir, "c1");
     expect(accepted).not.toBeNull();
     expect(claims[Number((accepted!.value as { n: number }).n)]).toBe(true);
+  });
+});
+
+describe("a run an event starts", () => {
+  test("its .new-* folder holds the starting event before the rename, so no run exists without it", async () => {
+    const root = runDirs.tempRunDir();
+    const parent = join(root, "w");
+    const first = { at: new Date().toISOString(), id: "e1", name: "n", data: null, from: "o" };
+    /** What a reader saw of each folder: `.new-*` holding `in.jsonl`, and the run with or without it. */
+    const seen = { pending: false, without: false };
+    let done = false;
+    const making = createRun(
+      root,
+      { id: "k", workflow: "w", argv: [], cwd: root, sandbox: null },
+      new Date(),
+      { ...first, starts: true },
+    ).finally(() => {
+      done = true;
+    });
+    while (!done) {
+      for (const name of await readdir(parent).catch(() => [] as string[])) {
+        const has = await stat(join(parent, name, "in.jsonl")).then(
+          () => true,
+          () => false,
+        );
+        if (name.startsWith(".new-") && has) seen.pending = true;
+        if (name === "k" && !has) seen.without = true;
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const run = await making;
+    expect(seen).toEqual({ pending: true, without: false });
+    expect(JSON.parse(await readFile(join(run.dir, "in.jsonl"), "utf8"))).toEqual({
+      ...first,
+      starts: true,
+    });
+  });
+
+  test("a launch that never claimed its number is that attempt's file, failed, unless it claimed after all", async () => {
+    const root = runDirs.tempRunDir();
+    const run = await createRun(root, { workflow: "w", argv: [], cwd: root, sandbox: null });
+    const failed = {
+      launch: "l1",
+      file: "flow.ts",
+      started: new Date().toISOString(),
+      reason: "down",
+    };
+    expect(await recordFailedLaunch(run, { attempt: 1, ...failed })).toBe(true);
+    // The child claimed 2 first: the launcher's link fails, and the child's file stands.
+    const claimed = await claimAttempt(run, { file: "flow.ts", flags: {}, launch: "l2" });
+    if ("refused" in claimed) throw new Error("refused");
+    expect(await recordFailedLaunch(run, { attempt: 2, ...failed, launch: "l2" })).toBe(false);
+    const attempts = await readAttemptFiles(run);
+    expect(attempts[0]).toMatchObject({
+      attempt: 1,
+      launch: "l1",
+      outcome: "failed",
+      reason: "down",
+    });
+    expect(attempts[0]).not.toHaveProperty("pid");
+    expect(attempts[1]).toMatchObject({ attempt: 2, launch: "l2", pid: process.pid });
+    expect(attempts[1]).not.toHaveProperty("outcome");
   });
 });

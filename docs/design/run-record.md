@@ -217,8 +217,9 @@ Today's rules, made explicit as fields:
   nothing held, a state set between two stages is saved on the second's line; and code rerun from the
   top sets it again before it, so a crash between the two loses nothing.
 - **What a wait can take** is the merge of `in.jsonl`'s events, `turn-ended` lines and due
-  timers, ordered by `(at, origin, id)`: for equal times a timer comes before a turn's end, before an
-  event; a time read from state comes after every ready event (037).
+  timers, ordered by `(at, origin, arrival)`: for equal times a timer comes before a turn's end,
+  before an event, and of one origin the one written first (a sender's order in `in.jsonl`, the
+  run's in `run.jsonl`) first; a time read from state comes after every ready event (037).
 
 ### Writing it
 
@@ -304,12 +305,19 @@ processes belongs in this file when it is designed.
 
 A start or continue that `awf emit` or `awf tick` launched in the background and that died before
 its attempt claimed a number, such as a file that no longer loads, is an attempt file too, linked by
-the launcher once the child has exited: `{ attempt, launch, started, ended, outcome: "failed", reason }`, with no `pid`. If
-the child did claim that number first, the launcher's `link` fails, which is the right answer. So
-`stuck`, three failed or crashed attempts in a row, reads attempt files only. Each background launch's
-output is `launches/{launch}.log`: the launcher opens it before it spawns and hands the child its id
-(`AWF_LAUNCH`), which the attempt records as `launch`. Today a failed launch is a `launch-failed`
-line in the mailbox, which no wait can take, and every launch's output is one `process.log`.
+the launcher once the child has exited, or was stopped when it gave up on it: `{ attempt,
+kind: "failed-launch", launch, file, started, ended, outcome: "failed", reason }` (and `version`
+until `format` replaces it), with no `pid`; a claimed attempt's `kind` is `"attempt"`, and the
+contract's `AttemptRecord` is the union of the two. If the child did claim that number first, the launcher's `link` fails, which is the
+right answer. So `stuck`, three failed or crashed attempts in a row, reads attempt files only.
+Everything else reads the attempts that claimed their number: a run's state and wait, what a wake
+does, the attempt a claim waits for, and the one a continue stops and decides whether to resume
+sessions from, so a failed launch never hides the attempt before it; the next launch runs the last
+claimed attempt's file. A launcher that gives up on a child that hasn't claimed kills its process
+group (`SIGKILL`: a `SIGTERM` is a cancel to `awf run`, which ends an event run for good) before it
+writes the failed file, and one whose link is refused, the child having claimed
+after all, reports the launch as started. Each background launch's output is `launches/{launch}.log`: the launcher opens it before it
+spawns and hands the child its id (`AWF_LAUNCH`), which the attempt records as `launch`.
 
 ## log.jsonl: what happened
 
@@ -427,7 +435,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 | Reader or writer | Changes to |
 | --- | --- |
 | the stage plan and `attemptRefusal` (`stage-plan.ts`, `stage-ledger.ts`, `run-prepare.ts`, `runs.ts`) | the engine's pure reading of `run.jsonl`, where `stages/` was; `replaced/`, `replaceStale` and `sessionsOf` go; `lastRedo` reads `redo` lines |
-| the waits (`mailbox.ts`) | the engine's merge of `in.jsonl`, `turn-ended` lines and due timers; writes `took`, `wait`, `race`, `timer`, `turn-started` and `turn-ended` to `run.jsonl`; no longer appends `timer:due`, `at:due` or `agent:ended` |
+| the waits (`waits.ts`, was `mailbox.ts`; their policy in `run-policy/waits.ts`) | the engine's merge of `in.jsonl`, `turn-ended` lines and due timers; writes `took`, `wait`, `race`, `timer`, `turn-started` and `turn-ended` to `run.jsonl`; no longer appends `timer:due`, `at:due` or `agent:ended` |
 | resuming a kept session | `session` lines, never the log |
 | claiming an attempt (`run-prepare.ts`) | waits for `previousGone` for every run, truncates, writes `claimed`, ends a crashed attempt's turns, settles missing `spend.json` |
 | `wake`, `awf tick`, `awf emit`, 040's client (`wake.ts`, `tick-command.ts`, `emit.ts`) | read the attempt files, `in.jsonl` (to dedupe and match the wait) and `readRun`'s wait and timers; `emit` writes a starting event into `.new-*/in.jsonl`; `wake` links a failed launch's attempt file, writes `launches/{launch}.log` and passes `AWF_LAUNCH` |

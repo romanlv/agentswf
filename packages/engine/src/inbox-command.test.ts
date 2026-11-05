@@ -2,13 +2,12 @@ import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import {
   type InboxErrorJson,
   type InboxItemJson,
-  MAILBOX_RECORD_VERSION,
   RUN_EVENT_VERSIONS,
   type RunLogLine,
   TURN_RECORD_VERSION,
 } from "@agentswf/contract/records";
 import { type InboxClock, ItemFold, inboxCommand } from "./inbox-command";
-import { appendMailbox } from "./mailbox";
+import { claimRunLines } from "./run-lines";
 import * as runs from "./runs";
 import {
   appendEvent,
@@ -356,14 +355,9 @@ describe("awf inbox", () => {
       participant: "thread",
       to: "code",
     } as Body<RunLogLine>);
+    const lines = await claimRunLines(run.dir, 1, at());
     for (const label of ["investigating", "closed"])
-      await appendMailbox(run.dir, {
-        version: MAILBOX_RECORD_VERSION,
-        at: at(),
-        kind: "wait",
-        attempt: 1,
-        label,
-      });
+      await lines.append({ kind: "wait", attempt: 1, at: at(), label });
     await endAttempt(attempt, { outcome: "parked" });
     const read = await inbox(root, ref, "--json");
     expect(read.items.at(-1)).toMatchObject({

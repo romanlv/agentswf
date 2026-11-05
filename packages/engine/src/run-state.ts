@@ -1,18 +1,20 @@
 import { join } from "node:path";
-import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
+import type { AttemptRecord, ClaimedAttempt, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
-import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
 import { listProjects, projectRunRoot } from "./projects";
+import { nextTimer, type WaitState } from "./run-policy/waits";
 import {
+  claimedOf,
   entries,
   idProblem,
   openRun,
   probeProcess,
   type Run,
-  readAttempts,
+  readAttemptFiles,
   sameStart,
 } from "./runs";
+import { readWaits } from "./waits";
 
 /** What `ps` says of a process: its start, `gone`, or `unknown`. */
 export type ProcessStatus = (pid: number) => string | "gone" | "unknown";
@@ -28,11 +30,14 @@ export type RunStatus = {
   run: Run;
   /** `{workflow}/{id}`. */
   ref: string;
-  attempts: AttemptRecord[];
+  /** The attempts that ran, in order: what its state is decided from. */
+  attempts: ClaimedAttempt[];
+  /** Every attempt file, in order, a background launch that never claimed its number included. */
+  files: AttemptRecord[];
   state: RunState;
   /** False for a `running` whose process could not be asked about. */
   checked: boolean;
-  /** A run of a workflow with `events` at its wait, live or parked: what its mailbox says. */
+  /** A run of a workflow with `events` at its wait, live or parked: what its last `wait` line says. */
   waiting?: WaitingJson;
 };
 
@@ -44,18 +49,22 @@ export async function runStatus(
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): Promise<RunStatus> {
-  const status = statusOf(run, await readAttempts(run), probe, at);
+  const status = statusOf(run, await readAttemptFiles(run), probe, at);
   if (!run.record.events) return status;
-  const records = await readMailbox(run.dir);
-  const waiting = waitingOf(status, records);
-  const stuck = status.state !== "running" && stuckOf(status.attempts, records);
+  // A `run.jsonl` that can't be read shows no wait; `awf runs` says why it can't be read.
+  const waiting =
+    status.state === "running" || status.state === "parked"
+      ? await readWaits(run.dir, at).then(
+          (state) => waitingOf(status, state),
+          () => undefined,
+        )
+      : undefined;
+  const stuck = status.state !== "running" && stuckOf(status.files);
   return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
 }
 
 /** An event run's wait, while it is running or parked there: its label and `until`. */
-function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): WaitingJson | undefined {
-  if (status.state !== "running" && status.state !== "parked") return undefined;
-  const state = foldMailbox(records);
+function waitingOf(status: RunStatus, state: WaitState): WaitingJson | undefined {
   const wait = state.lastWait;
   // A wait an earlier attempt died in is not this one's.
   if (!wait?.waiting || wait.attempt !== status.attempts.at(-1)?.attempt) return undefined;
@@ -66,26 +75,30 @@ function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): Waitin
   };
 }
 
-/** As `runStatus`, from its attempts as already read. */
+/**
+ * As `runStatus`, from its attempt files as already read: decided from the attempts that ran, so a
+ * launch that never claimed its number leaves a parked run parked.
+ */
 export function statusOf(
   run: Run,
-  attempts: AttemptRecord[],
+  files: readonly AttemptRecord[],
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): RunStatus {
+  const attempts = claimedOf(files);
+  const head = { run, ref: `${run.record.workflow}/${run.record.id}`, attempts, files: [...files] };
   const last = attempts.at(-1);
-  const ref = `${run.record.workflow}/${run.record.id}`;
   // Between its folder and its first attempt's claim: an `awf run` starting, or, past a minute,
   // one refused or killed before it claimed one.
   if (!last) {
     const starting = at - Date.parse(run.record.created) < STARTING_MS;
-    return { run, ref, attempts, state: starting ? "running" : "interrupted", checked: !starting };
+    return { ...head, state: starting ? "running" : "interrupted", checked: !starting };
   }
-  if (last.outcome !== undefined) return { run, ref, attempts, state: last.outcome, checked: true };
+  if (last.outcome !== undefined) return { ...head, state: last.outcome, checked: true };
   const now = probe(last.pid);
-  if (now === "unknown") return { run, ref, attempts, state: "running", checked: false };
+  if (now === "unknown") return { ...head, state: "running", checked: false };
   const same = now !== "gone" && sameStart(now, last.processStart);
-  return { run, ref, attempts, state: same ? "running" : "interrupted", checked: true };
+  return { ...head, state: same ? "running" : "interrupted", checked: true };
 }
 
 const ALSO_RUNNING_CHECKED = 20;
@@ -161,15 +174,11 @@ export async function findRun(
 export const STUCK_AFTER = 3;
 
 /**
- * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
- * that never claimed one, counted together; any other ending resets them.
+ * Failed, timed-out or crashed attempts at the end of the run, a background launch that never
+ * claimed its number among them, as its launcher wrote it failed; any other ending resets them.
  */
-function failuresInARow(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[],
-): number {
-  const since = attempts.at(-1)?.started ?? "";
-  let n = records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
+function failuresInARow(attempts: readonly AttemptRecord[]): number {
+  let n = 0;
   for (const attempt of [...attempts].reverse()) {
     const failed =
       attempt.outcome === undefined ||
@@ -185,13 +194,10 @@ function failuresInARow(
  * Whether an event run is `stuck` (Q13): failed, crashed or failed to launch three times in a row,
  * whatever its last ending says, short of one the operator or the code chose.
  */
-export function stuckOf(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[],
-): boolean {
+export function stuckOf(attempts: readonly AttemptRecord[]): boolean {
   const last = attempts.at(-1)?.outcome;
   if (last === "completed" || last === "stopped" || last === "cancelled") return false;
-  return failuresInARow(attempts, records) >= STUCK_AFTER;
+  return failuresInARow(attempts) >= STUCK_AFTER;
 }
 
 /**

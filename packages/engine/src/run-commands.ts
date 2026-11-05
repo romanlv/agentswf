@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { AttemptRecord, RunLogLine } from "@agentswf/contract/records";
+import type { ClaimedAttempt, RunLogLine } from "@agentswf/contract/records";
 import { maskCredentials } from "@agentswf/harness";
 import { continueCommand, shellWord } from "./attempt-view";
 import type { RunCommand } from "./run-command";
@@ -206,7 +206,7 @@ export function span(
 }
 
 /** At list prices, over the attempts that kept one: never what was billed. */
-export function estimateOf(attempts: readonly AttemptRecord[]): number | undefined {
+export function estimateOf(attempts: readonly ClaimedAttempt[]): number | undefined {
   const known = attempts.flatMap((each) =>
     each.accounting?.totals.estimate === undefined ? [] : [each.accounting.totals.estimate],
   );

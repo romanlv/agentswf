@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AttemptRecord, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
+import { type ClaimedAttempt, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
@@ -22,6 +22,7 @@ import {
   endLogLine,
   generateId,
   idProblem,
+  launchLog,
   openRun,
   previousGone,
   type Run,
@@ -41,7 +42,7 @@ export type PreparedRun = {
   /** A new run's id, from `--id` or the workflow's `id(args)`; absent for one to generate. */
   id?: string;
   /** The run `--continue` names, its earlier attempts, and what to warn of before it goes on. */
-  continued?: { run: Run; attempts: AttemptRecord[]; warnings: string[] };
+  continued?: { run: Run; attempts: ClaimedAttempt[]; warnings: string[] };
   /**
    * The `--from-stage` a continue goes on with though none was given: that of the attempt before
    * it, which crashed inside its start stage.
@@ -262,15 +263,21 @@ function derivedId(workflow: AnyWorkflow, args: JsonValue): string | undefined {
   return id as string;
 }
 
-/** Claims the run's next attempt, naming each earlier one found interrupted. */
+/**
+ * Claims the run's next attempt, naming each earlier one found interrupted. `launch`: the
+ * background launch that started this process, recorded only when it is this run's, its
+ * `launches/{launch}.log` there.
+ */
 export async function claimNext(
   run: Run,
   loaded: LoadedWorkflow,
   command: RunCommand,
   notice: (text: string) => void,
   now: number,
+  launch?: string,
 ): Promise<Attempt> {
   const { meta } = loaded.workflow;
+  const ours = launch !== undefined && (await exists(launchLog(run.dir, launch)));
   const claimed = await claimAttempt(
     run,
     {
@@ -280,6 +287,7 @@ export async function claimNext(
         ...(command.timeout === undefined ? {} : { timeout: command.timeout }),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
       },
+      ...(ours ? { launch } : {}),
     },
     { fromStage: command.fromStage !== undefined },
   );

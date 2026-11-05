@@ -12,9 +12,9 @@ import {
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
 import { messageOf } from "./errors";
-import { RunParked } from "./mailbox";
 import type { Paint } from "./progress-view";
 import { FromStageUnreached, primaryFailure, WorkflowStopped } from "./stopped";
+import { RunParked } from "./waits";
 import {
   type SettledRun,
   WorkflowCancelledError,

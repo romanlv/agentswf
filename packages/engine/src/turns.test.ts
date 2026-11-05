@@ -1,16 +1,16 @@
 import { afterAll, expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import { appendMailbox, endIdOf, foldMailbox, readMailbox, recoverTurns } from "./mailbox";
+import type { EventLine, RunLine } from "@agentswf/contract/records";
+import { endIdOf } from "./event-ids";
+import { claimRunLines, readRunLines } from "./run-lines";
 import { caseRun, createTempRunDirs, startCase } from "./testing";
+import { RunWaits, readWaits } from "./waits";
 import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
 
-const ends = (mailbox: MailboxRecord[]) =>
-  mailbox.flatMap((record) =>
-    record.kind === "event" && record.name === "agent:ended" ? [record] : [],
-  );
+const ends = (lines: RunLine[]) =>
+  lines.flatMap((line) => (line.kind === "turn-ended" ? [line] : []));
 const slow = (text: string, ms: number) =>
   answer(async () => {
     await Bun.sleep(ms);
@@ -41,8 +41,8 @@ test("startCase returns at once; the end arrives at a wait with the turn's id, m
     { ...startCase, agents: { investigator: answer("found it") } },
   );
   expect(run.value).toEqual({ same: true, given: 3, answered: "found it", cleared: true });
-  expect(ends(run.mailbox)).toHaveLength(1);
-  expect(run.mailbox.find((r) => r.kind === "turn")).toMatchObject({
+  expect(ends(run.run)).toHaveLength(1);
+  expect(run.run.find((line) => line.kind === "turn-started")).toMatchObject({
     agent: "investigator",
     meta: { given: 3 },
   });
@@ -137,9 +137,7 @@ test("code that throws with a turn running cancels it, and its end is written fi
     { ...startCase, agents: { investigator: noAnswer.hang() } },
   );
   expect(() => run.value).toThrow("a bug");
-  expect(
-    ends(run.mailbox).map((e) => (e.data as { outcome: { kind: string } }).outcome.kind),
-  ).toEqual(["cancelled"]);
+  expect(ends(run.run).map((line) => line.end.outcome.kind)).toEqual(["cancelled"]);
 });
 
 test("a return cancels a running turn", async () => {
@@ -153,9 +151,7 @@ test("a return cancels a running turn", async () => {
     { ...startCase, agents: { investigator: noAnswer.hang() } },
   );
   expect(run.value).toBe("merged");
-  expect(
-    ends(run.mailbox).map((e) => (e.data as { outcome: { kind: string } }).outcome.kind),
-  ).toEqual(["cancelled"]);
+  expect(ends(run.run).map((line) => line.end.outcome.kind)).toEqual(["cancelled"]);
 });
 
 test("a run doesn't park while a started turn runs, and parks once its end is taken", async () => {
@@ -169,7 +165,7 @@ test("a run doesn't park while a started turn runs, and parks once its end is ta
     { ...startCase, agents: { investigator: slow("done", 200) } },
   );
   expect(run.ending).toMatchObject({ kind: "parked", label: "idle" });
-  expect(ends(run.mailbox)).toHaveLength(1);
+  expect(ends(run.run)).toHaveLength(1);
 });
 
 test("startCase is refused in a stage, whose end it would outlive", async () => {
@@ -187,81 +183,79 @@ test("startCase is refused in a stage, whose end it would outlive", async () => 
   expect(() => run.value).toThrow("start() is called at the run's root");
 });
 
-test("a continue writes a failed end for a turn a crash left, and restores the turns whose ends no wait took", async () => {
+test("a continue's claim writes a failed end for a turn a crash left, and restores the turns whose ends no wait took", async () => {
   const runDir = dirs.tempRunDir();
   const at = new Date().toISOString();
-  const turn = (agent: string, id: string): MailboxRecord => ({
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "turn",
+  const turn = (agent: string, id: string): RunLine => ({
+    kind: "turn-started",
     attempt: 1,
+    at,
     agent,
     turn: id,
     meta: { batch: id },
     execution: { harness: "codex", model: "m" },
   });
-  await appendMailbox(runDir, turn("investigator", "t1"));
-  await appendMailbox(runDir, turn("triage", "t2"));
-  // triage's ended and was taken; investigator's attempt died mid-turn.
-  await appendMailbox(runDir, {
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "event",
-    id: endIdOf("triage", "t2", 1),
-    name: "agent:ended",
-    data: { turn: "t2" },
-    from: "triage",
+  const first = await claimRunLines(runDir, 1, at);
+  const triage = endIdOf("triage", "t2", 1);
+  for (const line of [
+    turn("investigator", "t1"),
+    turn("triage", "t2"),
+    // triage's ended and was taken; investigator's attempt died mid-turn.
+    {
+      kind: "turn-ended",
+      attempt: 1,
+      at,
+      id: triage,
+      agent: "triage",
+      turn: "t2",
+      began: 1,
+      end: { turn: "t2", meta: { batch: "t2" }, outcome: { kind: "cancelled" } },
+    },
+    { kind: "wait", attempt: 1, at },
+    { kind: "took", attempt: 1, at, took: [{ id: triage }] },
+    { kind: "wait", attempt: 1, at, acks: [triage] },
+  ] as RunLine[])
+    await first.append(line);
+  const waits = new RunWaits({
+    runDir,
+    lines: await claimRunLines(runDir, 2, at),
+    locked: (work) => work(),
   });
-  await appendMailbox(runDir, { version: MAILBOX_RECORD_VERSION, at, kind: "wait", attempt: 1 });
-  await appendMailbox(runDir, {
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "took",
-    attempt: 1,
-    ids: [endIdOf("triage", "t2", 1)],
-  });
-  await appendMailbox(runDir, { version: MAILBOX_RECORD_VERSION, at, kind: "wait", attempt: 1 });
-  const restored = await recoverTurns(runDir, 2, (work) => work());
-  expect([...restored]).toEqual([["investigator", { turn: "t1", meta: { batch: "t1" } }]]);
-  const state = foldMailbox(await readMailbox(runDir));
-  const end = state.events.get(endIdOf("investigator", "t1", 1));
+  await waits.open();
+  expect([...waits.restored]).toEqual([["investigator", { turn: "t1", meta: { batch: "t1" } }]]);
+  const end = (await readWaits(runDir, Date.now())).events.get(endIdOf("investigator", "t1", 1));
   expect(end).toMatchObject({
     name: "agent:ended",
     from: "investigator",
     data: { turn: "t1", meta: { batch: "t1" }, outcome: { kind: "failed" } },
   });
-  // Run again, nothing more is written: one end is ever kept.
-  await recoverTurns(runDir, 3, (work) => work());
-  expect(
-    (await readMailbox(runDir)).filter((r) => r.kind === "event" && r.name === "agent:ended"),
-  ).toHaveLength(2);
+  // Written by the claim, right after it: before any wait could look.
+  const kinds = (await readRunLines(runDir)).lines.map((line) => line.kind);
+  expect(kinds.slice(-2)).toEqual(["claimed", "turn-ended"]);
+  // Claimed again, nothing more is written: one end is ever kept.
+  await claimRunLines(runDir, 3, at);
+  expect(ends((await readRunLines(runDir)).lines)).toHaveLength(2);
 });
 
 const at = new Date().toISOString();
 /** What a crashed attempt 1 left: a turn of the investigator's begun and never ended. */
-const crashed: MailboxRecord[] = [
-  {
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "event",
-    id: "c0",
-    name: "dd.changes",
-    data: { case: "k" },
-    from: "operator",
-  },
-  { version: MAILBOX_RECORD_VERSION, at, kind: "wait", attempt: 1 },
-  { version: MAILBOX_RECORD_VERSION, at, kind: "took", attempt: 1, ids: ["c0"] },
-  {
-    version: MAILBOX_RECORD_VERSION,
-    at,
-    kind: "turn",
-    attempt: 1,
-    agent: "investigator",
-    turn: "t1",
-    meta: { batch: 1 },
-    execution: { harness: "claude", model: "m" },
-  },
-];
+const crashed: { events: EventLine[]; run: RunLine[] } = {
+  events: [{ at, id: "c0", name: "dd.changes", data: { case: "k" }, from: "operator" }],
+  run: [
+    { kind: "claimed", attempt: 1, at },
+    { kind: "wait", attempt: 1, at },
+    { kind: "took", attempt: 1, at, took: [{ id: "c0" }] },
+    {
+      kind: "turn-started",
+      attempt: 1,
+      at,
+      agent: "investigator",
+      turn: "t1",
+      meta: { batch: 1 },
+      execution: { harness: "claude", model: "m" },
+    },
+  ],
+};
 const woken = {
   id: "k",
   event: { name: "dd.changes" as const, data: { case: "k" }, eventId: "c1" },
@@ -284,7 +278,7 @@ test("after a crash, the code's first wait takes the turn's failed end, with its
         cleared: agent.turn === null,
       };
     }),
-    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("unused") } },
+    { ...woken, earlier: crashed, agents: { investigator: answer("unused") } },
   );
   // The batch the crash held comes back first, alone; the failed end with the next.
   expect(run.value).toMatchObject({ restored: "t1", names: ["dd.changes"] });
@@ -305,7 +299,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
         ),
       };
     }),
-    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("found") } },
+    { ...woken, earlier: crashed, agents: { investigator: answer("found") } },
   );
   // The event that woke it came first; the failed end was written as the attempt began.
   expect(run.value).toEqual({ names: ["dd.changes", "agent:ended"], turn: null, ran: "answered" });
@@ -319,7 +313,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
         (error: unknown) => String(error).includes("whose end no wait has taken"),
       );
     }),
-    { ...woken, earlier: { mailbox: crashed }, agents: { investigator: answer("found") } },
+    { ...woken, earlier: crashed, agents: { investigator: answer("found") } },
   );
   expect(held.value).toBe(true);
 });
@@ -343,7 +337,7 @@ test("a turn id is begun once in an attempt, and two starts at once startCase on
     { ...startCase, agents: { investigator: answer("done") } },
   );
   expect(run.value).toEqual({ both: ["fulfilled", "rejected"], again: true });
-  expect(run.mailbox.filter((r) => r.kind === "turn")).toHaveLength(1);
+  expect(run.run.filter((line) => line.kind === "turn-started")).toHaveLength(1);
 });
 
 test("a startCase behind other work waits for it, and its cancel stops only the turn", async () => {

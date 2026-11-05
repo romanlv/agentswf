@@ -1,7 +1,7 @@
 import type {
   Activity,
   AgentStateJson,
-  AttemptRecord,
+  ClaimedAttempt,
   OperationLivenessRecord,
   RunLogLine,
   StageStateJson,
@@ -54,7 +54,7 @@ export type DecisionView = { decision: number; key: string; askedAt: number; out
 export type RunView = {
   status: RunStatus;
   /** The attempt shown: the last. */
-  attempt?: AttemptRecord;
+  attempt?: ClaimedAttempt;
   stages: StageView[];
   /** Why the stages show no values: `run.jsonl` didn't read. */
   unread?: string;

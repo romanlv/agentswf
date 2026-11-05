@@ -103,6 +103,11 @@ export type OperatorEnvironment = {
   /** Starts or continues an event run's attempt for `awf emit`; absent, a detached `awf run`. */
   launch?: Launch;
   /**
+   * The background launch that started this process, which its attempt records; absent, the
+   * environment's `AWF_LAUNCH`.
+   */
+  launchId?: string;
+  /**
    * Where agents may `--await-reply`, past the engine's list: for the live checks that decide
    * what goes on it (story 029's M2 gate).
    */
@@ -127,10 +132,27 @@ type Output = {
   now: () => number;
 };
 
+/**
+ * `given`, its launch taken: the launch names this process's attempt only, so it is read once and
+ * kept from anything the process spawns, `process.env` and an injected environment alike, and a run
+ * an agent starts doesn't record it.
+ */
+export function takeLaunch(given: OperatorEnvironment): OperatorEnvironment {
+  const launchId = given.launchId ?? (given.environment ?? process.env).AWF_LAUNCH;
+  delete process.env.AWF_LAUNCH;
+  const { AWF_LAUNCH: _, ...kept } = given.environment ?? {};
+  return {
+    ...given,
+    ...(given.environment ? { environment: kept } : {}),
+    ...(launchId === undefined ? {} : { launchId }),
+  };
+}
+
 export async function runOperatorCli(
   argv: readonly string[],
-  environment: OperatorEnvironment = {},
+  given: OperatorEnvironment = {},
 ): Promise<number> {
+  const environment = takeLaunch(given);
   const stdout = environment.stdout ?? ((text) => console.log(text));
   const write = (text: string) => void process.stderr.write(text);
   const stderr =
@@ -444,7 +466,7 @@ async function runAttempt(
   }
   let attempt: Attempt;
   try {
-    attempt = await claimNext(run, loaded, command, notice, now());
+    attempt = await claimNext(run, loaded, command, notice, now(), environment.launchId);
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
@@ -473,6 +495,7 @@ async function runAttempt(
     attempt,
     loaded,
     stderr,
+    now,
     ...(!run.record.events ? {} : { locked }),
   };
   const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>

@@ -310,7 +310,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 - [x] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
 - [x] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
 - [x] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
-- [ ] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
+- [x] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
 - [x] 6. Sessions as `session` lines; the log is `log.jsonl` and nothing acts on it
 - [ ] 7. Attempt files keep `value`; `spend.json` priced at read; `out.json`; `work/`
 - [ ] 8. Readers, site and docs; old runs are `unreadable`
@@ -493,7 +493,8 @@ Done when:
 
 ### 5. Waits
 
-Depends on 039's task 10, which removes `awf send --event-id`, the last thing that gates on the log.
+Does not wait for 039's task 10 (decided 2026-11-05, "Decisions at the start"): `awf send
+--event-id`, which gates on the log, is left for that task to remove.
 
 Work:
 
@@ -706,6 +707,9 @@ ends:
   decision's key must pass `nameProblem`, except that a colon stays allowed, and deprecated (the
   `colon-key` warning), until 039's task 10 refuses it: `triage:42.1` is a valid folder on macOS
   and Linux. So task 2 runs before 7; task 5 still waits.
+- **2026-11-05: task 5 no longer waits for 039's task 10 either.** The waits move to `in.jsonl` and
+  `run.jsonl` now; `awf send --event-id`, which gates on the log (`holder-command.ts:251`), is
+  untouched by this task and stays for 039's task 10 to remove.
 
 ### Task 1
 
@@ -1268,6 +1272,196 @@ ends:
   timed from first delivery through natural answer release` fail on timing; it passes alone, in its
   file and in the full rerun. The live evals that read `ops/` (`tests/turn-liveness.eval.ts`,
   `tests/tools.eval.ts`) follow the rename and were not run.
+
+### Task 5
+
+- **The policy** is `packages/engine/src/run-policy/waits.ts`, beside `stages.ts`: pure, contract
+  only. It folds the lines and the events into what a wait can take, and decides the first wait,
+  the held batch, a wake's cause and which turns need an end. The ids it can't derive without a
+  hash are given to it:
+
+  ```ts
+  type DerivedIds = { timer(name: string): string; at(branch: string, due: string): string };
+  type Origin = "timer" | "end" | "event" | "time";
+  type WaitEvent = { id; name; data; from; at; origin: Origin; starts?: true; began?: number };
+  type TimerState = { name; due; when; cancelled: boolean; taken: boolean; fired: boolean };
+  type WaitState = {
+    events: ReadonlyMap<string, WaitEvent>; unacknowledged: string[]; held?: string[];
+    heldTakes?: WaitTake[]; lastWait?: WaitLine & { waiting: boolean };
+    batches: ReadonlyMap<string, string[]>; turns: readonly TurnStartedLine[];
+    timers: ReadonlyMap<string, TimerState>; races: ReadonlyMap<string, { branch: string; ids: string[] }>;
+    started?: WaitEvent;
+    now: number;      // the clock it was folded at
+    ids: DerivedIds;  // so later calls don't pass either again
+  };
+  /** The lines a reader acts on: one of an attempt before the latest `claimed` is dropped. */
+  function unfenced(lines: readonly RunLine[]): RunLine[];
+  /** in.jsonl's events, the turns' ends and the timers due by `now`, and what the waits did with them. */
+  function foldWaits(given: { lines: readonly RunLine[]; events: readonly EventLine[]; now: number; ids: DerivedIds }): WaitState;
+  function readyFor(state: WaitState, takes: readonly WaitTake[] | undefined): string[];
+  function pendingTimes(state, takes): { branch: string; due: string }[];
+  function nextTimer(state, takes): number | undefined;
+  function hasWork(state, takes): boolean;
+  function wakeCause(state, takes): "event" | "timer" | undefined;
+  function firstReceive(state: WaitState): string[] | undefined;
+  function firstSelect(state: WaitState, takes: readonly WaitTake[]): { event: WaitEvent } | { returns: boolean };
+  function acksOf(state: WaitState): string[] | undefined;
+  function untakenAtReturn(state: WaitState): number;
+  function unendedTurns(lines: readonly RunLine[]): TurnStartedLine[]; // matched on (agent, turn, began)
+  function restoredTurns(state: WaitState): Map<string, RestoredTurn>;
+  function waitLabels(lines: readonly RunLine[]): Map<number, string>;
+  function recordName, matches, wouldTake, branchOf; // moved from sources.ts, which imports them
+  ```
+
+  No new field was needed: a wait outside a stage and a race writes the held batch as `acks`
+  (`acksOf`) and clears the held batch, a `took` with `stage` and a `race` line acknowledge their
+  own, a cancelled timer's line acknowledges its derived id, and a taken timer or time is resolved
+  from its `took` entry's `timer` or `branch` and `due`.
+- **The shell.** `mailbox.ts` is `waits.ts`; `RunMailbox` is `RunWaits`, built on the attempt's
+  writer, `RunWaits({ runDir, lines: RunLines, locked, parking?, now? })`, the attempt being
+  `lines.attempt`. `readWaits(runDir, now)` reads `run.jsonl` and `in.jsonl` and folds them. It
+  writes `wait` (with `acks`, `returns`), `took`, `race`, `timer` (again with `cancelled`),
+  `turn-started` and `turn-ended` through `attempt.lines`; nothing is appended as an event, so
+  `timer:due`, `at:due` and `agent:ended` exist only as what a wait hands the code. Its own lines
+  need no lock: only parking's last look takes it, as senders append to `in.jsonl` under it. A turn
+  begun twice and an end written twice are refused or skipped from the attempt's own sets, since
+  only the attempt writes either. The poll watches `in.jsonl`'s size. `in-lines.ts` owns
+  `in.jsonl` (`inFile`, `readIn`, `appendIn`, `inSize`); `event-ids.ts` the three hashes,
+  `DERIVED_IDS` and `endIdOf`. The runner's owner option `mailbox` is `eventWaits`.
+- **Turn recovery is the claim's.** `claimRunLines` appends `claimed`, then a `turn-ended` for each
+  `unendedTurns` line, failed (`crashedEnd`), at the claim's time, before anything else of the
+  attempt can write or wait; every claim site gets it. `recoverTurns` is gone; the runner reads the
+  restored turns from `RunWaits.open()` (`restored`).
+- **Senders.** `emit` dedupes against `in.jsonl`'s ids and appends there under the lock; a starting
+  event is written into `.new-*/in.jsonl` (`createRun`'s `first`, written whole and synced before
+  the folder's sync and rename). `awf.` ids are still refused from a sender.
+- **Launches.** `wake` makes a launch id (`generateId` with six hex digits), and the detached launch
+  writes `launches/{launch}.log` and passes `AWF_LAUNCH`, which `claimNext` records as the attempt's
+  `launch` (`operator-cli` reads it from the environment). A launch that throws, the detached one
+  once its child exited or was given up on, is linked as attempt `n`, the number the child would
+  have claimed, by `recordFailedLaunch` (`runs.ts`); a failed `link` means the child claimed it.
+  `stuckOf(attempts)` reads attempt files only.
+- **Readers.** `wake`'s readiness and cause, `run-state`'s `waiting`, `attempt-output.ts`'s
+  `unacknowledged` (`untakenAtReturn`), and `awf inbox`'s labels read the lines. `awf inbox` and
+  `awf reply` otherwise read the log as before.
+- **Contract.** `MailboxRecord` and `MAILBOX_RECORD_VERSION` are gone. `AttemptRecord` gains
+  `launch`, and is the union of a claimed attempt and a failed launch (review, round 1, below). Author-facing doc
+  comments that described the mailbox's mechanics name `in.jsonl` or the wait instead.
+- **The test option.** `earlier: { stages, events, run }`: `events` are `in.jsonl` lines, written
+  before the starting event; `run` are `run.jsonl` lines, written as given after `stages`' lines,
+  checked by `readRun` first (`earlier.run: run.jsonl line {n}: …`). The test's attempt is the one
+  after the latest its lines name, 2 when they name none later than 1, so a parked test's
+  `run.run` and `run.events` continue it. `TestRun.events` and `TestRun.run` replace `mailbox`;
+  `TestRun.timers` reads the lines, a timer `fired` when taken, or due by the run's clock and not
+  cancelled. `agentswf`'s typecheck uses the new shape and refuses `earlier.mailbox`.
+- **Deviations, for review.**
+  - *Merge order.* The design said `(at, origin, id)`; ties within one origin go by arrival (the
+    order written in `in.jsonl`, or in `run.jsonl`), as the mailbox's did, so a sender's order wins
+    over random ids. The design says so now.
+  - *A failed launch's file* also carries `version` (until task 8's `format`), `kind: "failed-launch"`
+    and the `file` it tried. Everything but `stuck`, the next number and `awf runs`' attempt list
+    reads the attempts that claimed their number (review, round 1), so a parked run stays parked
+    and the next launch runs the last claimed attempt's file, as before; `awf runs` lists the failed
+    launch among the attempts, "failed to launch", which it didn't before. The design says so.
+  - *Wait labels* for `awf inbox` are each attempt's last `wait` label (`waitLabels`), not
+    `readRun`'s last wait only: a parked attempt before the latest keeps its label. A `run.jsonl`
+    that can't be read gives none.
+  - *The deprecated top-level `mailbox` test option and its `test-mailbox` deprecation* are gone
+    with `MailboxRecord`: they typed it (039's task 10 would have removed them).
+  - *`unacknowledged`* counts a timer due by the time the run returned and never taken; before, only
+    a timer some wait had fired into the mailbox.
+  - *No compatibility.* The legacy `answered` back-fill on old turn ends is gone; a run parked
+    before this has no `in.jsonl` and its waits start empty (beta, task 8 makes it `unreadable`).
+  - *Not done here.* The guides' and `workflow-api.md`'s word "mailbox" for the events a run waits
+    on is left for task 8; only pages naming `mailbox.jsonl` or `process.log`, and the test API,
+    changed. `awf send --event-id` is 039's task 10.
+- **Tests.** `run-policy/waits.test.ts` (12): the merge order; a timer due only by the fold's
+  clock and never again once taken; a cancelled timer withdrawn; a duplicate id; held, `acks` and
+  `returns`; a stage's and a race's own; a held time read from state for `receive` and `select`;
+  `wakeCause`; the fence; turns matched on (agent, turn, began), a stale end fenced; restored
+  turns. `waits.test.ts` (was `mailbox.test.ts`) keeps every case on the new files: a timer's
+  `took` names it and nothing is written as an event; parking takes the lock only for its last
+  look. `time-read.test.ts`: the torn `at:due` case is gone with the event, and "a time moved while
+  the take read the lines isn't taken" replaces the lock one. `turns.test.ts`: the claim writes the
+  failed end right after `claimed`, once ever, and restores the untaken turn; the crash cases run
+  on `earlier: { events, run }`. `runs.test.ts`: a `.new-*` folder holds `in.jsonl` before the
+  rename and no run folder is ever seen without it (fails with the write moved after the rename);
+  a failed launch's file, and a launcher's link refused when the child claimed. `emit.test.ts`:
+  three failed launches are three attempt files with `launch` and no `pid`, and the run is `stuck`;
+  `awf tick` wakes a parked run whose timer is due and leaves one with nothing due (the wait's
+  `acks` now say what was acknowledged). `emit-e2e.test.ts`: each background launch has its own
+  `launches/{launch}.log`, named by its attempt.
+- **Review, round 1.** Two reviews; all findings accepted.
+  - *A failed launch hid the attempt before it* (both reviews): `previousGone` waited on `n-1`,
+    and the continue's `previous`, `resumeSessions`, `statusOf` and `waiting`, and `emit`'s reply
+    check read the last attempt file. One rule now: `readAttempts(run)` returns the attempts that
+    claimed their number (`isClaimed`, `claimedOf`), and `readAttemptFiles(run)` every file, which
+    only `stuck`, the next number (`claimAttempt`, `recordFailedLaunch`'s) and `awf runs`' attempt
+    list read. `RunStatus` has `attempts` (claimed) and `files` (all); `statusOf` takes the files
+    and decides from the claimed. `previousGone` waits on the last claimed attempt below `n`. Test
+    (`run-lines.test.ts`): attempt 3 parked with its process still closing and a failed launch file
+    4, the run shows `parked` and claim 5 waits for 3's process (it doesn't with the old `n-1`); a
+    crashed attempt 3 with a failed launch 4 is the continue's `previous`, without an ending, so it
+    is stopped and its sessions not reopened, and the run is `interrupted`.
+  - *`AttemptRecord` is a union*: `ClaimedAttempt` (`kind: "attempt"`, `pid` and `processStart`
+    required) and `FailedLaunch` (`{ version, attempt, kind: "failed-launch", launch, file, started,
+    ended, outcome: "failed", reason }`), told apart by `kind` (round 2; round 1 had `unclaimed`). Engine readers that act on an attempt
+    take `ClaimedAttempt`. The union and its discriminant are meant to be final; `ClaimedAttempt`'s
+    fields are reshaped by task 7 (`value` in, `stages`, `accounting`, `unacknowledged` out) and both
+    lose `version` to task 8's `format`.
+  - *`AWF_LAUNCH`*: `runOperatorCli` reads it once (`OperatorEnvironment.launchId`, else the
+    environment's) and deletes it from `process.env` before anything spawns, and `claimNext` records
+    a launch only when `launches/{launch}.log` is in this run. Tests: a claim given another run's
+    launch records none, one given this run's records it; `runOperatorCli` leaves no
+    `AWF_LAUNCH`. A run an agent starts with a copied environment (a test's `environment`) is not
+    covered by the delete, but the log check still refuses it.
+  - *A launch given up at 60 s* now kills the child's process group (`SIGKILL` alone, round 2:
+    `awf run` takes a `SIGTERM` as a cancel, which ends an event run for good) and waits for it before the failed file is linked; one that claimed meanwhile goes
+    on. A link refused because the child claimed first reports the launch as started, not
+    `launch-failed`. Test (`emit.test.ts`): a launch that claims and then throws is `started`, its
+    one attempt file claimed. The 60 s give-up itself is not unit-tested.
+  - Nits, all applied: a wait computes its `acks` and appends its line in one step, on a chain
+    shared with every took and race this attempt writes (`#serial`), so a wait in a parallel branch
+    can't hold a batch in between; `unacknowledged` counts due timers by the run's clock
+    (`keepRecords`' `now`); the cancel test cancels a due, untaken timer and checks it withdrawn;
+    `workflow-api.md`'s timer no longer "fires into the mailbox"; `WaitState` carries `now` and
+    `ids`, so `pendingTimes`, `nextTimer`, `hasWork` and `wakeCause` take only the state and the
+    takes; `takenOf` moved into `waits.ts`, and `unrunUsage` and `crashedEnd` (which now builds the
+    whole `turn-ended` line, id included) into `turn-ends.ts`. The design's "attempts/" paragraph
+    and `data.md` say all this.
+- **Review, round 2.** All accepted: a given-up launch gets `SIGKILL` alone; the attempt
+  record's discriminant is a required positive tag, `kind: "attempt" | "failed-launch"` (design,
+  `data.md` and tests follow); `takeLaunch` (`operator-cli.ts`) drops `AWF_LAUNCH` from an injected
+  environment's copy too (test); a wait's take reads readiness again on the shared chain before it
+  writes, so two waits in parallel branches can't take one event (`waits.test.ts`, which fails
+  with the take outside the chain), and a time read from state is taken the same way.
+- **Review, round 3.** One finding, accepted: `RunWaits` kept one waker, so of two waits idle at
+  once a nudge from a turn's end woke only the last to start, and the poll watched only `in.jsonl`.
+  A plain run can't wait on an agent's end (`#checkSources` refuses it), and every event run that
+  awf or a test starts can park, so no path was found that hangs; it is fixed regardless. The waker
+  is a set, a nudge wakes every wait idle, each pass removes its own, and the poll watches
+  `in.jsonl`'s and `run.jsonl`'s sizes together. Test (`waits.test.ts`): two selects on two agents'
+  ends with no parking, the first to start ending second, are both woken by their nudge within
+  500 ms; it fails when a finished wait clears the others' wakers, as the single one did. After it:
+  `waits`, `keep-alive`, `receive`, `turns`, `time-read` 92 pass, 0 fail; the whole `bun test` 2650
+  pass, 2 skip, 4 todo, 0 fail; `bun run check` clean but for the existing Biome info.
+- **Verification**, after review round 2: the whole `bun test` 2649 pass, 2 skip, 4 todo, 0 fail
+  (2655 tests, 201 files); focused
+  (`waits`, `run-lines`, `emit`, `runs`, `time-read`, `turns`, `run-policy`) 167 pass, 0 fail;
+  `bun run check` clean but for the existing Biome info; the site builds, every link resolving.
+- **Verification**, after review round 1: the whole `bun test` 2648 pass, 2 skip, 4 todo, 0 fail
+  (2654 tests, 201 files); `bun test examples` 179 pass, 4 todo, 0 fail; `bun run check` clean but
+  for the existing Biome info; `cd site && bun run build` passes, every link and anchor resolving;
+  focused (`run-lines`, `emit`, `runs`, `waits`, `run-policy`, `time-read`, `turns`) pass, 0 fail.
+- **Verification**, before review: the whole `bun test` 2644 pass, 2 skip, 4 todo, 0 fail (2650
+  tests, 201 files); `bun test examples` 179 pass, 4 todo, 0 fail; `bun run check` clean (Biome,
+  `tsc --noEmit`, "boundaries ok") but for the existing Biome info in
+  `experiments/e9-messaging-protocol`; `cd site && bun run build` passes, every link and anchor
+  resolving; `workflow-runner.test.ts` 6 runs, all clean (the known 1 ms race didn't show). After
+  the last edit (`runStatus` shows no wait when `run.jsonl` can't be read): `run-state`,
+  `runs-command`, `emit`, `inbox-command` 76 pass. No subagent review was run in this task's pass:
+  that and the live evals are the reviewer's.
+
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.

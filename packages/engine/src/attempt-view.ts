@@ -1,6 +1,6 @@
 import type {
   AgentPaneRecord,
-  AttemptRecord,
+  ClaimedAttempt,
   RunAccounting,
   StageLine,
   StageNeed,
@@ -32,7 +32,7 @@ export function printEnding(
     /** The run's id and folder. */
     run: { id: string; dir: string };
     n: number;
-    earlier: readonly AttemptRecord[];
+    earlier: readonly ClaimedAttempt[];
     json: boolean;
     /** Whether the attempt redid from a stage, which no repeated stop then hints at. */
     fromStage: boolean;
@@ -105,7 +105,7 @@ function describeEnding(
     named: string;
     n: number;
     accounting?: RunAccounting;
-    earlier: readonly AttemptRecord[];
+    earlier: readonly ClaimedAttempt[];
     stages: boolean;
     records: string;
     report?: string;
@@ -229,7 +229,7 @@ function whereKept(
     : `${pane} in workspace "${label}" of herdr session ${session}`;
 }
 
-function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
+function runTotal(n: number, current: RunAccounting, earlier: readonly ClaimedAttempt[]): string {
   const before = earlier.filter((record) => record.attempt < n);
   const recorded = [...before.flatMap((record) => record.accounting ?? []), current];
   const unknown = before.filter((record) => record.accounting === undefined);
@@ -261,7 +261,7 @@ function present(
  */
 function sameStop(
   ending: Ending<JsonValue>,
-  earlier: readonly AttemptRecord[],
+  earlier: readonly ClaimedAttempt[],
 ): string | undefined {
   if (ending.kind !== "stopped" || ending.stage !== undefined) return undefined;
   const reused = ending.stages.at(-1)?.stage;

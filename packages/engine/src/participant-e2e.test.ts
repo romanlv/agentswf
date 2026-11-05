@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { InboxItemJson } from "@agentswf/contract/records";
 import { deprecationLine } from "./deprecations";
 import { emitCommand } from "./emit-command";
-import { foldMailbox, readMailbox } from "./mailbox";
+import { readIn } from "./in-lines";
 import { runOperatorCli } from "./operator-cli";
 import { findRunByRef } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
@@ -87,10 +87,8 @@ test('awf send --event-id, deprecated, still delivers a to: "code" reply through
     // Parked with nothing new to take: not continued again.
     "duplicate e2e-thread/k: nothing-due",
   ]);
-  const replies = foldMailbox(await readMailbox(run.dir));
-  expect([...replies.events.values()].filter((e) => e.name === "participant:reply")).toHaveLength(
-    2,
-  );
+  const replies = await readIn(run.dir);
+  expect(replies.filter((e) => e.name === "participant:reply")).toHaveLength(2);
   expect(await Bun.file(join(root, "replies.txt")).text()).toBe(
     "1729.001 is it the index? engineer\n1729.002 never mind \n",
   );
@@ -209,8 +207,8 @@ test("a participant declared as thread:reply replies by awf emit, received under
   expect(await Bun.file(join(root, "replies.txt")).text()).toBe(
     "thread:reply thread 1729.001 is it the index? engineer\nthread:reply thread 1729.002 never mind \n",
   );
-  // The mailbox keeps awf's record name, from the participant's key.
-  const recorded = [...foldMailbox(await readMailbox(run.dir)).events.values()];
+  // `in.jsonl` keeps awf's record name, from the participant's key.
+  const recorded = await readIn(run.dir);
   expect(recorded.filter((e) => e.name === "participant:reply").map((e) => [e.id, e.from])).toEqual(
     [
       ["1729.001", "thread"],
@@ -266,9 +264,7 @@ test("a participant declared as thread:reply replies by awf emit, received under
     ),
   ).toBe(1);
   expect(JSON.parse(refused[0]!)).toMatchObject({ code: "no-participant" });
-  expect(recorded.length, "nothing refused was appended").toBe(
-    foldMailbox(await readMailbox(run.dir)).events.size,
-  );
+  expect(recorded.length, "nothing refused was appended").toBe((await readIn(run.dir)).length);
   // Checked against the file the run's last attempt ran: one that no longer declares the reply
   // refuses it (2); one that is gone can't be loaded (1).
   // (Runs of their own, each recording a file this process hasn't imported.)

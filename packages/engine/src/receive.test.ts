@@ -1,11 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { MAILBOX_RECORD_VERSION, readRun } from "@agentswf/contract/records";
+import { readRun } from "@agentswf/contract/records";
 import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { exists } from "./files";
-import { appendMailbox } from "./mailbox";
+import { appendIn } from "./in-lines";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readRunLines } from "./run-lines";
 import { createRun, logFile } from "./runs";
@@ -504,10 +504,12 @@ test("a race takes the first of what it names, under its branch, and cancels its
     { ...startCase, event: { ...startCase.event, eventId: "c0" } },
   );
   expect(run.value).toEqual({ key: "changes", id: "c0", started: "c0" });
-  expect(run.mailbox.filter((r) => r.kind.startsWith("timer"))).toMatchObject([
-    { kind: "timer", name: "first@nudge", when: "1h" },
-    { kind: "timer-cancelled", name: "first@nudge" },
+  const timers = run.run.filter((line) => line.kind === "timer");
+  expect(timers).toMatchObject([
+    { name: "first@nudge", when: "1h" },
+    { name: "first@nudge", when: "1h", cancelled: true },
   ]);
+  expect(timers[0]).not.toHaveProperty("cancelled");
 });
 
 test("a timer due wins a race; a wait it doesn't name leaves an event for a later receive", async () => {
@@ -644,10 +646,8 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
     cwd: process.cwd(),
     sandbox: null,
   });
-  await appendMailbox(run.dir, {
-    version: MAILBOX_RECORD_VERSION,
+  await appendIn(run.dir, {
     at: new Date().toISOString(),
-    kind: "event",
     id: "e1",
     name: "dd.changes",
     data: { case: "k" },

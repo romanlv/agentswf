@@ -1,4 +1,4 @@
-import type { AttemptRecord, RunView, StageLine } from "@agentswf/contract/records";
+import type { ClaimedAttempt, RunView, StageLine } from "@agentswf/contract/records";
 
 /**
  * The stage attempt `attempt` started at, which its line says with `redo`: the one `--from-stage`
@@ -99,7 +99,7 @@ export function upcomingStages(
  * has already found the attempt's process gone.
  */
 export function crashedRedo(
-  attempts: readonly Pick<AttemptRecord, "attempt" | "ended" | "flags">[],
+  attempts: readonly Pick<ClaimedAttempt, "attempt" | "ended" | "flags">[],
   view: Pick<RunView, "stages">,
 ): string | undefined {
   const last = attempts.at(-1);

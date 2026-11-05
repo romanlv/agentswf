@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { MAILBOX_RECORD_VERSION } from "@agentswf/contract/records";
 import { type AgentOpenSpec, defineWorkflow } from "@agentswf/contract/workflow";
 import { caseRun, startCase } from "./testing";
 import { answer, noAnswer, testWorkflow } from "./workflow-testing";
@@ -363,12 +362,11 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
       ...startCase,
       // Attempt 1 began a turn and died: its end, written failed, is taken by the first wait.
       earlier: {
-        mailbox: [
+        run: [
           {
-            version: MAILBOX_RECORD_VERSION,
-            at: "2026-10-28T10:00:00.000Z",
-            kind: "turn",
+            kind: "turn-started",
             attempt: 1,
+            at: "2026-10-28T10:00:00.000Z",
             agent: "investigator",
             turn: "t1",
             meta: null,

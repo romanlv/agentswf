@@ -45,7 +45,8 @@ the `.jsonl` files get your default mode.
       attempts/
         1.json            one per awf run of this run
         2.json
-      run.jsonl           what the run settled: each stage's end, each agent's native session
+      run.jsonl           what the run settled: stages, sessions, timers, what its waits took
+      in.jsonl            with events only: the events senders gave the run
       log.jsonl           the run's event log
       ops/
         {key}.{n}/        one per turn, message, compaction or decision: op.json, answers.jsonl,
@@ -56,13 +57,13 @@ the `.jsonl` files get your default mode.
       forks/              a forked session's files, copied out of a parent with a home of its own
       output.json         the last ended attempt's result and accounting
       report.md           the last ended attempt's report, when the workflow writes one
-      mailbox.jsonl       with events only: the run's events and what its waits took
-      process.log         with events only: the output of attempts awf started in the background
+      launches/
+        {launch}.log      with events only: the output of an attempt awf started in the background
     {id}.lock             with events only: held while an event is added to the run
 ```
 
 `run.json`, the attempt files and `output.json` each have a `version`, as does each line of
-`log.jsonl` and `mailbox.jsonl`; a call's files, the decision files and `run.jsonl`'s lines have
+`log.jsonl`; a call's files, the decision files, and `run.jsonl`'s and `in.jsonl`'s lines have
 none. A newer awf may add fields and kinds of line; a reader of the log skips a line of a kind it
 doesn't know, and refuses a record whose `version` is newer than it reads rather than misread it.
 A reader of `run.jsonl` refuses a line of a kind it doesn't know: a continue acts on every line.
@@ -98,19 +99,26 @@ when it ends.
 | Field | Meaning |
 | --- | --- |
 | `attempt` | its number |
+| `kind` | `attempt`, or `failed-launch` for a background launch that never claimed its number (below) |
 | `file` | the workflow file it ran |
 | `workflowVersion` | the workflow's `meta.version`, when it has one |
 | `flags` | `timeout` and `fromStage`, when given |
 | `pid`, `processStart` | the process running it, and when that process started: an attempt is live while it has no `ended` and that process exists |
+| `launch` | the background launch that started it, which named its output `launches/{launch}.log` |
 | `started`, `ended` | its times; no `ended` while it runs, or after a crash |
 | `outcome`, `stage`, `reason` | how it ended: `completed`, `parked`, `stopped`, `failed`, `timed-out` or `cancelled`; the stage it ended in, and why, when it didn't complete |
 | `stages` | each stage it entered, `ran` or `reused`, with its outcome, the attempt that ran it, its time and its summary |
 | `accounting` | its totals and a row per stage; absent for an attempt that never ended |
 | `messageLimits` | the [messaging](/guide/messaging) limits it ran under |
-| `unacknowledged` | a completed run with `events` only: how many events in its mailbox no wait took |
+| `unacknowledged` | a completed run with `events` only: how many events no wait took |
 
 An attempt with no `ended` whose process is gone is `interrupted`
-([Durability](/guide/durability#after-a-crash)).
+([Durability](/guide/durability#after-a-crash)). An attempt that `awf emit` or `awf tick` started in
+the background and that exited before it could begin, such as one whose file no longer loads, is
+written by the launcher as that attempt, with `kind: "failed-launch"`, `failed` with its `reason`, its
+`launch` and the `file` it tried, and no process. A run is shown, and continued, from the last
+attempt that ran.
+Three failed, timed-out or crashed attempts in a row make a run with events `stuck`.
 
 ### run.jsonl
 
@@ -123,6 +131,15 @@ after it is ignored. Each line is written whole and synced before the step it se
 | `claimed` | none: the attempt begins writing |
 | `stage` | a stage's end: `name`, `outcome` (`succeeded`, `stopped` or `failed`) and `reason`, `started`, `summary`, `value` after a JSON round trip, `provided` when no turn ran it, `redo` on the stage its attempt started at |
 | `session` | an agent's native session, as soon as it is known: `agent`, `harness`, `session`, the `operation` it was seen in, and a sandboxed agent's `home` |
+| `timer` | a timer as first set: `name`, `due`, and `when` as the code gave it; cancelled, the same line again with `cancelled` |
+| `wait` | a wait: its `label`, what it `takes`, its `stage` or `race`, and outside those the event ids it `acks`, or `returns` when an attempt's first wait hands back what an earlier one took |
+| `took` | what a wait returned, by id, with a `stage` when it was in one; held until a later wait acknowledges it |
+| `race` | a race's winning `branch`, and what it `took` |
+| `turn-started`, `turn-ended` | a turn `start()` began, and its end, which a wait takes as `agent:ended`; the next attempt writes a failed end for a turn a crash left running |
+
+A timer that comes due is never written as an event: a wait or race that takes it names it in its
+`took` by the id awf derives from its name, with `timer` beside it, and a time `wf.at()` read by
+its `branch` and `due`.
 
 A stage's current record is its latest `stage` line, and a continue reuses it when it
 `succeeded`. Every start point is a redo: the stage `--from-stage` names, or the first stage a
@@ -217,13 +234,16 @@ the earlier attempt's.
 
 ### Runs with events
 
-A run of a workflow with `events` keeps three more files:
+A run of a workflow with `events` keeps more files:
 
-- `mailbox.jsonl`: the run's events as they came, its timers, and which events each wait took.
-  Senders, the run and `awf tick` append to it, each holding the run's lock.
-- `{id}.lock`, beside the run's folder: that lock, held only while a line is added.
-- `process.log`: the output of every attempt that `awf emit` or `awf tick` started in the
-  background, where there is no terminal to print to.
+- `in.jsonl`: the events senders gave the run, as they came: each line's `at`, `id`, `name`,
+  `data`, `from`, and `starts` on the event that started the run. A
+  sender appends holding the run's lock; an event that starts a run is in it before the run's
+  folder appears. What the run did with each is `run.jsonl`'s `wait`, `took` and `race` lines.
+- `{id}.lock`, beside the run's folder: that lock, held while an event is added, and by the run as
+  it parks.
+- `launches/{launch}.log`: the output of each attempt that `awf emit` or `awf tick` started in the
+  background, where there is no terminal to print to; the attempt's file names its `launch`.
 
 ### Skills given to agents
 

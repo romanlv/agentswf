@@ -19,7 +19,7 @@ import { writeJson } from "./files";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { listOps } from "./ops";
 import { claimRunLines, readRunLines } from "./run-lines";
-import { createRun, openRun, type Run, readAttempts } from "./runs";
+import { createRun, openRun, type Run, readAttemptFiles } from "./runs";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { type RunWorkflowOptions, runWorkflow, startWorkflow } from "./workflow-runner";
 
@@ -81,11 +81,12 @@ export async function lastLines(runDir: string): Promise<Map<string, StageLine>>
 
 /** Writes the run's next attempt record, as `awf run` claims one, with `fields` over defaults. */
 export async function writeAttempt(run: Run, fields: Partial<AttemptRecord>): Promise<void> {
-  const n = (await readAttempts(run)).length + 1;
+  const n = (await readAttemptFiles(run)).length + 1;
   mkdirSync(join(run.dir, "attempts"), { recursive: true });
   await writeJson(join(run.dir, "attempts", `${n}.json`), {
     version: 1,
     attempt: n,
+    kind: "attempt",
     file: "/flows/case.ts",
     flags: {},
     started: new Date().toISOString(),
@@ -216,6 +217,7 @@ export async function runAttempt<Result extends JsonValue>(
     writeJson(join(run.dir, "attempts", `${attempt}.json`), {
       version: 1,
       attempt,
+      kind: "attempt",
       file: name,
       ...(workflow.meta.version === undefined ? {} : { workflowVersion: workflow.meta.version }),
       flags: fromStage === undefined ? {} : { fromStage },

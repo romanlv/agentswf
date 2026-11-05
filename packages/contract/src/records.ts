@@ -489,12 +489,20 @@ export {
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
 /**
- * `attempts/{attempt}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
- * again when it ends, with its ending. Tier: public, stable.
+ * `attempts/{attempt}.json`: an attempt of a run. Most are a `ClaimedAttempt`; a background launch
+ * that never claimed its number is a `FailedLaunch`, its `kind` the one field to tell them
+ * apart by. Tier: public, stable.
  */
-export type AttemptRecord = {
+export type AttemptRecord = ClaimedAttempt | FailedLaunch;
+
+/**
+ * One `awf run` of a run. Written whole when the attempt claims its number, and again when it ends,
+ * with its ending. Tier: public, stable.
+ */
+export type ClaimedAttempt = {
   version: typeof ATTEMPT_RECORD_VERSION;
   attempt: number;
+  kind: "attempt";
   /**
    * The file it ran; never identity. A run of a workflow with `events` is continued from its last
    * attempt's, unless what wakes it names its target, whose file the next attempt records.
@@ -508,6 +516,8 @@ export type AttemptRecord = {
   pid: number;
   /** As `ps -o lstart=` gives it, as an ISO time to the second. */
   processStart: string;
+  /** The background launch that started it, `AWF_LAUNCH`: its output is `launches/{launch}.log`. */
+  launch?: string;
   started: string;
   ended?: string;
   outcome?: AttemptOutcome;
@@ -525,10 +535,30 @@ export type AttemptRecord = {
   /** The messaging ceilings in force; absent on attempts an earlier awf ran. */
   messageLimits?: MessageLimits;
   /**
-   * A completed run of a workflow with `events`: how many events in its mailbox no wait took; the
+   * A completed run of a workflow with `events`: how many events no wait took; the
    * last batch taken was handled, as the code returned after it. The run refuses every later event.
    */
   unacknowledged?: number;
+};
+
+/**
+ * A start or continue that `awf emit` or `awf tick` launched in the background and that exited
+ * before it claimed its number, such as a file that no longer loads: linked by its launcher as the
+ * attempt it would have been, failed, with no process. Counted towards `stuck`; nothing else reads
+ * it as an attempt that ran. Tier: public, stable.
+ */
+export type FailedLaunch = {
+  version: typeof ATTEMPT_RECORD_VERSION;
+  attempt: number;
+  kind: "failed-launch";
+  /** The launch, whose output is `launches/{launch}.log`. */
+  launch: string;
+  /** The file it tried to run. */
+  file: string;
+  started: string;
+  ended: string;
+  outcome: "failed";
+  reason: string;
 };
 
 /**
@@ -545,95 +575,6 @@ export type AttemptAccounting = Pick<
  * Tier: public, stable.
  */
 export type AttemptStage = Omit<StageSummary, "value">;
-
-export const MAILBOX_RECORD_VERSION = 1 as const;
-
-/**
- * A line of `mailbox.jsonl`, the run's events and what its waits did with them, appended under the
- * run's lock by whoever writes it: a sender, the run, or awf on the run's behalf.
- * Tier: retired by story 041.
- */
-export type MailboxRecord = {
-  version: typeof MAILBOX_RECORD_VERSION;
-  /** An ISO time. */
-  at: string;
-} & (
-  | {
-      kind: "event";
-      id: EventId;
-      /**
-       * A participant's message to the code is recorded as `participant:reply` and an agent's turn's
-       * end as `agent:ended`, each `from` its key, whatever name the workflow declares and is handed,
-       * `{key}:reply` or `{key}:ended`. These are the mailbox's names for good: story 039's task 10
-       * removes them from the author API, not from here.
-       */
-      name: string;
-      data: JsonValue;
-      /** As `WorkflowEvent.from`. */
-      from: string;
-      /** The event that created its run: `wf.started`. */
-      starts?: true;
-    }
-  /**
-   * A wait called. Outside a stage and a race, it acknowledges what the last `took` outside one
-   * returned; in `stage` or `race`, it acknowledges nothing, as each holds what it took. `takes`:
-   * what it takes, absent for every event. `returns`: an attempt's first wait that didn't take
-   * what a crash left held, which goes back to waiting rather than being acknowledged. A select
-   * whose times read from state change while it waits writes another.
-   */
-  | {
-      kind: "wait";
-      attempt: number;
-      label?: string;
-      stage?: string;
-      race?: string;
-      takes?: WaitTake[];
-      returns?: true;
-    }
-  /**
-   * The wait returning these events, in order. `stage`: it was in that stage, which holds the
-   * batch, acknowledged, and returns it again on a rerun. `race`: the race of that name, won by
-   * `branch`, which holds its winner, acknowledged, and answers with it again on a rerun.
-   */
-  | {
-      kind: "took";
-      attempt: number;
-      ids: EventId[];
-      stage?: string;
-      race?: string;
-      branch?: string;
-    }
-  /**
-   * A timer set: due `due`, an ISO time, from `when` as the code gave it, a duration or an ISO
-   * time. The first under a name is kept. A race's own timer is `{race}@{branch}`, and a sleep's
-   * `{sleep}@sleep`, a race of one. Due, its event `timer:due` is appended with id
-   * `awf.timer.{hash}`, the hash of its name: its `at` is the due time, which may be earlier than
-   * the lines above it, and the waits take events in order of `at`.
-   */
-  | { kind: "timer"; attempt: number; name: string; due: string; when: string }
-  /** A timer cancelled: it doesn't fire, and its `timer:due` not yet taken is withdrawn. */
-  | { kind: "timer-cancelled"; attempt: number; name: string }
-  /**
-   * A turn `start()` began, written before its agent is launched; the rest of it is in
-   * `log.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
-   * agent's key, the turn's id and this attempt, so one end is ever kept, and a turn the code
-   * begins again under its id in a later attempt is a turn of its own.
-   */
-  | {
-      kind: "turn";
-      attempt: number;
-      agent: AgentKey;
-      turn: TurnId;
-      meta: JsonValue;
-      /** The agent's settings it began at, which an end awf writes after a crash carries. */
-      execution: AgentExecution;
-    }
-  /**
-   * A start or continue whose attempt never claimed its number, such as a file that no longer
-   * loads: counted with failed and crashed attempts towards `stuck` (Q13).
-   */
-  | { kind: "launch-failed"; reason: string }
-);
 
 export type { StageNeed } from "./workflow/executable";
 
@@ -792,7 +733,7 @@ export type OutsideVia = "terminal" | "command" | "test";
 export type MessagingEvent =
   /**
    * An outside participant connected, with the labels the workflow gave it; `to: "code"` when its
-   * messages go to the run's code, each recorded in the mailbox as `participant:reply` from its key:
+   * messages go to the run's code, each recorded in `in.jsonl` as `participant:reply` from its key:
    * its workflow declares `{key}:reply`, or connected it with the deprecated `to: "code"`.
    */
   | {
@@ -985,8 +926,8 @@ export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
  * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given.
  * A timer's `timer:due` is from its name. A select's time read from state is `at:due` from its
  * branch, with `due`, the ISO time read, when the read gave one: a deadline, not part of the match.
- * With no event ready, the wait appends its event, id `awf.at.{hash}` of the branch and the time,
- * and takes it at once. Tier: public, stable.
+ * With no event ready, the wait takes it at once, under id `awf.at.{hash}` of the branch and the
+ * time, which its `took` line names with `branch` and `due`. Tier: public, stable.
  */
 export type WaitTake = { name: string; from?: string; turn?: string; due?: string };
 

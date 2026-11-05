@@ -1,4 +1,4 @@
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { ClaimedAttempt } from "@agentswf/contract/records";
 import { runProcess } from "@agentswf/harness";
 import { ensureRunSession, runSessionName } from "./herdr-run-session";
 import { readMarks } from "./herdr-workspace-marks";
@@ -12,18 +12,19 @@ import { probeProcess } from "./runs";
  * attempt orphaned isn't reached here; it is not stopped yet.
  */
 export async function stopCrashed(
-  previous: AttemptRecord,
+  previous: ClaimedAttempt,
   label: string,
   context: { home: string; environment: Readonly<Record<string, string | undefined>> },
 ): Promise<void> {
   // Only once its leader is gone for good: a live group's id is never handed out again, so a group
   // still there is the attempt's leftovers, never another process that took its pid since. One an
   // `awf run` typed in a terminal led is its pipeline's, which goes with it.
-  if (probeProcess(previous.pid) === "gone") {
+  const { pid } = previous;
+  if (pid !== undefined && probeProcess(pid) === "gone") {
     try {
-      process.kill(-previous.pid, "SIGTERM");
+      process.kill(-pid, "SIGTERM");
       await Bun.sleep(500);
-      process.kill(-previous.pid, "SIGKILL");
+      process.kill(-pid, "SIGKILL");
     } catch {
       // No such group, or it ended at the first signal.
     }

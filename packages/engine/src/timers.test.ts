@@ -90,8 +90,17 @@ test("workflow.now() and the events a test sends follow the test's clock", async
     startCase,
   );
   expect(run.value).toEqual({ days: 14, event: "dd.changes" });
-  const due = run.mailbox.find((r) => r.kind === "event" && r.name === "timer:due");
-  expect(Date.parse(due?.at ?? "") - Date.now()).toBeGreaterThan(13 * DAY);
+  // Taken by its derived id, named beside it; never written as an event.
+  const timer = run.run.find((line) => line.kind === "timer");
+  expect(timer).toMatchObject({ name: "follow-up@sleep", when: "14d" });
+  expect(Date.parse(timer?.kind === "timer" ? timer.due : "") - Date.now()).toBeGreaterThan(
+    13 * DAY,
+  );
+  expect(run.run.find((line) => line.kind === "race")).toMatchObject({
+    name: "follow-up",
+    took: [{ timer: "follow-up@sleep" }],
+  });
+  expect(run.events.map((line) => line.name)).toEqual(["dd.changes"]);
 });
 
 const followUp = defineWorkflow({

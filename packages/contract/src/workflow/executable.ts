@@ -58,7 +58,7 @@ export type Ending<Result> =
   | {
       kind: "parked";
       stages: StageSummary[];
-      /** Its last wait's label and `until`, an ISO time, which the mailbox records. */
+      /** Its last wait's label and `until`, an ISO time, which its `wait` line records. */
       label?: string;
       until?: string;
     }

@@ -1499,7 +1499,7 @@ describe("with started turns", () => {
       { ...startCase, agents: { investigator: calls } },
     );
     expect(run.value).toEqual({ cancelled: true, settledFirst: true, kind: "cancelled" });
-    const end = run.mailbox.find((each) => each.kind === "event" && each.name === "agent:ended");
+    const end = run.run.find((line) => line.kind === "turn-ended");
     expect(Date.parse(end!.at)).toBeGreaterThanOrEqual(seen.settledAt!);
   });
 

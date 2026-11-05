@@ -157,15 +157,6 @@ import {
   inTimeoutHandler,
   type KeepAlive,
 } from "./keep-alive";
-import {
-  AT_DUE,
-  type RestoredTurn,
-  RunMailbox,
-  RunParked,
-  recoverTurns,
-  type TurnEnd,
-  unrunUsage,
-} from "./mailbox";
 import { superviseMessageOperation } from "./message-operation";
 import { canAwaitReply } from "./messaging/limits";
 import type { HolderRequest } from "./messaging/messaging";
@@ -192,6 +183,7 @@ import {
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { RunEventLog } from "./run-event-log";
 import { type RunLines, readRunLines } from "./run-lines";
+import { branchOf, matches, type RestoredTurn } from "./run-policy/waits";
 import {
   type AgentProgress,
   type GroupProgress,
@@ -216,20 +208,12 @@ import {
 import { SessionLines } from "./session-lines";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import {
-  asSource,
-  branchOf,
-  branchValue,
-  isSignal,
-  matches,
-  presented,
-  signalOf,
-  source,
-  takeOf,
-} from "./sources";
+import { asSource, branchValue, isSignal, presented, signalOf, source, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
+import { unrunUsage } from "./turn-ends";
+import { RunParked, RunWaits, type TurnEnd } from "./waits";
 import type { EventWorkflow } from "./workflow-loader";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -266,14 +250,14 @@ export type RunWorkflowOptions = {
     panes?: RunPanes;
     /** A run of a workflow with `events`. */
     events?: true;
-    /** With `events`: runs `work` holding the run's lock, as every append to the mailbox is made. */
+    /** With `events`: runs `work` holding the run's lock, as every sender appends to `in.jsonl`. */
     locked?<T>(work: () => Promise<T>): Promise<T>;
     /**
      * With `events`: false when the attempt before this one has no ending, its process gone with its
      * agents perhaps still running: its sessions aren't reopened until they are stopped (Q17).
      */
     resumeSessions?: boolean;
-    /** With `events`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
+    /** With `events`: calls `nudge` whenever awf tells the run it has a new event. */
     listenNudges?(nudge: () => void): void;
     /**
      * Writes the attempt's `parked` ending, which the run's wait calls holding the run's lock: an
@@ -643,20 +627,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const fatal = Promise.withResolvers<never>();
   void fatal.promise.catch(() => undefined);
   const now = options.now ?? Date.now;
-  // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
-  // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
-  const restoredTurns = withEvents ? await recoverTurns(runDir, attempt, locked, now) : undefined;
   // An event run's agents reopen on the sessions its earlier attempts recorded.
   const keptSessions =
     withEvents && options.run.resumeSessions !== false
       ? keptSessionsOf(recorded.sessions)
       : undefined;
-  // Every run's timers live in a mailbox; a run of a workflow with events takes its events there too.
+  // Every run's timers are its own lines; a run of a workflow with events takes its events with them.
   // A plain run without `park` waits for its timers in its process.
   const { park } = options.run;
-  const waits = new RunMailbox({
+  const waits = new RunWaits({
     runDir,
-    attempt,
+    lines: options.run.lines,
     locked,
     now,
     ...(park
@@ -680,11 +661,14 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       : {}),
   });
   await waits.open();
-  const mailbox = withEvents ? waits : undefined;
-  if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
-  // The mailbox's parking asks the owner, made after it: by then it is.
+  const eventWaits = withEvents ? waits : undefined;
+  if (eventWaits) options.run.listenNudges?.(() => eventWaits.nudge());
+  // A turn an earlier attempt started whose end no wait took is its agent's turn again (the claim
+  // ended any a crash left running).
+  const restoredTurns = eventWaits?.restored;
+  // The waits' parking asks the owner, made after it: by then it is.
   const owner: WorkflowOwner = new WorkflowOwner({
-    ...(mailbox ? { mailbox } : {}),
+    ...(eventWaits ? { eventWaits } : {}),
     waits,
     ...(keptSessions ? { keptSessions } : {}),
     sessionLines,
@@ -763,7 +747,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failed = true;
       failure = error;
     }
-    if (mailbox && !mailbox.parked)
+    if (eventWaits && !eventWaits.parked)
       await owner.endStartedTurns(failed ? "the workflow failed" : "the workflow returned");
     // Once `parked` is written, the attempt is parked, whatever the code did after.
     if (waits.parked) {
@@ -1018,17 +1002,17 @@ class WorkflowOwner {
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
       awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
       coordinators: readonly CoordinatorPort[];
-      /** A run of a workflow with `events`: its mailbox, which its waits take from. */
-      mailbox?: RunMailbox;
+      /** A run of a workflow with `events`: its waits, which take its events. */
+      eventWaits?: RunWaits;
       /** The run's time. */
       now: () => number;
-      /** Its timers: the mailbox for a run with `events`, one of its own for a plain run. */
-      waits: RunMailbox;
-      /** With `mailbox`: each agent's latest session in earlier attempts, which it reopens on. */
+      /** Its timers and waits, every run's. */
+      waits: RunWaits;
+      /** With `eventWaits`: each agent's latest session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
       /** Where each session an agent is seen with is recorded, as it is. */
       sessionLines: SessionLines;
-      /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
+      /** With `eventWaits`: each agent's turn an earlier attempt started whose end no wait took. */
       restoredTurns?: ReadonlyMap<string, RestoredTurn>;
       emit: Emitter;
       /** The workflow's name, which with the run's id is the ref its events are `from`. */
@@ -1239,7 +1223,7 @@ class WorkflowOwner {
           undefined,
         );
       },
-      // Every run waits on its own mailbox; one without events never parks, so it waits here.
+      // Every run waits on its own lines; one without events never parks, so it waits here.
       receive: (spec?: WaitOptions) => this.receive(options.waits, spec),
       race: ((name: string, branches: RaceBranches, raceOptions?: WaitOptions) =>
         this.race(options.waits, name, branches, raceOptions)) as WorkflowContext["race"],
@@ -1258,8 +1242,8 @@ class WorkflowOwner {
         return new Date(options.now() + milliseconds);
       },
       signal: ((name: string) => signalSource(name, options.declared)) as WorkflowContext["signal"],
-      ...(options.mailbox?.started
-        ? { started: options.mailbox.started as WorkflowContext["started"] }
+      ...(options.eventWaits?.started
+        ? { started: options.eventWaits.started as WorkflowContext["started"] }
         : {}),
     };
   }
@@ -1326,7 +1310,7 @@ class WorkflowOwner {
         if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
         this.#logical.get(event.from)?.endTaken(turn);
       }
-      // The mailbox keeps awf's record names; the code is handed the names it declares.
+      // `in.jsonl` and the turns' ends keep awf's record names; the code is handed the names it declares.
       return taken.map((event) => presented(event, this.options.declared));
     } finally {
       removeFromScope?.();
@@ -1335,7 +1319,7 @@ class WorkflowOwner {
   }
 
   /** A timer, by name: the recorded one, or set now. A race's own are named `{race}@{branch}`. */
-  private timer(mailbox: RunMailbox, name: string, when: When, own = false): Timer {
+  private timer(waits: RunWaits, name: string, when: When, own = false): Timer {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     if (typeof name !== "string") throw new Error("a timer's name is a string");
     if (!own) {
@@ -1345,7 +1329,7 @@ class WorkflowOwner {
       if (problem) throw new Error(`timer ${name}: its name is ${problem}`);
     }
     const given = parseWhen(when, this.options.now());
-    const { timer, asked } = mailbox.setTimer(name, given.due, given.when);
+    const { timer, asked } = waits.setTimer(name, given.due, given.when);
     if (timer.cancelled)
       this.options.onLog?.(
         `awf: timer ${name} was cancelled; a name stays cancelled, so it won't fire`,
@@ -1354,12 +1338,12 @@ class WorkflowOwner {
       this.options.onLog?.(
         `awf: timer ${name} is due ${timer.due}, as first set (${timer.when}); ${asked} is ignored`,
       );
-    return timerSource(mailbox, name, timer.due);
+    return timerSource(waits, name, timer.due);
   }
 
   /** Waits for the first of `branches`, recorded under `name`. */
   private async race(
-    mailbox: RunMailbox,
+    waits: RunWaits,
     name: string,
     branches: RaceBranches,
     raceOptions: WaitOptions | undefined,
@@ -1391,7 +1375,7 @@ class WorkflowOwner {
     const owned = new Map<string, string>();
     const pairs: (readonly [string, WaitTake])[] = given.map(([branch, source]) => {
       if (!own(source)) return [branch, takes.get(branch) as WaitTake] as const;
-      const timer = this.timer(mailbox, `${name}@${branch}`, source as When, true);
+      const timer = this.timer(waits, `${name}@${branch}`, source as When, true);
       owned.set(branch, timer.name);
       return [branch, { name: "timer:due", from: timer.name }] as const;
     });
@@ -1399,7 +1383,7 @@ class WorkflowOwner {
     let event: WorkflowEvent<string, JsonValue>;
     try {
       [event] = (await this.#holdingWait(scope, async (signal) => {
-        const won = await mailbox.race(name, pairs, owned, label, signal);
+        const won = await waits.race(name, pairs, owned, label, signal);
         branch = won.branch;
         return [won.event];
       })) as [WorkflowEvent<string, JsonValue>];
@@ -1407,7 +1391,7 @@ class WorkflowOwner {
       // Cut short, not parked: its own timers would fire into a later wait. A park's rerun races
       // again, and so does a continue's after a park refused short of its --from-stage.
       if (!(error instanceof RunParked || error instanceof FromStageUnreached))
-        await Promise.all([...owned.values()].map((timer) => mailbox.cancelTimer(timer))).catch(
+        await Promise.all([...owned.values()].map((timer) => waits.cancelTimer(timer))).catch(
           () => undefined,
         );
       throw error;
@@ -1419,7 +1403,7 @@ class WorkflowOwner {
 
   /** A loop over the events `branches` take, one at a time. */
   private select(
-    mailbox: RunMailbox,
+    waits: RunWaits,
     branches: Branches,
     selectOptions: WaitOptions | undefined,
   ): AsyncIterable<Next<Branches>> {
@@ -1434,7 +1418,9 @@ class WorkflowOwner {
       ([branch, source]) =>
         [
           branch,
-          reads.has(branch) ? { name: AT_DUE, from: branch } : sourceTake("select", branch, source),
+          reads.has(branch)
+            ? { name: "at:due", from: branch }
+            : sourceTake("select", branch, source),
         ] as const,
     );
     this.#checkSources("select", pairs);
@@ -1450,7 +1436,7 @@ class WorkflowOwner {
       if (scope?.stage !== undefined)
         throw new Error(`select is in stage ${scope.stage}: a loop's wait is not a stage's`);
       const [event] = await this.#holdingWait(scope, async (signal) => [
-        await mailbox.select(takes, labelOf(selectOptions?.label), signal),
+        await waits.select(takes, labelOf(selectOptions?.label), signal),
       ]);
       const taken = event as WorkflowEvent<string, JsonValue>;
       const branch = branchOf(pairs, taken) as string;
@@ -1473,7 +1459,7 @@ class WorkflowOwner {
    */
   #checkSources(what: string, takes: Iterable<readonly [string, WaitTake]>): void {
     const given = [...takes];
-    if (!this.options.mailbox) {
+    if (!this.options.eventWaits) {
       const unheard = given.find(([, take]) => HEARD_WITH_EVENTS.has(take.name));
       if (unheard)
         throw new Error(
@@ -1501,11 +1487,11 @@ class WorkflowOwner {
   /** Each agent's turn an earlier attempt started whose end no wait has taken yet. */
   readonly #restored: Map<string, RestoredTurn>;
 
-  /** How an agent of an event run records its started turns in the mailbox. */
-  #turnsOf(key: string, mailbox: RunMailbox): LogicalAgentTurns {
+  /** How an agent of an event run records its started turns in `run.jsonl`. */
+  #turnsOf(key: string, waits: RunWaits): LogicalAgentTurns {
     return {
-      begin: (turn, meta, execution) => mailbox.beginTurn(key, turn, meta, execution),
-      end: (turn, meta, outcome) => mailbox.endTurn(key, { turn, meta, outcome }),
+      begin: (turn, meta, execution) => waits.beginTurn(key, turn, meta, execution),
+      end: (turn, meta, outcome) => waits.endTurn(key, { turn, meta, outcome }),
       checkDeclared: () => {
         const { declared, deprecations } = this.options;
         if (declared.has(`${key}:ended`)) return;
@@ -1591,7 +1577,7 @@ class WorkflowOwner {
 
   /** A wait: one at a time, and in a stage, the stage's batch. */
   private async receive(
-    mailbox: RunMailbox,
+    waits: RunWaits,
     spec: WaitOptions | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
     const scope = this.#beginWait("receive()");
@@ -1601,7 +1587,7 @@ class WorkflowOwner {
       throw new Error(`stage ${scope.stage} has waited once; a stage holds one wait`);
     try {
       const taken = await this.#holdingWait(scope, (signal) =>
-        mailbox.receive(label, scope?.stage, signal),
+        waits.receive(label, scope?.stage, signal),
       );
       if (scope?.stage !== undefined) {
         this.#stageBatches.set(scope.stage, taken);
@@ -1650,7 +1636,7 @@ class WorkflowOwner {
     const { declared, deprecations } = this.options;
     const replies = declared.has(`${key}:reply`);
     if (to === "code") {
-      if (!this.options.mailbox)
+      if (!this.options.eventWaits)
         throw new Error(
           "a participant routed to the code needs a workflow with events, whose waits take its replies",
         );
@@ -1937,7 +1923,7 @@ class WorkflowOwner {
       // A stage around a wait returns the batch it took, which its line doesn't hold.
       const batch =
         entered.value === undefined && !options
-          ? (await this.options.mailbox?.batchOf(name))?.map((event) =>
+          ? (await this.options.eventWaits?.batchOf(name))?.map((event) =>
               presented(event, this.options.declared),
             )
           : undefined;
@@ -2039,7 +2025,7 @@ class WorkflowOwner {
     const existing = this.#agents.get(spec.key);
     if (existing?.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
     const given = spec.keepAlive;
-    if (given !== undefined && !this.options.mailbox)
+    if (given !== undefined && !this.options.eventWaits)
       throw new Error(
         `agent ${spec.key}: keepAlive is for a workflow with events, whose runs park; this one's never do`,
       );
@@ -2131,7 +2117,7 @@ class WorkflowOwner {
         // A kept session already holds the instructions; they are not sent again.
         ...(kept ? { continues: kept } : {}),
         ...(spec.instructions === undefined || kept ? {} : { instructions: spec.instructions }),
-        ...(this.options.mailbox ? { paneAtFirstTurn: true as const } : {}),
+        ...(this.options.eventWaits ? { paneAtFirstTurn: true as const } : {}),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
         ...(seated ? { occupant: seated.occupant } : {}),
         ...(seated?.webSearch ? { webSearch: true } : {}),
@@ -2594,7 +2580,7 @@ class WorkflowOwner {
         this.options.failRun(error);
       },
       livenessPolicy: this.options.livenessPolicy,
-      ...(this.options.mailbox ? { turns: this.#turnsOf(key, this.options.mailbox) } : {}),
+      ...(this.options.eventWaits ? { turns: this.#turnsOf(key, this.options.eventWaits) } : {}),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       close: (reason) => {
         try {
@@ -3278,7 +3264,7 @@ class LogicalAgent implements AgentRef {
     } finally {
       this.#launching = false;
     }
-    // Tracked until the end is in the mailbox, so the run doesn't park with a turn's end on its way.
+    // Tracked until the end is written, so the run doesn't park with a turn's end on its way.
     this.options.track(
       launched
         .then(
@@ -4615,15 +4601,15 @@ function signalSource(name: string, declared: ReadonlySet<string>): unknown {
     throw new Error(
       `signal ${name}: an agent's end is waited on by naming the agent, { done: ${awf.key} }, not a signal`,
     );
-  // The mailbox keeps a reply under its record name, from the participant's key.
+  // `in.jsonl` keeps a reply under its record name, from the participant's key.
   const take = awf ? { name: "participant:reply", from: awf.key } : { name };
   return signalOf({ name }, take);
 }
 
 /** Timer `name`'s source. */
-function timerSource(mailbox: RunMailbox, name: string, due: string): Timer {
+function timerSource(waits: RunWaits, name: string, due: string): Timer {
   return source(
-    { name, due, cancel: () => mailbox.cancelTimer(name) },
+    { name, due, cancel: () => waits.cancelTimer(name) },
     { name: "timer:due", from: name },
   ) as unknown as Timer;
 }

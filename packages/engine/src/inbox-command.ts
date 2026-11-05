@@ -15,7 +15,6 @@ import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
-import { readMailbox } from "./mailbox";
 import {
   clockTime,
   command,
@@ -25,6 +24,8 @@ import {
   type ReadPlace,
   shellLine,
 } from "./run-commands";
+import { readRunLines } from "./run-lines";
+import { waitLabels as labelsOf } from "./run-policy/waits";
 import { findRunByRef, listRuns, RunNotFound, statusOf } from "./run-state";
 import {
   attemptsToken,
@@ -268,7 +269,7 @@ type Watched = {
   /** The attempt files when `attempts` was read; undefined before the first read. */
   token?: string;
   attempts: AttemptRecord[];
-  /** Each attempt's last wait label, from the mailbox, read with `attempts`. */
+  /** Each attempt's last wait label, from `run.jsonl`, read with `attempts`. */
   labels: ReadonlyMap<number, string>;
   fold: ItemFold;
   mark: LogMark;
@@ -702,11 +703,13 @@ function decodeCursor(text: string): CursorState | undefined {
   }
 }
 
-/** Each attempt's last wait label: what a parked attempt is waiting for. */
+/**
+ * Each attempt's last wait label: what a parked attempt is waiting for. A `run.jsonl` that can't be
+ * read gives none: the conversation is the log's.
+ */
 async function waitLabels(runDir: string): Promise<Map<number, string>> {
-  const labels = new Map<number, string>();
-  for (const record of await readMailbox(runDir))
-    if (record.kind === "wait" && record.label !== undefined)
-      labels.set(record.attempt, record.label);
-  return labels;
+  return readRunLines(runDir).then(
+    ({ lines }) => labelsOf(lines),
+    () => new Map(),
+  );
 }

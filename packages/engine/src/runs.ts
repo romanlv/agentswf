@@ -5,6 +5,9 @@ import { isDeepStrictEqual } from "node:util";
 import {
   ATTEMPT_RECORD_VERSION,
   type AttemptRecord,
+  type ClaimedAttempt,
+  type EventLine,
+  type FailedLaunch,
   RUN_RECORD_VERSION,
   type RunLogLine,
   type RunPanes,
@@ -15,7 +18,8 @@ import {
   type TurnRecord,
 } from "@agentswf/contract/records";
 import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
-import { exists, isCode, linkNew, syncDir, writeJson } from "./files";
+import { exists, isCode, linkNew, syncDir, writeJson, writeWhole } from "./files";
+import { inFile } from "./in-lines";
 import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
 import type { EarlierOps } from "./ops";
@@ -47,7 +51,7 @@ export class RunRefused extends Error {
 export type Run = { root: string; dir: string; record: RunRecord };
 
 /** An attempt's file, claimed. */
-export type AttemptFile = { run: Run; file: string; record: AttemptRecord };
+export type AttemptFile = { run: Run; file: string; record: ClaimedAttempt };
 
 /**
  * An attempt that holds its run: its file, the writer its claim on `run.jsonl` gave it, and what its
@@ -101,6 +105,8 @@ export async function createRun(
   root: string,
   record: Omit<RunRecord, "version" | "created" | "id"> & { id?: string },
   now: Date = new Date(),
+  /** The event that starts the run, in its `in.jsonl` before the run is in place. */
+  first?: EventLine,
 ): Promise<Run> {
   checkIds(record.workflow);
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -111,7 +117,7 @@ export async function createRun(
   for (let tries = 1; ; tries += 1) {
     const id = record.id ?? generateId(now);
     try {
-      return await claimRun(root, parent, { ...record, id }, now);
+      return await claimRun(root, parent, { ...record, id }, now, first);
     } catch (error) {
       if (record.id !== undefined || !(error instanceof RunTaken) || tries >= 5) throw error;
     }
@@ -125,6 +131,7 @@ async function claimRun(
   parent: string,
   record: Omit<RunRecord, "version" | "created">,
   now: Date,
+  first: EventLine | undefined,
 ): Promise<Run> {
   checkIds(record.id);
   const other = await takenInCase(parent, record.id);
@@ -135,6 +142,7 @@ async function claimRun(
   const dir = join(parent, record.id);
   try {
     await writeJson(runFile(pending), full);
+    if (first) await writeWhole(inFile(pending), `${JSON.stringify(first)}\n`);
     await syncDir(pending);
     await rename(pending, dir);
   } catch (error) {
@@ -247,10 +255,34 @@ export function panesChanged(record: RunRecord, given: RunPanes | undefined): st
 }
 
 /**
- * The run's attempts, in order. One that doesn't parse, or is newer than this awf, refuses; one
- * gone since the folder was listed was a refused attempt removing its own claim.
+ * The attempts that ran, in order: every attempt file but a background launch that never claimed
+ * its number. What a run does next, and how it shows, is decided from these.
  */
-export async function readAttempts(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
+export async function readAttempts(run: Pick<Run, "dir">): Promise<ClaimedAttempt[]> {
+  return claimedOf(await readAttemptFiles(run));
+}
+
+/** Where background launch `launch` of a run writes its output. */
+export function launchLog(runDir: string, launch: string): string {
+  return join(runDir, "launches", `${launch}.log`);
+}
+
+/** Whether `attempt` claimed its number and ran, rather than being a launch that never did. */
+export function isClaimed(attempt: AttemptRecord): attempt is ClaimedAttempt {
+  return attempt.kind !== "failed-launch";
+}
+
+/** The attempts of `attempts` that claimed their number, in order. */
+export function claimedOf(attempts: readonly AttemptRecord[]): ClaimedAttempt[] {
+  return attempts.filter(isClaimed);
+}
+
+/**
+ * Every attempt file, in order, a failed launch's included: what `stuck` counts and the next
+ * number follows. One that doesn't parse, or is newer than this awf, refuses; one gone since the
+ * folder was listed was a refused attempt removing its own claim.
+ */
+export async function readAttemptFiles(run: Pick<Run, "dir">): Promise<AttemptRecord[]> {
   const dir = attemptsDir(run.dir);
   const numbered = await attemptNames(run);
   const records = await Promise.all(
@@ -262,7 +294,7 @@ export async function readAttempts(run: Pick<Run, "dir">): Promise<AttemptRecord
 }
 
 /** No ending, and its process still the one that started it. */
-export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStart): boolean {
+export function isLive(attempt: ClaimedAttempt, probe: ProcessProbe = processStart): boolean {
   return attempt.ended === undefined && sameProcess(attempt.pid, attempt.processStart, probe);
 }
 
@@ -290,7 +322,7 @@ export function sameStart(now: string, started: string): boolean {
 
 /** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
 export type AttemptRefusal =
-  | { kind: "running"; attempt: AttemptRecord }
+  | { kind: "running"; attempt: ClaimedAttempt }
   /**
    * `stages`, those the completed attempt entered, each by its latest line in the order entered,
    * are what `--from-stage` redoes.
@@ -302,7 +334,7 @@ export type AttemptRefusal =
  * takes one. A completed run takes one only to redo a stage, which `fromStage` says.
  */
 export function attemptRefusal(
-  attempts: readonly AttemptRecord[],
+  attempts: readonly ClaimedAttempt[],
   run: Pick<RunView, "stages">,
   options: { fromStage: boolean; probe?: ProcessProbe },
 ): AttemptRefusal | undefined {
@@ -329,7 +361,7 @@ export function attemptRefusal(
  */
 export async function claimAttempt(
   run: Run,
-  fields: Pick<AttemptRecord, "file" | "workflowVersion" | "flags">,
+  fields: Pick<ClaimedAttempt, "file" | "workflowVersion" | "flags" | "launch">,
   options: {
     now?: Date;
     pid?: number;
@@ -337,7 +369,7 @@ export async function claimAttempt(
     /** `--from-stage`: a run that completed is continued only to redo a stage of it. */
     fromStage?: boolean;
   } = {},
-): Promise<{ attempt: AttemptFile; interrupted: AttemptRecord[] } | { refused: AttemptRefusal }> {
+): Promise<{ attempt: AttemptFile; interrupted: ClaimedAttempt[] } | { refused: AttemptRefusal }> {
   const probe = options.probe ?? processStart;
   const pid = options.pid ?? process.pid;
   const started = probe(pid);
@@ -347,15 +379,18 @@ export async function claimAttempt(
   const dir = attemptsDir(run.dir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await sweep(dir);
-  const earlier = await readAttempts(run);
+  // Numbered past every file, a failed launch's included.
+  const earlier = await readAttemptFiles(run);
   let n = (earlier.at(-1)?.attempt ?? 0) + 1;
   for (;;) {
-    const record: AttemptRecord = {
+    const record: ClaimedAttempt = {
       version: ATTEMPT_RECORD_VERSION,
       attempt: n,
+      kind: "attempt",
       file: fields.file,
       ...(fields.workflowVersion === undefined ? {} : { workflowVersion: fields.workflowVersion }),
       flags: fields.flags,
+      ...(fields.launch === undefined ? {} : { launch: fields.launch }),
       pid,
       processStart: started,
       started: (options.now ?? new Date()).toISOString(),
@@ -387,16 +422,50 @@ export async function claimAttempt(
   }
 }
 
+/**
+ * A background launch that ended without claiming attempt `attempt`, the number it would have
+ * claimed: linked as that attempt's file, failed, with no process, so `stuck` counts it. False when
+ * the launched attempt claimed the number after all, which then says what happened.
+ */
+export async function recordFailedLaunch(
+  run: Run,
+  failed: {
+    attempt: number;
+    launch: string;
+    file: string;
+    started: string;
+    reason: string;
+  },
+  now: Date = new Date(),
+): Promise<boolean> {
+  const dir = attemptsDir(run.dir);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const record: FailedLaunch = {
+    version: ATTEMPT_RECORD_VERSION,
+    attempt: failed.attempt,
+    kind: "failed-launch",
+    launch: failed.launch,
+    file: failed.file,
+    started: failed.started,
+    ended: now.toISOString(),
+    outcome: "failed",
+    reason: failed.reason,
+  };
+  const linked = await linkNew(join(dir, `${failed.attempt}.json`), record);
+  if (linked) await syncDir(dir);
+  return linked;
+}
+
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
   attempt: AttemptFile,
-  ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
+  ending: Pick<ClaimedAttempt, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
     outcome: AttemptOutcome;
   },
   now: Date = new Date(),
-): Promise<AttemptRecord> {
+): Promise<ClaimedAttempt> {
   const { stage, reason, stages, accounting, unacknowledged } = ending;
-  const record: AttemptRecord = {
+  const record: ClaimedAttempt = {
     ...attempt.record,
     ended: now.toISOString(),
     outcome: ending.outcome,
@@ -655,7 +724,7 @@ const runPs: Ps = (pid) => {
 const PREVIOUS_GONE_MS = 5 * 60_000;
 
 /**
- * Waits until the attempt before `n`, a parked one closing its agents or one that crashed with
+ * Waits until the last attempt before `n` that ran, a parked one closing its agents or one that crashed with
  * its process left, is gone; past five minutes, cancels it, then kills it if it ignores that.
  * Its agents' sessions are then this attempt's.
  */
@@ -664,11 +733,13 @@ export async function previousGone(
   n: number,
   notice: (text: string) => void,
 ): Promise<void> {
-  const previous = (await readAttempts(run)).find((each) => each.attempt === n - 1);
+  // The last attempt before `n` that ran: a launch that never claimed its number had no process.
+  const previous = (await readAttempts(run)).filter((each) => each.attempt < n).at(-1);
   // One that ran in this process, as a workflow's tests run attempts, has ended: waiting for it
   // would be waiting for ourselves.
   if (!previous || previous.pid === process.pid) return;
-  const alive = () => sameProcess(previous.pid, previous.processStart, processStart);
+  const { pid } = previous;
+  const alive = () => sameProcess(pid, previous.processStart, processStart);
   const started = Date.now();
   const giveUp = started + PREVIOUS_GONE_MS;
   let said = false;
@@ -686,7 +757,7 @@ export async function previousGone(
       // A cancel first, which closes its agents and sandboxes; only a process that ignores it is killed.
       const signal = (name: NodeJS.Signals) => {
         try {
-          process.kill(previous.pid, name);
+          process.kill(pid, name);
         } catch {
           // Gone between the look and the signal.
         }

@@ -493,7 +493,7 @@ export interface StartedTurn extends Source<Taken<AgentEnded>> {
     E extends EventLike = EventLike,
   >(event: E): event is E & AgentEndOf<E, Meta, T>;
   /**
-   * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
+   * Stops the turn; resolves once its `cancelled` end is recorded, or at once, `false`, when
    * it had ended already.
    */
   cancel(reason?: string): Promise<boolean>;

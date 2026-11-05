@@ -24,6 +24,7 @@ import {
 import { encodeCursor } from "./run-read";
 import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
+import { isClaimed } from "./runs";
 
 export const runsUsage = help.trimEnd();
 
@@ -231,7 +232,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     [
       status.ref,
       stateWord(status, view.lastEventAt),
-      ...(attempt && status.attempts.length > 1
+      ...(attempt && status.files.length > 1
         ? [
             `attempt ${attempt.attempt}${attempt.flags.fromStage ? ` (from stage ${attempt.flags.fromStage})` : ""}`,
           ]
@@ -243,14 +244,19 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       ...money(view.estimate),
     ].join("  "),
   ];
-  for (const earlier of status.attempts.slice(0, -1)) {
+  // Every other attempt file, a launch that never claimed its number included.
+  for (const earlier of status.files) {
+    if (earlier.attempt === attempt?.attempt) continue;
     const took = earlier.ended
       ? `  ${formatDuration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
       : "";
-    const how = `${earlier.outcome ?? "interrupted"}${earlier.stage ? ` in ${earlier.stage}` : ""}`;
+    const stage = isClaimed(earlier) ? earlier.stage : undefined;
+    const how = isClaimed(earlier)
+      ? `${earlier.outcome ?? "interrupted"}${stage ? ` in ${stage}` : ""}`
+      : "failed to launch";
     lines.push(`  attempt ${earlier.attempt}  ${how}${took}`);
   }
-  const indent = status.attempts.length > 1 ? "  " : "";
+  const indent = status.files.length > 1 ? "  " : "";
   if (indent && attempt) lines.push(`  attempt ${attempt.attempt}`);
   const shown = new Set<string>();
   for (const stage of view.stages) {
@@ -324,15 +330,20 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ...(status.waiting ? { waiting: status.waiting } : {}),
       dir: status.run.dir,
     },
-    attempts: status.attempts.map(({ attempt, started, ended, outcome, stage, reason }) => ({
-      attempt,
-      started,
-      ...(ended ? { ended } : {}),
-      state:
-        outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
-      ...(stage ? { stage } : {}),
-      ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
-    })),
+    // Every attempt file, a launch that never claimed its number included, `failed` with its reason.
+    attempts: status.files.map((each) => {
+      const { attempt, started, ended, outcome, reason } = each;
+      const stage = isClaimed(each) ? each.stage : undefined;
+      return {
+        attempt,
+        started,
+        ...(ended ? { ended } : {}),
+        state:
+          outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
+        ...(stage ? { stage } : {}),
+        ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
+      };
+    }),
     stages: view.stages.map(({ stage, state, startedAt, endedAt, value }) => ({
       stage,
       state,

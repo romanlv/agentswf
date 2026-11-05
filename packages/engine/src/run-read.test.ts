@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { ClaimedAttempt } from "@agentswf/contract/records";
 import { writeJson } from "./files";
 import {
   decodeCursor,
@@ -29,10 +29,11 @@ async function run(root: string, workflow: string, id: string, created?: string)
   return made;
 }
 
-async function attempt(made: Run, fields: Partial<AttemptRecord> = {}): Promise<void> {
-  const record: AttemptRecord = {
+async function attempt(made: Run, fields: Partial<ClaimedAttempt> = {}): Promise<void> {
+  const record: ClaimedAttempt = {
     version: 1,
     attempt: 1,
+    kind: "attempt",
     file: "flow.ts",
     flags: { timeout: "1h" },
     pid: 4242,

@@ -256,9 +256,7 @@ test("an undeclared participant's message goes to the agent that asked, and none
     },
   );
   expect(run.value).toBe("Keep two.");
-  expect(
-    run.mailbox.filter((record) => record.kind === "event").map((record) => record.name),
-  ).toEqual(["dd.changes"]);
+  expect(run.events.map((line) => line.name)).toEqual(["dd.changes"]);
 });
 
 test("a workflow that declares a reply refuses wf.signal of an agent's end", async () => {

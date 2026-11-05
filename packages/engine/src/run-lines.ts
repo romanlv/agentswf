@@ -2,6 +2,8 @@ import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type RunLine, type RunView, readRun } from "@agentswf/contract/records";
 import { isCode, syncDir } from "./files";
+import { unendedTurns } from "./run-policy/waits";
+import { crashedEnd } from "./turn-ends";
 
 /** `run.jsonl`, what the run settled; resolved, as it keys the append queue. */
 export function runLinesFile(runDir: string): string {
@@ -34,7 +36,8 @@ function runLines(runDir: string, attempt: number): RunLines {
 
 /**
  * The claim on `run.jsonl`: cuts a line a crash left torn, so it never merges with the next, then
- * appends `claimed`, the fence after which a line of an earlier attempt is ignored. Called once the
+ * appends `claimed`, the fence after which a line of an earlier attempt is ignored, then ends each
+ * turn an earlier attempt began and never ended, failed, before any wait can look. Called once the
  * previous attempt's process is gone.
  */
 export async function claimRunLines(
@@ -48,6 +51,8 @@ export async function claimRunLines(
   await syncDir(runDir);
   const lines = runLines(runDir, attempt);
   await lines.append({ kind: "claimed", attempt, at });
+  for (const turn of unendedTurns((await readRunLines(runDir)).lines))
+    await lines.append(crashedEnd(turn, attempt, at));
   return lines;
 }
 

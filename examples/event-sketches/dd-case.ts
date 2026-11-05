@@ -1,6 +1,6 @@
 // The Datadog watcher's case run, from agent/workflows/datadog-watcher/style-c-sketch.md: one run
 // per case, named by the case id. A type-checked sketch: the case's files are declared below, and
-// so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
+// so is the emit to its own run its tool's handler needs, which awf doesn't have yet.
 
 import { typed } from "agentswf/typebox";
 import {
@@ -62,7 +62,7 @@ declare const INVESTIGATOR: { standing: string } & Record<
 declare function fill(template: string, ...values: unknown[]): string;
 declare function failedNote(outcome: TurnOutcome<JsonValue>): string;
 
-// The emit to the run's own mailbox, which awf doesn't have yet; until it does, the port reads
+// The emit to the run's own events, which awf doesn't have yet; until it does, the port reads
 // verdict.json when a turn ends.
 declare function emitToSelf(
   name: "dd.closed",

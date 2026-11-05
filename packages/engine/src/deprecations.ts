@@ -86,7 +86,6 @@ export const DEPRECATIONS = {
     instead: "give args among the options: testWorkflow(workflow, { args, … })",
   },
   "test-recorded": { old: "a test's recorded", instead: "give it as earlier: { stages }" },
-  "test-mailbox": { old: "a test's mailbox", instead: "give it as earlier: { mailbox }" },
   "to-code": {
     old: 'to: "code"',
     instead: (key: string) =>
