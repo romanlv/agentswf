@@ -175,6 +175,10 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
     }
   };
 
+  /** A run only `rests` names, no wait having taken a rest: the first start of it makes it. */
+  const unclaimedByStart = (run: Known): boolean =>
+    run.scripted === true && !("args" in run) && run.rest === undefined;
+
   /** What the real client then reads of a run whose launch just failed. */
   const launchFailed = (run: Known, events: boolean, stuck: boolean): void => {
     run.failed = stuck ? Math.max(run.failed, 3) : run.failed + 1;
@@ -299,7 +303,11 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       }
       if (!state || answer.outcome === "refused" || (made && answer.outcome === "duplicate"))
         return result(answer);
-      if (made) known.set(ref, state);
+      if (made && unclaimed) {
+        // Made in place: a handle `get` gave before sees it.
+        Object.assign(unclaimed, state);
+        state = unclaimed;
+      } else if (made) known.set(ref, state);
       delete state.scripted;
       if (given.eventId !== undefined) state.eventIds.add(given.eventId);
       if (answer.did === "started" || answer.did === "continued") launchedNow(state);
@@ -339,14 +347,14 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       // A run `rests` names and nothing made yet is the one this start makes.
       for (let n = 1; id === undefined; n++) {
         const there = known.get(`${name}/fake-${n}`);
-        if (!there || (there.scripted && !("args" in there))) id = `fake-${n}`;
+        if (!there || unclaimedByStart(there)) id = `fake-${n}`;
       }
       const ref = `${name}/${id}`;
       call.ref = ref;
       const problem = idProblem(id);
       if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
       let there = known.get(ref);
-      if (there?.scripted && !("args" in there)) {
+      if (there && unclaimedByStart(there)) {
         there.args = call.args;
         delete there.scripted;
         there = undefined;

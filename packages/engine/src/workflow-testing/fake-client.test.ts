@@ -331,3 +331,27 @@ test("the first event to a run only rests names starts it, with its rests, or is
     did: "continued",
   });
 });
+
+test("a handle get gave before a run's first event sees it; a start after a rest was taken is other-args", async () => {
+  const runs = fakeClient({
+    rests: {
+      "review/pr-1": [{ state: "parked", final: false }],
+      "release/v1": [{ state: "failed", final: true }],
+    },
+  });
+  const early = await runs.get(review, "pr-1");
+  await runs.emit(review, "pr-1", "pr.pushed", { sha: "a" });
+  expect(await early.wait()).toEqual({ state: "parked", final: false });
+  expect(await (await runs.get(review, "pr-1")).status()).toEqual({
+    state: "parked",
+    final: false,
+  });
+  expect(await runs.emit(review, "pr-1", "pr.pushed", { sha: "b" })).toMatchObject({
+    did: "continued",
+  });
+
+  await (await runs.get(release, "v1")).wait();
+  await expect(runs.start(release, { version: "1" }, { id: "v1" })).rejects.toMatchObject({
+    code: "other-args",
+  });
+});

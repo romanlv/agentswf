@@ -1063,6 +1063,20 @@ Left: the fake runs an event-made run's `prepare` in the workflow file's folder,
 client runs it in the project; and a registered project that is gone still fails `tick --all`, as
 it did for event projects, though a plain run may be what registered it.
 
+### Final review, round 4, 2026-11-05
+
+One reviewer, on round 3's changes. Folded in:
+
+- `awf tick --all` passes over a project with no event runs only when its runs would run on this
+  engine, or none is installed there. One installed at another version is handed over as before:
+  its records may be newer than this engine reads, and a run it can't open isn't known to be plain.
+- The fake client makes a run only `rests` names in place, so a handle `get` gave before its first
+  event sees it; and `start` claims such a run only before a wait has taken one of its rests, as an
+  event does, so a later `start` with an id is `other-args`.
+
+Left: `tick --all` lists a project's runs up to three times. `bun run check` passes; `bun test`
+2605 pass, 0 fail.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

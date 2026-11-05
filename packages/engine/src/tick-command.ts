@@ -90,9 +90,11 @@ export async function tickCommand(
         out.stderr(`awf: ${project}, in ~/.awf/projects, is gone; its runs are not woken`);
         continue;
       }
-      // A project a plain run registered (ADR 0015) has nothing for a tick to wake.
+      // A project a plain run registered (ADR 0015) has nothing for a tick to wake; one on another
+      // engine is that engine's to judge, whose records this one may not read.
       const root = projectRunRoot(project);
-      if (!(await listRuns(root)).some((run) => run.record.events)) continue;
+      if (!(await listRuns(root)).some((run) => run.record.events) && onThisEngine(project))
+        continue;
       await onItsEngine(project, root);
     }
   for (const root of roots) {
@@ -171,6 +173,16 @@ function isOwnEngine(engine: InstalledEngine): boolean {
   try {
     const theirs = Bun.resolveSync("@agentswf/engine/package.json", engine.dir);
     return realpathSync(theirs) === realpathSync(join(import.meta.dir, "..", "package.json"));
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a project's runs would run on this engine, or none is installed there to run them. */
+function onThisEngine(project: string): boolean {
+  try {
+    const engine = engineOf(project);
+    return engine.kind !== "installed" || engine.version === ENGINE_VERSION;
   } catch {
     return false;
   }

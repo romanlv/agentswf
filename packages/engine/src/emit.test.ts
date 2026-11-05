@@ -884,6 +884,23 @@ describe("awf tick", () => {
     expect(await tick(p, fakeLaunch(), ["--all"])).toMatchObject({ code: 0, err: [] });
   });
 
+  test("tick --all hands a project on another engine over, though its records are too new to read", async () => {
+    const p = project();
+    const newer = dirs.tempRunDir();
+    mkdirSync(join(newer, "node_modules", "agentswf"), { recursive: true });
+    await Bun.write(
+      join(newer, "node_modules", "agentswf", "package.json"),
+      JSON.stringify({ version: "9.9.9", bin: { awf: "./missing.ts" } }),
+    );
+    await Bun.write(
+      join(newer, ".awf", "runs", "wf", "r1", "run.json"),
+      JSON.stringify({ version: 99, events: true, id: "r1", workflow: "wf" }),
+    );
+    await Bun.write(join(p.home, ".awf", "projects"), `${newer}\n`);
+    // Handed to its engine, which is missing here: a failure, not a project passed over.
+    expect((await tick(p, fakeLaunch(), ["--all"])).code).toBe(1);
+  });
+
   test("awf runs shows an event run that keeps failing as stuck", async () => {
     const p = project();
     await keyedRun(p, "k", [ended("failed"), ended("failed"), { ...GONE }]);
