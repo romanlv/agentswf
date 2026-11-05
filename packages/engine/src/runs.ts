@@ -1,22 +1,10 @@
 import { randomBytes } from "node:crypto";
-import {
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   ATTEMPT_RECORD_VERSION,
   type AttemptRecord,
-  type CallSpec,
-  type Candidate,
   RUN_RECORD_VERSION,
   type RunLogLine,
   type RunPanes,
@@ -28,17 +16,17 @@ import {
 } from "@agentswf/contract/records";
 import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, syncDir, writeJson } from "./files";
-import { appendLine, endTornLine, readLines } from "./jsonl";
+import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
+import type { EarlierOps } from "./ops";
 import { type RunLines, readRunLines } from "./run-lines";
 import { recordedStages } from "./run-policy/stages";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
- * `run.jsonl` (`run-lines.ts`), `log.jsonl`, each operation's
- * `calls/{id}/` with its `call.json`, `candidates.jsonl` and `result.json`, and the last ended
- * attempt's `output.json` and `report.md`. The only module that knows where a run's records are;
- * what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
+ * `run.jsonl` (`run-lines.ts`), `log.jsonl`, `ops/` (`ops.ts`), and the last ended attempt's
+ * `output.json` and `report.md`. With those two modules, the only one that knows where a run's
+ * records are; what its work keeps beside them, such as agents' bundles, skills and decisions, the module doing
  * that work places. Only the live attempt writes, and the two claims, a run's folder renamed into
  * place and an attempt's file linked into place, are the only locks.
  */
@@ -61,8 +49,11 @@ export type Run = { root: string; dir: string; record: RunRecord };
 /** An attempt's file, claimed. */
 export type AttemptFile = { run: Run; file: string; record: AttemptRecord };
 
-/** An attempt that holds its run: its file, and the writer its claim on `run.jsonl` gave it. */
-export type Attempt = AttemptFile & { lines: RunLines };
+/**
+ * An attempt that holds its run: its file, the writer its claim on `run.jsonl` gave it, and what its
+ * claim's listing of `ops/` found.
+ */
+export type Attempt = AttemptFile & { lines: RunLines; ops: EarlierOps };
 
 /** The start time of process `pid` as an ISO time to the second, or undefined when it is gone. */
 export type ProcessProbe = (pid: number) => string | undefined;
@@ -541,85 +532,6 @@ export function reportFile(runDir: string): string {
   return join(runDir, "report.md");
 }
 
-/** Writes an operation's call, whole, before its result slot opens. */
-export async function writeCall(runDir: string, spec: CallSpec): Promise<void> {
-  const dir = callDir(runDir, spec.callId);
-  await mkdir(dir, { recursive: true });
-  await writeJson(join(dir, "call.json"), spec);
-}
-
-export async function recordCandidate(
-  runDir: string,
-  callId: string,
-  candidate: Candidate,
-): Promise<void> {
-  const dir = callDir(runDir, callId);
-  await mkdir(dir, { recursive: true });
-  await appendLine(join(dir, "candidates.jsonl"), JSON.stringify(candidate));
-}
-
-/** The most of a screen kept: its last lines, where a pane's scrollback came with it. */
-const SCREEN_BYTES = 64 * 1024;
-
-/** An operation's `screen.txt`: what its pane showed as it ended without an answer. */
-export function screenFile(runDir: string, operationId: string): string {
-  return join(callDir(runDir, operationId), "screen.txt");
-}
-
-export async function writeScreen(
-  runDir: string,
-  operationId: string,
-  screen: string,
-): Promise<void> {
-  const bytes = Buffer.from(screen);
-  const kept = bytes.length <= SCREEN_BYTES ? screen : tailOf(bytes);
-  await mkdir(callDir(runDir, operationId), { recursive: true });
-  await writeFile(screenFile(runDir, operationId), kept, { mode: 0o600 });
-}
-
-/** Its last whole lines within the bound, or its last bytes where one line is longer. */
-function tailOf(bytes: Buffer): string {
-  const tail = bytes.subarray(bytes.length - SCREEN_BYTES);
-  const line = tail.indexOf(10);
-  const whole = line === -1 || line === tail.length - 1 ? tail : tail.subarray(line + 1);
-  // A cut inside a character drops its continuation bytes.
-  let start = 0;
-  while (start < whole.length && (whole[start]! & 0xc0) === 0x80) start += 1;
-  return whole.subarray(start).toString();
-}
-
-/** A call's candidates, as tests check them; a run never reads them back. */
-export async function readCandidates(runDir: string, callId: string): Promise<Candidate[]> {
-  return readLines<Candidate>(join(callDir(runDir, callId), "candidates.jsonl"));
-}
-
-/** Claims an operation's one accepted result with `value`; false when another holds it. */
-export async function writeAcceptedExclusive(
-  runDir: string,
-  callId: string,
-  value: unknown,
-): Promise<boolean> {
-  const dir = callDir(runDir, callId);
-  await mkdir(dir, { recursive: true });
-  return linkNew(join(dir, "result.json"), { value, at: new Date().toISOString() });
-}
-
-/** Null distinguishes "no value yet" from a call whose accepted value happens to be null. */
-export async function readAccepted(
-  runDir: string,
-  callId: string,
-): Promise<{ value: unknown } | null> {
-  let text: string;
-  try {
-    text = await readFile(join(callDir(runDir, callId), "result.json"), "utf8");
-  } catch (error) {
-    if (isCode(error, "ENOENT")) return null;
-    throw error;
-  }
-  const { value } = JSON.parse(text) as { value: unknown };
-  return { value };
-}
-
 function runFile(runDir: string): string {
   return join(runDir, "run.json");
 }
@@ -631,10 +543,6 @@ function attemptsDir(runDir: string): string {
 /** The run's event log, `log.jsonl`: read, never acted on. */
 export function logFile(runDir: string): string {
   return join(runDir, "log.jsonl");
-}
-
-function callDir(runDir: string, callId: string): string {
-  return join(runDir, "calls", callId);
 }
 
 async function readRecord<T extends { version: number }>(file: string, known: number): Promise<T>;

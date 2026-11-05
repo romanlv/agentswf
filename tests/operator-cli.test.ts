@@ -296,7 +296,7 @@ describe("awf run", () => {
     ]);
     expect(result.value.blockingFindingCount).toBe(1);
     expect(result.artifacts.startsWith(runRoot)).toBe(true);
-    expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
+    expect(existsSync(join(result.artifacts, "ops"))).toBe(true);
     const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
     expect(saved.ref).toBe(`review-loop/${saved.runId}`);
     expect(saved.accounting).toMatchObject({
@@ -660,10 +660,10 @@ describe("awf run", () => {
         snapshot: "fake/jev-1-20260926",
         outcome: "answered",
         charged: { amount: 0.000042, currency: "USD" },
-        artifact: "decisions/1.json",
+        artifact: "ops/triage:1.1/decision.json",
       }),
     ]);
-    expect(existsSync(join(record.artifacts, "decisions/1.json"))).toBe(true);
+    expect(existsSync(join(record.artifacts, "ops/triage:1.1/decision.json"))).toBe(true);
     expect(
       JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).decisions,
     ).toEqual(record.decisions);

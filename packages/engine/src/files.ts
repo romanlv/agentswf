@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
@@ -28,6 +28,25 @@ export async function writeWhole(path: string, text: string): Promise<void> {
     await rename(temporary, path);
   } catch (error) {
     await unlink(temporary).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * `text` at `path` whole, synchronously, for a writer that must not wait between two steps: a temp
+ * file renamed into place, mode `0600`. Not synced: it needs only to exist and be whole.
+ */
+export function writeWholeSync(path: string, text: string): void {
+  const temporary = temporaryBeside(path);
+  try {
+    writeFileSync(temporary, text, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, path);
+  } catch (error) {
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // Never made, or gone already.
+    }
     throw error;
   }
 }

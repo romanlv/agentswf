@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunLogLine, SettledOperation, TurnRecord } from "@agentswf/contract/records";
 import { type ControlRequest, WIRE_VERSION } from "@agentswf/contract/wire";
@@ -38,7 +38,7 @@ type Script = (turn: Turn) => Promise<FakeAdapterTurn | undefined> | FakeAdapter
 /** Runs `workflow` with each agent's turns answered by its script, in turn order. */
 async function run<T extends JsonValue>(
   scripts: Record<string, Script[]>,
-  workflow: (context: WorkflowContext) => Promise<T>,
+  workflow: (context: WorkflowContext, runRoot: string) => Promise<T>,
   options: { supportsWaiting?: boolean } = {},
 ) {
   const counts = new Map<string, number>();
@@ -59,7 +59,7 @@ async function run<T extends JsonValue>(
   const runRoot = runDirs.tempRunDir();
   const definition: RunnableWorkflow<null, T> = {
     meta: { name: "messaging", description: "messaging" },
-    run: (context) => workflow(context),
+    run: (context) => workflow(context, runRoot),
   };
   const usage: SettledOperation[] = [];
   const outcome = await runNew(definition, null, {
@@ -74,7 +74,24 @@ async function run<T extends JsonValue>(
     },
     (error: unknown) => ({ ok: false as const, error }),
   );
-  return { adapter, outcome, usage, log: () => logOf(runRoot) };
+  return { adapter, outcome, usage, log: () => logOf(runRoot), ops: () => opsOf(runRoot) };
+}
+
+/** Each operation's `op.json` in the run's `ops/`, by folder. */
+async function opsOf(runRoot: string): Promise<Record<string, { kind: string; agent?: string }>> {
+  const dir = join(runRoot, "messaging");
+  const fs = await import("node:fs/promises");
+  const [id] = await fs.readdir(dir);
+  const ops = join(dir, id!, "ops");
+  const names = await fs.readdir(ops);
+  return Object.fromEntries(
+    await Promise.all(
+      names.map(async (name) => [
+        name,
+        JSON.parse(await readFile(join(ops, name, "op.json"), "utf8")),
+      ]),
+    ),
+  );
 }
 
 async function logOf(runRoot: string): Promise<RunLogLine[]> {
@@ -585,7 +602,7 @@ describe("messaging through the runner", () => {
 
   test("outside any stage the attempt owns a message operation, and the workflow's value waits for it", async () => {
     let handled = false;
-    const { outcome } = await run(
+    const { outcome, ops } = await run(
       {
         sender: [
           async (turn) => {
@@ -612,6 +629,64 @@ describe("messaging through the runner", () => {
     );
     expect(outcome).toEqual({ ok: true, value: "returned" });
     expect(handled).toBe(true);
+    expect(await ops()).toMatchObject({
+      "sender.1": { kind: "turn", agent: "sender" },
+      "listener.1": { kind: "message", agent: "listener" },
+    });
+  });
+
+  test("a message operation whose op.json can't be written fails, naming why", async () => {
+    const { outcome } = await run(
+      {
+        sender: [
+          async (turn) => {
+            await wfa(turn, { command: "send", peer: "listener", text: "note" });
+            await result(turn, { verdict: "sent" });
+            return {};
+          },
+        ],
+      },
+      async (context, runRoot) => {
+        const [id] = await readdir(join(runRoot, "messaging"));
+        const ops = join(runRoot, "messaging", id!, "ops");
+        await mkdir(ops, { recursive: true });
+        await writeFile(join(ops, "listener.1"), "");
+        const sender = await open(context, "sender");
+        const listener = await open(context, "listener");
+        await context.messages.allow({ from: sender, to: listener, purpose: "Notes." });
+        await sender.run({ prompt: "Send.", schema: VERDICT });
+        return "returned";
+      },
+    );
+    expect(outcome.ok).toBe(false);
+    expect(String((outcome as { error: unknown }).error)).toContain("op.json not written");
+  });
+
+  test("a question withdrawn while its peer compacts leaves no operation of its own", async () => {
+    const { outcome, ops } = await run(
+      {
+        asker: [
+          async (turn) => {
+            await wfa(turn, { command: "send", peer: "busy", text: "Q?", awaitReply: true });
+            await result(turn, { verdict: "found it myself" });
+            return {};
+          },
+        ],
+        busy: [async (turn) => ({ ...(await sleep(150, turn.signal)), summary: "kept" })],
+      },
+      async (context) => {
+        const asker = await open(context, "asker");
+        const busy = await open(context, "busy");
+        await context.messages.allow({ from: asker, to: busy, purpose: "Ask." });
+        const compacting = busy.compact({ prompt: "Keep it." });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const asked = await asker.run({ prompt: "Ask.", schema: VERDICT });
+        await compacting;
+        return asked.outcome.kind;
+      },
+    );
+    expect(outcome).toEqual({ ok: true, value: "answered" });
+    expect(Object.keys(await ops()).sort()).toEqual(["asker.1", "busy.1"]);
   });
 
   test("outside any stage, a message operation that fails ends the run failed, value or not", async () => {

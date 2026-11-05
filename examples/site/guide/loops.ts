@@ -55,7 +55,7 @@ export default defineWorkflow({
         // The agent is closed. Once, a new one under its own key takes over.
         replaced = true;
         implementer = await wf.agents.open({
-          key: "implementer#2",
+          key: "implementer-2",
           runtime: "claude",
         });
         const handover = [

@@ -51,9 +51,8 @@ function setup(
     persistenceMs: 20,
     auditMs: 5,
     persistence: {
-      writeCall: async () => {},
       writeAcceptedExclusive: overrides.write ?? (async () => true),
-      recordCandidate: async () => {},
+      recordAnswer: async () => {},
     },
   });
   const native: ReturnType<typeof Promise.withResolvers<HarnessTurnOutcome>>[] = [];

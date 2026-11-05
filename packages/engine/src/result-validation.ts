@@ -1,5 +1,5 @@
 import { acceptAny, type SemanticCheck } from "@agentswf/contract";
-import type { CallSpec } from "@agentswf/contract/records";
+import type { JsonSchema } from "@agentswf/contract/schema";
 import type { GivenInput } from "@agentswf/contract/wire";
 import { checkGiven, readGiven } from "./simple-input";
 
@@ -12,7 +12,7 @@ export type CandidateEvaluation =
  * owns acceptance.
  */
 export async function evaluateGiven(
-  call: Pick<CallSpec, "question" | "schema">,
+  call: { question: string; schema?: JsonSchema },
   given: GivenInput,
   semantic: SemanticCheck = acceptAny,
 ): Promise<CandidateEvaluation> {

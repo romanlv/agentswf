@@ -23,7 +23,7 @@ import {
   type Severity,
   settleSeverity,
 } from "../format/grading";
-import { runtimeName } from "../format/runtime";
+import { agentKeyOf, runtimeName } from "../format/runtime";
 import type { Problem } from "../format/validate";
 
 /**
@@ -132,7 +132,7 @@ export async function draftKey(
     );
 
     const agent = await wf.agents.open({
-      key: `key:${fixture.id}`,
+      key: agentKeyOf(`key:${fixture.id}`),
       runtime: drafter,
       cwd: workspace,
     });
@@ -256,7 +256,7 @@ async function castVotes(
   ballot: string,
 ): Promise<{ by: string; answer: VoteAnswer }> {
   const agent = await wf.agents.open({
-    key: `vote:${fixture.id}:${by}`,
+    key: agentKeyOf(`vote:${fixture.id}:${by}`),
     runtime,
     cwd: ballot,
   });

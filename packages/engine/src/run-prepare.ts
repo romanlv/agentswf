@@ -7,6 +7,7 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import { type EarlierOps, listOps } from "./ops";
 import { projectOf, projectRunRoot } from "./projects";
 import type { RunCommand } from "./run-command";
 import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
@@ -290,6 +291,14 @@ export async function claimNext(
   // share an agent's session.
   const n = claimed.attempt.record.attempt;
   await previousGone(run, n, notice);
+  // Numbered on from what earlier attempts left, now that none still writes: an id is never reused.
+  let ops: EarlierOps;
+  try {
+    ops = await listOps(run.dir);
+  } catch (error) {
+    await unlink(claimed.attempt.file).catch(() => undefined);
+    throw new Error(`ops/ was not listed: ${messageOf(error)}`);
+  }
   let lines: RunLines;
   try {
     lines = await claimRunLines(run.dir, n, claimed.attempt.record.started);
@@ -318,7 +327,7 @@ export async function claimNext(
       `awf: attempt ${earlier.attempt} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.attempt)}"`,
     );
   }
-  return { ...claimed.attempt, lines };
+  return { ...claimed.attempt, lines, ops };
 }
 
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */

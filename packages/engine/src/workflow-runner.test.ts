@@ -28,7 +28,8 @@ import type {
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type DecisionScope, RunDecisions } from "./decisions/directory";
-import { openRun, readAccepted, readEvents, readTurns } from "./runs";
+import { readAccepted } from "./ops";
+import { openRun, readEvents, readTurns } from "./runs";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
@@ -2378,7 +2379,7 @@ describe("runWorkflow", () => {
 
     expect(adapter.turns).toHaveLength(1);
     const { dir } = await openRun(runRoot, workflow.meta.name, result.runId);
-    expect(await readdir(join(dir, "calls"))).toHaveLength(1);
+    expect(await readdir(join(dir, "ops"))).toEqual(["queued.1"]);
   });
 
   test("adapter activation failure still closes earlier sessions and the endpoint", async () => {
@@ -3237,7 +3238,7 @@ test("slot opening failure records the reserved operation and closes its logical
   const workflow = workflowOf("slot-open-failure", async (context) => {
     const agent = await openReviewer(context);
     const [id] = await readdir(join(runRoot, "slot-open-failure"));
-    await writeFile(join(runRoot, "slot-open-failure", id!, "calls"), "blocks call persistence");
+    await writeFile(join(runRoot, "slot-open-failure", id!, "ops"), "blocks op persistence");
     const first = await agent.run({ prompt: "never dispatched", nudge: false }).then(
       (run) => run.outcome.kind,
       () => "rejected",

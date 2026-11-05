@@ -14,8 +14,10 @@ import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
+import type { DecisionInstallation } from "./decisions/seam";
 import { writeJson } from "./files";
 import { OPERATOR_ALIASES } from "./operator-aliases";
+import { listOps } from "./ops";
 import { claimRunLines, readRunLines } from "./run-lines";
 import { createRun, openRun, type Run, readAttempts } from "./runs";
 import type { RunnableWorkflow } from "./workflow-runner";
@@ -62,9 +64,13 @@ export async function until(check: () => Promise<boolean>, ms = 20_000): Promise
   }
 }
 
-/** Attempt `attempt`'s writer on the run's `run.jsonl`, claimed now, as `awf run` claims it. */
-export function claimLines(runDir: string, attempt: number) {
-  return claimRunLines(runDir, attempt, new Date().toISOString());
+/**
+ * Attempt `attempt`'s writer on the run's `run.jsonl`, claimed now, and its listing of `ops/`, as
+ * `awf run` claims them.
+ */
+export async function claimLines(runDir: string, attempt: number) {
+  const ops = await listOps(runDir);
+  return { lines: await claimRunLines(runDir, attempt, new Date().toISOString()), ops };
 }
 
 /** Each stage's latest line in the run's `run.jsonl`, by name, in the order first written. */
@@ -187,10 +193,12 @@ export async function runAttempt<Result extends JsonValue>(
     fromStage?: string;
     values?: Record<string, JsonValue>;
     adapter?: AgentSessionAdapter;
+    decisions?: DecisionInstallation;
     signal?: AbortSignal;
   },
 ) {
   const { runRoot, attempt = 1, fromStage, values, adapter = answering(), signal } = options;
+  const { decisions } = options;
   const name = workflow.meta.name;
   const run = existsSync(join(runRoot, name, "r1"))
     ? await openRun(runRoot, name, "r1")
@@ -202,6 +210,7 @@ export async function runAttempt<Result extends JsonValue>(
         sandbox: null,
       });
   const started = new Date().toISOString();
+  const ops = await listOps(run.dir);
   const lines = await claimRunLines(run.dir, attempt, started);
   const ended = (outcome: AttemptRecord["outcome"]) =>
     writeJson(join(run.dir, "attempts", `${attempt}.json`), {
@@ -225,11 +234,13 @@ export async function runAttempt<Result extends JsonValue>(
         id: run.record.id,
 
         lines,
+        ops,
         ...(fromStage === undefined ? {} : { fromStage }),
         ...(values === undefined ? {} : { values: new Map(Object.entries(values)) }),
       },
       runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
       deadline: future(),
+      ...(decisions === undefined ? {} : { decisions }),
       ...(signal === undefined ? {} : { signal }),
     });
     await ended("completed");
@@ -252,10 +263,9 @@ export async function startNew<Args extends JsonValue, Result extends JsonValue>
     cwd: options.cwd ?? process.cwd(),
     sandbox: null,
   });
-  const lines = await claimRunLines(run.dir, 1, new Date().toISOString());
   return startWorkflow(definition, args, {
     ...options,
-    run: { dir: run.dir, id: run.record.id, lines },
+    run: { dir: run.dir, id: run.record.id, ...(await claimLines(run.dir, 1)) },
   });
 }
 

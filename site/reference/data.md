@@ -31,8 +31,8 @@ You rarely need to open the files: `awf runs` and `awf logs` read them for you, 
 awf writes `.gitignore` containing `*` into the runs folder the first time it makes a run there,
 so no run is committed by accident. The runs folder, each workflow's and each run's folder are
 made readable by you alone, which is what keeps everything in them private: they hold prompts'
-values and paths. The JSON records written whole are also mode `0600`; the `.jsonl` files and
-`decisions/` get your default mode.
+values and paths. The JSON records written whole are also mode `0600`, and so is `screen.txt`;
+the `.jsonl` files get your default mode.
 
 ## A run's folder
 
@@ -47,10 +47,9 @@ values and paths. The JSON records written whole are also mode `0600`; the `.jso
         2.json
       run.jsonl           what the run settled: each stage's end, each agent's native session
       log.jsonl           the run's event log
-      calls/
-        {operationId}/    one per turn: call.json, candidates.jsonl, result.json, screen.txt
-      decisions/
-        {n}.json          each decision the latest attempt asked
+      ops/
+        {key}.{n}/        one per turn, message, compaction or decision: op.json, answers.jsonl,
+                          result.json, decision.json, live.jsonl, screen.txt
       skills/             the run's checked snapshot of each skill, when agents are given any
       agents/{uuid}/      the skills placed for an agent on the host; a codex agent's own home
       staging/            where a harness home is built before it moves into place
@@ -156,27 +155,31 @@ attempt ends. Nothing a continue does reads this file; the sessions are `run.jso
 keeps every turn that settled before it, and a line it tore is skipped. `awf logs` reads this file
 and the agents' own session files together.
 
-### calls/{operationId}/
+### ops/{key}.{n}/ {#ops}
 
-One folder per turn, named by its operation id, the `operationId` of its lines in `log.jsonl`.
+One folder per operation: an agent's turn, message operation or compaction, or a decision. Its name
+is its operation id, the `operationId` of its lines in `log.jsonl` (a decision's lines call it
+`operation`): `reviewer.3` is the third operation of the agent keyed `reviewer` in the run,
+`triage.2` the second asking of the decision keyed `triage`. `n` counts from 1 across the run's
+attempts, so no attempt writes over another's. A nudge is part of the operation it nudges. Agents
+and decisions share the keys, so a decision can't take an agent's key, nor an agent a decision's.
 
-- `call.json`: the prompt the agent was given and its schema.
-- `candidates.jsonl`: every `wfa result` the agent sent, accepted or not, with the error that
+- `op.json`: what it is: its `id`, `kind` (`turn`, `message`, `compact` or `decision`), the
+  `attempt` and `stage` it ran in, and the `agent`, but for a decision; for a turn, the prompt the
+  agent was given and its schema. Written as the operation starts, before any line names it, so
+  its number is never used again, however it ends. A message operation whose message was
+  withdrawn before it opened keeps its folder, so a key's numbers may skip.
+- `answers.jsonl`: every `wfa result` the agent sent, accepted or not, with the error that
   refused it. A refused answer is kept as evidence.
 - `result.json`: the one accepted answer.
-- `liveness.jsonl`: diagnostics of the turn's delivery and nudges, which nothing decides on.
+- `decision.json`: a [decision](/guide/decisions)'s record (model, outcome, tokens), the state and
+  questions sent, and the answers, so a threshold can be fitted again later without asking the
+  model. Its record's `artifact` names this file.
+- `live.jsonl`: diagnostics of the operation's delivery and nudges, which nothing decides on.
 - `screen.txt`: what the agent's pane showed when the turn or compaction ended without an
   answer, or its agent failed to start: escape codes stripped, at most its last 64 KiB. Kept as
   evidence, never read to settle anything. `awf logs` names it on the turn's line. A headless
   agent has no pane and leaves none.
-
-### decisions/{n}.json
-
-Each [decision](/guide/decisions) the attempt asked, numbered from 1 in the order asked: the
-record (model, outcome, tokens), the state and questions sent, and the answers, so a threshold can
-be fitted again later without asking the model. Numbering starts again with each attempt, which
-writes over the files of the same numbers: the folder holds the latest attempt's decisions, with
-an earlier attempt's left only past the latest's count.
 
 ### output.json
 

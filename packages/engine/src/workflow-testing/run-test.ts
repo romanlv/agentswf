@@ -35,6 +35,7 @@ import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
 import { appendMailbox, foldMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
+import { type EarlierOps, listOps } from "../ops";
 import { claimRunLines, type RunLines, readRunLines } from "../run-lines";
 import { createRun, idProblem, readEvents, readTurns } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
@@ -375,7 +376,9 @@ const WAITED_OUT = "the test ended the attempt: everything left waited on a part
 
 /**
  * An event a test sends while the run goes on, at an agent's `n`th turn, `"{agent}#{n}"`: `during`
- * it, or `after` it has ended, once the run waits live in an agent's `keepAlive` window.
+ * it, or `after` it has ended, once the run waits live in an agent's `keepAlive` window. `n` counts
+ * the agent's turns in the test, a nudge's included, and not its compactions: not the `n` of its
+ * operation's id, `{agent}.{n}`, which counts each operation once and its compactions too.
  */
 export type ScriptedEvent<Events extends EventSchemas> = (
   | { during: string; after?: undefined }
@@ -662,10 +665,12 @@ export async function runTest<Result extends JsonValue>(
     throw error;
   });
   let lines: RunLines;
+  let ops: EarlierOps;
   try {
     if (earlier.stages) await recordEarlierAttempt(run.dir, earlier.stages);
     for (const record of earlier.mailbox ?? []) await appendMailbox(run.dir, record);
     if (started.record) await appendMailbox(run.dir, started.record);
+    ops = await listOps(run.dir);
     lines = await claimRunLines(run.dir, attempt, new Date(now()).toISOString());
   } catch (error) {
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
@@ -699,8 +704,8 @@ export async function runTest<Result extends JsonValue>(
       run: {
         dir: run.dir,
         id: run.record.id,
-
         lines,
+        ops,
         ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
         ...(options.values === undefined
           ? {}

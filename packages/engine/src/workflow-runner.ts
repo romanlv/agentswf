@@ -180,6 +180,7 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
+import { type EarlierOps, OpIds, writeScreen } from "./ops";
 import {
   besideOf,
   checkPaneOptions,
@@ -204,7 +205,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endLogLine, readAttempts, writeScreen } from "./runs";
+import { endLogLine, readAttempts } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -253,6 +254,8 @@ export type RunWorkflowOptions = {
     id: string;
     /** The attempt's writer on `run.jsonl`, which its claim made; its `attempt` is this attempt. */
     lines: RunLines;
+    /** What the claim's listing of `ops/` found: each key's last `n`, numbered on from. */
+    ops: EarlierOps;
     /** How the attempt is named to a person: its Herdr workspace's label. */
     label?: string;
     /** `--from-stage`: the stage this attempt starts at, reusing those before it. */
@@ -625,9 +628,11 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       throw new Error(`the run's sandbox did not open: ${messageOf(error)}`);
     }
   }
+  const ops = new OpIds(runDir, options.run.lines.attempt, options.run.ops);
   const decisions = new RunDecisions({
     ...(options.decisions ? { installation: options.decisions } : {}),
     runDir,
+    ops,
     event: (body) => events.event(body),
   });
   const skills = new RunSkills({
@@ -686,6 +691,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
+    ops,
     ...(options.allowance ? { allowance: options.allowance } : {}),
     sandboxes,
     skills,
@@ -989,6 +995,7 @@ class WorkflowOwner {
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
+      ops: OpIds;
       allowance?: (harness: Harness) => Promise<HarnessAllowance>;
       stages: StageLedger;
       runId: string;
@@ -2025,6 +2032,7 @@ class WorkflowOwner {
     if (this.#caller?.key === spec.key) {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
+    this.options.ops.claim(spec.key, "agent");
     const inRunSandbox = this.options.sandboxes.hasRunSandbox;
     if (inRunSandbox && spec.sandbox !== undefined)
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
@@ -2230,6 +2238,7 @@ class WorkflowOwner {
     const scope = scopes.getStore();
     scope?.assertAccepting();
     this.#assertFreeKey(key, "an agent");
+    this.options.ops.claim(key, "agent");
     const found = this.options.runtime.host.caller;
     if (!found) return Promise.resolve(null);
     if (this.#caller) {
@@ -2563,6 +2572,7 @@ class WorkflowOwner {
       execution,
       session,
       slots: this.options.slots,
+      ops: this.options.ops,
       endpoint,
       launcher,
       deadline: this.options.deadline,
@@ -2646,6 +2656,7 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
     this.#assertFreeKey(spec.key, "an agent");
+    this.options.ops.claim(spec.key, "agent");
     // Out before the clone, which throws on a handler, and out of the spec a repeat is compared by.
     // A bound is the call's, not the fork's: a repeat with another is the same fork.
     const { tools, timeout, ...given } = spec;
@@ -3047,6 +3058,8 @@ class LogicalAgent implements AgentRef {
       execution: AgentExecution;
       session: HarnessSession;
       slots: ResultSlotRegistry;
+      /** Numbers its operations, `{key}.{n}`. */
+      ops: OpIds;
       endpoint: string;
       /** The path this agent is told to run; see `installAgentLauncher`. */
       launcher: string;
@@ -3380,7 +3393,19 @@ class LogicalAgent implements AgentRef {
       }
       const tags = tagsOf(scope, completeSpec.label);
       // Drawn here, so a turn that throws before it is delivered is still written as failed.
-      const operation = this.operationLog(randomUUID(), "turn", tags);
+      let schema: JsonSchema | undefined;
+      try {
+        schema = resultSchema(completeSpec.schema);
+      } catch {
+        // Thrown again as the turn runs, under its id, so it is written as failed.
+      }
+      const { id: drawn, lost } = this.options.ops.draw(this.key, {
+        kind: "turn",
+        ...this.opWhere(tags),
+        question: completeSpec.prompt,
+        ...(schema === undefined ? {} : { schema }),
+      });
+      const operation = this.operationLog(drawn, "turn", tags, lost);
       this.options.progress.turnStarted(this.key, tags);
       try {
         const settled = await this.executeOperation(completeSpec, scope, deadline, operation);
@@ -3445,9 +3470,11 @@ class LogicalAgent implements AgentRef {
       }
       scope?.assertActive();
       const tags = tagsOf(scope);
-      const operation = this.operationLog(randomUUID(), "compact", tags);
+      const drawn = this.options.ops.draw(this.key, { kind: "compact", ...this.opWhere(tags) });
+      const operation = this.operationLog(drawn.id, "compact", tags);
       this.options.progress.turnStarted(this.key, tags, "compact");
       try {
+        if (drawn.lost !== undefined) throw new Error(drawn.lost);
         const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope, operation);
         this.turnEnded(outcome, "compact");
         return outcome;
@@ -3521,6 +3548,11 @@ class LogicalAgent implements AgentRef {
     return tracked;
   }
 
+  /** Whose an operation is and where it runs, as its `op.json` says. */
+  private opWhere(tags: OperationTags): { agent: string; stage?: string } {
+    return { agent: this.key, ...(tags.stage === undefined ? {} : { stage: tags.stage }) };
+  }
+
   /**
    * An operation's start and failure in the run's event log, under the id its record keeps. Its
    * settling is the turn line `recordTurn` writes.
@@ -3529,6 +3561,7 @@ class LogicalAgent implements AgentRef {
     operationId: string,
     of: TurnRecord["kind"],
     tags: OperationTags,
+    unrecorded?: string,
   ): OperationLog {
     let deliveredAt: number | undefined;
     /** Named by its host before delivery, for its start to carry. */
@@ -3552,6 +3585,7 @@ class LogicalAgent implements AgentRef {
     return {
       operationId,
       tags,
+      ...(unrecorded === undefined ? {} : { unrecorded }),
       delivered: (at: number) => {
         deliveredAt = at;
         this.#hasRun = true;
@@ -3870,7 +3904,7 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     initial: AbsoluteDeadline | undefined,
-    { operationId, tags, delivered, session }: OperationLog,
+    { operationId, tags, delivered, session, unrecorded }: OperationLog,
     nudge: Exclude<AgentRunTextSpec["nudge"], false>,
   ): Promise<RunResult<JsonValue>> {
     const schema = resultSchema(spec.schema);
@@ -3943,6 +3977,7 @@ class LogicalAgent implements AgentRef {
       event: events.record,
       operationId,
       agentId: this.key,
+      ...(unrecorded === undefined ? {} : { unrecorded }),
       question: spec.prompt,
       schema,
       ...(deadline ? { deadline } : {}),
@@ -4182,7 +4217,11 @@ class LogicalAgent implements AgentRef {
     stage: ExecutionScope | undefined,
   ): Promise<void> {
     const { messaging } = this.options;
-    const operationId = randomUUID();
+    const { id: operationId, lost } = this.options.ops.draw(this.key, {
+      kind: "message",
+      agent: this.key,
+      ...(stage?.stage === undefined ? {} : { stage: stage.stage }),
+    });
     const ceiling = this.deadlineCeiling(stage)?.unixMilliseconds;
     let deadline = Math.min(Date.now() + messaging.limits.operationMs, ceiling ?? Infinity);
     messaging.opened({
@@ -4205,7 +4244,7 @@ class LogicalAgent implements AgentRef {
     let end: SupervisedOutcome["kind"] | undefined;
     try {
       const opening = messaging.take(operationId, "opens");
-      // Withdrawn before it could be shown: nothing to wake it for.
+      // Withdrawn before it could be shown: nothing to wake it for. Its folder stays, its number used.
       if (!opening) return;
       if (opening.deadline !== undefined) deadline = opening.deadline;
       const cause = { message: { from } };
@@ -4216,6 +4255,7 @@ class LogicalAgent implements AgentRef {
       const operation = this.operationLog(operationId, "turn", tags);
       this.options.progress.turnStarted(this.key, tags);
       try {
+        if (lost !== undefined) throw new Error(lost);
         const outcome = await this.superviseMessage(operationId, deadline, opening, {
           cause,
           tags,
@@ -4874,6 +4914,8 @@ type Warn = (message: string, fields?: JsonObject, stage?: string) => void;
 type OperationLog = {
   operationId: string;
   tags: OperationTags;
+  /** Why its `op.json` wasn't written as it was drawn: a turn fails as its result slot would. */
+  unrecorded?: string;
   delivered(at: number): void;
   /** A session its host named while it ran: on its start if that is still to come. */
   session(id: string): void;

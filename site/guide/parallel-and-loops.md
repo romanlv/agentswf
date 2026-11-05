@@ -107,7 +107,7 @@ deserves another try, branch on `outcome.kind`. Each round starts with the imple
 <<< @/../examples/site/guide/loops.ts#branch
 
 A `failed` or `timed-out` turn closes its agent, so the replacement is opened under a key of its
-own, `implementer#2`, and starts with no session: its prompt gives it the task and the changes
+own, `implementer-2`, and starts with no session: its prompt gives it the task and the changes
 still asked for. A missing login fails every agent on that harness alike, so the loop stops on it
 rather than open another. Any other non-answer, and a second failure, stops the run with the
 kind and the reason.

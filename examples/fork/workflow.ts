@@ -92,8 +92,8 @@ export const fork = defineWorkflow<ForkArgs, ForkResult>({
       args.cases,
       async (item): Promise<ForkCheck> => {
         const name = caseName(item);
-        // A key has no colon, which is kept for awf's own event names.
-        const key = name.replaceAll(":", "-");
+        // A key is a name: the case's `:`, `>` and `+` become `-`.
+        const key = name.replace(/[^a-z0-9._@-]/g, "-");
         const worker = await wf.agents.open({
           key: `worker-${key}`,
           runtime: RUNTIMES[item.runtime].execution,

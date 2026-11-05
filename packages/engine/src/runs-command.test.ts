@@ -260,10 +260,10 @@ describe("awf runs", () => {
       [{ ...ALIVE }],
       [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
     );
-    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    mkdirSync(join(run.dir, "ops", "o1"), { recursive: true });
     const until = Date.parse(T(20));
     writeFileSync(
-      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      join(run.dir, "ops", "o1", "live.jsonl"),
       `${JSON.stringify({ version: 1, operationId: "o1", kind: "waiting", at: Date.parse(T(3)), sequence: 1, reason: "CI runs", until })}\n`,
     );
     const due = new Date(until).toTimeString().slice(0, 5);
@@ -290,10 +290,10 @@ describe("awf runs", () => {
       [{ ...ALIVE }],
       [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
     );
-    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    mkdirSync(join(run.dir, "ops", "o1"), { recursive: true });
     const until = Date.parse(T(20));
     writeFileSync(
-      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      join(run.dir, "ops", "o1", "live.jsonl"),
       `${JSON.stringify({ version: 1, operationId: "o1", kind: "awaiting-reply", at: Date.parse(T(3)), sequence: 0, until, peer: "reviewer" })}\n`,
     );
     const due = new Date(until).toTimeString().slice(0, 5);

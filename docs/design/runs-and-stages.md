@@ -187,7 +187,7 @@ pytest and others taught people to expect.
 
 One folder per run, holding the run's current state, at `.awf/runs/{workflow}/{id}/`: `run.json`,
 an `attempts/` file per `awf run`, a `stages/` record per stage, `replaced/` for records a later
-attempt redid, `turns.jsonl` (the run's event log), a `calls/{operationId}/` folder per turn,
+attempt redid, `turns.jsonl` (the run's event log), an `ops/{key}.{n}/` folder per operation,
 `output.json` and `report.md`; a run with events adds its mailbox. Each file and its fields are in
 the [data reference](https://agents.wf/reference/data)
 ([`site/reference/data.md`](../../site/reference/data.md)), which is kept current; this section is
@@ -205,7 +205,7 @@ why it is shaped this way. Sandboxes live outside the project, in
   one. So no write needs a lock.
 - **Files replaced whole.** Every `.json` is written to a temp file (`.tmp-{random}`), fsynced and
   renamed into place. A crash leaves the old file or the new one, never half of either. Only
-  `turns.jsonl` and a call's `candidates.jsonl` are appended.
+  `turns.jsonl` and an operation's `answers.jsonl` are appended.
 - **Nothing stored that can be read off the files.** Status, current stage, cost: computed. A stored
   status is the first thing a crash leaves wrong ("running" forever); a derived one is right as
   soon as the files are.

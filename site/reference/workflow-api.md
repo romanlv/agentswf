@@ -179,7 +179,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 
 | Field | |
 | --- | --- |
-| `key` | Required. The agent's name in this run, such as `review-security`. Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
+| `key` | Required. The agent's name in this run, such as `review-security`: lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit, as an event's or a stage's name is, since it names the agent's [operations](/reference/data#ops). Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved, and so is a key a decision in the run already has. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
 | `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
@@ -526,7 +526,7 @@ ask all your questions together. The guide: [Decisions](/guide/decisions).
 
 | Field | |
 | --- | --- |
-| `key` | Required. Names the call in its record; not unique. |
+| `key` | Required. Names the call in its record; not unique. A name, as an agent's key is, and never one an agent in the run has. |
 | `model` | Required. A decision model alias: `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter, which needs `OPENROUTER_API_KEY` in the environment or a `.env` where you run `awf`. |
 | `state` | Required. What every question is about: a string, a JSON object or an array. |
 | `questions` | Required, at least one. Each is answered on its own. |

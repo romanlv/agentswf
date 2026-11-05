@@ -343,14 +343,19 @@ run, or `{decision}.{n}`, the `n`th asking of the decision keyed `{decision}`. S
 
 - **`n` counts from 1 across the run's attempts**, so an id is never reused and an earlier attempt's
   decisions are no longer overwritten (today they are, and written without a rename). An attempt
-  learns each key's last `n` by listing `ops/` once as it claims the run; it is the only writer, so
-  nothing else takes a number meanwhile.
+  learns each key's last `n` by listing `ops/` once as it claims the run, once the previous attempt
+  is gone; it is the only writer, so nothing else takes a number meanwhile. An operation's folder
+  and `op.json` are written as its id is drawn, before any line names it; one that can't be
+  written fails the operation. A message operation withdrawn before it opens keeps its folder, so
+  numbers may skip.
 - **A key is a name**, by the rule events, stages and races already follow: lowercase letters,
-  digits, `.`, `_`, `@` and `-`, starting with a letter or digit. Today an agent's key is anything
-  without a colon; one that isn't a name is refused when the agent opens, and a decision's when it
-  is asked. `n` is the digits after the last `.`, so a key may hold dots.
+  digits, `.`, `_`, `@` and `-`, starting with a letter or digit. One that isn't a name is refused
+  when the agent opens, and a decision's when it is asked. A colon is still accepted, deprecated,
+  until 039's task 10 refuses it: `triage:42.1` is a valid folder name on macOS and Linux. `n` is
+  the digits after the last `.`, so a key may hold dots.
 - **Agents and decisions share the names**: a decision keyed as an open agent is, or an agent keyed
-  as a decision already asked, is refused, so `{key}.{n}` is one operation.
+  as a decision already asked, is refused, so `{key}.{n}` is one operation. An earlier attempt's
+  key is the kind its highest-numbered readable `op.json` says.
 - A message operation, a nudge's turn and a compaction are their agent's operations and take its
   next `n`; a nudge within an operation is that operation's, as today.
 

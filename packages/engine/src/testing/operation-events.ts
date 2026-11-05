@@ -1,10 +1,10 @@
 import { open } from "node:fs/promises";
-import { join } from "node:path";
 import {
   OPERATION_LIVENESS_KINDS,
   OPERATION_LIVENESS_RECORD_VERSION,
   type OperationLivenessRecord,
 } from "@agentswf/contract/records";
+import { liveFile } from "../ops";
 
 type OperationEvent = Pick<
   OperationLivenessRecord,
@@ -12,7 +12,7 @@ type OperationEvent = Pick<
 >;
 const MAX_BYTES = 1024 * 1024;
 function eventFile(runDir: string, operationId: string): string {
-  return join(runDir, "calls", operationId, "liveness.jsonl");
+  return liveFile(runDir, operationId);
 }
 
 export async function readOperationEvents(

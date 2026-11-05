@@ -398,7 +398,7 @@ test("an event run continues on its agents' sessions with its log deleted betwee
       run: {
         dir: run.dir,
         id: "k",
-        lines: await claimLines(run.dir, n),
+        ...(await claimLines(run.dir, n)),
         events: true,
         park: async () => undefined,
       },
@@ -459,7 +459,7 @@ test("a session its agent reports after its last turn settled is the one a conti
       run: {
         dir: run.dir,
         id: "k",
-        lines: await claimLines(run.dir, n),
+        ...(await claimLines(run.dir, n)),
         events: true,
         park: async () => undefined,
       },
@@ -660,7 +660,7 @@ test("--from-stage reruns what a replay enters: a stage behind an acknowledged r
         dir: run.dir,
         id: "k",
 
-        lines: await claimLines(run.dir, n),
+        ...(await claimLines(run.dir, n)),
         events: true,
         park: async () => undefined,
         ...(fromStage === undefined ? {} : { fromStage }),

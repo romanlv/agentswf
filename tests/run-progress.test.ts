@@ -296,7 +296,7 @@ describe("run progress by stage", () => {
       cwd: runRoot,
       sandbox: null,
     });
-    const one = await claimLines(dir, 1);
+    const { lines: one } = await claimLines(dir, 1);
     await one.append({
       kind: "stage",
       attempt: 1,
@@ -328,7 +328,7 @@ describe("run progress by stage", () => {
     };
     const handle = await startWorkflow(workflow, null, {
       runRoot,
-      run: { dir, id: "r1", lines: await claimLines(dir, 2) },
+      run: { dir, id: "r1", ...(await claimLines(dir, 2)) },
       runtime: {
         aliases: {},
         host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
@@ -362,10 +362,10 @@ describe("run progress by stage", () => {
       started: `2026-10-0${attempt}T16:00:00Z`,
       ...(redo ? { redo: true as const } : {}),
     });
-    const one = await claimLines(run.dir, 1);
+    const { lines: one } = await claimLines(run.dir, 1);
     for (const each of [line("a", 1, true), line("gone", 1), line("b", 1)]) await one.append(each);
     // Attempt 2 started at b, after reusing a; its code no longer has gone.
-    await (await claimLines(run.dir, 2)).append(line("b", 2, true));
+    await (await claimLines(run.dir, 2)).lines.append(line("b", 2, true));
     const ended = { ended: "2026-10-02T16:20:00Z", outcome: "completed" as const };
     await writeAttempt(run, { ...ended, stages: [] });
     await writeAttempt(run, {
@@ -380,7 +380,7 @@ describe("run progress by stage", () => {
       null,
       {
         runRoot,
-        run: { dir: run.dir, id: "r1", lines: await claimLines(run.dir, 3) },
+        run: { dir: run.dir, id: "r1", ...(await claimLines(run.dir, 3)) },
         runtime: {
           aliases: {},
           host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),

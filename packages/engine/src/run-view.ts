@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type {
   Activity,
   AgentStateJson,
@@ -10,6 +9,7 @@ import type {
 import type { AgentKey, HarnessKind, JsonValue } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { readLines } from "./jsonl";
+import { liveFile } from "./ops";
 import { currentStage, estimateOf } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import { type Cursor, type FileCache, readRun, timeOf } from "./run-read";
@@ -252,7 +252,7 @@ async function latestPhase(
   runDir: string,
   operationId: string,
 ): Promise<OperationLivenessRecord | undefined> {
-  const file = join(runDir, "calls", operationId, "liveness.jsonl");
+  const file = liveFile(runDir, operationId);
   return (await readLines<OperationLivenessRecord>(file).catch(() => [])).at(-1);
 }
 

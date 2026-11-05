@@ -98,8 +98,8 @@ agent can read it. A run without the key starts as usual; only asking for `jev` 
 
 Each call's record goes into the run's `output.json`: the key, the model and the versioned
 snapshot that answered, the outcome, the attempts, and tokens as far as the provider reported
-them. The request and its answers are kept beside it, in `decisions/{n}.json` in the run's
-directory, so you can fit a threshold on real answers later. A threshold holds for the snapshot it
+them. The request and its answers are kept beside it, in `ops/{key}.{n}/decision.json` in the
+run's directory, the `n`th asking of the key, so you can fit a threshold on real answers later. A threshold holds for the snapshot it
 was fitted on.
 
 ## When a decision fails

@@ -40,14 +40,22 @@ import type {
 import type { StageOutcome } from "./workflow/workflow";
 
 /**
- * What the run directory records about one call. The format only; the engine does the I/O.
- * Tier: public, stable.
+ * `ops/{id}/op.json`: what one operation is. `id` is `{key}.{n}`, the `n`th operation of the agent
+ * or decision keyed `{key}` in the run, counted from 1 across its attempts, so it is never reused.
+ * The format only; the engine does the I/O. Tier: public, stable.
  */
-export type CallSpec = {
-  callId: string;
-  question: string;
-  schema?: JsonSchema;
-};
+export type OpRecord = { id: string; attempt: number; stage?: string } & (
+  | {
+      /** A workflow's turn: its prompt, which its answers are checked against with `schema`. */
+      kind: "turn";
+      agent: string;
+      question: string;
+      schema?: JsonSchema;
+    }
+  | { kind: "message" | "compact"; agent: string }
+  /** A decision's: its key is the id's. */
+  | { kind: "decision" }
+);
 
 /**
  * Which channel carried a candidate value — `control-plane` in production. A string, because
@@ -56,7 +64,8 @@ export type CallSpec = {
 export type CandidateSource = string;
 
 /**
- * Every candidate value, accepted or not. A rejection is evidence, so it is never dropped.
+ * Every candidate value, accepted or not, a line of `ops/{id}/answers.jsonl`. A rejection is
+ * evidence, so it is never dropped.
  * Tier: diagnostic.
  */
 export type Candidate = {
@@ -120,7 +129,7 @@ export type SettledOperation = OperationRecord & {
 };
 
 /**
- * What `decisions/{n}.json` in a run's artifacts holds: everything asked and answered, so a
+ * What a decision's `ops/{key}.{n}/decision.json` holds: everything asked and answered, so a
  * threshold can be fitted again without calling the model. Tier: public, stable.
  */
 export type DecisionArtifact = {
@@ -1411,7 +1420,7 @@ export const OPERATION_LIVENESS_KINDS = [
 export type OperationLivenessKind = (typeof OPERATION_LIVENESS_KINDS)[number];
 
 /**
- * Optional diagnostics in calls/{operationId}/liveness.jsonl; never settlement authority.
+ * Optional diagnostics in ops/{operationId}/live.jsonl; never settlement authority.
  * Tier: diagnostic.
  */
 export type OperationLivenessRecord = {

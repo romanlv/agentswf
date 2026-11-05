@@ -5,6 +5,7 @@ import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
+import { screenFile } from "./ops";
 import {
   clockTime,
   command,
@@ -35,7 +36,6 @@ import {
 } from "./run-read";
 import { findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
-import { screenFile } from "./runs";
 
 export const logsUsage = help.trimEnd();
 

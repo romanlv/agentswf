@@ -400,10 +400,12 @@ expect(run.emits).toEqual([]);
   `prepare` is called with no argv, as for a run an event starts.
 - **`events`** are sent in the order given, each while an agent's `n`th turn runs
   (`during: "{agent}#{n}"`), before its script answers, or once it has ended
-  (`after: "{agent}#{n}"`) and the run waits live in a `keepAlive` window. Each is one the
-  workflow declares, a participant's `{key}:reply` included, from its key, with its data checked
-  as `awf emit` checks it; an agent's `{key}:ended` is awf's to send. An event whose turn never
-  runs, or an `after` event the run parked before sending, fails the test.
+  (`after: "{agent}#{n}"`) and the run waits live in a `keepAlive` window. `n` counts the agent's
+  turns in the test, a nudge's included and its compactions not, so it isn't the `n` of an
+  operation's folder, `ops/{agent}.{n}/` ([Data](/reference/data#ops)). Each is one the workflow declares, a participant's
+  `{key}:reply` included, from its key, with its data checked as `awf emit` checks it; an agent's
+  `{key}:ended` is awf's to send. An event whose turn never runs, or an `after` event the run
+  parked before sending, fails the test.
 - **`eventId`**, optional on `event` and on each of `events`, is the event's id in the run's
   mailbox, as `awf emit --event-id` gives it, `awf.start` and `awf.test.{n}` by default; one given
   twice fails the test. Each is stamped with

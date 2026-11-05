@@ -307,7 +307,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 ## Tasks at a glance
 
 - [x] 1. The record's new types in `contract`: line types, `readRun`, `format`, tiers, ADR 0014
-- [ ] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
+- [x] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
 - [x] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
 - [x] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
 - [ ] 5. Waits: `in.jsonl` and the run's own lines; timers and turn ends stop being events; `launches/`; `earlier.events` and `earlier.run`
@@ -407,19 +407,21 @@ Done when:
 
 Work:
 
-Depends on 039's task 10, which refuses a colon in a key first.
+Does not wait for 039's task 10 (decided 2026-11-05, "Decisions at the start"): a key is a name but
+for a colon, which stays allowed and deprecated until that task refuses it.
 
 - `ops/{key}.{n}/` replaces `calls/{uuid}/` and `decisions/{n}.json`, for turns, message
   operations, compactions, decisions, and an agent's start that failed.
 - Its files are `op.json`, `answers.jsonl`, `result.json`, `decision.json` (written whole,
   named by `DecisionRecord.artifact`), `live.jsonl` and `screen.txt`. `spend.json`'s path is fixed
   here, and task 7 writes it.
-- An op id `{agent}.{n}` and the tests' turn names `writer#2`, `implementer#2` (`during:`,
-  `turnsOf`) say the same thing two ways: the tests move to `.` here.
+- An op id `{agent}.{n}` and the tests' turn names `writer#2` (`during:`) count different things
+  (a test's turns count nudges, an op's `n` compactions), so the turn names keep their `#`; the key
+  `implementer#2` (`turnsOf`) becomes a name. (Changed in review, 2026-11-05.)
 - `n` counts from 1 across attempts: each attempt lists `ops/` as it starts, which task 3 moves into
   the claim.
-- An agent or decision key that fails `nameProblem`, or clashes with the other namespace, is
-  refused at open or at ask. `implementer#2` in the site sample is renamed.
+- An agent or decision key that fails `nameProblem`, a colon aside, or clashes with the other
+  namespace, is refused at open or at ask. `implementer#2` in the site sample is renamed.
 - `awf logs` shows the op id where it showed the UUID.
 
 Done when:
@@ -700,6 +702,10 @@ ends:
 - **Q4.** `returns` and the first-wait rule stay as built.
 - Tasks 2 and 5 wait for 039's task 10, so the order is 1, 3, 4, 6, 7, then 2 and 5, then 8. Task
   3 lists `ops/` and task 5 moves turn recovery into the claim when they land.
+- **2026-11-05: task 2 no longer waits for 039's task 10**, which waits on a beta. An agent's or
+  decision's key must pass `nameProblem`, except that a colon stays allowed, and deprecated (the
+  `colon-key` warning), until 039's task 10 refuses it: `triage:42.1` is a valid folder on macOS
+  and Linux. So task 2 runs before 7; task 5 still waits.
 
 ### Task 1
 
@@ -752,7 +758,9 @@ ends:
     `took`, `race` and `redo` count for nothing. The refusal reads "without a positive attempt";
     `RunLineKind` is no longer exported.
   - round 3: clean.
-- **Verification**, in the worktree, after review round 2: `bun test packages/contract` 103 pass, 0
+- **Verification**, in the worktree, after review round 3: the whole `bun test` 2632 pass, 2 skip,
+  4 todo, 0 fail (2638 tests); `bun run check` clean but for the existing Biome info;
+  `workflow-runner.test.ts` 10 runs, 9 clean, 1 failing the test above. After review round 2: `bun test packages/contract` 103 pass, 0
   fail; `bunx tsc --noEmit` clean; `bun run scripts/check-boundaries.ts` "boundaries ok"; `bunx
   biome check packages/contract` clean; the whole `bun test` 2585 pass, 2 skip, 4 todo, 0 fail.
 
@@ -1124,6 +1132,142 @@ ends:
   live evals that read the log (`tests/coordinator.eval.ts`, `tests/messaging.eval.ts`) follow the
   rename and were not run.
 
+### Task 2
+
+- **Module.** `packages/engine/src/ops.ts` owns `ops/`, as `run-lines.ts` owns `run.jsonl`: the
+  paths (`opDir`, `opFile`, `spendFile`, `liveFile`, `screenFile`, `decisionArtifact`), the writers
+  and readers moved out of `runs.ts` (`writeCall` is gone; `recordAnswer`/`readAnswers`, were
+  `recordCandidate`/`readCandidates`; `writeAcceptedExclusive`, `readAccepted`, `writeScreen`), the
+  claim's listing and the numbering:
+
+  ```ts
+  type EarlierOps = ReadonlyMap<string, { last: number; of?: "agent" | "decision" }>;
+  function listOps(runDir: string): Promise<EarlierOps>;
+  function keyProblem(key: string): string | undefined; // nameProblem, a colon allowed
+  class OpIds {
+    constructor(runDir: string, attempt: number, earlier: EarlierOps);
+    claim(key: string, as: "agent" | "decision"): void; // the name rule and the one namespace
+    draw(key: string, what: OpStart): { id: string; lost?: string }; // writes ops/{id}/op.json
+  }
+  ```
+
+  `contract`'s `CallSpec` is gone for `OpRecord`, `op.json`, tier public, stable: `{ id, attempt,
+  stage? }` and, by `kind`, a turn's `agent`, `question` and `schema?`; a message's or
+  compaction's `agent`; a decision's nothing more, its key being the id's.
+- **The listing is the claim's.** `claimNext` lists `ops/` after `previousGone` and before
+  `claimRunLines`, so nothing earlier still writes, and a failed listing unlinks the attempt file
+  as a failed `run.jsonl` claim does, before any `claimed` line exists. `Attempt` gains `ops`, and
+  `RunWorkflowOptions.run.ops` (required) takes it; the test entries (`claimLines`, `runAttempt`,
+  `startNew`, `runTest`) list it too. `n` is the digits after a folder's last `.`; whose a key is
+  comes from the `kind` of its highest-numbered `op.json` that can be read, walking down, and a key
+  with none is in neither namespace.
+- **Numbering.** One `OpIds` per attempt, shared by the agents and `RunDecisions`. `draw` is
+  synchronous, drawn where the UUID was (a turn's queue body, a compaction's, a message operation's
+  start, a decision's `#run`): an await there let a run's close miss an operation that had not yet
+  registered its cancellation (`turns.test.ts`' cancel tests hung). A nudge, a continuation within
+  an operation, takes no id. `executeSet`'s ledger entry keeps a UUID: a `set` is not an operation
+  in the design, writes no folder, and a number for it would be reused by the next attempt.
+- **Who writes `op.json`.** Only `draw`, as it draws the id (`mkdirSync`, then `files.ts`'
+  `writeWholeSync`: a temp file, fsynced, renamed into place, `0600`), before any log line names
+  the operation, so a number is never used again however the operation ends, a crash included. A
+  turn's carries its question and its schema (`resultSchema(spec.schema)`); `call.json`'s write by
+  the result slot is gone, with its persistence tests. A `lost` write fails the operation: a turn
+  as a failed slot opening did (`superviseOperation`'s `unrecorded`: outcome `failed`, the agent
+  closed, its usage row settled), a compaction and a message operation by throwing inside their
+  failure handling, a decision as `failed`, its `error` naming it beside a lost `decision.json`.
+  `decision.json` is written whole (`writeJson`, temp and rename, `0600`). A message operation
+  whose message is withdrawn before it opens keeps its folder and `op.json`: numbers may skip.
+- **Keys.** `OpIds.claim` is called after `#assertFreeKey` and the "is the calling session"
+  refusal for an agent (open, caller, fork), and last in `RunDecisions.#prepare`, so a call refused
+  for anything else holds no key. Refusals: `agent key Reviewer is not a name: lowercase letters,
+  digits, …`; `triage is a decision's key: agents and decisions share one set of names, as each
+  operation's folder is ops/{key}.{n}; an agent takes another key`, and the converse. The colon is
+  allowed by checking `key` with each `:` as `-`, so a leading colon is still refused. Participants'
+  keys are unchanged: they have no operations.
+- **Turn names in tests** stay `"{agent}#{n}"` (`during`, `after`). Their `n` is the agent's nth
+  harness turn in the test, a nudge's included and its compactions not (those are `compactionsOf`),
+  which `TestTurn.n` and `turnsOf` publish and tests assert; an op's `n` counts each operation
+  once, a compaction's included. Making them one would change what `TestTurn.n` means, so they keep
+  apart in spelling: `run-test.ts` and `site/reference/testing-api.md` say how they differ. The
+  keys `implementer#2` and `reviewer#{n}` (`review-on-event.ts`) became `implementer-2` and
+  `reviewer-{n}`.
+- **Deviations, for review.**
+  - *The lab's keys.* `judge1:codex/gpt-6-sol`, `{by}#fresh`, `key:{id}` and `vote:{id}:{by}`
+    hold `/`, `#` or capitals, and a `/` would nest folders. `agentKeyOf` (`lab/src/review/format/
+    runtime.ts`) maps anything but a name's characters and `:` to `-` for the agent key; the vote's
+    `by` in the lab's records is unchanged. Two names differing only in case or those characters
+    map to one key, whose second open with another runtime throws; nothing is overwritten. 039's
+    task 10 still owns the lab's colons.
+  - *Examples' keys.* `meteredClaude` (`examples/site/guide/harnesses.ts`) is `"metered-claude"`;
+    the fork example's `worker-claude>headless+sandbox` keys map `:`, `>` and `+` to `-`.
+  - *Log lines.* `awf logs` needed no code change: its `screen:` path comes from `screenFile`, and
+    its lines' `operation`/`operationId` are the op id because the engine writes them so.
+  - *`spend.json`* has its path (`spendFile`); nothing writes it yet (task 7).
+- **Site.** `reference/data.md` lists `ops/{key}.{n}/` with its files and how ids count (anchor
+  `#ops`), drops `calls/` and `decisions/`; `guide/decisions.md` names `decision.json`;
+  `reference/workflow-api.md` gives the key rule on `open`'s and `decide`'s `key`;
+  `reference/testing-api.md` how a test's turn `n` differs from an op's; `guide/parallel-and-loops.md` and
+  `patterns/review-on-event.md` the renamed keys. `docs/design/run-record.md`'s "Op ids" says the
+  listing follows the previous attempt's end, the folder appears with `op.json`, the colon
+  exception, and where a key's kind is read.
+- **Tests added.** `ops.test.ts`: two attempts (the second `--from-stage`) number `worker.1`–`.6`
+  and `triage.1`–`.2` without reuse, each `op.json` with its attempt, stage and kind, both
+  `decision.json` files kept and named by their records, the log's `operationId`s and decision
+  `operation`s the same ids; `Reviewer`, `fix tests` and `a/b` refused at open, `Triage` at ask,
+  each naming the rule; an agent keyed as an earlier attempt's decision refused, and a decision
+  keyed as an open agent; `triage:42` opens and writes `ops/triage:42.1/`; `listOps` on dotted keys,
+  `n` past 9, a folder without `op.json` and one not an op. `screen-evidence.test.ts`:
+  the existing test at `ops/worker.{1,2}/`, its `op.json` checked, and a failed start (a first turn
+  that fails with a screen) keeps `ops/worker.1/screen.txt`. The colon's warning stays covered by
+  `deprecations.test.ts`.
+- **Review, round 1.** Two reviews; all findings accepted but one, taken by its alternative.
+  - An id could be reused when an operation failed before its folder existed or the process died:
+    `draw` now writes the folder and `op.json` synchronously as it draws (above). Tests: a turn
+    that fails and a decision that fails keep `op.json`, and attempt 2 numbers `worker.2`,
+    `triage.2`; a draw that can't write says why and numbers on; the failed start's `op.json`.
+  - `listOps` took a key's kind from its last folder only: it walks down to a readable `op.json`.
+    Test: `judge.2` without one, `judge.1` a decision's.
+  - Test turn names: making `TestTurn.n` the op's `n` would change a published field's meaning
+    (nudges are turns there, compactions aren't), so they went back to `{agent}#{n}`, the
+    alternative the review allowed; the comment and the site say how they differ.
+  - `OpRecord` is a union on `kind`.
+  - Nits: key claims moved last; with `draw` synchronous the compaction's and message's awaited
+    `op.json` writes and their closing re-checks are gone, so a compaction closed meanwhile ends
+    `cancelled` as before, and a decision's loop is `while (true)` again, its attempts counted as
+    before; `docs/design/runs-and-stages.md` names `ops/` and `answers.jsonl`; `agentKeyOf`'s
+    collisions noted; the `match` comment reads `{index}.{n}`; `data.md` says `op.json` is written
+    as the operation starts. Runner-level tests in `messaging-runner.test.ts`: a message
+    operation's `op.json` is `kind: "message"` beside the sender's `turn`; a question withdrawn
+    while its peer compacts leaves no operation.
+  - Round 2, all accepted: a compaction's and a message operation's `lost` draw fails them, and
+    `next` is gone (tests: a turn and a compaction in `ops.test.ts`, a message operation in
+    `messaging-runner.test.ts`, each failing with `op.json` named); `unused` is gone, so a withdrawn
+    message operation keeps its folder and numbers may skip (`data.md`, the design's "Op ids"); a
+    turn's `op.json` has one writer, `draw`, schema included, the slot no longer writing it and a
+    `lost` draw failing the turn as a failed slot opening did; `writeWholeSync` is in `files.ts`,
+    fsynced. A schema `resultSchema` refuses is left out of the drawn `op.json`, so the turn still
+    throws under its id and is written as failed (`run-event-log.test.ts`).
+  - Round 3, clean but for a flaky `workflow-runner.test.ts` test, "a nudged operation is timed
+    from first delivery through natural answer release". `writeWholeSync` no longer fsyncs:
+    `op.json` needs only to exist and be whole, and a file fsync without its folder's bought
+    nothing. The flake persisted: 2 failures in 120 runs of the file, against 0 in 60 of the
+    task 6 commit, a gap the samples don't settle. Each time `deliveredAt <= first.began` missed by
+    1 ms: without delivery evidence (the fake confirms none unless it supports waiting),
+    `superviseOperation` takes `deliver(now())` once the turn is acquired, while the fake's script
+    has already read `began` inside `execute`, so a millisecond tick between the two fails it. The
+    race is the test's assumption, and the draw does not sit between the two reads; the test is
+    left as it is, for the human.
+- **Verification**, in the worktree, after review round 3: the whole `bun test` 2632 pass, 2 skip,
+  4 todo, 0 fail (2638 tests); `bun run check` clean but for the existing Biome info;
+  `workflow-runner.test.ts` 10 runs, 9 clean, 1 failing the test above. After review round 2: focused (`ops`, `screen-evidence`,
+  `decisions`, `turns`, `messaging-runner`, `result-slots`, `workflow-runner`, `operation-liveness`,
+  `operation-liveness-races`, `run-event-log`) pass, 0 fail; the whole `bun test` 2632 pass, 2 skip,
+  4 todo, 0 fail (2638 tests, 200 files); `bun run check` clean (Biome, `tsc --noEmit`, "boundaries
+  ok") but for the existing Biome info in `experiments/e9-messaging-protocol`; `cd site && bun run
+  build` passes, every link and anchor resolving. One earlier full run had `a nudged operation is
+  timed from first delivery through natural answer release` fail on timing; it passes alone, in its
+  file and in the full rerun. The live evals that read `ops/` (`tests/turn-liveness.eval.ts`,
+  `tests/tools.eval.ts`) follow the rename and were not run.
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.

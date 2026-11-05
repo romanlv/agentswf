@@ -5,8 +5,9 @@ import type { AttemptRecord } from "@agentswf/contract/records";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { writeJson } from "./files";
 import { type LogsClock, logsCommand } from "./logs-command";
+import { screenFile, writeScreen } from "./ops";
 import { readRunLines } from "./run-lines";
-import { createRun, logFile, processStart, type Run, screenFile, writeScreen } from "./runs";
+import { createRun, logFile, processStart, type Run } from "./runs";
 import { runsCommand } from "./runs-command";
 import { createTempRunDirs, DOC, runAttempt, submit, workflowOf } from "./testing";
 
@@ -355,6 +356,7 @@ describe("awf logs", () => {
     const f = await fixture();
     addLines(f, { ...turnEnded(4), outcome: "blocked" });
     const screen = screenFile(f.run.dir, "op-1");
+    expect(screen).toBe(join(f.run.dir, "ops", "op-1", "screen.txt"));
     const before = await awfLogs(f, ["--json"]);
     expect(JSON.parse(before.stdout).events.at(-1).screen).toBeUndefined();
     await writeScreen(f.run.dir, "op-1", "Allow this edit?\n");
@@ -363,7 +365,12 @@ describe("awf logs", () => {
       `@e4 hh:mm:ss fix  fixer  turn ended  blocked  3m00s  screen: ${screen}`,
     );
     const json = JSON.parse((await awfLogs(f, ["--json"])).stdout);
-    expect(json.events.at(-1)).toMatchObject({ kind: "turn", outcome: "blocked", screen });
+    expect(json.events.at(-1)).toMatchObject({
+      kind: "turn",
+      outcome: "blocked",
+      operation: "op-1",
+      screen,
+    });
   });
 
   test("--agent and --limit, said in the header; one event by its handle, in full", async () => {

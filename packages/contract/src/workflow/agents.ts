@@ -6,6 +6,11 @@ import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 import type { Duration, EventLike, Source, Taken, Timeout } from "./waits";
 
+/**
+ * An agent's key in its run: a name, as events and stages are (lowercase letters, digits, `.`,
+ * `_`, `@` and `-`, starting with a letter or digit), since it names its operations' folders,
+ * `ops/{key}.{n}/`. Agents and decisions share the names. A colon is still accepted, deprecated.
+ */
 export type AgentKey = string;
 /**
  * Where a skill comes from, as a record keeps it; its name is the one its `SKILL.md` gives. A skill

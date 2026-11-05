@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { ITEMS, RUNTIMES, type ToolsResult } from "../examples/tools/workflow";
 import type { OutputRecord, RunLogLine } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { readCandidates, readEvents } from "../packages/engine/src/runs";
+import { readAnswers } from "../packages/engine/src/ops";
+import { readEvents } from "../packages/engine/src/runs";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
@@ -42,7 +43,7 @@ async function run(workDir: string, argv: string[]) {
   const rejected = new Map<string, number>();
   for (const line of lines) {
     if (line.kind !== "operation-started") continue;
-    const candidates = await readCandidates(dir!, line.operationId);
+    const candidates = await readAnswers(dir!, line.operationId);
     rejected.set(line.operationId, candidates.filter((each) => !each.accepted).length);
   }
   return { exitCode, record, lines, rejected };
