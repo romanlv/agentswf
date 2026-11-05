@@ -97,9 +97,14 @@ export async function start(
     const woken = await wake(run, { ...context, file: found.file });
     const handle = runHandle(run, context);
     if (woken.why === "launch-failed")
-      return { run: handle, did: "launch-failed", ...(woken.error ? { error: woken.error } : {}) };
-    if (woken.why === "stuck") return { run: handle, did: "stuck" };
-    return { run: handle, did };
+      return {
+        ok: false,
+        run: handle,
+        did: "launch-failed",
+        ...(woken.error ? { error: woken.error } : {}),
+      };
+    if (woken.why === "stuck") return { ok: false, run: handle, did: "stuck" };
+    return { ok: true, run: handle, did };
   };
   const ref = `${name}/${id}`;
   if (named === undefined)
@@ -129,10 +134,10 @@ export async function start(
         ref,
       );
     const attempts = await readAttempts(run);
-    if (attempts.length > 0) return { run: runHandle(run, context), did: "exists" };
+    if (attempts.length > 0) return { ok: true, run: runHandle(run, context), did: "exists" };
     // Never launched, or its launch failed: launched now, as a wake would, unless it is stuck.
     if (stuckOf(attempts, await readMailbox(run.dir)))
-      return { run: runHandle(run, context), did: "stuck" };
+      return { ok: false, run: runHandle(run, context), did: "stuck" };
     return launched(run, "exists");
   });
 }

@@ -55,7 +55,11 @@ test("records emits and starts in order, with their typed data, and scripts a la
     },
   });
   expect(await onPush(runs, 1, "a", "d-1")).toMatchObject({ outcome: "accepted", did: "started" });
-  expect(await onPush(runs, 1, "b", "d-2")).toMatchObject({ did: "none", why: "launch-failed" });
+  expect(await onPush(runs, 1, "b", "d-2")).toMatchObject({
+    ok: false,
+    did: "none",
+    why: "launch-failed",
+  });
   const started = await runs.start(release, { version: "1.0" }, { id: "v1" });
   expect(started.did).toBe("started");
   expect(await started.run.wait({ final: true })).toMatchObject({
@@ -249,12 +253,15 @@ test("from the second review: a resent closing event, status after a failed laun
 
   // A plain run whose launch failed is interrupted, final; three failures make it stuck.
   const failed = await runs.start(release, { version: "1" }, { id: "r1" });
-  expect(failed.did).toBe("launch-failed");
+  expect(failed).toMatchObject({ ok: false, did: "launch-failed" });
   expect(await failed.run.wait({ final: true })).toEqual({ state: "interrupted", final: true });
   await runs.start(release, { version: "1" }, { id: "r1" });
   await runs.start(release, { version: "1" }, { id: "r1" });
   expect(await failed.run.status()).toEqual({ state: "stuck", final: true });
-  expect((await runs.start(release, { version: "1" }, { id: "r1" })).did).toBe("stuck");
+  expect(await runs.start(release, { version: "1" }, { id: "r1" })).toMatchObject({
+    ok: false,
+    did: "stuck",
+  });
 
   // An event run whose first launch failed is interrupted, not final.
   await runs.emit(review, "pr-3", "pr.pushed", { sha: "a" }, { eventId: "bad-1" });

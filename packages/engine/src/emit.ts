@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import type { ClientErrorCode } from "@agentswf/contract/client";
 import {
   type EmitResultJson,
+  emitOk,
   MAILBOX_RECORD_VERSION,
   type RunPanes,
 } from "@agentswf/contract/records";
@@ -197,7 +198,14 @@ export async function deliver(
       : undefined;
     // What was due is `awf tick`'s to say; an emit's caller knows it sent an event.
     const result = (outcome: EmitResultJson["outcome"], { cause: _, ...woken }: Woken) =>
-      ({ v: 1, outcome, ref, eventId: event.id, ...woken }) satisfies EmitResultJson;
+      ({
+        v: 1,
+        ok: emitOk(outcome, woken.why),
+        outcome,
+        ref,
+        eventId: event.id,
+        ...woken,
+      }) satisfies EmitResultJson;
     if (run) {
       // A disk that doesn't tell case apart opens another run for an id differing only in case.
       if (run.record.id !== runId)

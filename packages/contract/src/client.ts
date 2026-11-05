@@ -71,15 +71,19 @@ export type Client = {
 };
 
 /**
- * What `start` did: `started` a new run; found it `exists`, launching it only if it never had an
- * attempt; `launch-failed`, the run kept for a retry; or `stuck`, its launch failed three times.
+ * What `start` did: `ok`, it `started` a new run or found it `exists`, launching it only if it
+ * never had an attempt; or not, `launch-failed`, the run kept for a retry, or `stuck`, its launch
+ * failed three times.
  */
-export type StartResult<Result> = {
-  run: Run<Result>;
-  did: "started" | "exists" | "launch-failed" | "stuck";
-  /** With `launch-failed`: what the attempt said before it exited. */
-  error?: string;
-};
+export type StartResult<Result> =
+  | { ok: true; run: Run<Result>; did: "started" | "exists" }
+  | {
+      ok: false;
+      run: Run<Result>;
+      did: "launch-failed" | "stuck";
+      /** With `launch-failed`: what the attempt said before it exited. */
+      error?: string;
+    };
 
 /** A run, read from its files whenever asked. */
 export type Run<Result> = {

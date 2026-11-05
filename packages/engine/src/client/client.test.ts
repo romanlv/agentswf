@@ -138,6 +138,7 @@ describe("emit, as awf emit --json gives it", () => {
     const first = await runs.emit(p.review, "pr-1", "pr.pushed", { sha: "a" }, { eventId: "d-1" });
     expect(first).toEqual({
       v: 1,
+      ok: true,
       outcome: "accepted",
       ref: "review/pr-1",
       eventId: "d-1",
@@ -204,7 +205,12 @@ describe("emit, as awf emit --json gives it", () => {
   test("a launch that failed: the event kept, for the next wake", async () => {
     const p = await project();
     const failed = await runsOf(p, failing).emit(p.review, "a", "pr.pushed", { sha: "a" });
-    expect(failed).toMatchObject({ outcome: "accepted", did: "none", why: "launch-failed" });
+    expect(failed).toMatchObject({
+      ok: false,
+      outcome: "accepted",
+      did: "none",
+      why: "launch-failed",
+    });
     expect(failed.error).toContain("command not found");
     same(
       failed,

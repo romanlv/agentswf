@@ -221,6 +221,7 @@ describe("start, by its rules", () => {
     const p = await project();
     const failed = await runsOf(p, failing).start(p.tidy, null, { id: "t" });
     expect(failed).toMatchObject({
+      ok: false,
       did: "launch-failed",
       error: expect.stringContaining("exited"),
     });
@@ -228,7 +229,10 @@ describe("start, by its rules", () => {
     expect(await failed.run.status()).toEqual({ state: "interrupted", final: true });
     expect(await failed.run.wait()).toMatchObject({ state: "interrupted" });
     const launch = fakeLaunch();
-    expect((await runsOf(p, launch).start(p.tidy, null, { id: "t" })).did).toBe("exists");
+    expect(await runsOf(p, launch).start(p.tidy, null, { id: "t" })).toMatchObject({
+      ok: true,
+      did: "exists",
+    });
     expect(launch.launched).toEqual(["t"]);
   });
 
@@ -237,7 +241,7 @@ describe("start, by its rules", () => {
     for (let i = 0; i < 3; i++) await runsOf(p, failing).start(p.tidy, null, { id: "t" });
     const launch = fakeLaunch();
     const stuck = await runsOf(p, launch).start(p.tidy, null, { id: "t" });
-    expect(stuck.did).toBe("stuck");
+    expect(stuck).toMatchObject({ ok: false, did: "stuck" });
     expect(launch.launched).toEqual([]);
     expect(await stuck.run.status()).toMatchObject({ state: "stuck", final: true });
   });

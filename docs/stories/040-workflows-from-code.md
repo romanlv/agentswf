@@ -1093,6 +1093,18 @@ the handlers on `fakeClient`. Live, on codex `gpt-6-luna`, `idempotent backpress
 attempts of the glossary, each term `continued` from parked, both definitions relayed, the summary
 completed; under $0.01 a run.
 
+### `ok` on emit's and start's results, 2026-11-05
+
+Asked for in review, after the example's program had to list which reasons need attention: a
+program checks one field, as fetch's `Response.ok`, not a list it keeps in step with the engine.
+`StartResult` is a union on `ok`: true for `started` and `exists`, false for `launch-failed` and
+`stuck`, so a check narrows it. `EmitResultJson` gains `ok`, from the contract's `emitOk`: false
+for `refused`, and for `none` with `launch-failed`, `stuck`, `stopped` or `cancelled`. Decided with
+the human: `nothing-due` is ok, as when a run takes an event is the workflow's, not its caller's
+concern; `nudge-failed` and a resend's `returned` are ok too. An added field, so `awf emit --json`
+stays `v: 1`. The fake derives `ok` from what it answers; a script never gives it. Live, the
+example with a term sent twice: the second a `duplicate`, ok, defined once.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

@@ -13,9 +13,6 @@ import summary from "./summary";
 /** How long the program waits for a run to come to rest before it gives up. */
 const PATIENCE_MS = 5 * 60_000;
 
-/** Why an emit left the run unwoken that waiting won't mend: the operator's turn, or a retry's. */
-const UNWOKEN: readonly string[] = ["launch-failed", "stuck", "stopped", "cancelled"];
-
 /**
  * Sends each term to the glossary run `id`, and after each, waits for the run to park and hands
  * `onPost` what it posted since. Returns the definitions, in order, and the cursor to read on from.
@@ -40,10 +37,9 @@ export async function defineTerms(
         source: "desk",
       },
     );
-    if (sent.outcome === "refused") throw new Error(`${term}: refused, ${sent.why}`);
-    if (sent.did === "none" && sent.why !== undefined && UNWOKEN.includes(sent.why))
+    if (!sent.ok)
       throw new Error(
-        `${term}: ${sent.ref} wasn't woken, ${sent.why}${sent.error ? `: ${sent.error}` : ""}`,
+        `${term}: ${sent.ref} ${sent.outcome}, ${sent.why}${sent.error ? `: ${sent.error}` : ""}`,
       );
     const run = await runs.get(glossary, id);
     const rest = await run.wait({ signal: AbortSignal.timeout(PATIENCE_MS) });
@@ -69,8 +65,7 @@ export async function closeGlossary(runs: Client, id: string) {
 /** Starts the summary of these definitions as the run `id`, and waits until it is final. */
 export async function summarize(runs: Client, id: string, definitions: string[]) {
   const started = await runs.start(summary, { definitions }, { id });
-  if (started.did === "launch-failed" || started.did === "stuck")
-    throw new Error(`${started.run.ref} didn't launch: ${started.error ?? started.did}`);
+  if (!started.ok) throw new Error(`${started.run.ref}: ${started.did} ${started.error ?? ""}`);
   return started.run.wait({ final: true, signal: AbortSignal.timeout(PATIENCE_MS) });
 }
 

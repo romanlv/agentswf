@@ -480,7 +480,8 @@ three) if it has none; its `final` is the real client's, from its state and whet
 takes events. A `start` with no id and no `id(args)` names its run `fake-1`, `fake-2`, and so on,
 which `rests` can name. The first `start` or event to reach a run `rests` names, before a wait
 takes one of its rests, is the one that makes it. A script overrides what it names, and the fake then knows what it said: a
-refused event leaves no run, `why` alone is `did: "none"`.
+refused event leaves no run, `why` alone is `did: "none"`. A result's `ok` follows from what it
+says, as the real client's does; a script never gives it.
 
 ## `awf test` {#awf-test}
 

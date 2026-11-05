@@ -1111,6 +1111,12 @@ export type WakeWhy =
 /** `awf emit --json`, and the deprecated `awf send --event-id --json`. */
 export type EmitResultJson = {
   v: 1;
+  /**
+   * The run has the event and needs no one to step in: false when it was refused, or the run
+   * wasn't woken for want of a launch (`launch-failed`) or the operator (`stuck`, `stopped`,
+   * `cancelled`). Whether a wait takes it now is the workflow's: `nothing-due` is ok.
+   */
+  ok: boolean;
   outcome: EmitOutcome;
   /** `{workflow}/{id}`. */
   ref: string;
@@ -1121,6 +1127,17 @@ export type EmitResultJson = {
   /** With `launch-failed`: what the attempt said before it exited. */
   error?: string;
 };
+
+/** `EmitResultJson.ok`, from what became of the event and why the run wasn't woken, if it wasn't. */
+export function emitOk(outcome: EmitOutcome, why: WakeWhy | undefined): boolean {
+  return (
+    outcome !== "refused" &&
+    why !== "launch-failed" &&
+    why !== "stuck" &&
+    why !== "stopped" &&
+    why !== "cancelled"
+  );
+}
 
 /** `awf tick --json`: each run it woke, in the order woken. */
 export type TickResultJson = {

@@ -8,7 +8,7 @@ import {
   type RunStatus,
   type StartResult,
 } from "@agentswf/contract/client";
-import type { EmitResultJson, InboxItemJson } from "@agentswf/contract/records";
+import { type EmitResultJson, emitOk, type InboxItemJson } from "@agentswf/contract/records";
 import {
   awfEventOf,
   isEventWorkflow,
@@ -54,7 +54,7 @@ export type FakeClientScript = {
   /** A start's `did` and `error`, for the call given; undefined answers by the rules. */
   start?: (
     call: Extract<FakeClientCall, { kind: "start" }> & { ref: string },
-  ) => Pick<StartResult<JsonValue>, "did" | "error"> | undefined;
+  ) => { did: StartResult<JsonValue>["did"]; error?: string } | undefined;
   /**
    * By ref: the rests the run comes to, in order. A wait takes the next one, as the run's next rest
    * after the call; a run that isn't running, by the last one taken, is answered at once, as the
@@ -253,8 +253,11 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       if (!reply) sourceProblem();
       const problem = idProblem(run);
       if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
-      const result = (fields: Omit<EmitResultJson, "v" | "ref" | "eventId">): EmitResultJson => ({
+      const result = (
+        fields: Omit<EmitResultJson, "v" | "ok" | "ref" | "eventId">,
+      ): EmitResultJson => ({
         v: 1,
+        ok: emitOk(fields.outcome, fields.why),
         ref,
         eventId: given.eventId ?? `awf.fake${calls.length}`,
         ...fields,
@@ -270,7 +273,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       const duplicate =
         state !== undefined && given.eventId !== undefined && state.eventIds.has(given.eventId);
       let made = false;
-      let answer: Omit<EmitResultJson, "v" | "ref" | "eventId">;
+      let answer: Omit<EmitResultJson, "v" | "ok" | "ref" | "eventId">;
       if (!duplicate && state?.status.state === "completed")
         answer = { outcome: "refused", did: "none", why: "returned" };
       else if (!state && !(target.starts?.includes(name) ?? true))
@@ -370,14 +373,17 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
             `${ref} is there already, with other args or none recorded`,
             ref,
           );
-        if (there.attempted) return { run: handle(ref, isEventWorkflow(target)), did: "exists" };
-        if (there.failed >= 3) return { run: handle(ref, isEventWorkflow(target)), did: "stuck" };
+        if (there.attempted)
+          return { ok: true, run: handle(ref, isEventWorkflow(target)), did: "exists" };
+        if (there.failed >= 3)
+          return { ok: false, run: handle(ref, isEventWorkflow(target)), did: "stuck" };
       } else if (!known.has(ref)) known.set(ref, fresh(call.args));
       const run = known.get(ref)!;
+      const did = script.start?.({ ...call, ref }) ?? { did: there ? "exists" : "started" };
       const answer = {
+        ok: did.did === "started" || did.did === "exists",
         run: handle(ref, isEventWorkflow(target)),
-        did: there ? "exists" : "started",
-        ...script.start?.({ ...call, ref }),
+        ...did,
       } as StartResult<never>;
       if (answer.did === "launch-failed" || answer.did === "stuck") {
         if (!there) run.attempted = false;

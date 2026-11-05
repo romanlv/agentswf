@@ -91,8 +91,8 @@ export async function releaseNotes(runs: Client, version: string) {
     { version, dryRun: false },
     { id: `v${version}` },
   );
-  if (started.did === "launch-failed")
-    throw new Error(`not launched: ${started.error}`);
+  if (!started.ok)
+    throw new Error(`not launched: ${started.did} ${started.error ?? ""}`);
   return started.run.wait({
     final: true,
     signal: AbortSignal.timeout(30 * 60_000),

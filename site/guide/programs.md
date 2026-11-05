@@ -49,9 +49,12 @@ The handler takes the client as a parameter, so its test can pass a fake:
 
 The first push starts the PR's run; each later one wakes it. `emit` returns what became of the
 event, as `awf emit --json` prints it: `accepted`, `duplicate` or `refused`, and what was done to
-the run: `started`, `nudged`, `continued`, or `none` with why. A launch that failed is a result,
-not a throw: the event is kept, and the next event, the same event resent, or `awf tick` tries
-again.
+the run: `started`, `nudged`, `continued`, or `none` with why. `ok` says whether the run has the
+event and needs no one: it is false for a `refused` event, and for a run not woken because its launch
+failed (`launch-failed`) or the operator's turn has come (`stuck`, `stopped`, `cancelled`). When
+the run takes the event is the workflow's: an event its wait doesn't take yet, `nothing-due`, is
+`ok`. A launch that failed is a result, not a throw: the event is kept, and the next event, the
+same event resent, or `awf tick` tries again.
 
 `eventId` names the occurrence, so a resent delivery is a `duplicate` and never reviewed twice.
 An event id is lowercase letters, digits, `.`, `_`, `@` and `-`, and never starts `awf.`; a
@@ -90,7 +93,9 @@ launched:
 
 <<< @/../examples/site/guide/programs/handlers.driver.ts#script
 
-The run records its args, and every attempt runs with them; `prepare` never runs for it. `start`
+`ok` is true when it `started` the run or found it `exists`; false when its launch failed,
+`launch-failed`, with the attempt's `error`, or it is `stuck`. The run records its args, and every
+attempt runs with them; `prepare` never runs for it. `start`
 of an id already there with the same args is `exists`; with other args, or of a run an event or
 `awf run` began, it throws `other-args`. Without `id`, the workflow's `id(args)` names the run, or
 a new id does; a workflow with `starts` and no `id(args)` is named by its senders, so `start`

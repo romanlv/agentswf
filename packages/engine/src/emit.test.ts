@@ -1,7 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AttemptRecord, RunsJson, TickResultJson } from "@agentswf/contract/records";
+import {
+  type AttemptRecord,
+  emitOk,
+  type RunsJson,
+  type TickResultJson,
+} from "@agentswf/contract/records";
 import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent } from "./emit";
 import { emitCommand } from "./emit-command";
@@ -95,6 +100,25 @@ const runOf = (p: ReturnType<typeof project>, key: string) => openRun(p.runRoot,
 const eventsOf = async (run: Run) =>
   [...foldMailbox(await readMailbox(run.dir)).events.values()].map((e) => e.id);
 
+test.each([
+  ["accepted", undefined, true],
+  ["duplicate", undefined, true],
+  // The run has the event; whether a wait takes it now is the workflow's.
+  ["accepted", "nothing-due", true],
+  ["accepted", "nudge-failed", true],
+  // A resend to a run that returned: the event was taken the first time.
+  ["duplicate", "returned", true],
+  ["refused", "returned", false],
+  ["refused", "not-a-start", false],
+  ["accepted", "launch-failed", false],
+  ["duplicate", "launch-failed", false],
+  ["accepted", "stuck", false],
+  ["accepted", "stopped", false],
+  ["accepted", "cancelled", false],
+] as const)("an emit %s, %s, is ok: %p", (outcome, why, ok) => {
+  expect(emitOk(outcome, why)).toBe(ok);
+});
+
 describe("outcomes", () => {
   test("without starts, any event starts its run", async () => {
     const p = project();
@@ -114,6 +138,7 @@ describe("outcomes", () => {
     const launch = fakeLaunch();
     expect(await emit(p, "dd.changes", { case: "kombo" }, { id: "c1", launch })).toEqual({
       v: 1,
+      ok: true,
       outcome: "accepted",
       ref: "dd-case/kombo",
       eventId: "c1",
