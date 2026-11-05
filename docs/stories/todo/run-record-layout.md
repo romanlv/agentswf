@@ -45,7 +45,8 @@ and `report.md` views; `work/` scratch.
 Short names were settled on 2026-11-04: `ops/`, `op.json`, `answers.jsonl`, `live.jsonl`,
 `screen.txt`, `in.jsonl`, `out.json`, and op ids from the agent's or decision's key and a count, in
 place of a UUID. That makes agent and decision keys names, as events and stages are, and one
-namespace between them.
+namespace between them: accepted the same day, though a key like `Reviewer` or `fix tests` is then
+refused where it opens today.
 
 Notes:
 
