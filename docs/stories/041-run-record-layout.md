@@ -3,7 +3,7 @@ id: "041"
 title: "A run's records, one home per fact"
 summary: "A run's folder gets the layout of docs/design/run-record.md: run.json, run.jsonl with a published readRun, in.jsonl, attempts/, log.jsonl, ops/{agent}.{n}/, out.json and work/, before agents.wf leaves evaluation."
 type: story
-status: draft
+status: in-progress
 depends_on: ["039"]
 ---
 
@@ -306,7 +306,7 @@ Alternatives rejected: those the design lists under "Considered and set aside".
 
 ## Tasks at a glance
 
-- [ ] 1. The record's new types in `contract`: line types, `readRun`, `format`, tiers, ADR 0014
+- [x] 1. The record's new types in `contract`: line types, `readRun`, `format`, tiers, ADR 0014
 - [ ] 2. Operations: `ops/{key}.{n}/`, keys as names in one namespace, decisions written whole
 - [ ] 3. The claim: wait for every previous attempt, truncate, `claimed`, the fence
 - [ ] 4. Stages and redo from `run.jsonl`; `stages/` and `replaced/` go; `earlier.stages`
@@ -677,6 +677,73 @@ order entered, and a long line is wrapped.
 - [ ] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Decisions at the start, 2026-11-04
+
+Implementation was asked for with Q1–Q4 open. Taken as follows, each reversible before the story
+ends:
+
+- **Q1.** The design is accepted as written.
+- **Q2.** One story.
+- **Q3.** No beta is cut mid-story; whether 039's beta waits for tasks 4 and 5 stays the human's.
+- **Q4.** `returns` and the first-wait rule stay as built.
+- Tasks 2 and 5 wait for 039's task 10, so the order is 1, 3, 4, 6, 7, then 2 and 5, then 8. Task
+  3 lists `ops/` and task 5 moves turn recovery into the claim when they land.
+
+### Task 1
+
+- **Module.** The line types, `Taken`, `Saved`, `EventLine` and `RUN_FORMAT` are in `records.ts`;
+  `readRun(lines)` is `packages/contract/src/run-lines.ts`, re-exported from `records.ts`, so it is
+  in `@agentswf/contract` and `@agentswf/contract/records`. Tests: `run-lines.test.ts`, 54 cases.
+- **Result type.** `RunView`: `stages` (per name `{ last, settled?, history }`), `redo?` (`{ attempt,
+  stage }`), `races` (latest line per name), `timers` (latest line per name plus `taken`), `state`
+  (latest value per name), `wait?` (the latest `wait` line), `sessions` (`{ latest, all }`) and
+  `fenced`, a diagnostic count of lines the fence dropped. Records are null-prototype objects.
+- **A taken timer carries its name.** `Taken` gains `timer?: string`, set by the engine when a wait
+  or race takes a timer, as `branch` and `due` say what a time read from state was; `readRun`
+  matches a timer by it, and derives no id. `docs/design/run-record.md`'s `Taken` and its timer
+  rule say so.
+- **Settled is the latest `succeeded` line.** The engine writes a provided stage as `succeeded`
+  with `provided: true` (`stage-ledger.ts`), so `provided` needs no clause of its own, and a
+  provided line of another outcome is refused. `records.ts` and the design say so.
+- **Refusals** throw `run.jsonl line {n}: …`, `{n}` counting the lines given from 1, for a line
+  that: isn't an object; has no `kind`, or an unknown one; has no positive integer `attempt`, or
+  no `at`; lacks a string field the view indexes by or returns (stage `name`, `outcome`,
+  `started`; race `name`, `branch`; timer `name`, `due`, `when`; session `agent`, `harness`,
+  `session`); has an optional field it returns of the wrong type (stage `reason`, `summary`; wait
+  `label`, `stage`, `race`, `acks` as strings, `takes` as an array; took `stage`; session
+  `operation`, `home`); has a stage `outcome` outside `StageOutcome`; has `provided`, `redo`,
+  `cancelled` or `returns` other than `true`, or `provided` on an outcome but `succeeded`; has a
+  `took` that isn't an array of objects with a string `id` (string `timer`, `branch`, `due` when
+  present; an `awf.timer.` id with its `timer`, an `awf.at.` id with its `branch` and `due`); or
+  has a `state` entry without a string `name` and an own `value`. A fenced line is checked too.
+- **Deviations from the design.** `turn-ended.end` is contract's `AgentEnded` (`{ turn, meta,
+  outcome }`): `TurnEnd` is the engine's own, in `mailbox.ts`. `format` and `args` on `RunRecord`
+  are optional and `version` stays until task 8. `turn-started` and `turn-ended` are checked but not
+  in the view: "What is published" doesn't list them. Every type in `records.ts` that is a run
+  file's content, or part of one, names its tier; `MailboxRecord` and `StageRecord` are marked
+  retired by this story. The CLI's JSON documents carry none.
+- **ADRs.** 0014 added and indexed; 0011's "Persistence" amended.
+- **Review.** Two subagent reviews of the diff, all findings accepted:
+  - architecture: `readRun`'s `timerId` parameter pushed a hash onto every reader; replaced by
+    `Taken.timer`, the design amended. Tiers were missing on the types inside a record; added.
+    `MailboxRecord` and `StageRecord` read as stable; marked retired. `fenced` is diagnostic;
+    commented so.
+  - correctness: an unknown stage `outcome`, a flag not `true`, a malformed `took` entry, a state
+    entry without `value`, and a returned field missing (`session`, `harness`, `branch`, `when`,
+    `started`) were accepted; each is refused now. The `|| provided` clause matched nothing the
+    engine writes; dropped with its test. Tests added: an out-of-order claim, a state surviving a
+    later attempt's stateless wait, `taken: false` and `fenced` each beside the opposite value.
+  - round 2: `provided` on an outcome other than `succeeded`, an `awf.timer.` entry without its
+    `timer`, an `awf.at.` entry without its `branch` and `due`, and a returned optional field of
+    the wrong type were accepted; each is refused now. The stage line's comment in `records.ts`
+    and the design's two settled rules now say only `succeeded` settles. Tests added: a fenced
+    `took`, `race` and `redo` count for nothing. The refusal reads "without a positive attempt";
+    `RunLineKind` is no longer exported.
+  - round 3: clean.
+- **Verification**, in the worktree, after review round 2: `bun test packages/contract` 103 pass, 0
+  fail; `bunx tsc --noEmit` clean; `bun run scripts/check-boundaries.ts` "boundaries ok"; `bunx
+  biome check packages/contract` clean; the whole `bun test` 2585 pass, 2 skip, 4 todo, 0 fail.
 
 ## Human review
 

@@ -95,8 +95,8 @@ together: a reader that doesn't know it refuses the run. The log and the operati
 ### Its lines
 
 ```ts
-/** What a wait took. A timer's or a time's id is derived; `branch` and `due` say which. */
-type Taken = { id: EventId; branch?: string; due?: string };
+/** What a wait took. A timer's or a time's id is derived; `timer`, or `branch` and `due`, say which. */
+type Taken = { id: EventId; timer?: string; branch?: string; due?: string };
 
 /** State saved at this line: each name given takes this value; a name not given keeps its own. */
 type Saved = { name: string; value: JsonValue }[];
@@ -104,7 +104,7 @@ type Saved = { name: string; value: JsonValue }[];
 type RunLine = { attempt: number; at: string } & (
   // the attempt begins writing: the fence (Writing it, below)
   | { kind: "claimed" }
-  // a stage's end, every outcome; only `succeeded` and `provided` settle it
+  // a stage's end, every outcome; only `succeeded` settles it, a provided one included
   | { kind: "stage"; name: string; outcome: StageOutcome; reason?: string; started: string;
       summary?: string; value?: JsonValue; provided?: true; redo?: true; state?: Saved }
   // a race's winner, and what it took
@@ -141,7 +141,8 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
   the cancelled timer); a stage each time it ends, which is once per attempt that ran it, except
   where an event run enters a failed stage again in the same attempt.
 - **A stage has two answers.** `last` is its latest line of any outcome: what `--from-stage` reads to tell a failed stage from one never run (`stage-plan.ts`). `settled` is
-  its latest `succeeded` or `provided` line: what a continue may reuse. Its history, failures
+  its latest `succeeded` line, a provided stage's included, since one is written `succeeded` with
+  `provided`: what a continue may reuse. Its history, failures
   included, is every line under its name; `awf runs` shows, for each time the latest attempt
   entered it, that time's own line.
 - **A state's value is its latest entry**, on whichever `stage` or `wait` line saved it; a line that
@@ -149,9 +150,10 @@ what it spent; the log's `turn` line is how it settled, for reading; and, only f
 - **A timer is `due` at its time.** Whether it has fired is the reader's to say against its own
   clock: `wake`, `awf tick` and a wait compare `due` with now; `awf runs` shows a finished run's
   untaken timer as due and untaken, which is true. A fired timer is never written as an event: a wait
-  that takes it names it in its `took` by today's id, `awf.timer.{hash}` of its name, and a
-  `workflow.at` time read from state by `awf.at.{hash}` of its branch and time, with `branch` and
-  `due` beside the id so a reader can say what it was. That removes 037's appended event whose `at` is
+  that takes it names it in its `took` by today's id, `awf.timer.{hash}` of its name, with the
+  name beside it as `timer`, and a `workflow.at` time read from state by `awf.at.{hash}` of its
+  branch and time, with `branch` and `due` beside the id, so a reader can say what each was without
+  deriving an id. That removes 037's appended event whose `at` is
   earlier than the lines above it, and the run's only reason to write its own inbox.
 - **A turn is (agent, turn, began).** `began` is the attempt that started it: code rerun from the
   top begins the same turn id again in a later attempt, and that is a turn of its own. Its end's id is

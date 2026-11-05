@@ -57,7 +57,9 @@ Stages answer each by not replaying calls at all:
   reuses and from which attempt, and a check between stages can stop on what it can see.
 - **Persistence** is the run folder above: written by one attempt at a time, each record replaced
   whole and turns appended. Claiming the run's folder and each attempt's file, each one system
-  call, are the only locks.
+  call, are the only locks. *Amended by [[0014-a-run-settles-its-facts-as-lines|ADR 0014]]:* a
+  run's settled facts, its stages' ends among them, are lines appended to `run.jsonl`, fenced by
+  each attempt's claim, not one record per stage.
 - **Versioning** is the operator's: an optional `meta.version`, whose major stops a continue on older
   records, and schemas on every reused value. A minor change reuses; redoing a stage after a fix is
   `--from-stage`. No code is hashed. A change of harness, model or environment doesn't invalidate a

@@ -27,3 +27,5 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   kept-alive agent holds the run live
 - [0013](0013-the-agent-command-is-wfa.md) — the agent's command is `wfa`, a workflow's context
   is `wf`, and the command lives in the engine
+- [0014](0014-a-run-settles-its-facts-as-lines.md) — a run settles its facts as lines in
+  `run.jsonl`, with a published reading

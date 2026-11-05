@@ -23,7 +23,7 @@ import type {
 } from "./workflow/agents";
 import type { HarnessAllowance } from "./workflow/allowance";
 import type { DecisionRecord, Question } from "./workflow/decisions";
-import type { EmitOutcome, EventId } from "./workflow/events";
+import type { AgentEnded, EmitOutcome, EventId } from "./workflow/events";
 import type {
   AttemptOutcome,
   StageNeed,
@@ -40,7 +40,10 @@ import type {
 } from "./workflow/sandboxes";
 import type { StageOutcome } from "./workflow/workflow";
 
-/** What the run directory records about one call. The format only; the engine does the I/O. */
+/**
+ * What the run directory records about one call. The format only; the engine does the I/O.
+ * Tier: public, stable.
+ */
 export type CallSpec = {
   callId: string;
   question: string;
@@ -49,11 +52,14 @@ export type CallSpec = {
 
 /**
  * Which channel carried a candidate value — `control-plane` in production. A string, because
- * candidates recorded by the archived experiments name channels of their own.
+ * candidates recorded by the archived experiments name channels of their own. Tier: diagnostic.
  */
 export type CandidateSource = string;
 
-/** Every candidate value, accepted or not. A rejection is evidence, so it is never dropped. */
+/**
+ * Every candidate value, accepted or not. A rejection is evidence, so it is never dropped.
+ * Tier: diagnostic.
+ */
 export type Candidate = {
   at: string;
   source: CandidateSource;
@@ -62,6 +68,7 @@ export type Candidate = {
   error?: string;
 };
 
+/** Tier: public, stable. */
 export type Money = {
   /** Non-negative amount in `currency`. */
   amount: number;
@@ -69,7 +76,10 @@ export type Money = {
   currency: string;
 };
 
-/** Non-negative integer token counts, in classes that are priced differently. */
+/**
+ * Non-negative integer token counts, in classes that are priced differently.
+ * Tier: public, stable.
+ */
 export type TokenUsage = {
   /** Uncached input only. */
   input: number;
@@ -84,17 +94,23 @@ export type TokenUsage = {
   reasoning?: number;
 };
 
-/** One model's tokens; `delegated` marks what the agent's own subagents spent. */
+/**
+ * One model's tokens; `delegated` marks what the agent's own subagents spent.
+ * Tier: public, stable.
+ */
 export type ModelSpend = { model: string; delegated: boolean; tokens: TokenUsage };
 
-/** Who paid for an agent: a plan, or per token. `unknown` only when that could not be told. */
+/**
+ * Who paid for an agent: a plan, or per token. `unknown` only when that could not be told.
+ * Tier: public, stable.
+ */
 export type Billing = "subscription" | "metered" | "unknown";
 
 /**
  * An operation's record once the run has ended and its agent's spend was read. It records no
  * price, so a finished run can be priced again with another table. Records are deliberately
  * self-contained: an agent's sessions and billing repeat on each of its operations, so a flat list
- * can be summarised and re-priced alone.
+ * can be summarised and re-priced alone. Tier: public, stable.
  */
 export type SettledOperation = OperationRecord & {
   billing: Billing;
@@ -106,7 +122,7 @@ export type SettledOperation = OperationRecord & {
 
 /**
  * What `decisions/{n}.json` in a run's artifacts holds: everything asked and answered, so a
- * threshold can be fitted again without calling the model.
+ * threshold can be fitted again without calling the model. Tier: public, stable.
  */
 export type DecisionArtifact = {
   record: SettledDecision;
@@ -115,7 +131,10 @@ export type DecisionArtifact = {
   answers?: JsonObject;
 };
 
-/** A decision once the run has ended: what the provider said it charged, beside its record. */
+/**
+ * A decision once the run has ended: what the provider said it charged, beside its record.
+ * Tier: public, stable.
+ */
 export type SettledDecision = DecisionRecord & {
   /** As the provider reported it; absent when it reported none. */
   charged?: Money;
@@ -124,6 +143,7 @@ export type SettledDecision = DecisionRecord & {
 /**
  * What a slice's decisions cost. Kept apart from the agent figures, which count agents: a decision
  * model with no rate folded into those would lower `estimate` with no gap showing.
+ * Tier: public, stable.
  */
 export type DecisionFigures = {
   calls: number;
@@ -140,7 +160,7 @@ export type DecisionFigures = {
   priced: number;
 };
 
-/** One slice of a run: all of it, a stage, or one agent. */
+/** One slice of a run: all of it, a stage, or one agent. Tier: public, stable. */
 export type AccountingFigures = {
   agents: number;
   /** The sum, over operations, of the time from delivery to settle. */
@@ -168,7 +188,10 @@ export type AccountingFigures = {
   decisions?: DecisionFigures;
 };
 
-/** One model's share. Time and charges belong to an operation, not a model, so are not split. */
+/**
+ * One model's share. Time and charges belong to an operation, not a model, so are not split.
+ * Tier: public, stable.
+ */
 export type ModelFigures = {
   model: string;
   agents: number;
@@ -180,7 +203,10 @@ export type ModelFigures = {
   estimate?: number;
 };
 
-/** What a run cost and how long it took, derived from its settled operations and its two times. */
+/**
+ * What a run cost and how long it took, derived from its settled operations and its two times.
+ * Tier: public, stable.
+ */
 export type RunAccounting = {
   /** The price table `estimate` came from. */
   basis: string;
@@ -212,7 +238,7 @@ export type RunAccounting = {
   unpriced: string[];
 };
 
-/** A sandbox a run opened, with every agent it admitted. */
+/** A sandbox a run opened, with every agent it admitted. Tier: public, stable. */
 export type SandboxRecord = {
   callPath: string[];
   /** `agent:{key}` for a private sandbox, a namespace explicit keys cannot use. */
@@ -237,7 +263,10 @@ export type SandboxRecord = {
   agents: { callPath: string[]; agent: string; home: string }[];
 };
 
-/** Where a TUI agent's pane was placed, and why not where its layout said, for the record. */
+/**
+ * Where a TUI agent's pane was placed, and why not where its layout said, for the record.
+ * Tier: public, stable.
+ */
 export type PanePlacement = {
   /** The terminal session it is in. */
   session: string;
@@ -257,6 +286,7 @@ export type PanePlacement = {
 /**
  * Where a TUI agent's pane went: its `pane`, or deprecated `layout` and `keepPane`, as the workflow
  * wrote them, and where it was placed, the run's `--workspace` and `--keep-panes` applied.
+ * Tier: public, stable.
  */
 export type AgentPaneRecord = {
   callPath: string[];
@@ -267,7 +297,7 @@ export type AgentPaneRecord = {
   placed: PanePlacement;
 };
 
-/** One skill an agent was given, as it was copied to it. */
+/** One skill an agent was given, as it was copied to it. Tier: public, stable. */
 export type SkillRecord = {
   /** The name in its `SKILL.md`, and the directory it was copied to. */
   name: string;
@@ -281,7 +311,7 @@ export type SkillRecord = {
   digest: string;
 };
 
-/** The skills an agent was given. */
+/** The skills an agent was given. Tier: public, stable. */
 export type AgentSkillsRecord = {
   callPath: string[];
   agent: string;
@@ -296,18 +326,26 @@ export type AgentSkillsRecord = {
 
 export const RUN_RECORD_VERSION = 1 as const;
 
+/** The version of `run.json`, `run.jsonl`, `in.jsonl` and the attempt files together. */
+export const RUN_FORMAT = 1 as const;
+
 /**
  * `run.json`: what a run is, written once as its folder is claimed. A run's status, current stage
  * and last attempt are read off its other files, so none of them is here to go stale.
+ * Tier: public, stable.
  */
 export type RunRecord = {
   version: typeof RUN_RECORD_VERSION;
+  /** A reader that doesn't know it refuses the run. */
+  format?: typeof RUN_FORMAT;
   /** Unique within its workflow; its folder's name. */
   id: string;
   /** The workflow's `meta.name`, never its file. */
   workflow: string;
   /** As given, not as parsed: a continue prepares it again with the code as it is then. */
   argv: string[];
+  /** The args a program started it with, as JSON; absent for a run started from argv. */
+  args?: JsonValue;
   /** Where every attempt works. */
   cwd: string;
   /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
@@ -326,15 +364,116 @@ export type RunRecord = {
 /**
  * The operator's choices for a run's TUI agents on the host: the workspace their new tabs open in,
  * and whether a pane stays once its agent is done. Each wins over a deprecated `layout` or
- * `keepPane`; absent, those apply, else the run's workspace and `never`.
+ * `keepPane`; absent, those apply, else the run's workspace and `never`. Tier: public, stable.
  */
 export type RunPanes = { workspace?: PaneWorkspace; keep?: KeepPane };
+
+/**
+ * What a wait took. A timer's id is `awf.timer.{hash}` of its name, which `timer` says; a time read
+ * from state's is `awf.at.{hash}` of its branch and time, which `branch` and `due` say.
+ * Tier: public, stable.
+ */
+export type Taken = { id: EventId; timer?: string; branch?: string; due?: string };
+
+/**
+ * State saved at a line: each name given takes its value; a name not given keeps its own.
+ * Tier: public, stable.
+ */
+export type Saved = { name: string; value: JsonValue }[];
+
+/**
+ * A line of `run.jsonl`, what the run settled, appended by the attempt that holds the run alone.
+ * `claimed` is an attempt beginning to write: a line after it from an earlier attempt is ignored.
+ * `readRun` is its published reading. Tier: public, stable.
+ */
+export type RunLine = {
+  attempt: number;
+  at: string;
+} & (
+  | { kind: "claimed" }
+  /** A stage's end, every outcome; only `succeeded` settles it, a provided stage's included. */
+  | {
+      kind: "stage";
+      name: string;
+      outcome: StageOutcome;
+      reason?: string;
+      started: string;
+      summary?: string;
+      value?: JsonValue;
+      /** Its value was given, not run: written `succeeded` with `provided`. */
+      provided?: true;
+      /** The stage `--from-stage` named, in the attempt it was named. */
+      redo?: true;
+      state?: Saved;
+    }
+  /** A race's winner, and what it took. */
+  | { kind: "race"; name: string; branch: string; took: Taken[] }
+  /** A timer as first called; cancelled, the same line again with `cancelled`. */
+  | { kind: "timer"; name: string; due: string; when: string; cancelled?: true }
+  /** What a wait returned: held until a later wait acknowledges it, or a stage's own. */
+  | { kind: "took"; took: Taken[]; stage?: string }
+  /** A wait: what it waits for and, outside a stage and a race, what it acknowledges and saves. */
+  | {
+      kind: "wait";
+      label?: string;
+      takes?: WaitTake[];
+      stage?: string;
+      race?: string;
+      acks?: EventId[];
+      state?: Saved;
+      returns?: true;
+    }
+  /** A turn `start()` began, whose end a wait takes. */
+  | {
+      kind: "turn-started";
+      agent: AgentKey;
+      turn: TurnId;
+      meta: JsonValue;
+      execution: AgentExecution;
+    }
+  /** That turn's end: `began` is the attempt that started it, `end` what the code was handed. */
+  | {
+      kind: "turn-ended";
+      id: EventId;
+      agent: AgentKey;
+      turn: TurnId;
+      began: number;
+      end: AgentEnded;
+    }
+  /** An agent's native session, as soon as it is known. */
+  | {
+      kind: "session";
+      agent: AgentKey;
+      harness: HarnessKind;
+      session: string;
+      operation?: string;
+      home?: string;
+    }
+);
+
+/**
+ * A line of `in.jsonl`, an event the run's code takes, appended by a sender under the run's lock.
+ * Names stay as awf records them (`participant:reply`, `agent:ended`). Tier: public, stable.
+ */
+export type EventLine = {
+  at: string;
+  id: EventId;
+  name: string;
+  data: JsonValue;
+  from: string;
+  /** The event that created its run. */
+  starts?: true;
+  /** The integration that sent it, as `awf emit --source` names it. */
+  source?: string;
+};
+
+export { type RunView, readRun, type StageView, type TimerView } from "./run-lines";
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
 /**
  * `attempts/{attempt}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
- * again when it ends, with its ending.
+ * again when it ends, with its ending. Tier: public, stable.
  */
 export type AttemptRecord = {
   version: typeof ATTEMPT_RECORD_VERSION;
@@ -375,13 +514,19 @@ export type AttemptRecord = {
   unacknowledged?: number;
 };
 
-/** What an attempt's file keeps of its accounting: what a run's total sums. */
+/**
+ * What an attempt's file keeps of its accounting: what a run's total sums.
+ * Tier: public, stable.
+ */
 export type AttemptAccounting = Pick<
   RunAccounting,
   "basis" | "wallMs" | "grouping" | "billing" | "totals" | "byStage" | "unpriced"
 >;
 
-/** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
+/**
+ * A stage an attempt entered, as its files record it: no value, which `stages/` holds.
+ * Tier: public, stable.
+ */
 export type AttemptStage = Omit<StageSummary, "value">;
 
 export const MAILBOX_RECORD_VERSION = 1 as const;
@@ -389,6 +534,7 @@ export const MAILBOX_RECORD_VERSION = 1 as const;
 /**
  * A line of `mailbox.jsonl`, the run's events and what its waits did with them, appended under the
  * run's lock by whoever writes it: a sender, the run, or awf on the run's behalf.
+ * Tier: retired by story 041.
  */
 export type MailboxRecord = {
   version: typeof MAILBOX_RECORD_VERSION;
@@ -476,7 +622,7 @@ export const STAGE_RECORD_VERSION = 1 as const;
 
 /**
  * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,
- * by the attempt that ran it.
+ * by the attempt that ran it. Tier: retired by story 041.
  */
 export type StageRecord = {
   version: typeof STAGE_RECORD_VERSION;
@@ -522,7 +668,7 @@ export const TURN_OPERATION_FIELDS = [
 /**
  * A line of `turns.jsonl`: a turn, nudges included, or a compaction, as it settled, with the attempt
  * it was in. Its `sessions` are its agent's as of then: the last is the one it ran on. What it spent
- * is read from its sessions once the attempt ends, so a line has none.
+ * is read from its sessions once the attempt ends, so a line has none. Tier: public, for reading.
  */
 export type TurnRecord = {
   version: typeof TURN_RECORD_VERSION;
@@ -542,7 +688,7 @@ type OperationEvent = { of: TurnRecord["kind"]; callPath: string[] } & Pick<
 /**
  * Every line of the run's event log but a settled turn's. Keyed, never given an id: a span's start
  * and end carry the same keys (attempt, stage, `operationId`, decision), and the tree is read off
- * them. Observation only: `--continue` never reads it (ADR 0011).
+ * them. Observation only: `--continue` never reads it (ADR 0011). Tier: public, for reading.
  */
 export type RunEvent = {
   /** Its kind's, from `RUN_EVENT_VERSIONS`. */
@@ -604,7 +750,7 @@ export type RunEvent = {
 /**
  * A route's ends, as the workflow granted it: `between` is one route both ways, with one count, its
  * two ends in the order given, which means nothing. A pair has one open route at a time, so its ends
- * name it. An end is an agent's key or an outside participant's.
+ * name it. An end is an agent's key or an outside participant's. Tier: public, for reading.
  */
 export type RouteEnds =
   | { from: AgentKey; to: AgentKey; between?: never }
@@ -612,7 +758,7 @@ export type RouteEnds =
 
 /**
  * Why a message admitted was never shown: its sender stopped waiting before its peer saw it, its
- * route closed, or the attempt ended.
+ * route closed, or the attempt ended. Tier: public, for reading.
  */
 export type UndeliveredReason = "withdrawn" | "route-closed" | "attempt-ended";
 
@@ -622,6 +768,7 @@ export type UndeliveredReason = "withdrawn" | "route-closed" | "attempt-ended";
  * asker finished first, before its peer saw the question (`withdrawn`) or after (`released`), or
  * the outside participant it was owed by was released (`released`); a deadline the workflow set
  * around the asker passed, or its scope was cancelled (`cancelled`); or the attempt ended.
+ * Tier: public, for reading.
  */
 export type RequestEnd =
   | "replied"
@@ -632,13 +779,17 @@ export type RequestEnd =
   | "cancelled"
   | "attempt-ended";
 
-/** What an outside participant's message came through: `awf run`'s prompt, `awf reply` or `awf send`, a test's script. */
+/**
+ * What an outside participant's message came through: `awf run`'s prompt, `awf reply` or
+ * `awf send`, a test's script.
+ * Tier: public, for reading.
+ */
 export type OutsideVia = "terminal" | "command" | "test";
 
 /**
  * Messaging in the run's event log, keyed by attempt and `message`, numbered in the order admitted
  * within the attempt. Written by the side that saw each: the engine on admission and its end, the
- * delivery with what the harness confirmed.
+ * delivery with what the harness confirmed. Tier: public, for reading.
  */
 export type MessagingEvent =
   /**
@@ -782,7 +933,10 @@ export type MessagingEvent =
       reply?: number;
     };
 
-/** The messaging ceilings an attempt ran under. A route's `maxMessages` may only lower `perRoute`. */
+/**
+ * The messaging ceilings an attempt ran under. A route's `maxMessages` may only lower `perRoute`.
+ * Tier: public, stable.
+ */
 export type MessageLimits = {
   /** Messages a route carries an attempt, answers included. */
   perRoute: number;
@@ -816,7 +970,7 @@ export type Activity =
   | { type: "background-ended" }
   | { type: "compaction" };
 
-/** A line of `turns.jsonl`, the run's event log. */
+/** A line of `turns.jsonl`, the run's event log. Tier: public, for reading. */
 export type RunLogLine = TurnRecord | RunEvent;
 
 /**
@@ -834,7 +988,7 @@ export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
  * A timer's `timer:due` is from its name. A select's time read from state is `at:due` from its
  * branch, with `due`, the ISO time read, when the read gave one: a deadline, not part of the match.
  * With no event ready, the wait appends its event, id `awf.at.{hash}` of the branch and the time,
- * and takes it at once.
+ * and takes it at once. Tier: public, stable.
  */
 export type WaitTake = { name: string; from?: string; turn?: string; due?: string };
 
@@ -1177,7 +1331,7 @@ export const OUTPUT_RECORD_VERSION = 5 as const;
 /**
  * An attempt, as the operator CLI keeps it in `output.json` and prints it with `--json`, in the
  * words of its attempt file. One that didn't complete keeps what it spent too; only a completed one
- * has a value.
+ * has a value. Tier: public, stable.
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
@@ -1257,9 +1411,13 @@ export const OPERATION_LIVENESS_KINDS = [
   "release",
   "terminal",
 ] as const;
+/** Tier: diagnostic. */
 export type OperationLivenessKind = (typeof OPERATION_LIVENESS_KINDS)[number];
 
-/** Optional diagnostics in calls/{operationId}/liveness.jsonl; never settlement authority. */
+/**
+ * Optional diagnostics in calls/{operationId}/liveness.jsonl; never settlement authority.
+ * Tier: diagnostic.
+ */
 export type OperationLivenessRecord = {
   version: typeof OPERATION_LIVENESS_RECORD_VERSION;
   operationId: string;
