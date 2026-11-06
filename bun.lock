@@ -24,7 +24,7 @@
     },
     "packages/agentswf": {
       "name": "agentswf",
-      "version": "0.1.0-beta.5",
+      "version": "0.1.0",
       "bin": {
         "awf": "./src/awf.ts",
       },
@@ -35,11 +35,11 @@
     },
     "packages/contract": {
       "name": "@agentswf/contract",
-      "version": "0.1.0-beta.5",
+      "version": "0.1.0",
     },
     "packages/engine": {
       "name": "@agentswf/engine",
-      "version": "0.1.0-beta.5",
+      "version": "0.1.0",
       "bin": {
         "awf": "./src/operator-cli.ts",
       },
@@ -52,7 +52,7 @@
     },
     "packages/harness": {
       "name": "@agentswf/harness",
-      "version": "0.1.0-beta.5",
+      "version": "0.1.0",
       "dependencies": {
         "@agentswf/contract": "workspace:*",
         "@agentswf/sandbox": "workspace:*",
@@ -71,7 +71,7 @@
     },
     "packages/sandbox": {
       "name": "@agentswf/sandbox",
-      "version": "0.1.0-beta.5",
+      "version": "0.1.0",
       "dependencies": {
         "@agentswf/contract": "workspace:*",
       },
