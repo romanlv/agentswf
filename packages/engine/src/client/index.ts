@@ -11,7 +11,7 @@ import {
 import { checkEvent, deliverReply, emitEvent } from "../emit";
 import { exists } from "../files";
 import { inboxCommand } from "../inbox-command";
-import { asClientError } from "../refusals";
+import { asClientError, clientCode } from "../refusals";
 import { idProblem, openRun } from "../runs";
 import type { WakeContext } from "../wake";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
@@ -142,7 +142,8 @@ async function inbox(
   const items = lines.flatMap((line) => line.split("\n")).filter((line) => line !== "");
   if (code === 0) return items.map((line) => JSON.parse(line) as InboxItemJson);
   const refused =
-    items.length > 0 ? (JSON.parse(items[0]!) as { code?: string; error?: string }) : {};
-  if (refused.code === "bad-cursor") throw new ClientError("cursor", refused.error ?? "cursor");
+    items.length > 0 ? (JSON.parse(items.at(-1)!) as { code?: string; error?: string }) : {};
+  const known = clientCode(refused.code);
+  if (known) throw new ClientError(known, refused.error ?? known);
   throw new Error(refused.error ?? (errors.join("\n") || `awf inbox exited ${code}`));
 }

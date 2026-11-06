@@ -172,7 +172,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
   ends.
 - [[043-json-refusals|043 — Every --json command says why it failed, as a document]] —
-  `in-progress` — with `--json`, stdout always ends with one document, the result or a refusal from a
+  `awaiting-human-review` — with `--json`, stdout always ends with one document, the result or a refusal from a
   published code set, the words `agentswf/client` throws; a test across every command keeps it so.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —

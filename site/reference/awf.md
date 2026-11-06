@@ -28,8 +28,8 @@ command gets the `awf run` line it meant.
 
 ## JSON {#json}
 
-With `--json`, stdout always ends with one document. When the command worked, it is the
-result. When it failed, it is a refusal, and stderr still says why, for people:
+With `--json`, stdout always ends with one document, but for `awf inbox`, which prints none when
+it has no items to read. When the command worked, it is the result. When it failed, it is a refusal, and stderr still says why, for people:
 
 ```json
 {"v": 1, "code": "no-run", "error": "no run review-mr/7 under /work/.awf/runs, or in a project awf knows"}
@@ -66,9 +66,10 @@ A code means the same in every command that prints it, and is the word
 `awf reply` and `awf send` also refuse for the [participant's reasons](#reply).
 
 A command's `--json` carries `"v"`, which changes when a field is renamed or removed. It is 1 for
-every command but two at 2: `awf runs {run} --json`, whose agent and stage states are
-[a fixed set](#runs), and `awf send --json` and `awf reply --json`, whose refusal `stopped` is
-[`peer-stopped`](#reply). A refusal carries its command's `"v"`.
+every command but three: `awf runs {run} --json` is at 2, as its agent and stage states are
+[a fixed set](#runs); `awf inbox --json` is at 2, as it took the shared `no-run` and `cursor`;
+and `awf send --json` and `awf reply --json` are at 3, as [their success](#reply) lost its
+`code`. A refusal carries its command's `"v"`.
 
 ## Durations {#durations}
 
@@ -191,12 +192,14 @@ share one help.
 <!--@include: @/../packages/engine/src/help/reply.txt-->
 ```
 
-With `--json`, each prints one line, `{"v": 2, "code": "delivered", "id": …}`, or a refusal with
-its `code` and `error`: `not-found`, `ended`, `no-participant`, `unknown-agent`, `ambiguous`
-(with `choices`), `expired`, `no-route`, `peer-stopped`, `closed`, `too-large`, `limit`,
-`inbox-full`, or `unsupported-version`, when the run's engine is another version of awf than the
-command's, as after installing awf anew while the run is live. Version 1 named `peer-stopped`
-`stopped`.
+With `--json`, each prints one line: `{"v": 3, "id": …}` when delivered, or a
+[refusal](#json) with its `code` and `error`. Past the shared codes, a participant's own:
+`ended`, `no-participant`, `unknown-agent`, `ambiguous` (with `choices`), `expired`, `no-route`,
+`peer-stopped`, `closed`, `too-large`, `limit`, `inbox-full`, or `unsupported-version`, when the
+run's engine is another version of awf than the command's, as after installing awf anew while the
+run is live. Version 1 named `peer-stopped` `stopped`; version 2 said `"code": "delivered"` on
+success, and `not-found` for `no-run`. The deprecated `awf send --event-id` prints
+[`awf emit`](#emit)'s result when it worked, and its own refusals.
 
 ## This machine
 

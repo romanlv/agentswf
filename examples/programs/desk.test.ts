@@ -3,7 +3,7 @@ import { fakeClient } from "agentswf/testing";
 import { closeGlossary, defineTerms, eventIdOf, summarize } from "./desk.driver";
 
 const post = (n: number, text: string) => ({
-  v: 1 as const,
+  v: 2 as const,
   ref: "glossary/g1",
   at: "2026-11-05T10:00:00.000Z",
   cursor: `c${n}`,

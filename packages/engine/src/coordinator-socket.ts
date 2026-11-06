@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import type { ParticipantResultJson } from "@agentswf/contract/records";
-import { decodeHolderRequest, type NudgeWireResult, WIRE_VERSION } from "@agentswf/contract/wire";
+
+import {
+  decodeHolderRequest,
+  type HolderWireAnswer,
+  type NudgeWireResult,
+  WIRE_VERSION,
+} from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import { realPath } from "./files";
 import type { MessagingEventBody } from "./messaging/messaging";
@@ -65,7 +70,7 @@ export async function prepareCoordinatorDir(
 /**
  * The socket `awf reply` and `awf send` reach a live run through. It opens once the workflow
  * connects an outside participant and goes when the run ends; each connection is one request
- * line and one `ParticipantResultJson` line back.
+ * line and one `HolderWireAnswer` line back.
  */
 export function coordinatorSocket(options: {
   dir: string;
@@ -87,9 +92,7 @@ export function coordinatorSocket(options: {
    * Undefined for a request no `awf` command makes: the connection closes unanswered. One of
    * another wire version is refused naming both, which an older `awf send` or `awf reply` prints.
    */
-  const answer = async (
-    frame: string,
-  ): Promise<ParticipantResultJson | NudgeWireResult | undefined> => {
+  const answer = async (frame: string): Promise<HolderWireAnswer | NudgeWireResult | undefined> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(frame);
@@ -220,9 +223,9 @@ export function coordinatorSocket(options: {
 }
 
 function refused(
-  code: Exclude<ParticipantResultJson["code"], "delivered">,
+  code: Exclude<HolderWireAnswer["code"], "delivered">,
   error: string,
-): ParticipantResultJson {
+): HolderWireAnswer {
   return { v: 2, code, error };
 }
 

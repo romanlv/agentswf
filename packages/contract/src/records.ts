@@ -1128,7 +1128,7 @@ export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended"
  * `v` changes only when one is renamed or removed.
  */
 export type InboxItemJson = {
-  v: 1;
+  v: 2;
   /** `{workflow}/{id}`. */
   ref: string;
   at: string;
@@ -1179,20 +1179,15 @@ export type InboxItemJson = {
 );
 
 /**
- * `awf reply --json` and `awf send --json`. `delivered`'s `id` is what an `awf inbox` item names:
- * for a reply, the question answered, as its `answered` item has it; for a send, the new message.
- * Version 2 renamed the refusal `stopped` to `peer-stopped`, as `wfa` has it.
+ * `awf reply --json` and `awf send --json`: delivered, with the `id` an `awf inbox` item names (for
+ * a reply, the question answered, as its `answered` item has it; for a send, the new message), or
+ * a refusal, `ambiguous`'s with its `choices`. Version 2 renamed the refusal `stopped` to
+ * `peer-stopped`, as `wfa` has it; version 3 took `code: "delivered"` off the success, as only a
+ * refusal has a code, and renamed `not-found` to `no-run`.
  */
 export type ParticipantResultJson =
-  | { v: 2; code: "delivered"; id: string }
-  | {
-      v: 2;
-      code: ParticipantCode;
-      /** The refusal as the command prints it, naming what to do instead. */
-      error: string;
-      /** For `ambiguous`: the participant keys, agent addresses or question ids to choose from. */
-      choices?: string[];
-    };
+  | { v: 3; id: string }
+  | RefusalJson<ParticipantCode | RefusalCode, 3>;
 
 /** What `wake` did to a run: started, nudged or continued it, or nothing. */
 export type WakeDid = "started" | "nudged" | "continued" | "none";
@@ -1257,8 +1252,11 @@ export type TickResultJson = {
   unreadable?: string[];
 };
 
-/** `awf inbox --json` when it read nothing. */
-export type InboxErrorJson = { v: 1; code: InboxCode; error: string };
+/**
+ * `awf inbox --json`'s last line when it read nothing. Version 2 renamed `not-found` to `no-run`
+ * and `bad-cursor` to `cursor`, its items moving with it.
+ */
+export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
 
 /**
  * Why a `--json` command failed, one meaning each, and the words `ClientError` throws for the same

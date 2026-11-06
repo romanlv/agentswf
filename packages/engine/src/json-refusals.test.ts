@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { REFUSAL_CODES, type RefusalJson } from "@agentswf/contract/records";
-import { INBOX_CODES, PARTICIPANT_CODES } from "@agentswf/contract/wire";
-import { COMMANDS, type CommandName } from "./commands";
+import type { RefusalJson } from "@agentswf/contract/records";
+import { PARTICIPANT_CODES } from "@agentswf/contract/wire";
+import { COMMANDS, type CommandName, helpOf } from "./commands";
+import { coordinatorSocketPath } from "./coordinator-socket";
 import { runOperatorCli } from "./operator-cli";
 import { createRun } from "./runs";
 import { createTempRunDirs, eventProject, writeAttempt } from "./testing";
@@ -12,12 +13,14 @@ import { createTempRunDirs, eventProject, writeAttempt } from "./testing";
 // failure's is a refusal from the published codes, its sentence still on stderr. Each row is a
 // failure a command's help names.
 //
-// Not rows yet, each for the task that makes it reachable (story 043): `unreachable` from a run
-// that doesn't answer, for `reply` and `send` (task 5). `tick`'s exit 1 is no row: it prints its
-// result, the runs it woke despite the others.
+// Not a row: `tick`'s exit 1, which prints its result, the runs it woke despite the others.
 
 const dirs = createTempRunDirs();
-afterAll(() => dirs.cleanup());
+let listening: { stop(closeActive?: boolean): void } | undefined;
+afterAll(() => {
+  listening?.stop(true);
+  dirs.cleanup();
+});
 
 const EVENTS = `import { defineWorkflow } from "agentswf/workflow";
 const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };
@@ -37,7 +40,15 @@ export default defineWorkflow({
 });
 `;
 
-type Fixture = { root: string; file: string; plain: string; home: string; broken: string };
+type Fixture = {
+  root: string;
+  file: string;
+  plain: string;
+  home: string;
+  broken: string;
+  /** Where `r1`'s coordinator socket is, which closes on each request unanswered. */
+  silent: string;
+};
 let fixture: Fixture;
 
 beforeAll(async () => {
@@ -59,7 +70,8 @@ beforeAll(async () => {
     events: true,
     file: broken.file,
   });
-  fixture = { ...made, plain, broken: broken.root };
+  const silent = dirs.tempRunDir();
+  fixture = { ...made, plain, broken: broken.root, silent };
   const runRoot = join(fixture.root, ".awf", "runs");
   await createRun(runRoot, {
     id: "r1",
@@ -89,19 +101,28 @@ beforeAll(async () => {
     processStart: "2026-10-11T09:00:00Z",
     outcome: "completed",
   });
+  // r1's coordinator, which takes a request and closes without an answer, as an older awf does.
+  listening = Bun.listen({
+    unix: coordinatorSocketPath(silent, join(runRoot, "dd-case", "r1")),
+    socket: { data: (socket) => void socket.end() },
+  });
   // A run whose record this awf can't read: one made before `run.json` had a format.
   mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
   writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
 });
 
-/** Each command's words: the shared ones, and the participant's for `reply`, `send` and `inbox`. */
-const SHARED = new Set<string>(REFUSAL_CODES);
-const PARTICIPANT = new Set<string>([...REFUSAL_CODES, ...PARTICIPANT_CODES]);
-const CODES: Record<string, Set<string>> = {
-  reply: PARTICIPANT,
-  send: PARTICIPANT,
-  inbox: new Set<string>([...REFUSAL_CODES, ...INBOX_CODES]),
-};
+/**
+ * The words a row's command may print: those its help lists, and for `reply` and `send` the
+ * participant's, which their help names as one.
+ */
+function mayPrint(command: CommandName, code: string): boolean {
+  if (
+    (command === "reply" || command === "send") &&
+    (PARTICIPANT_CODES as readonly string[]).includes(code)
+  )
+    return true;
+  return new RegExp(`(^|[ ,:])${code}([ ,.;]|$)`, "m").test(helpOf(command));
+}
 
 type Row = {
   command: CommandName;
@@ -115,6 +136,8 @@ type Row = {
   says: RegExp;
   /** Run as after a Ctrl-C. */
   cancelled?: true;
+  /** Where coordinator sockets are, for a row that reaches `r1`'s silent one. */
+  coordinators?: (f: Fixture) => string;
 };
 
 const ROWS: Row[] = [
@@ -463,6 +486,26 @@ const ROWS: Row[] = [
     says: /slack/,
   },
   {
+    command: "reply",
+    failure: "a run that doesn't answer",
+    argv: () => ["dd-case/r1", "reviewer", "--as", "slack", "hi"],
+    code: "unreachable",
+    exit: 3,
+    v: 3,
+    says: /did not answer/,
+    coordinators: (f) => f.silent,
+  },
+  {
+    command: "send",
+    failure: "a run that doesn't answer",
+    argv: () => ["dd-case/r1", "reviewer", "--as", "slack", "hi"],
+    code: "unreachable",
+    exit: 3,
+    v: 3,
+    says: /did not answer/,
+    coordinators: (f) => f.silent,
+  },
+  {
     command: "send",
     failure: "no run named",
     argv: () => [],
@@ -590,27 +633,6 @@ const ROWS: Row[] = [
   },
 ];
 
-/**
- * Rows that don't print their refusal yet, by `{command}: {failure}`. Each task of story 043 takes
- * its commands' rows off, and the last removes the list; a listed row that conforms fails too.
- */
-const PENDING = new Set([
-  "inbox: a project whose agentswf isn't installed",
-  "reply: a project whose agentswf isn't installed",
-  "reply: no run named",
-  "reply: no such run",
-  "reply: a run it can't read",
-  "reply: no such participant",
-  "send: no run named",
-  "send: no such run",
-  "send: no such participant",
-  "inbox: a bad option",
-  "inbox: no such run",
-  "inbox: a run it can't read",
-  "inbox: no such participant",
-  "inbox: a cursor that isn't one",
-]);
-
 const nameOf = (row: Row) => `${row.command}: ${row.failure}`;
 
 async function attempt(row: Row) {
@@ -620,7 +642,11 @@ async function attempt(row: Row) {
     cwd: fixture.root,
     home: fixture.home,
     // Only what a command needs: an `AWF_*` of the shell running the tests changes no row.
-    environment: { PATH: process.env.PATH, HOME: fixture.home },
+    environment: {
+      PATH: process.env.PATH,
+      HOME: fixture.home,
+      ...(row.coordinators ? { AWF_COORDINATOR_DIR: row.coordinators(fixture) } : {}),
+    },
     stdout: (text) => stdout.push(text),
     stderr: (text) => stderr.push(text),
     stdin: async () => "hi",
@@ -679,11 +705,6 @@ describe("every --json failure prints a refusal last", () => {
     test(`${name} → ${row.code}, exit ${row.exit}`, async () => {
       const got = await attempt(row);
       expect(`${got.stderr}\n${JSON.stringify(got.document)}`).toMatch(row.says);
-      if (PENDING.has(name)) {
-        // Listed as not printing it yet: once it does, the row comes off the list.
-        expect({ name, conforms: conforms(row, got) }).toEqual({ name, conforms: false });
-        return;
-      }
       expect({ exit: got.exit, document: got.document }).toMatchObject({
         exit: row.exit,
         document: { v: row.v, code: row.code },
@@ -702,13 +723,9 @@ test("every command whose help offers --json has a row, and only those", () => {
 
 test("each row expects a word its command may print, under a name of its own", () => {
   for (const row of ROWS)
-    expect([nameOf(row), (CODES[row.command] ?? SHARED).has(row.code)]).toEqual([
-      nameOf(row),
-      true,
-    ]);
+    expect([nameOf(row), mayPrint(row.command, row.code)]).toEqual([nameOf(row), true]);
   const names = ROWS.map(nameOf);
   expect(new Set(names).size).toBe(names.length);
-  for (const pending of PENDING) expect(names).toContain(pending);
 });
 
 test("a failure no command foresaw still ends stdout with a refusal, internal-error", async () => {

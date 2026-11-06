@@ -3,7 +3,7 @@ id: "043"
 title: "Every --json command says why it failed, as a document"
 summary: "With --json, stdout always ends with one document: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
 type: story
-status: in-progress
+status: awaiting-human-review
 depends_on: ["040"]
 ---
 
@@ -247,7 +247,7 @@ Alternatives rejected:
 - [x] 2. `emit` refuses as a document, and awf-chat's `toCode` reads it
 - [x] 3. `runs`, `logs`, `tick`, `allowance`, every usage error, and a broken install
 - [x] 4. `awf run` refuses when no run comes of it
-- [ ] 5. The holder commands on the shared words, and awf-chat with them
+- [x] 5. The holder commands on the shared words, and awf-chat with them
 
 ## Open questions
 
@@ -372,17 +372,17 @@ Outcome: `reply`, `send` and `inbox` print the shared codes and refuse on exit 2
 
 Execution:
 
-- [ ] Plan: the renames, the success shape, the `v` bumps, and every awf-chat match on them.
-- [ ] Implement: `not-found` → `no-run`, `bad-cursor` → `cursor`, `unreachable` from `failed`,
+- [x] Plan: the renames, the success shape, the `v` bumps, and every awf-chat match on them.
+- [x] Implement: `not-found` → `no-run`, `bad-cursor` → `cursor`, `unreachable` from `failed`,
   `reply`/`send` success `{v: 3, id}`, `inbox` `v: 2`; `reply.txt`, `inbox.txt`, `awf.md`'s
   JSON section and `#reply` section; `InboxErrorJson` and `ParticipantResultJson`'s refusal folded
   into `RefusalJson` (`INBOX_CODES` keeps only what isn't shared); the sentence on stderr with
   `--json` too; the client's `inbox` throwing any client code `awf inbox` refuses with, not only
   `cursor`; a row for a run that doesn't answer; awf-chat's `HolderResult`, `holderCommand`,
   `inbox`, `parseLine`, `watch.ts`, `presenter.ts`, `ledger.ts` and its fixtures.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the guard passes with no list; deleting one refusal from any command fails it;
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the guard passes with no list; deleting one refusal from any command fails it;
   awf-chat's `bun run check` and `bun test` pass.
 
 Done when:
@@ -394,17 +394,19 @@ Done when:
 
 Automated:
 
-- [ ] The guard: every `--json` command, every documented failure, a refusal on stdout's last line.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
-- [ ] awf-chat: `bun run check` and `bun test`.
+- [x] The guard: every `--json` command, every documented failure, a refusal on stdout's last line.
+- [x] `bun test`: 2818 pass, 0 fail
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`, and the site's `bun run build`
+- [x] awf-chat: `bun run check` and `bun test`, 50 pass.
 
 Manual or live evaluation:
 
-- [ ] The probe in "Context and evidence", rerun: a document in every row. Free.
+- [x] The probe in "Context and evidence", rerun through the real `awf` in an empty folder: a
+  refusal in every row, each exit as before. Free.
 - [ ] A Slack reply in a datadog-watcher thread to a case run that's gone shows awf-chat's ⚠️ with
-  the `no-run` refusal. Free.
+  the `no-run` refusal. Free. Not yet run: awf-chat links main's contract, so it waits for the
+  merge.
 
 ## Review record
 
@@ -475,8 +477,22 @@ Manual or live evaluation:
 
 ### Task 5
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: the coordinator socket's answer kept apart from the published output,
+  as `HolderWireAnswer`, so a live run started before keeps answering; the skill
+  `awf-coordinator`, which told agents a success says `delivered`, the people guide and the
+  testing API's doc corrected; `messaging.ts`'s `Exclude` of a word gone; per-command code sets
+  read by the guard from each help, the note on published per-command types amended; the
+  deprecated `send --event-id` printing `awf emit`'s result recorded in the reference; awf-chat's
+  readers taking one set of failures, and its type naming an older engine's `delivered`. Kept:
+  awf-chat reads an older engine's output too, as the story's out-of-scope line leaves that to a
+  host; `docs/design/messaging.md` keeps the words of its time, a design record. Left for the
+  human: `agentswf/testing`'s `ParticipantOutcome` still says `{ code: "delivered", id }`, not
+  `--json` output; its doc no longer claims to match it.
+- Correctness and proof: rows for a run that doesn't answer, `reply` and `send`, through a socket
+  that closes unanswered; the deprecated path's events read failing as the run's files do,
+  `unreachable`, exit 3; awf-chat's thrown refusal never an empty message; the reference says
+  `awf inbox` prints nothing when it reads nothing. The guard bites with no list: deleting the
+  refusal from `inbox` or `reply` fails rows.
 
 ## Readiness
 
@@ -510,8 +526,9 @@ Manual or live evaluation:
   already meant "a name that fits more than one", and a refusal may carry `choices`.
 - `ClientErrorCode` is a plain union checked to sit within `RefusalCode`, so a word missing from
   the table fails to compile at the declaration.
-- Per-command code sets live in the guard and the reference's "Printed by" column. Each command's
-  output type, `Result | RefusalJson<…>`, names its set in the task that brings the command in.
+- Per-command code sets live in each command's help, which the guard reads a row's code from, and
+  the reference's "Printed by" column. The published types take the union, `RefusalCode` with the
+  participant's or the inbox's: a tuple per command would be a second list to keep (task 5).
 - The guard is `engine/src/json-refusals.test.ts`, through `runOperatorCli` in-process, so
   dispatch is under test too. Each row pins the failure it names by what the command says, the
   `v` its refusal carries, and that stderr still says it. Its `PENDING` list holds rows that
@@ -567,10 +584,24 @@ Manual or live evaluation:
   continue, which passed or failed by what ran before it. Each writes its file first, or into a
   folder of its own.
 
+### Task 5
+
+- The run's coordinator socket keeps its answer, now `HolderWireAnswer` in `wire.ts`, at wire
+  version as it was: `awf reply` and `awf send` map it to the published `{v: 3, id}` or a refusal,
+  so a run started under the old commands still answers the new.
+- `PARTICIPANT_CODES` lost `not-found`, the shared `no-run`; `INBOX_CODES` keeps `no-participant`
+  only; `InboxErrorJson` became `InboxRefusalJson`, `RefusalJson` at `v` 2.
+- With `--json`, the holder commands write the sentence on stderr too, as every other command does.
+- awf-chat reads the new shapes and an older engine's: `v` 1 or 2 inbox items, `cursor` or
+  `bad-cursor`, a success with or without `"code": "delivered"`, and stderr for an empty stdout,
+  as an engine a project pins prints what it printed. `usage`, `unreachable` and
+  `internal-error` are thrown, as awf's or the run's reach failing, not a refusal of the message.
+
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes, but the Slack check, after the
+  merge.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.

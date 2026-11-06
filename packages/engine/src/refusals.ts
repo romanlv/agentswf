@@ -1,5 +1,5 @@
 import { ClientError, type ClientErrorCode } from "@agentswf/contract/client";
-import type { RefusalCode, RefusalJson } from "@agentswf/contract/records";
+import { REFUSAL_CODES, type RefusalCode, type RefusalJson } from "@agentswf/contract/records";
 import type { ParticipantCode } from "@agentswf/contract/wire";
 import { EmitError } from "./emit";
 import { messageOf } from "./errors";
@@ -30,6 +30,12 @@ export function refusalCode(error: unknown): RefusalCode | undefined {
   if (error instanceof RunNotFound || error instanceof WorkflowFileError) return error.code;
   if (error instanceof RunRefused) return error.code;
   return undefined;
+}
+
+/** `code` as a client's word, when it is one: what a command refused with, read back. */
+export function clientCode(code: unknown): ClientErrorCode | undefined {
+  const known = (REFUSAL_CODES as readonly unknown[]).includes(code);
+  return known && !COMMAND_ONLY.has(code as RefusalCode) ? (code as ClientErrorCode) : undefined;
 }
 
 /** An engine error that is the caller's mistake as a `ClientError`; anything else as it is. */

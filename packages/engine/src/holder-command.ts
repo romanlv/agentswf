@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
-import type { ParticipantResultJson } from "@agentswf/contract/records";
-import { type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
+import type { ParticipantResultJson, RefusalCode } from "@agentswf/contract/records";
+import { type HolderWireAnswer, type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
 import { liveCoordinatorSocket } from "./coordinator-socket";
 import { deprecationLine } from "./deprecations";
 import { deliverReply, emitToRun, eventIdProblem } from "./emit";
@@ -10,6 +10,7 @@ import { isCode } from "./files";
 import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
+import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { readAttempts, readEvents, readNumberedEvents } from "./runs";
@@ -41,6 +42,9 @@ export type HolderIo = Out & {
   home?: string;
 };
 
+/** A refusal of `reply` or `send`: its document with `--json`, its sentence on stderr, exit 1. */
+type Refuse = (code: ParticipantCode | RefusalCode, error: string, choices?: string[]) => number;
+
 export async function holderCommand(
   argv: readonly string[],
   shellCwd: string,
@@ -60,21 +64,30 @@ export async function holderCommand(
     json = parsed.json;
     options = parseHolder(argv[0] as "reply" | "send", parsed.rest);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${replyUsage}`);
+    printRefusal(io, { json: asksJson(argv), v: 3 }, error, "usage", replyUsage);
     return 2;
   }
-  const say = (result: ParticipantResultJson, line: string): number => {
-    if (json) io.stdout(JSON.stringify(result));
-    else if (result.code === "delivered") io.stdout(line);
-    else
-      io.stderr(
-        `awf: ${options.command} refused (${result.code}): ${result.error}${result.choices ? ` Choose: ${result.choices.join(", ")}` : ""}`,
-      );
-    return result.code === "delivered" ? 0 : 1;
+  const delivered = (id: string, line: string): number => {
+    io.stdout(json ? JSON.stringify({ v: 3, id } satisfies ParticipantResultJson) : line);
+    return 0;
   };
-  const refused = (code: ParticipantCode, error: string) => say({ v: 2, code, error }, "");
+  const refused: Refuse = (code, error, choices) => {
+    if (json)
+      io.stdout(
+        JSON.stringify({
+          v: 3,
+          code,
+          error,
+          ...(choices ? { choices } : {}),
+        } satisfies ParticipantResultJson),
+      );
+    io.stderr(
+      `awf: ${options.command} refused (${code}): ${error}${choices ? ` Choose: ${choices.join(", ")}` : ""}`,
+    );
+    return 1;
+  };
   const usage = (problem: string) => {
-    io.stderr(`awf: ${problem}\n\n${replyUsage}`);
+    printRefusal(io, { json, v: 3 }, problem, "usage", replyUsage);
     return 2;
   };
   if (options.text !== undefined && options.text.trim() === "")
@@ -87,7 +100,7 @@ export async function holderCommand(
     try {
       status = await findRunByRef(options.ref, place, io.home ?? homedir());
     } catch (error) {
-      if (error instanceof RunNotFound) return refused("not-found", error.message);
+      if (error instanceof RunNotFound) return refused(error.code, error.message);
       throw error;
     }
     if (status.state !== "running")
@@ -125,17 +138,17 @@ export async function holderCommand(
       throw new Error(
         `${status.ref} did not answer, most likely as it runs an older awf than this one, which speaks wire version ${WIRE_VERSION}: reach it with the awf it started with, or let it end and continue it under this one.`,
       );
-    const result = JSON.parse(answer) as ParticipantResultJson;
-    if (result.code !== "delivered") return say(result, "");
-    if (options.command === "reply") return say(result, `answered ${result.id}`);
+    const result = JSON.parse(answer) as HolderWireAnswer;
+    if (result.code !== "delivered") return refused(result.code, result.error, result.choices);
+    if (options.command === "reply") return delivered(result.id, `answered ${result.id}`);
     // Held for an agent awaiting this participant's answer: it comes with that answer.
     const awaited = await awaitedBy(status, options.agent, options.as);
-    return say(
-      result,
+    return delivered(
+      result.id,
       `delivered as ${result.id}${awaited ? `; ${options.agent} still awaits the reply to ${awaited}` : ""}`,
     );
   } catch (error) {
-    return failed(error, place, io, messageOf(error));
+    return failed(error, place, io, messageOf(error), { json, v: 3 });
   }
 }
 
@@ -234,7 +247,7 @@ async function toTheCode(
   place: ReadPlace,
   json: boolean,
   io: HolderIo,
-  say: { refused(code: ParticipantCode, error: string): number; usage(problem: string): number },
+  say: { refused: Refuse; usage(problem: string): number },
 ): Promise<number> {
   const home = io.home ?? homedir();
   const environment = io.environment ?? process.env;
@@ -245,10 +258,16 @@ async function toTheCode(
   try {
     found = await findRunByRef(options.ref, place, home);
   } catch (error) {
-    if (error instanceof RunNotFound) return refused("not-found", error.message);
-    return failed(error, place, io, messageOf(error));
+    if (error instanceof RunNotFound) return refused(error.code, error.message);
+    return failed(error, place, io, messageOf(error), { json, v: 3 });
   }
-  const connected = (await readEvents(found.run.dir)).filter(
+  let lines: Awaited<ReturnType<typeof readEvents>>;
+  try {
+    lines = await readEvents(found.run.dir);
+  } catch (error) {
+    return failed(error, place, io, messageOf(error), { json, v: 3 });
+  }
+  const connected = lines.filter(
     (line) => line.kind === "participant-connected" && line.participant === as,
   );
   // As it always did: only a participant the run has connected; `awf emit` doesn't ask.
@@ -266,7 +285,7 @@ async function toTheCode(
     try {
       return printEmit(await deliverReply(found, as, { data, id }, context), json, io);
     } catch (error) {
-      return failed(error, place, io, messageOf(error));
+      return failed(error, place, io, messageOf(error), { json, v: 3 });
     }
   }
   // Connected to agents only, which send has always refused: whatever stops `awf emit`, a file

@@ -4,9 +4,11 @@ usage: awf inbox [<run>] [--open] [--workflow <name>] [--as <key>] [--after <cur
 What agents said to a participant outside the run, and what it said back: routes, messages,
 answers, questions that closed unanswered, and each attempt's end, oldest first. Without a run,
 every run here that connected one; --workflow narrows that. A run is <workflow>/<id>, or an <id>
-only one workflow has. --after reads on from a cursor the last answer gave; --wait
-waits up to that long, at most 5m, when nothing is new. --open lists the questions
-still waiting for an answer, a snapshot. --json prints one item per line.
+only one workflow has. --after reads on from a cursor the last answer gave; --wait waits up to
+that long, at most 5m, when nothing is new. --open lists the questions still waiting for an
+answer, a snapshot. --json prints one item per line, and when it fails a refusal last whose code
+says why: usage, no-run, ambiguous, id, cursor, no-participant, unreachable, no-engine,
+other-engine or internal-error.
 
 Exits 0 on a read that worked, 1 when there is no such run, it has no participant, or the
 cursor is another's, 2 on a usage error, 3 when the run's files could not be read.

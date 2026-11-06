@@ -99,16 +99,20 @@ describe("awf reply and awf send", () => {
     const reply = (text: string) =>
       awf(["reply", question.ref, "investigator", "--to", question.id, text, "--json"]);
     const [first, second] = await Promise.all([reply("Keep two."), reply("Merge.")]);
-    const results = [first, second].map((each) => JSON.parse(each.stdout) as ParticipantResultJson);
-    expect(results.map((each) => each.code).sort()).toEqual(["delivered", "expired"]);
-    expect(results.find((each) => each.code === "delivered")).toEqual({
-      v: 2,
-      code: "delivered",
+    const results = [first, second].map(
+      (each) => JSON.parse(each.stdout) as { v: number; id?: string; code?: string },
+    );
+    expect(results.map((each) => each.code ?? "delivered").sort()).toEqual([
+      "delivered",
+      "expired",
+    ]);
+    expect(results.find((each) => each.code === undefined)).toEqual({
+      v: 3,
       id: question.id,
     });
     const run = await running;
     expect(run.code).toBe(0);
-    expect(JSON.parse(run.stdout).value).toBe(results[0]!.code === "delivered" ? "kept" : "other");
+    expect(JSON.parse(run.stdout).value).toBe(results[0]!.code === undefined ? "kept" : "other");
     const inbox = await awf(["inbox", question.ref, "--json"]);
     const answered = inbox.stdout
       .split("\n")
@@ -125,7 +129,7 @@ describe("awf reply and awf send", () => {
     await write("flow.js");
     expect(await awf(["reply", "investigate/nope", "investigator", "x"])).toMatchObject({
       code: 1,
-      stderr: expect.stringContaining("refused (not-found)"),
+      stderr: expect.stringContaining("refused (no-run)"),
     });
     const running = awf(["run", "--json", "flow.js"]);
     const question = await openQuestion(awf);
@@ -182,7 +186,7 @@ describe("awf reply and awf send", () => {
       "--help",
     ]);
     expect(flagLike.code).toBe(1);
-    expect(JSON.parse(flagLike.stdout)).toMatchObject({ code: "not-found" });
+    expect(JSON.parse(flagLike.stdout)).toMatchObject({ code: "no-run" });
     expect((await awf(["send", "investigate/nope", "investigator", " "])).code).toBe(2);
   });
 

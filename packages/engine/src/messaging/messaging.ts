@@ -117,7 +117,7 @@ export type HolderRequest = {
 /** A holder's result: a reply's `message` is the question's number, a send's the new message's. */
 export type HolderResult =
   | { code: "delivered"; message: number }
-  | { code: Exclude<ParticipantCode, "not-found">; error: string; choices?: string[] };
+  | { code: ParticipantCode; error: string; choices?: string[] };
 
 /** A question open to an outside participant, and when it closes unanswered if it has a limit. */
 export type OpenQuestion = {
@@ -1681,11 +1681,7 @@ function refuse<C extends SendCode | ReplyCode>(code: C, error: string) {
   return { kind: "refused" as const, code, error };
 }
 
-function holderRefusal(
-  code: Exclude<ParticipantCode, "not-found">,
-  error: string,
-  choices?: string[],
-): HolderResult {
+function holderRefusal(code: ParticipantCode, error: string, choices?: string[]): HolderResult {
   return { code, error, ...(choices ? { choices } : {}) };
 }
 

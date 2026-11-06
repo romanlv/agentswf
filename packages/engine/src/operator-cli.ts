@@ -296,9 +296,9 @@ const JSON_VERSION = {
   tick: 1 satisfies TickResultJson["v"],
   runs: 1 satisfies RunsJson["v"],
   logs: 1 satisfies LogsJson["v"],
-  inbox: 1 satisfies InboxItemJson["v"],
-  reply: 2 satisfies ParticipantResultJson["v"],
-  send: 2 satisfies ParticipantResultJson["v"],
+  inbox: 2 satisfies InboxItemJson["v"],
+  reply: 3 satisfies ParticipantResultJson["v"],
+  send: 3 satisfies ParticipantResultJson["v"],
   allowance: 1 satisfies AllowanceReport["v"],
 } as const;
 
