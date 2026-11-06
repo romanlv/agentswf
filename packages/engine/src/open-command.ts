@@ -1,14 +1,16 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { relative, sep } from "node:path";
+import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join, relative, sep } from "node:path";
 import type {
   AgentOp,
   OpenResultJson,
   OpRecord,
   RefusalCode,
   RunView,
+  SessionSandbox,
 } from "@agentswf/contract/records";
 import {
+  type AgentSkills,
   findHarness,
   forkRecordedSession,
   HARNESSES,
@@ -18,7 +20,12 @@ import {
   type RunProcess,
   runAttached,
   runProcess,
+  sandboxedArgs,
+  sandboxedOperatorArgs,
+  skillsLaunch,
 } from "@agentswf/harness";
+import type { SandboxProviders } from "@agentswf/sandbox";
+import { installSandboxedDoor } from "./agent-launcher";
 import { messageOf } from "./errors";
 import help from "./help/open.txt" with { type: "text" };
 import { listOps, opFile } from "./ops";
@@ -28,6 +35,7 @@ import { readRunLines } from "./run-lines";
 import { claimNow, releaseClaim, runLockFile, runOpenFile, withRunLock } from "./run-lock";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { isLive, readAttempts, workDir } from "./runs";
+import { type ReopenedPlace, reopenSandbox } from "./sandboxes";
 import { type Launch, wake } from "./wake";
 
 export const openUsage = help.trimEnd();
@@ -40,6 +48,8 @@ export type Attach = (input: {
   argv: readonly string[];
   cwd: string;
   env: Record<string, string | undefined>;
+  /** A sandbox's command, which gets exactly `env` and nothing of this process's. */
+  exact?: true;
 }) => Promise<number>;
 
 export type OpenContext = {
@@ -54,7 +64,20 @@ export type OpenContext = {
   stdinIsTerminal?: boolean;
   /** How the wake at a held run's release starts its attempt; absent, as `awf tick` does. */
   launch?: Launch;
+  /** The operator's sandbox providers, which reopen a sandboxed agent's place. */
+  providers?: () => Promise<SandboxProviders>;
 };
+
+/** What a sandboxed agent's `wfa` does in a reopened place: nothing reaches the run. */
+const INERT_WFA = `console.error("wfa: this session was opened with awf open, outside its run; nothing reaches the run");
+process.exit(1);
+`;
+
+/** How long a person's TUI in a sandbox may stay open. */
+const TUI_TIMEOUT_MS = 7 * 24 * 60 * 60_000;
+
+/** What a TUI in a sandbox is given of the operator's terminal, which a provider's environment drops. */
+const TERMINAL_ENVIRONMENT = ["TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE"];
 
 type Options = {
   ref: string;
@@ -127,15 +150,28 @@ export async function openCommand(
     const where = await agentPlace(status, options);
     const spec = HARNESSES[where.harness];
     const settings = launchSettings(where.execution);
-    const env: Record<string, string> = where.home
-      ? hostHome(where.harness, where.home, environment).env
-      : {};
+    const skills = where.skills
+      ? await skillsLaunch(where.harness, where.skills, environment)
+      : undefined;
+    // On the host, a home of its own is pointed at here; in a sandbox, by the provider.
+    const env: Record<string, string> = {
+      ...(where.home && !where.sandbox ? hostHome(where.harness, where.home, environment).env : {}),
+      ...skills?.env,
+    };
+    const webSearch = where.sandbox?.spec.webSearch === true;
+    const launchArgs = (person: boolean) => [
+      ...(where.sandbox
+        ? (person ? sandboxedOperatorArgs : sandboxedArgs)(where.harness, webSearch)
+        : []),
+      ...(skills?.args ?? []),
+    ];
     const turnContext = (sessionHint: string) => ({
       ...settings,
       sessionHint,
+      launchArgs: launchArgs(false),
       ...(where.home ? { home: where.home } : {}),
     });
-    const run = context.run ?? runProcess;
+    const hostRun = context.run ?? runProcess;
     if (options.noFork && where.copy)
       throw new OpenRefused(
         `${options.session} is not one of ${options.agent}'s sessions in ${status.ref}: a copy an earlier awf open made is yours already; open it without --no-fork`,
@@ -165,7 +201,66 @@ export async function openCommand(
     if (text !== undefined && text.trim() === "")
       throw new OpenRefused("nothing to ask: stdin was empty", "usage");
     const held = options.noFork ? await holdRun(status, options.agent, place) : undefined;
+    let box: ReopenedPlace | undefined;
+    let doors: string | undefined;
+    let finished: Promise<void> | undefined;
+    // The sandbox closed first, then the run let go: an attempt the release wakes finds it closed.
+    const finish = () => {
+      finished ??= (async () => {
+        for (const failure of (await box?.close()) ?? [])
+          out.stderr(`awf: the sandbox did not close cleanly: ${failure}`);
+        if (doors) await rm(doors, { recursive: true, force: true });
+        await held?.release(out, context);
+      })();
+      return finished;
+    };
     try {
+      // Read again once held: an attempt that ended meanwhile may have recorded a newer session.
+      if (held && (await agentPlace(status, options)).session !== where.session)
+        throw new OpenRefused(
+          `${options.agent}'s session changed as the run was held; open it again: ${shellLine(["awf", "open", status.ref, options.agent, "--no-fork", ...place.repeat])}`,
+          "live",
+        );
+      if (where.sandbox) {
+        doors = await mkdtemp(join(tmpdir(), "awf-open-"));
+        const door = await installSandboxedDoor(
+          doors,
+          join(doors, "open.sock"),
+          INERT_WFA,
+          spec.sessionEnv,
+        );
+        const providers = context.providers ? await context.providers() : { installed: {} };
+        box = await reopenSandbox(
+          where.sandbox,
+          { harness: where.harness, model: settings.model, cwd: where.cwd, home: where.home! },
+          {
+            providers,
+            runRoot: status.run.root,
+            door,
+            deadline: { unixMilliseconds: Date.now() + 10 * 60_000 },
+            environment,
+          },
+        ).catch((error: unknown) => {
+          throw new OpenRefused(
+            `${options.agent}'s ${where.sandbox!.provider} sandbox could not be opened again: ${messageOf(error)}`,
+            "unreachable",
+          );
+        });
+      }
+      const occupant = box?.occupant;
+      const run: RunProcess = occupant
+        ? (input) => {
+            const { holdStdinUntil, onStdoutLine, timeoutAt, ...process } = input as Parameters<
+              typeof runProcess
+            >[0] & { holdStdinUntil?: (line: string) => boolean };
+            return hostRun({
+              ...occupant.launch(process as Parameters<typeof occupant.launch>[0]),
+              ...(holdStdinUntil ? { holdStdinUntil } : {}),
+              ...(onStdoutLine ? { onStdoutLine } : {}),
+              ...(timeoutAt ? { timeoutAt } : {}),
+            });
+          }
+        : hostRun;
       let session = where.session;
       let forkedFrom: string | undefined;
       if (!where.copy && !options.noFork) {
@@ -234,7 +329,7 @@ export async function openCommand(
               } satisfies OpenResultJson)
             : reply,
         );
-        await held?.release(out, context);
+        await finish();
         out.stderr(`again: ${again}`);
         return 0;
       }
@@ -243,6 +338,7 @@ export async function openCommand(
         [
           options.agent,
           [where.harness, model, effort].filter(Boolean).join(" "),
+          ...(where.sandbox ? [where.sandbox.provider] : []),
           forkedFrom
             ? `a copy of ${forkedFrom}`
             : held
@@ -250,18 +346,41 @@ export async function openCommand(
               : `session ${session}`,
         ].join(" · "),
       );
-      const plan = spec.operatorResume!(session, settings, []);
-      const code = await (context.attach ?? ((input) => runAttached(input, environment)))({
-        argv: plan.argv,
-        cwd: where.cwd,
-        env,
-      });
-      await held?.release(out, context);
+      const plan = spec.operatorResume!(session, settings, launchArgs(true));
+      const attach =
+        context.attach ?? ((input) => runAttached(input, input.exact ? {} : environment));
+      let code: number;
+      if (occupant) {
+        const terminal = Object.fromEntries(
+          TERMINAL_ENVIRONMENT.flatMap((name) => {
+            const value = environment[name];
+            return value === undefined ? [] : [[name, value]];
+          }),
+        );
+        const command = occupant.launch({
+          argv: plan.argv,
+          cwd: where.cwd,
+          env: { ...terminal, ...env },
+          timeoutMs: TUI_TIMEOUT_MS,
+          terminal: true,
+        });
+        try {
+          code = await attach({
+            argv: command.argv,
+            cwd: where.cwd,
+            env: command.env ?? {},
+            exact: true,
+          });
+        } finally {
+          await command.reap?.().catch(() => undefined);
+        }
+      } else code = await attach({ argv: plan.argv, cwd: where.cwd, env });
+      await finish();
       out.stderr(`again: ${again}`);
       return code;
     } finally {
-      // Released once, by whichever comes first; a refusal or a throw lets go here.
-      await held?.release(out, context);
+      // Once, by whichever comes first; a refusal or a throw lets go here.
+      await finish();
     }
   } catch (error) {
     if (error instanceof OpenRefused) return refuse(error);
@@ -298,9 +417,11 @@ async function holdRun(status: RunStatus, agent: string, place: ReadPlace): Prom
         `${ref} is open in awf open --no-fork (pid ${claimed.heldBy.pid}); a copy opens anyway: ${plain}`,
         "opened",
       );
-    if (await live()) {
+    try {
+      if (await live()) throw running();
+    } catch (error) {
       await releaseClaim(file, claimed.held);
-      throw running();
+      throw error;
     }
     return claimed.held;
   });
@@ -356,6 +477,10 @@ type AgentPlace = {
   cwd: string;
   /** The agent's own harness home, where it had one. */
   home?: string;
+  /** The sandbox it ran in, reopened for it. */
+  sandbox?: SessionSandbox;
+  /** The skills its harness was given, given again. */
+  skills?: AgentSkills;
 };
 
 async function agentPlace(status: RunStatus, options: Options): Promise<AgentPlace> {
@@ -400,13 +525,30 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
   if (line.home !== undefined) {
     if (!(await isDirectory(line.home)))
       throw new OpenRefused(`${agent}'s own home ${line.home} is gone`, "unreachable");
-    // A home outside the run's folder is a sandbox's, which this session line does not record.
-    if (!(await within(workDir(status.run.dir), line.home)))
+    // A home outside the run's folder is a sandbox's: a line written before it named the sandbox
+    // says nothing of where it ran.
+    if (!line.sandbox && !(await within(workDir(status.run.dir), line.home)))
       throw new OpenRefused(
         `${agent} ran in a sandbox this run did not record, so it cannot be reopened where it ran`,
         "unreachable",
       );
     home = line.home;
+  }
+  if (line.sandbox && home === undefined)
+    throw new OpenRefused(`${agent}'s session line names a sandbox but no home`, "unreachable");
+  let skills: AgentSkills | undefined;
+  if (line.skills) {
+    if (!(await isDirectory(line.skills.directory)))
+      throw new OpenRefused(
+        `${agent}'s skills were in ${line.skills.directory}, which is gone`,
+        "unreachable",
+      );
+    skills = {
+      names: line.skills.names,
+      directory: line.skills.directory,
+      sandboxed: line.sandbox !== undefined,
+      ...(line.sandbox === undefined && home !== undefined ? { ownHome: home } : {}),
+    };
   }
   return {
     harness: line.harness as Harness,
@@ -416,6 +558,8 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
     execution: op.execution,
     cwd,
     ...(home === undefined ? {} : { home }),
+    ...(line.sandbox ? { sandbox: line.sandbox } : {}),
+    ...(skills ? { skills } : {}),
   };
 }
 

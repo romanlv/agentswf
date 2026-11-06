@@ -72,8 +72,8 @@ export async function forkResult(
 
 /**
  * Forks a session a run recorded, with no model turn, where the agent's turns ran: its cwd, its
- * settings, home and launch arguments in `context`, `env` for its process, and `place` to run the
- * fork inside the agent's sandbox, where it had one (story 042). The new session's reference.
+ * settings, home and launch arguments in `context`, `env` for its process; `run` runs it inside the
+ * agent's sandbox where it had one (story 042). The new session.
  */
 export async function forkRecordedSession(
   harness: Harness,

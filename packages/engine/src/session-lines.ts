@@ -1,8 +1,11 @@
+import type { SessionSandbox, SessionSkills } from "@agentswf/contract/records";
 import type { NativeSessionRef } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import type { RunLines } from "./run-lines";
 
-type SessionFields = { operation?: string; home?: string };
+/** Where a session lives: the agent's own home, its sandbox and its skills (story 042). */
+export type SessionPlace = { home?: string; sandbox?: SessionSandbox; skills?: SessionSkills };
+type SessionFields = SessionPlace & { operation?: string };
 type Seen = { harness: string; fields: SessionFields };
 
 /**
@@ -28,7 +31,7 @@ export class SessionLines {
     },
   ) {}
 
-  /** `operation` is the operation the sessions were seen in; `home`, a sandboxed agent's own. */
+  /** `operation` is the operation the sessions were seen in; the rest, where the session lives. */
   known(agent: string, sessions: readonly NativeSessionRef[], fields: SessionFields = {}): void {
     let written = this.#written.get(agent);
     if (!written) {
@@ -48,6 +51,8 @@ export class SessionLines {
           session: id,
           ...(fields.operation === undefined ? {} : { operation: fields.operation }),
           ...(fields.home === undefined ? {} : { home: fields.home }),
+          ...(fields.sandbox === undefined ? {} : { sandbox: fields.sandbox }),
+          ...(fields.skills === undefined ? {} : { skills: fields.skills }),
         })
         .catch((error) => {
           // It and those seen after it are written again, in order, when next seen: the latest

@@ -562,6 +562,7 @@ async function admitAgent(
             secrets: Object.keys(agent.harness.secrets),
             pidFile,
             argv: root.argv,
+            ...(root.terminal ? { terminal: true as const } : {}),
           }),
         ],
         env: clientEnvironment,

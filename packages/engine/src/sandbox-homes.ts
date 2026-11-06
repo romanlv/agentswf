@@ -47,13 +47,7 @@ export async function seedHome(
   };
   await mkdir(dirname(staging), { recursive: true, mode: 0o700 });
   await mkdir(staging, { mode: 0o700 });
-  const seeds: {
-    from: string;
-    to: string;
-    refreshes: string[][];
-    baseline: Buffer;
-    refused?: Buffer;
-  }[] = [];
+  const seeds: Seed[] = [];
   try {
     for (const { from, to, refreshes } of needs.seed) {
       let bytes: Buffer;
@@ -82,6 +76,58 @@ export async function seedHome(
     await rm(staging, { recursive: true, force: true });
     throw error;
   }
+  return writingBack(seeds, locks);
+}
+
+type Seed = {
+  from: string;
+  to: string;
+  refreshes: string[][];
+  baseline: Buffer;
+  refused?: Buffer;
+};
+
+/**
+ * Refreshes the credentials of a home an agent had before, for `awf open` (story 042): each seed's
+ * file written over with the operator's, never through a link, and handed back as `seedHome`'s
+ * are. Nothing else in the home changes: its sessions and skills are the agent's.
+ */
+export async function refreshHome(
+  needs: Pick<HarnessSandboxNeeds, "seed">,
+  locks: CredentialLocks,
+): Promise<SeededHome> {
+  const seeds: Seed[] = [];
+  for (const { from, to, refreshes } of needs.seed) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(from);
+    } catch {
+      throw new Error(`cannot refresh ${to}: ${from} is missing; log the harness in first`);
+    }
+    const handle = await open(
+      to,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+      0o600,
+    ).catch((error: NodeJS.ErrnoException) => {
+      throw new Error(error.code === "ELOOP" ? `${to} is a link` : error.message);
+    });
+    try {
+      if (!(await handle.stat()).isFile()) throw new Error(`${to} is not a file`);
+      await handle.writeFile(bytes);
+    } finally {
+      await handle.close();
+    }
+    seeds.push({
+      from,
+      to,
+      refreshes: refreshes.map((field) => field.split(".")),
+      baseline: bytes,
+    });
+  }
+  return writingBack(seeds, locks);
+}
+
+function writingBack(seeds: Seed[], locks: CredentialLocks): SeededHome {
   return {
     async writeBack() {
       // Every seed is tried: one refused leaves the others' refreshes to go back.

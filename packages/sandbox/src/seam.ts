@@ -138,6 +138,11 @@ export type SandboxProcess = {
   stdin?: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  /**
+   * Run on the terminal of whoever runs the command, a person's, for a TUI (story 042): its stdio
+   * is that terminal, and a provider that cannot give it one throws.
+   */
+  terminal?: true;
 };
 
 /**

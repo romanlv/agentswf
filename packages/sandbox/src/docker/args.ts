@@ -48,10 +48,13 @@ export function execArgs(options: {
   secrets: readonly string[];
   pidFile: string;
   argv: readonly string[];
+  /** A person's terminal, for a TUI: a tty in the box. */
+  terminal?: true;
 }): string[] {
   return [
     "exec",
     "-i",
+    ...(options.terminal ? ["-t"] : []),
     ...(options.cwd ? ["-w", options.cwd] : []),
     ...Object.entries(options.env).flatMap(([name, value]) => ["-e", `${name}=${value}`]),
     ...options.secrets.flatMap((name) => ["-e", name]),

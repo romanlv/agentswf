@@ -272,6 +272,18 @@ export type RunAccounting = {
   unpriced: string[];
 };
 
+/**
+ * The sandbox a session lives in, as its `SandboxRecord` has it: enough to open it again where the
+ * agent ran, its home under `directory`. Tier: public, stable.
+ */
+export type SessionSandbox = Pick<SandboxRecord, "provider" | "spec" | "directory" | "provided">;
+
+/**
+ * The skills an agent's harness was given: their names, and the directory they were placed in,
+ * which its launch points the harness at. Tier: public, stable.
+ */
+export type SessionSkills = { names: string[]; directory: string };
+
 /** A sandbox a run opened, with every agent it admitted. Tier: public, stable. */
 export type SandboxRecord = {
   callPath: string[];
@@ -485,7 +497,11 @@ export type RunLine = {
       began: number;
       end: AgentEnded;
     }
-  /** An agent's native session, as soon as it is known. */
+  /**
+   * An agent's native session, as soon as it is known, and where it lives: the agent's own harness
+   * home, the sandbox that home is in, and the skills its harness was given, as `awf open` reopens
+   * them (story 042).
+   */
   | {
       kind: "session";
       agent: AgentKey;
@@ -493,6 +509,8 @@ export type RunLine = {
       session: string;
       operation?: string;
       home?: string;
+      sandbox?: SessionSandbox;
+      skills?: SessionSkills;
     }
 );
 

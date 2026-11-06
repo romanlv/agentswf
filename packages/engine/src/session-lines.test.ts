@@ -36,6 +36,24 @@ test("each session is written once an attempt, with its operation and home", asy
   expect(lines.written[1]).toMatchObject({ operation: "op-2" });
 });
 
+test("a session's sandbox and skills are written with it, absent when it has none", async () => {
+  const lines = writer();
+  const sessions = new SessionLines({ lines, failed: () => undefined });
+  const sandbox = {
+    provider: "docker" as const,
+    spec: { cwd: "/w", read: [], write: [], network: [], docker: {} },
+    directory: "/box",
+    provided: { image: "sha256:1" },
+  };
+  const skills = { names: ["probe"], directory: "/box/homes/h/skills" };
+  sessions.known("worker", codex("s-1"), { home: "/box/homes/h", sandbox, skills });
+  sessions.known("plain", codex("s-2"));
+  await sessions.flushed();
+  expect(lines.written[0]).toMatchObject({ home: "/box/homes/h", sandbox, skills });
+  expect(Object.keys(lines.written[1]!)).not.toContain("sandbox");
+  expect(Object.keys(lines.written[1]!)).not.toContain("skills");
+});
+
 test("a session whose line failed is warned of, and written again when next seen, in order", async () => {
   const lines = writer(["s-1"]);
   const warned: string[] = [];

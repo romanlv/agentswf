@@ -24,6 +24,7 @@ export { createPlacementHostFactory } from "./placement-host";
 export { effortRefusal, headlessRefusal, settingsRefusal } from "./refusals";
 export {
   hostHome,
+  sandboxedArgs,
   sandboxedOperatorArgs,
   sandboxNeeds,
   sandboxTokens,

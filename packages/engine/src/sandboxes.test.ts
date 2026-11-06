@@ -20,6 +20,7 @@ import {
   type FakeSandboxOptions,
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
+import { readRunLines } from "./run-lines";
 import { listRuns } from "./run-state";
 import { readEvents } from "./runs";
 import { RunSandboxes } from "./sandboxes";
@@ -203,6 +204,13 @@ describe("sandboxed agents", () => {
       ["tester", homes[1]],
       ["reviewer", homes[2]],
     ]);
+    // Each session line says where its session lives, as `awf open` reopens it (story 042).
+    const { latest } = (await readRunLines(logged!.dir)).view.sessions;
+    expect(latest.coder).toMatchObject({
+      home: homes[0],
+      sandbox: { provider: "srt", spec: shared!.spec, directory: shared!.directory },
+    });
+    expect(latest.reviewer?.sandbox?.directory).toBe(own!.directory);
 
     // Each process carried its own agent's marker and home, and nothing else of the engine's.
     for (const [home, sandbox, count] of [

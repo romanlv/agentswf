@@ -2,15 +2,23 @@ import { afterAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
 import type { ProcessInput, ProcessResult } from "@agentswf/harness";
+import type { SandboxProviders } from "@agentswf/sandbox";
+import {
+  createFakeSandboxProvider,
+  FAKE_OCCUPANT_ENV,
+  FAKE_SANDBOX_ENV,
+} from "@agentswf/sandbox/testing";
 import { writeJson } from "./files";
 import { type Attach, openCommand } from "./open-command";
 import { runOpenFile } from "./run-lock";
@@ -101,6 +109,8 @@ async function open(
     /** Run while the TUI is open. */
     during?: () => Promise<void>;
     launch?: Launch;
+    environment?: Record<string, string>;
+    providers?: SandboxProviders;
   } = {},
 ) {
   const seen: Seen = { runs: [], attached: [] };
@@ -112,7 +122,8 @@ async function open(
     { stdout: (text) => stdout.push(text), stderr: (text) => stderr.push(text) },
     {
       home: f.cwd,
-      environment: {},
+      environment: options.environment ?? {},
+      ...(options.providers ? { providers: async () => options.providers! } : {}),
       ...processes(seen, options.exitCode, options.during),
       ...(options.launch ? { launch: options.launch } : {}),
       ...(options.stdin === undefined
@@ -289,10 +300,12 @@ test("--no-fork opens the agent's own session, the run held until the harness ex
   const file = runOpenFile(f.root, "review", "r7");
   let heldMeanwhile = false;
   let second: Awaited<ReturnType<typeof open>> | undefined;
+  let copied: Awaited<ReturnType<typeof open>> | undefined;
   const { code, stderr, seen } = await open(f, ["review/r7", "fixer", "--no-fork"], {
     during: async () => {
       heldMeanwhile = existsSync(file);
       second = await open(f, ["review/r7", "fixer", "--no-fork"]);
+      copied = await open(f, ["review/r7", "fixer"]);
     },
   });
   expect(code).toBe(7);
@@ -310,6 +323,9 @@ test("--no-fork opens the agent's own session, the run held until the harness ex
     `again: awf open review/r7 fixer --no-fork --run-root ${f.root}`,
   ]);
   // A copy opens while it is held.
+  expect(copied!.code).toBe(7);
+  expect(copied!.seen.runs[0]!.argv).toContain("--fork-session");
+  // An earlier session of the agent's own opens itself, and is named to open again.
   const copy = await open(f, ["review/r7", "fixer", "--no-fork", "--session", "s-old"]);
   expect(copy.stderr.at(-1)).toBe(
     `again: awf open review/r7 fixer --no-fork --session s-old --run-root ${f.root}`,
@@ -389,4 +405,121 @@ test("-p reads `-` as stdin, and a question that starts with a dash as its text"
     stdin: "piped too",
   });
   expect(optioned.seen.runs[0]!.stdin).toBe("piped too");
+});
+
+test("a held run is let go when the question fails, as when the harness exits", async () => {
+  const f = await fixture();
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  const result = await open(f, ["review/r7", "fixer", "--no-fork", "-p", "why?"], { exitCode: 1 });
+  expect(result.code).toBe(1);
+  expect(result.seen.runs[0]!.argv.slice(0, 4)).toEqual(["claude", "-p", "--resume", "s-1"]);
+  expect(existsSync(runOpenFile(f.root, "review", "r7"))).toBe(false);
+});
+
+/** A sandboxed claude agent `boxed`: its home under the sandbox's directory, as a run records it. */
+function boxed(f: Fixture) {
+  const directory = join(f.cwd, "sandbox");
+  const home = join(directory, "homes", "h1");
+  mkdirSync(home, { recursive: true });
+  const bin = join(f.cwd, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
+  chmodSync(join(bin, "claude"), 0o755);
+  session(f.run, {
+    agent: "boxed",
+    session: "b-1",
+    operation: "boxed.1",
+    home,
+    sandbox: {
+      provider: "srt",
+      spec: { cwd: f.cwd, read: [], write: [], network: [], srt: {} },
+      directory,
+    },
+  });
+  const fake = createFakeSandboxProvider();
+  return {
+    directory,
+    home,
+    fake,
+    options: {
+      environment: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        CLAUDE_CODE_OAUTH_TOKEN: "tok",
+        TERM: "xterm-test",
+      },
+      providers: { installed: { srt: fake.provider } } as SandboxProviders,
+    },
+  };
+}
+
+test("a sandboxed agent opens in its sandbox, reopened where it ran, on the operator's terminal", async () => {
+  const f = await fixture();
+  const box = boxed(f);
+  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m" });
+  const { code, stderr, seen } = await open(
+    f,
+    ["review/r7", "boxed", "--session", "copy-b"],
+    box.options,
+  );
+  expect(code).toBe(7);
+  expect(stderr[0]).toBe("boxed · claude m · srt · session copy-b");
+  const [tui] = seen.attached;
+  // The sandbox's own command, with exactly its environment: the operator's terminal kind in it.
+  expect(tui!.exact).toBe(true);
+  expect(tui!.env).toMatchObject({
+    [FAKE_SANDBOX_ENV]: "awf-open",
+    [FAKE_OCCUPANT_ENV]: box.home,
+    TERM: "xterm-test",
+    CLAUDE_CODE_OAUTH_TOKEN: "tok",
+  });
+  const launched = box.fake.events.flatMap((event) =>
+    event.kind === "launch" ? [event.argv] : [],
+  );
+  expect(launched[0]!.slice(0, 3)).toEqual(["claude", "--resume", "copy-b"]);
+  // Opened in the directory it ran in, the agent admitted with its home; all of it closed after.
+  const kinds = box.fake.events.map((event) => event.kind);
+  expect(kinds[0]).toBe("open");
+  expect(box.fake.events.find((event) => event.kind === "admit")).toMatchObject({ home: box.home });
+  expect(kinds.slice(-2)).toEqual(["release", "close"]);
+  expect(existsSync(join(box.directory, "homes", "h1"))).toBe(true);
+});
+
+test("a sandboxed agent's copy is made inside its sandbox, and -p asks it there", async () => {
+  const f = await fixture();
+  const box = boxed(f);
+  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m", metered: true });
+  const { code, seen } = await open(f, ["review/r7", "boxed", "-p", "why?"], box.options);
+  expect(code).toBe(0);
+  const [fork, turn] = seen.runs as (ProcessInput & { group?: true })[];
+  for (const inside of [fork!, turn!]) {
+    expect(inside.group).toBe(true);
+    expect(inside.env).toMatchObject({ [FAKE_OCCUPANT_ENV]: box.home });
+  }
+  const launched = box.fake.events.flatMap((event) =>
+    event.kind === "launch" ? [event.argv] : [],
+  );
+  expect(launched[0]).toContain("--fork-session");
+  expect(launched[1]!.slice(0, 4)).toEqual(["claude", "-p", "--resume", "copy-1"]);
+});
+
+test("an agent's skills on the host are given again, and refused once gone", async () => {
+  const f = await fixture();
+  const bundle = join(workDir(f.run.dir), "agents", "a2");
+  const directory = join(bundle, ".claude", "skills");
+  mkdirSync(join(directory, "probe"), { recursive: true });
+  session(f.run, {
+    agent: "skilled",
+    session: "k-1",
+    operation: "skilled.1",
+    skills: { names: ["probe"], directory },
+  });
+  await op(f.run, "skilled.1", f.cwd, { harness: "claude", model: "m" });
+  const { seen } = await open(f, ["review/r7", "skilled", "--session", "copy-k"]);
+  expect(seen.attached[0]!.argv).toEqual(
+    expect.arrayContaining(["--setting-sources", "project,local", "--add-dir", bundle]),
+  );
+  rmSync(directory, { recursive: true });
+  const gone = await open(f, ["review/r7", "skilled"]);
+  expect(gone.code).toBe(3);
+  expect(gone.stderr.join("\n")).toContain(`skills were in ${directory}, which is gone`);
 });

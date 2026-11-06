@@ -206,7 +206,7 @@ import {
   type RunSandboxOptions,
   type SeatedAgent,
 } from "./sandboxes";
-import { SessionLines } from "./session-lines";
+import { SessionLines, type SessionPlace } from "./session-lines";
 import { QUOTING_RULE, simpleInput, takesText, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { asSource, branchValue, isSignal, presented, signalOf, source, takeOf } from "./sources";
@@ -964,6 +964,8 @@ class WorkflowOwner {
   readonly #cleanupFailures: Error[] = [];
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
+  /** The skills each agent's harness was given, as placed: what its session lines record. */
+  readonly #givenSkills = new Map<string, AgentSkills>();
   /** Each agent once it has opened, by key: what messaging asks about, and what a ref must be. */
   readonly #logical = new Map<string, LogicalAgent>();
   readonly #messaging: Messaging;
@@ -2369,6 +2371,7 @@ class WorkflowOwner {
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const opened = placed.then((skills) => {
       if (skills?.given.ownHome) accounted.home = skills.given.ownHome;
+      if (skills) this.#givenSkills.set(spec.key, skills.given);
       return this.options.control.openChannel(spec.key, (id) =>
         this.launcherReported(spec.key, execution.harness, sessions, id),
       );
@@ -2510,6 +2513,7 @@ class WorkflowOwner {
       // What the agent really ran in, which is where accounting finds its sessions.
       accounted.cwd = seat.cwd;
       accounted.home = seat.home;
+      if (seat.skills) this.#givenSkills.set(spec.key, seat.skills);
       let channel: ResultChannel | undefined;
       try {
         channel = await this.options.control.openChannel(spec.key, (id) =>
@@ -2588,7 +2592,7 @@ class WorkflowOwner {
       sessionsKnown: (sessions, operation) =>
         this.options.sessionLines.known(key, sessions, {
           ...(operation === undefined ? {} : { operation }),
-          ...this.homeOf(key),
+          ...this.placeOf(key),
         }),
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed || this.#cleanupFailures.length > 0,
@@ -2880,7 +2884,7 @@ class WorkflowOwner {
         this.options.sessionLines.known(
           accounted.key,
           accounted.sessions().map((id) => ({ harness, id })),
-          this.homeOf(accounted.key),
+          this.placeOf(accounted.key),
         );
       },
       () => undefined,
@@ -2935,10 +2939,19 @@ class WorkflowOwner {
     });
   }
 
-  /** A sandboxed agent's own harness home, where its sessions are, once it is known. */
-  private homeOf(key: string): { home?: string } {
+  /**
+   * Where an agent's sessions live, once it is known: its own harness home, the sandbox that home is
+   * in, and the skills its harness was given, which `awf open` reopens (story 042).
+   */
+  private placeOf(key: string): SessionPlace {
     const home = this.#agents.get(key)?.opening?.accounted.home;
-    return home === undefined ? {} : { home };
+    const sandbox = this.options.sandboxes.sessionSandbox(key);
+    const skills = this.#givenSkills.get(key);
+    return {
+      ...(home === undefined ? {} : { home }),
+      ...(sandbox ? { sandbox } : {}),
+      ...(skills ? { skills: { names: [...skills.names], directory: skills.directory } } : {}),
+    };
   }
 
   /** A session an agent's `wfa` named: recorded at once, less one a fork or parent holds. */
@@ -2952,7 +2965,7 @@ class WorkflowOwner {
     this.options.sessionLines.known(
       key,
       reportedSessions(sessions).map((session) => ({ harness, id: session })),
-      this.homeOf(key),
+      this.placeOf(key),
     );
   }
 
@@ -2967,7 +2980,7 @@ class WorkflowOwner {
       this.options.sessionLines.known(
         key,
         reportedSessions(entry.opening.sessions).map((id) => ({ harness, id })),
-        this.homeOf(key),
+        this.placeOf(key),
       );
     }
   }

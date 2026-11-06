@@ -1137,7 +1137,7 @@ describe("awf tick", () => {
     expect(launch.launched).toHaveLength(1);
     // `awf run --continue` by hand is refused too.
     const continued = await claimAttempt(run, { file: p.file, flags: {} });
-    expect(continued).toEqual({ refused: { kind: "opened", pid: process.pid } });
+    expect(continued).toEqual({ refused: { kind: "opened", pid: process.pid, events: true } });
     // A second claim sees this process holding it.
     expect(await claimNow(file)).toEqual({ heldBy: claimed.held });
     await releaseClaim(file, claimed.held);

@@ -286,18 +286,23 @@ export async function runAttached(
   for (const [name, value] of Object.entries({ ...environment, ...input.env }))
     if (value !== undefined) merged[name] = value;
   // SIGTSTP is left alone: a suspend stops the whole job, this process with it, and `fg` resumes both.
-  const signals = ["SIGINT", "SIGQUIT"] as const;
+  const ignored = ["SIGINT", "SIGQUIT"] as const;
   const ignore = () => undefined;
-  for (const signal of signals) process.on(signal, ignore);
+  for (const signal of ignored) process.on(signal, ignore);
+  const child = Bun.spawn({
+    cmd: [...input.argv],
+    cwd: input.cwd,
+    env: merged,
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  // A closed terminal or a stop ends the child first, so the caller's own ending still runs.
+  const forwarded = ["SIGHUP", "SIGTERM"] as const;
+  const forward = (signal: NodeJS.Signals) => child.kill(signal);
+  for (const signal of forwarded) process.on(signal, forward);
   try {
-    const child = Bun.spawn({
-      cmd: [...input.argv],
-      cwd: input.cwd,
-      env: merged,
-      stdio: ["inherit", "inherit", "inherit"],
-    });
     return await child.exited;
   } finally {
-    for (const signal of signals) process.off(signal, ignore);
+    for (const signal of ignored) process.off(signal, ignore);
+    for (const signal of forwarded) process.off(signal, forward);
   }
 }

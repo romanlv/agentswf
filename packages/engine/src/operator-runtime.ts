@@ -433,11 +433,17 @@ const WITHHELD_ENVIRONMENT = [
 export function openRuntime(environment: Readonly<Record<string, string | undefined>>): {
   run: RunProcess;
   attach: Attach;
+  providers: () => Promise<SandboxProviders>;
 } {
   const withheld = Object.fromEntries(WITHHELD_ENVIRONMENT.map((name) => [name, undefined]));
   return {
     run: withholding(runProcess, WITHHELD_ENVIRONMENT),
-    attach: (input) => runAttached({ ...input, env: { ...input.env, ...withheld } }, environment),
+    // A sandbox's command has exactly its own environment; on the host, the operator's less these.
+    attach: (input) =>
+      input.exact
+        ? runAttached(input, {})
+        : runAttached({ ...input, env: { ...input.env, ...withheld } }, environment),
+    providers: () => installSandboxes(environment),
   };
 }
 
