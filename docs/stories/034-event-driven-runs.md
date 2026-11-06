@@ -3,7 +3,7 @@ id: "034"
 title: "An event starts a run, and wakes it while it runs"
 summary: "A workflow declares the events it takes and the id of the run each is for. awf emit starts that run or lands in its mailbox; the run's code takes every waiting event at a wait, starts agent turns without awaiting them, and hears their end as an event. Between events the run parks and no process runs. Code handles most events and an agent gets a turn only when judgement is needed."
 type: story
-status: ready
+status: done
 depends_on: ["032"]
 ---
 
@@ -1565,3 +1565,5 @@ Built on main.
 - **Tests**: `emit.test.ts`'s `awf tick` block: its own project's run and not another's; `--cwd`
   to the other; a folder with no runs; `--all` wakes both; `--all --cwd` refused; a gone project
   fails only `--all`.
+
+Human review: signed off by the operator 2026-11-06.

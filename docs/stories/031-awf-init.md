@@ -3,7 +3,7 @@ id: "031"
 title: "`awf init` sets up a folder for writing workflows"
 summary: "`awf init [dir]` writes a hello workflow, its test, package.json, tsconfig, .gitignore and AGENTS.md, never overwriting, and installs agentswf for editor types, so `awf test` passes at once."
 type: story
-status: awaiting-human-review
+status: done
 priority: P2
 epic: launch
 discovered_in: "operator, 2026-10-13, after 0.1.0-beta.0 went to npm"
@@ -164,3 +164,5 @@ longer says the npm package lacks `agentswf/testing`.
 ## Human review
 
 - [ ] Record the operator's approval or requested changes here.
+
+Human review: signed off by the operator 2026-11-06.

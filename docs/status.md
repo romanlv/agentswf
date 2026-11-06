@@ -241,27 +241,26 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   turn is released. Host Claude and SRT acceptance runs passed; Cursor-dependent full live
   matrices remain blocked by authentication.
 
-Built and awaiting human review: [028 — an agent sees what a run is doing](stories/028-run-logs-and-telemetry.md)
+Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories/028-run-logs-and-telemetry.md)
 (live on every harness and placement; M2, page sizes on an implement-ticket run, remains),
 [023 — harness login](stories/023-harness-login.md),
 [024 — a Herdr session of the run's own](stories/024-herdr-run-session.md),
 [026 — pane layout](stories/026-pane-layout.md) and
 [027 — a run forks the session that started it](stories/027-caller-fork.md).
 
-- [031 — `awf init`](stories/031-awf-init.md): awaiting human review. `awf init` writes a hello workflow,
+- [031 — `awf init`](stories/031-awf-init.md): done. `awf init` writes a hello workflow,
   its test and the config files; `agentswf/testing` is exported from the npm package.
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
-  tasks 1–8 and 10–12 built, awaiting human review; left is task 9, the Datadog case run live; task 13, every wake
+  done, signed off 2026-11-06 with task 9, the Datadog case run live, not run; task 13, every wake
   source declared in `events` (Q19), moved to story 039. A workflow is one flat
   `defineWorkflow`, `events` optional; one with events takes args, and a run an event starts gets
   what `prepare` makes of none. `awf tick` wakes its own project's runs, `--all`
   every project's. A workflow declares its events; `awf emit --id
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
-- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
-  awaiting human review. Live on every harness, headless and in their TUI, claude in its TUI only.
+- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): done. Live on every harness, headless and in their TUI, claude in its TUI only.
 - [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): done;
   the watcher's case run in Slack is left to the operator.
   `keepAlive: { window?, onTimeout? }` on an agent of a workflow with events keeps the run live

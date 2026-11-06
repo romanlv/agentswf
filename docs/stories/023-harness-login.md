@@ -3,7 +3,7 @@ id: "023"
 title: Say when an agent's harness needs a login, and let the workflow stop on it
 summary: "A turn whose harness has no login, or whose login is refused, ends `failed` with a `login` field naming the harness and what the operator runs, headless and in a pane, for claude, codex, cursor and pi; it is never nudged, and a workflow can stop on it."
 type: story
-status: awaiting-human-review
+status: done
 priority: P1
 epic: long-runs
 discovered_in: "story 016, task 4's live run, 2026-10-03 (todo expired-login)"
@@ -224,5 +224,5 @@ Manual or live:
 
 - [x] Every task is complete and story-level verification passes.
 - [x] Set the story status to `awaiting-human-review` and present the outcome.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Signed off by the operator 2026-11-06.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

@@ -3,7 +3,7 @@ id: "028"
 title: An agent sees what a run is doing, from the command line
 summary: "`awf runs` and `awf logs` read a running or finished run as bounded, structured output with a cursor, so an agent can watch another agent's run; the run's events are span-shaped, ready for the OTel export in story 030."
 type: story
-status: awaiting-human-review
+status: done
 priority: P1
 epic: observability
 discovered_in: "implement-ticket flow.ts live runs, 2026-10-02"
@@ -1021,3 +1021,5 @@ start one subagent; all watched by following `next:` with `--wait 90`.
 - [[live-spend-limits]], [[context-size]].
 - [[0011-a-run-continues-from-its-stages]]: why the event log is never read to continue.
 - [[reading]]: the GenAI conventions and the harness OTel exports.
+
+Human review: signed off by the operator 2026-11-06.

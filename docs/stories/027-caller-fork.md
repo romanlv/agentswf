@@ -3,7 +3,7 @@ id: "027"
 title: A run forks the session that started it
 summary: "`agents.forkCaller({ key, … })` opens an agent on a copy of the session `awf run` was started from, on the model its files show, or answers `null`; the session waits on the run, or was handed over with `--here`, and its context is never spent on the work."
 type: story
-status: awaiting-human-review
+status: done
 priority: P2
 epic: authoring
 discovered_in: "agent/workflows/review, the fixer beside the run (2026-10-06)"
@@ -230,4 +230,4 @@ then told to run the example and wait:
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.
-- [ ] Record the human's approval or requested changes here.
+- [x] Record the human's approval or requested changes here. Signed off by the operator 2026-11-06.

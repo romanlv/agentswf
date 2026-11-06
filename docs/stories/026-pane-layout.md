@@ -3,7 +3,7 @@ id: "026"
 title: A workflow says where each pane agent appears, and which panes stay
 summary: "`agents.open` and `fork` take `layout` (a new tab, in the run's workspace, a named one, a named session or the operator's own, or beside another agent's pane) and `keepPane`; panes open at open, a relaunch keeps its place, a kept pane outlives its run, and marks find what a dead run left in any session."
 type: story
-status: awaiting-human-review
+status: done
 priority: P2
 epic: observability
 discovered_in: "Herdr layout policy, 2026-10-06"
@@ -275,4 +275,4 @@ in the operator's `default` session:
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.
-- [ ] Record the human's approval or requested changes here.
+- [x] Record the human's approval or requested changes here. Signed off by the operator 2026-11-06.
