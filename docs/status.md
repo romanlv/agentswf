@@ -294,7 +294,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   a redo line; `awf logs` shows each session on the `run.jsonl` line that first names it, its
   cursor spanning both files; a run made before is listed `unreadable` and not read. ADR 0014.
 - [043 — every --json command says why it failed, as a document](stories/043-json-refusals.md):
-  built, awaiting human review. With `--json`, stdout ends with one document, the result or a
+  done. With `--json`, stdout ends with one document, the result or a
   refusal `{v, code, error}` from the published codes, the word `agentswf/client` throws where it
   meets the same failure (an `awf inbox` that reads nothing new prints none); exit codes unchanged,
   the sentence still on stderr. `awf reply`/`awf send --json` at `v` 3, a success `{v, id}`; `awf

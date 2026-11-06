@@ -3,7 +3,7 @@ id: "043"
 title: "Every --json command says why it failed, as a document"
 summary: "With --json, stdout ends with one document, but from an awf inbox that reads nothing new: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
 type: story
-status: awaiting-human-review
+status: done
 depends_on: ["040"]
 ---
 
@@ -692,6 +692,10 @@ Manual or live evaluation:
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Approved 2026-11-05: merged
+  to main, Q6 and Q7 decided, and the `expired` refusal that named question `1.9` as `9` fixed
+  (it and `ambiguous`'s choices now name ids as `awf inbox` prints them). awf-chat's side is
+  committed. The Slack check is not run: the awf-chat process running then predates its 043 change
+  and reads no `v: 2` inbox item, so it has to be restarted first.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

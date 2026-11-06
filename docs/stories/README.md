@@ -172,7 +172,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
   ends.
 - [[043-json-refusals|043 — Every --json command says why it failed, as a document]] —
-  `awaiting-human-review` — with `--json`, stdout ends with one document, but from an `awf inbox`
+  `done` — with `--json`, stdout ends with one document, but from an `awf inbox`
   that reads nothing new, the result or a refusal from a published code set, the word
   `agentswf/client` throws where it meets the same failure; a test across every command keeps it
   so.
