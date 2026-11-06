@@ -3468,9 +3468,19 @@ class LogicalAgent implements AgentRef {
         `agent ${this.key} is the calling session, whose model and effort are the operator's`,
       );
     }
+    const removed = Object.keys(spec).filter(
+      (field) =>
+        REMOVED_SETTINGS_FIELDS.has(field) && (spec as Record<string, unknown>)[field] != null,
+    );
+    if (removed.length > 0) {
+      const bound = removed.some((field) => field !== "id") ? ": bound it with timeout" : "";
+      throw new Error(`set takes no ${removed.join(", ")}${bound}`);
+    }
     // A workflow is untyped JavaScript at run time: a harness or placement asked for must not be
     // dropped in silence.
-    const others = Object.keys(spec).filter((field) => !SETTINGS_FIELDS.has(field));
+    const others = Object.keys(spec).filter(
+      (field) => !SETTINGS_FIELDS.has(field) && !REMOVED_SETTINGS_FIELDS.has(field),
+    );
     if (others.length > 0) {
       throw new Error(
         `set changes an agent's model and effort, not its ${others.join(", ")}: another harness or placement is another agent`,
@@ -4852,7 +4862,10 @@ function withKnownEffort(execution: AgentExecution): AgentExecution {
 /** What `set` changes. */
 type SettingsChange = Partial<Pick<AgentExecution, "model" | "effort">>;
 
-const SETTINGS_FIELDS = new Set(["id", "model", "effort", "timeout", "deadline", "timeoutMs"]);
+const SETTINGS_FIELDS = new Set(["model", "effort", "timeout"]);
+
+/** Removed in 0.1.0-beta.6; refused, as the switch would run otherwise than written. */
+const REMOVED_SETTINGS_FIELDS = new Set(["id", "deadline", "timeoutMs"]);
 
 function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
   return { model, ...(effort === undefined ? {} : { effort }) };
@@ -4903,7 +4916,7 @@ const FORK_RUNTIME_FIELDS = ["placement", "metered", "effort"] as const;
 /** A fork's spec, its `runtime` checked: what a typed caller can't get wrong, a plain one can. */
 function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
   const { runtime, ...rest } = spec;
-  // Removed in 0.1.0-beta.6; ignored, the fork would run otherwise than written.
+  // Removed in 0.1.0-beta.6; refused, as the fork would run otherwise than written.
   const flat = FORK_RUNTIME_FIELDS.filter(
     (field) => (rest as Record<string, unknown>)[field] !== undefined,
   );
