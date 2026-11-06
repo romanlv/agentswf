@@ -31,7 +31,7 @@ export type Delivered =
     }
   | { kind: "no-reply"; from: AgentKey; reason: string };
 
-export function quoted(purpose: string): string {
+function quoted(purpose: string): string {
   return `“${purpose}”`;
 }
 
@@ -53,7 +53,7 @@ export function clock(at: number, now: number): string {
 }
 
 /** At least eight hex characters, as the design asks; a fresh one per delivery. */
-export function nonce(): string {
+function nonce(): string {
   return randomBytes(4).toString("hex");
 }
 

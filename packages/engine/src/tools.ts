@@ -25,7 +25,7 @@ import {
 } from "./simple-input";
 
 /** How long a handler that ignores its aborted signal is waited for before its call is settled. */
-export const TOOL_SETTLE_MS = 5_000;
+const TOOL_SETTLE_MS = 5_000;
 
 /**
  * The agents whose handlers the current code runs in, innermost last: one of them can't be given

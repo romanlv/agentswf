@@ -2,14 +2,14 @@ import type { EventLine, RunLine, Taken, WaitTake } from "@agentswf/contract/rec
 import { type AgentEnded, awfEventOf, type JsonValue } from "@agentswf/contract/workflow";
 
 type LineOf<K extends RunLine["kind"]> = Extract<RunLine, { kind: K }>;
-export type WaitLine = LineOf<"wait">;
+type WaitLine = LineOf<"wait">;
 export type TurnStartedLine = LineOf<"turn-started">;
 
 /**
  * Where an event a wait can take comes from, which orders those at one time: a timer due, then a
  * turn's end, then a sender's event; a time read from state comes after every ready event.
  */
-export type Origin = "timer" | "end" | "event" | "time";
+type Origin = "timer" | "end" | "event" | "time";
 const RANK: Record<Origin, number> = { timer: 0, end: 1, event: 2, time: 3 };
 
 /** An event a wait can take, as it would be handed to the code, and where it came from. */
@@ -436,7 +436,7 @@ export function matches(
 }
 
 /** Whether a wait taking `wanted`, or everything when it names nothing, takes `event`. */
-export function wouldTake(
+function wouldTake(
   event: { name: string; from: string; data?: unknown },
   wanted: readonly WaitTake[] | undefined,
 ): boolean {

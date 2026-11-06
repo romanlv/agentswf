@@ -92,10 +92,6 @@ export function earlierDeadline(
   return left.unixMilliseconds <= right.unixMilliseconds ? left : right;
 }
 
-export function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
-  return left.unixMilliseconds >= right.unixMilliseconds ? left : right;
-}
-
 export function deadlineWithin(
   milliseconds: number,
   ceiling: AbsoluteDeadline | undefined,
@@ -118,7 +114,7 @@ export function boundedDeadline(
 }
 
 /** The deadline `timeout` sets from now, never past `ceiling`; `ceiling` for `false`. */
-export function timeoutDeadline(
+function timeoutDeadline(
   timeout: Timeout,
   ceiling: AbsoluteDeadline | undefined,
 ): AbsoluteDeadline | undefined {
@@ -146,7 +142,7 @@ export function assertDeadline(deadline: AbsoluteDeadline | undefined): void {
   }
 }
 
-export function assertDeadlineValue(deadline: AbsoluteDeadline): void {
+function assertDeadlineValue(deadline: AbsoluteDeadline): void {
   if (!Number.isSafeInteger(deadline.unixMilliseconds) || deadline.unixMilliseconds < 0) {
     throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
   }

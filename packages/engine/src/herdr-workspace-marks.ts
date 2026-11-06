@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { machinePaths } from "./machine";
 import { type ProcessProbe, processStart, sameProcess } from "./runs";
 
-export const WORKSPACE_MARK_VERSION = 2;
+const WORKSPACE_MARK_VERSION = 2;
 
 /**
  * A run's claim on its workspace in a shared Herdr session: the run's process, and when that

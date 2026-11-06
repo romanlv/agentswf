@@ -53,7 +53,7 @@ const READY_POLL_MS = 200;
 const READY_WITHIN_MS = 10_000;
 
 /** Starts a server that outlives this process; settles once it has started, or could not. */
-export type StartServer = (
+type StartServer = (
   argv: readonly string[],
   options: { cwd: string; env: Record<string, string> },
 ) => Promise<void>;
@@ -87,7 +87,7 @@ export type RunSession = {
   kept?: KeptPane[];
 };
 
-export type KeptPane = { run: string; session: string; paneId: string };
+type KeptPane = { run: string; session: string; paneId: string };
 
 /** `AWF_HERDR_SESSION`, else `awf`; refused when Herdr could not use it as a session name. */
 export function runSessionName(environment: Readonly<Record<string, string | undefined>>): string {

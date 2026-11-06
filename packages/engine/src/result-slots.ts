@@ -7,8 +7,8 @@ import { scheduleAt } from "./deadlines";
 import { recordAnswer, writeAcceptedExclusive } from "./ops";
 import { evaluateGiven } from "./result-validation";
 
-export type ResultRejectionCode = ResultSubmitCode;
-export type ResultSlotAccepted = {
+type ResultRejectionCode = ResultSubmitCode;
+type ResultSlotAccepted = {
   kind: "accepted";
   value: unknown;
   candidateRecorded: boolean;
@@ -18,8 +18,8 @@ export type ResultSlotAccepted = {
   acceptedAt: number;
 };
 type Rejected = { kind: "rejected"; code: ResultRejectionCode; error: string };
-export type ResultSubmission = ResultSlotAccepted | Rejected;
-export type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline?: number };
+type ResultSubmission = ResultSlotAccepted | Rejected;
+type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline?: number };
 export type ResultSlotSettlement =
   | ResultSlotAccepted
   | { kind: "closed" }
@@ -29,7 +29,7 @@ export type ResultSlotEvent =
   | { kind: "waiting"; reason: string; waitUntil: number; at: number; revision: number }
   | { kind: "admitted"; admittedAt: number; revision: number }
   | { kind: "persisted"; accepted: ResultSlotAccepted; revision: number };
-export type ResultSlotBinding = { operationId: string; settled: Promise<ResultSlotSettlement> };
+type ResultSlotBinding = { operationId: string; settled: Promise<ResultSlotSettlement> };
 export type ResultSlotSpec = {
   operationId: string;
   agentId: string;
