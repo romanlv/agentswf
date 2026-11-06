@@ -86,10 +86,10 @@ meanwhile, while {id}.open is held by a live process:
   its own, so its skills are there; its cwd; and, when it ran in a sandbox, a sandbox opened anew from
   the recorded spec (Q6): the same provider, reach, network and, on docker, the image digest it ran.
   An agent on the operator's home opens there.
-- **Permissions.** The TUI differs from the agent's turns in one thing: the harness's own approval
-  prompts are on, the unattended flags off (Q2). The harness's own sandbox stays as the agent's turns
-  had it: codex's is off in every run, and awf's sandbox, when the agent had one, is the boundary
-  (M10). pi has no approval prompts, as far as is known (M10), so its TUI runs what the model asks,
+- **Permissions.** The TUI differs from the agent's turns in one thing: the harness's own defaults,
+  its approval prompts on, the unattended flags off (Q2). On the host that includes the harness's
+  own sandbox: codex's, off in every run, is as its config sets it. In awf's sandbox it stays off,
+  as on the agent's turns, since it may not nest, and awf's sandbox is the boundary (M10). pi has no approval prompts, as far as is known (M10), so its TUI runs what the model asks,
   as the agent's turns did. `-p` is a headless turn with no one to ask, so it runs exactly as the
   agent's turns did, unattended flags included: inside its sandbox when it had one, on the host with
   the reach the agent had there.
@@ -232,8 +232,9 @@ resume continues. Every file stays parseable, so `awf logs` shows both branches 
 - `src/harnesses/{claude,codex,pi,cursor}.ts` — each harness's attended resume: `claude --resume`,
   `codex resume`, `pi --session`, `cursor-agent --resume`, with model and effort, without the
   unattended flags (claude's `--allowed-tools Bash`, codex's `--ask-for-approval never`, cursor's
-  `--force`); codex keeps `--sandbox danger-full-access` and asks with `--ask-for-approval
-  untrusted`. The sandboxed arguments (`sandboxedArgs`) are added as for a run's turn.
+  `--force`). codex on the host takes its own config's sandbox and approvals; in awf's sandbox
+  `--sandbox danger-full-access --ask-for-approval on-request` (codex 0.167 has no `untrusted`).
+  The sandboxed arguments (`sandboxedArgs`) are added as for a run's turn.
 - `src/adapters/fork.ts` — `callingSession`: reused for the copy, likely lifted into one
   `forkRecordedSession(harness, session, cwd, home?)`; `forkSession` already takes the home.
 - `src/sandbox-needs.ts` — what a harness needs in a sandbox, as an admitted agent gets it.
@@ -247,7 +248,8 @@ resume continues. Every file stays parseable, so `awf logs` shows both branches 
 - `operator-runtime.ts` — the sandbox provider, resolved and given to `awf open` as to `awf run`.
 - `sandboxes.ts`, `sandbox-homes.ts` — reopening a sandbox from a recorded spec, and admitting the
   harness with the agent's existing home: its credentials refreshed, nothing else reseeded.
-- `session-lines.ts` — the session line carries the sandbox its session lives in (Q6).
+- `session-lines.ts` — the session line carries the sandbox its session lives in (Q6) and the
+  skills its harness was given (Q7).
 - `run-lock.ts` — the claim and its stale holder, shared with `{id}.open`: `{id}.open` is a second
   file claimed the same way, held for as long as its process lives.
 - `wake.ts` — `wake()`: a held `{id}.open` answers `none`, `opened`, before anything it would start.
@@ -409,6 +411,11 @@ All decided by the operator on 2026-11-05.
   sandboxed agent's session refused; an agent on the operator's home as before. Rejected: `op.json`'s
   `AgentOp` (the same spec repeated in every operation), a `sandbox` line kind (`format` 2), and
   reading `log.jsonl` (against story 041's rule).
+- **Q7. Where an agent's skills on the host are recorded.** Decided 2026-11-05: the `session` line
+  gains an optional `skills` beside `sandbox`: the names and the directory the harness was pointed
+  at. codex on the host keeps its skills in a home of its own, which `home` already names, but
+  claude and pi are given theirs by flags (`--add-dir`, `--skill`) into `work/agents/{uuid}`, which
+  only the best-effort log recorded. Rejected: opening them without skills, and reading the log.
 
 ## To measure
 
@@ -434,7 +441,7 @@ All decided by the operator on 2026-11-05.
 - **M9.** A kept pane (`keepPane`, `--keep-panes`) whose harness still runs after its run: can
   `awf open --no-fork` tell, and refuse? Without it, pi's E6 applies.
 - **M10.** The attended resume inside srt and docker, on each harness: with the harness's own
-  sandbox off as in a run, do its approval prompts still ask (codex `untrusted` under
+  sandbox off as in a run, do its approval prompts still ask (codex `on-request` under
   `danger-full-access`, claude's defaults, cursor without `--force`, pi, which has none), and does
   the TUI draw through docker's `exec -it`?
 

@@ -9,6 +9,7 @@ test("every claude launch refuses messages from the user's other sessions", asyn
     const plans = [
       claude.interactive({ model: "m" }, launchArgs, "s"),
       claude.interactiveResume!("s", { model: "m" }, launchArgs),
+      claude.operatorResume!("s", { model: "m" }, launchArgs),
       claude.headlessTurn("prompt", context),
       claude.resumeTurn!("prompt", "s", context),
       claude.compactHeadless!("focus", "s", context),
