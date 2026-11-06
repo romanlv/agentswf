@@ -39,7 +39,7 @@ import {
   type FakeFork,
   type FakeSet,
 } from "@agentswf/harness/testing";
-import { submitControl, submitResult, submitWaiting } from "../agent-cli/client";
+import { submitControl } from "../agent-cli/client";
 import {
   type Message,
   type MessageOutcome,
@@ -431,7 +431,7 @@ export function createScriptedHost(
             // As an agent's `wfa send` returns before it can run `wfa result`.
             if (invocation) await Promise.allSettled([...invocation.calls]);
             const { endpoint, operationId } = context.binding!;
-            const response = await submitResult(endpoint, {
+            const response = await submitControl(endpoint, {
               version: WIRE_VERSION,
               command: "result",
               operationId,
@@ -462,7 +462,7 @@ export function createScriptedHost(
       return {
         act: async () => {
           const { endpoint, operationId } = context.binding!;
-          const response = await submitWaiting(endpoint, {
+          const response = await submitControl(endpoint, {
             version: WIRE_VERSION,
             command: "waiting",
             operationId,

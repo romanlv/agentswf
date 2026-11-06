@@ -5,7 +5,7 @@ import {
   validWaitingReason,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
-import { durationMilliseconds } from "@agentswf/contract/workflow";
+import { durationMilliseconds, secondsForMilliseconds } from "@agentswf/contract/workflow";
 import { NotSentError, submitControl } from "./client";
 
 /** `wfa` is its launcher's full path, as an agent must type it; `wfa` alone when it is not known. */
@@ -46,6 +46,11 @@ function messageUsage(wfa: string, indent = "usage: "): string[] {
   ];
 }
 const MAX_STDIN_BYTES = 1024 * 1024;
+
+/** An error's message, or the thrown value as text: the engine's `messageOf`, which wfa can't import. */
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 const STDIN_TIMEOUT_MS = 30_000;
 
 type CliOutcome = { exitCode: number; stdout: string; stderr: string };
@@ -74,11 +79,10 @@ export async function runCli(
   }
   switch (command) {
     case "waiting":
+      return runWaiting(endpoint, session, args, submit);
     case "send":
     case "reply":
-      return command === "waiting"
-        ? runWaiting(endpoint, session, args, submit)
-        : runMessage(endpoint, session, command, args, stdin, wfa, submit);
+      return runMessage(endpoint, session, command, args, stdin, wfa, submit);
     case "result":
       return runResult(endpoint, session, args, stdin, submit);
     case "tool":
@@ -114,7 +118,7 @@ async function runResult(
       ...(session ? { session } : {}),
     });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = reasonOf(error);
     return { exitCode: 1, stdout: "", stderr: `wfa: result submission failed.\n${reason}` };
   }
 
@@ -166,7 +170,7 @@ async function runTool(
       null,
     );
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = reasonOf(error);
     return error instanceof NotSentError
       ? {
           exitCode: 3,
@@ -243,7 +247,7 @@ async function runWaiting(
       ...(session ? { session } : {}),
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = reasonOf(error);
     return {
       exitCode: 1,
       stdout: "",
@@ -288,7 +292,7 @@ async function runPeers(
       ...(session ? { session } : {}),
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = reasonOf(error);
     return { exitCode: 1, stdout: "", stderr: `wfa: peers failed; nothing changed.\n${detail}` };
   }
   if (response.kind === "rejected")
@@ -337,7 +341,7 @@ async function runMessage(
   try {
     response = await submit(endpoint, request);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = reasonOf(error);
     const what = command === "send" ? "message" : "reply";
     // Refused at the connection, nothing reached the engine; after, it may have been admitted.
     if (error instanceof NotSentError) {
@@ -404,8 +408,8 @@ const DURATION_GRAMMAR = 'takes a duration, a decimal and s, m, h or d, such as 
 
 /** The one grammar's milliseconds, longer than none; else why not, `ms` named in `s`. */
 function durationOf(text: string): number | string {
-  const ms = /^([0-9]+)ms$/.exec(text);
-  if (ms && Number(ms[1]) > 0) return `${DURATION_GRAMMAR}: give ${Number(ms[1]) / 1000}s`;
+  const seconds = secondsForMilliseconds(text);
+  if (seconds !== undefined) return `${DURATION_GRAMMAR}: give ${seconds}`;
   let milliseconds: number;
   try {
     milliseconds = durationMilliseconds(text);
@@ -505,7 +509,7 @@ if (import.meta.main) {
       Bun.stdin.stream(),
     );
   } catch (error) {
-    console.error(`wfa: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`wfa: ${reasonOf(error)}`);
     process.exit(2);
   }
   const outcome = await runCli(process.argv.slice(2), stdinText);
