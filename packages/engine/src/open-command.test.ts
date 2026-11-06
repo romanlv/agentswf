@@ -256,7 +256,7 @@ test("each place the session can't be opened from is refused, naming why", async
   await refused(
     ["review/r7"],
     2,
-    /which agent\? Open one of review\/r7's:\n {2}awf open review\/r7 fixer --run-root \S+\n {2}awf open review\/r7 coder --run-root /,
+    /which agent\? Open one:\n {2}awf open review\/r7 fixer --run-root \S+\n {2}awf open review\/r7 coder --run-root /,
   );
   await refused(["review/r7", "fixer", "--json"], 2, /a TUI has no JSON/);
   await refused(["review/r7", "fixer", "extra"], 2, /-p takes the question/);

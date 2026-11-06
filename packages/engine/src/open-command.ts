@@ -566,10 +566,7 @@ async function agentNeeded(status: RunStatus, place: ReadPlace): Promise<OpenRef
   const commands = agents.map(
     (agent) => `  ${shellLine(["awf", "open", status.ref, agent, ...place.repeat])}`,
   );
-  return new OpenRefused(
-    `which agent? Open one of ${status.ref}'s:\n${commands.join("\n")}`,
-    "usage",
-  );
+  return new OpenRefused(`which agent? Open one:\n${commands.join("\n")}`, "usage");
 }
 
 async function agentPlace(status: RunStatus, options: Options): Promise<AgentPlace> {
