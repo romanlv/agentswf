@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RefusalJson } from "@agentswf/contract/records";
-import { PARTICIPANT_CODES } from "@agentswf/contract/wire";
+import { REFUSAL_CODES, type RefusalCode, type RefusalJson } from "@agentswf/contract/records";
+import {
+  INBOX_CODES,
+  type InboxCode,
+  PARTICIPANT_CODES,
+  type ParticipantCode,
+} from "@agentswf/contract/wire";
 import { COMMANDS, type CommandName, helpOf } from "./commands";
 import { coordinatorSocketPath } from "./coordinator-socket";
 import { runOperatorCli } from "./operator-cli";
@@ -55,6 +60,7 @@ beforeAll(async () => {
   const made = eventProject(dirs, "case.ts", EVENTS);
   const plain = join(made.root, "flows", "plain.ts");
   writeFileSync(plain, PLAIN);
+  writeFileSync(join(made.root, "values.json"), "{}");
   // A project that declares agentswf and has none installed, with a run of its own.
   const broken = eventProject(dirs, "case.ts", EVENTS);
   writeFileSync(
@@ -112,23 +118,25 @@ beforeAll(async () => {
 });
 
 /**
- * The words a row's command may print: those its help lists, and for `reply` and `send` the
- * participant's, which their help names as one.
+ * The codes a command's help lists, after "code says why": `the participant's` stands for
+ * `PARTICIPANT_CODES`.
  */
-function mayPrint(command: CommandName, code: string): boolean {
-  if (
-    (command === "reply" || command === "send") &&
-    (PARTICIPANT_CODES as readonly string[]).includes(code)
-  )
-    return true;
-  return new RegExp(`(^|[ ,:])${code}([ ,.;]|$)`, "m").test(helpOf(command));
+function listed(command: CommandName): string[] {
+  const help = helpOf(command).split(/\s+/).join(" ");
+  const list = /code says why(?: it failed)?: ([^.;]+)[.;]/.exec(help)?.[1];
+  if (!list) return [];
+  return list
+    .split(/, or |, | or /)
+    .flatMap((word) => (word === "the participant's" ? [...PARTICIPANT_CODES] : [word]));
 }
+
+const PUBLISHED = new Set<string>([...REFUSAL_CODES, ...PARTICIPANT_CODES, ...INBOX_CODES]);
 
 type Row = {
   command: CommandName;
   failure: string;
   argv: (f: Fixture) => string[];
-  code: string;
+  code: RefusalCode | ParticipantCode | InboxCode;
   exit: number;
   /** The command's own `v`, which its refusal carries. */
   v: number;
@@ -266,6 +274,24 @@ const ROWS: Row[] = [
     exit: 1,
     v: 2,
     says: /more than one workflow/,
+  },
+  {
+    command: "runs",
+    failure: "a bare id no run could have",
+    argv: () => ["a b"],
+    code: "id",
+    exit: 1,
+    v: 2,
+    says: /no run a b: /,
+  },
+  {
+    command: "logs",
+    failure: "a ref no run could have",
+    argv: () => ["dd-case/a b"],
+    code: "id",
+    exit: 1,
+    v: 1,
+    says: /no run dd-case\/a b/,
   },
   {
     command: "logs",
@@ -430,6 +456,27 @@ const ROWS: Row[] = [
     exit: 2,
     v: 1,
     says: /a continue takes no arguments/,
+  },
+  {
+    command: "run",
+    failure: "a continue given --values and arguments",
+    argv: (f) => [
+      f.file,
+      "--id",
+      "done",
+      "--continue",
+      "--values",
+      join(f.root, "values.json"),
+      "--from-stage",
+      "s1",
+      "--json",
+      "--",
+      "more",
+    ],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /takes no --values/,
   },
   {
     command: "run",
@@ -721,9 +768,14 @@ test("every command whose help offers --json has a row, and only those", () => {
   expect([...new Set(ROWS.map((row) => row.command))].sort()).toEqual(offering.sort());
 });
 
-test("each row expects a word its command may print, under a name of its own", () => {
+test("each row's code is one its command's help lists, and each listed code is published", () => {
   for (const row of ROWS)
-    expect([nameOf(row), mayPrint(row.command, row.code)]).toEqual([nameOf(row), true]);
+    expect([nameOf(row), listed(row.command).includes(row.code)]).toEqual([nameOf(row), true]);
+  for (const command of new Set(ROWS.map((row) => row.command)))
+    expect([command, listed(command).filter((code) => !PUBLISHED.has(code))]).toEqual([
+      command,
+      [],
+    ]);
   const names = ROWS.map(nameOf);
   expect(new Set(names).size).toBe(names.length);
 });

@@ -53,7 +53,8 @@ checks for it first, then reads the result. The exit code doesn't tell them apar
 with a full result when the run's attempt didn't launch.
 
 **One `v` per command.** A refusal carries its command's `v`, the same number as the command's
-results, and both move together under the rule `awf.md` already states.
+results, and both move together under the rule `awf.md` already states. `awf run --json` prints
+`out.json`, versioned by its own `version`; its refusals carry `v: 1`.
 
 **One set of words.** A code means the same thing in every command that prints it, and the client
 throws the same word for the same failure.
@@ -134,7 +135,8 @@ Out of scope:
   → `peer-stopped` moved `reply`/`send` to 2. A refusal where nothing was printed changes no
   `v`.
 - Constraint: beta, no compatibility: a better shape replaces the shipped one, with no shim.
-- Assumption: no host but awf-chat reads these outputs. It matches `delivered` in
+- Assumption, found false in task 4: no host but awf-chat reads these outputs. awf-lab, in this
+  repository, reads `awf run` and `awf allowance`. It matches `delivered` in
   `presenter.ts` and `ledger.ts`, `bad-cursor` in `watch.ts`, and `v === 1` for inbox items in
   `parseLine`.
 
@@ -197,20 +199,20 @@ Out of scope:
   | Code | Meaning | Printed by |
   | --- | --- | --- |
   | `usage` | the argv can't be parsed, or its options clash | every command |
-  | `no-run` | no such run | `emit`, `runs`, `logs`, `reply`, `send`, `inbox`; client |
-  | `ambiguous` | a run's id names runs of two workflows or projects | the run readers above |
-  | `id` | a run or event id the grammar refuses | `emit` and the run readers; client |
-  | `file` | the workflow file is missing, doesn't load, or doesn't export it | `emit`, `run`; client |
+  | `no-run` | no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send`; client |
+  | `ambiguous` | a name fits more than one: a run's id, or `--as`, an agent or `--to`, with `choices` | `emit`, the run readers, `reply`, `send` |
+  | `id` | a run or event id the grammar refuses, or one another run has | `run`, `emit`, the run readers; client |
+  | `file` | the workflow file is missing, doesn't load, or doesn't export it | `run`, `emit`; client |
   | `event` | an event name or data the workflow doesn't take, or it takes none | `emit`; client |
   | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
-  | `other-args` | a run there, started with other args or options | `run --id`; client |
   | `no-id` | a start naming no run | `run`; client |
+  | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
   | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running, completed or gone | `run` |
-  | `unreachable` | the run's files can't be read, or it doesn't answer | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+  | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle made for another run or filter | `logs`, `inbox`; client |
-  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `emit`, the run readers, `run`; client |
-  | `project` | a workflow in no project | `emit`; client |
-  | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | `emit`, then every command |
+  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers; client |
+  | `project` | a workflow in no project | `run`, `emit`; client |
+  | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | every command |
 
   Plus the participant codes only `reply` and `send` have: `no-participant`, `ended`,
   `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
@@ -258,6 +260,11 @@ Alternatives rejected:
   `usage`, as `--here` is; or recording it as the rule's one exception. Its refusals are
   documents already. Raised in task 4; to settle before the branch merges, as the reference
   states the rule.
+
+- Q7. `agentswf/testing`'s `ParticipantOutcome`, what a scripted participant's `reply` or `send`
+  resolves to, still says `{ code: "delivered", id }`, where `awf reply --json` now prints
+  `{v: 3, id}` and only a refusal has a code. It isn't `--json` output; aligning it to
+  `{ id } | { code }` changes the shipped testing API. Raised in task 5.
 
 Decided with the human on 2026-11-05:
 
@@ -453,11 +460,11 @@ Manual or live evaluation:
   listed for every command; the net writes the stack to stderr. A Bun too old and an unknown
   command put out of scope: they are refused before any command reads its `--json`. Kept:
   `awf runs {run}`'s net `v` is the list's, as `runs` catches everything after parsing itself.
-- Correctness and proof: `runs`' usage `v` read from argv before the parse, not from how far it
-  got, with a row; the net skips its refusal when the command already printed; the guard checks
-  one document (one value, or `inbox`'s lines with only the last coded); rows for `ambiguous` and
-  `id` from `runs` and `logs`. Kept: the net test's `readAllowance` stub, so no change of order
-  ever asks a real harness.
+- Correctness and proof: `runs`' usage `v` read from argv before the parse, not from how far it got,
+  with a row; the net skips its refusal when the command already printed; the guard checks one
+  document (one value, or `inbox`'s lines with only the last coded); rows for `ambiguous` from
+  `runs` and `logs`, and `id` from `runs`. Kept: the net test's `readAllowance` stub, so no change
+  of order ever asks a real harness.
 
 ### Task 4
 
@@ -493,6 +500,28 @@ Manual or live evaluation:
   `unreachable`, exit 3; awf-chat's thrown refusal never an empty message; the reference says
   `awf inbox` prints nothing when it reads nothing. The guard bites with no list: deleting the
   refusal from `inbox` or `reply` fails rows.
+
+### Branch review, after task 5
+
+- Round 1, correctness: a malformed bare run id (`awf runs 'a b'`) was refused `no-run`, as only
+  the `{workflow}/{id}` form was checked: now `id` everywhere, its message saying why; a continue
+  of a workflow with events given a refused flag and arguments was `other-args` whatever the
+  message said: `eventRunRefusal` gives each refusal its own code. Rows for both, and for a
+  `logs` id.
+- Round 1, design and docs: the reference says how `awf run --json` is versioned, what a project
+  pinned to an older engine prints, `ambiguous`'s two uses, and `awf inbox`'s `no-participant`;
+  `InboxItemJson`'s doc says why it moved; `HolderWireAnswer`'s `@internal` on its own line; the
+  coordinator skill covers `awf emit`'s answer; the story's table resynced and the awf-chat-only
+  assumption marked false; `ParticipantOutcome` raised as Q7; `docs/status.md` gains 043. The
+  guard reads each help's code list, checks every listed code is published and every row's code
+  listed; `COMMAND_ONLY` must name every code a client doesn't throw.
+- Live: the evals `client`, `coordinator`, `failed-run` and `harnesses` pass, ~$0.21 at list
+  prices; `client` printed no summary for `bun run eval` and always counted as failed, fixed
+  apart (`3a3a9c2`). A run by hand, a codex agent asking a person: `awf inbox --json` items at
+  `v` 2; `awf reply`/`send --json` refusals `expired`, `unknown-agent`, `no-run` and `cursor`, each
+  its document and its sentence; the answer `{"v":3,"id":"1.1"}`, then `expired`; the run's
+  `out.json` with no `code`. Seen there, not this story's: an `expired` refusal names question
+  `1.9` as `9`, `messaging.ts`'s text.
 
 ## Readiness
 

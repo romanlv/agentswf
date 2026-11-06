@@ -426,7 +426,8 @@ export type HolderWireRequest = {
 
 /**
  * The coordinator socket's answer to a `HolderWireRequest`, which `awf reply` and `awf send` print
- * as their `ParticipantResultJson`. @internal
+ * as their `ParticipantResultJson`.
+ * @internal
  */
 export type HolderWireAnswer =
   | { v: 2; code: "delivered"; id: string }

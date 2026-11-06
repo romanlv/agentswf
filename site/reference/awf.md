@@ -29,7 +29,8 @@ command gets the `awf run` line it meant.
 ## JSON {#json}
 
 With `--json`, stdout always ends with one document, but for `awf inbox`, which prints none when
-it has no items to read. When the command worked, it is the result. When it failed, it is a refusal, and stderr still says why, for people:
+it has no items to read. When the command worked, it is the result. When it failed, it is a
+refusal, and stderr still says why, for people:
 
 ```json
 {"v": 1, "code": "no-run", "error": "no run review-mr/7 under /work/.awf/runs, or in a project awf knows"}
@@ -40,7 +41,8 @@ doesn't tell them apart: `awf emit` exits 1 with a full result when the run's at
 start, and `awf tick` exits 1 with the runs it woke when it couldn't wake some. A command that
 prints a line per item, as `awf inbox --json` does, ends with its refusal. A usage error is a
 refusal too, whenever `--json` is anywhere in the arguments before `--`. The exit codes are each
-command's own, as its help says.
+command's own, as its help says. A project that installs an `agentswf` from before this rule runs
+on it, and prints what it printed: there, an empty stdout is a failure stderr explains.
 
 A code means the same in every command that prints it, and is the word
 [`ClientError`](/reference/client-api#clienterror) throws for the same failure:
@@ -49,7 +51,7 @@ A code means the same in every command that prints it, and is the word
 | --- | --- | --- |
 | `usage` | its arguments can't be parsed, or two of them clash | every command |
 | `no-run` | there is no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
-| `ambiguous` | a run's id names runs of two workflows or projects; with `choices` when they are known | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `ambiguous` | a name fits more than one: a run's id runs of two workflows or projects, or `--as`, an agent or `--to` more than one of theirs, with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `id` | a run or event id the grammar refuses, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
 | `event` | the workflow doesn't take the event's name or data, or takes no events | `emit` |
@@ -63,13 +65,15 @@ A code means the same in every command that prints it, and is the word
 | `project` | the workflow isn't in a project | `run`, `emit` |
 | `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | every command |
 
-`awf reply` and `awf send` also refuse for the [participant's reasons](#reply).
+`awf reply` and `awf send` also refuse for the [participant's reasons](#reply), and `awf inbox`
+with `no-participant`, a run that never connected the one asked for.
 
 A command's `--json` carries `"v"`, which changes when a field is renamed or removed. It is 1 for
-every command but three: `awf runs {run} --json` is at 2, as its agent and stage states are
+every command but these: `awf runs {run} --json` is at 2, as its agent and stage states are
 [a fixed set](#runs); `awf inbox --json` is at 2, as it took the shared `no-run` and `cursor`;
 and `awf send --json` and `awf reply --json` are at 3, as [their success](#reply) lost its
-`code`. A refusal carries its command's `"v"`.
+`code`. A refusal carries its command's `"v"`. `awf run --json` prints the run's `out.json`, whose
+own `version` says its format, and its refusals carry `"v": 1`.
 
 ## Durations {#durations}
 

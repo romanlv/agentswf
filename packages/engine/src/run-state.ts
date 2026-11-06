@@ -345,7 +345,9 @@ async function findAnywhere(
   if (found[0]) return found[0];
   if (old) throw old;
   // Nowhere: a ref that can't name a run, malformed or naming two workflows, says why.
-  if (malformedRef(ref) || here.message.includes("more than one workflow")) throw here;
+  const problem = malformedRef(ref);
+  if (problem) throw new RunNotFound(`no run ${ref}: ${problem}`, "id");
+  if (here.message.includes("more than one workflow")) throw here;
   throw new RunNotFound(`no run ${ref} under ${place.runRoot}, or in a project awf knows`);
 }
 

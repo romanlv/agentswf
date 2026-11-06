@@ -53,10 +53,12 @@ run's code has no agent: send to it as
 `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`,
 and read what the code writes back as `post` items.
 
-The result is one JSON line. `{"v":3,"id":…}`, with no `code`, means it was delivered and the
-agent will see it: never retry it. A line with a `code` is a refusal. `expired` means the question
-closed or someone answered first: drop it. `ended` means the run is over. Any other `code` comes
-with an `error` saying what to do instead.
+`awf reply` and `awf send` print one JSON line. `{"v":3,"id":…}`, with no `code`, means it was
+delivered and the agent will see it: never retry it. A line with a `code` is a refusal. `expired`
+means the question closed or someone answered first: drop it. `ended` means the run is over. Any
+other `code` comes with an `error` saying what to do instead. `awf emit` refuses the same way, with
+a `code`; when it has no `code`, it prints what the run did instead: `ok` false, or `outcome`
+`refused`, says the run didn't take the reply, and `why` says why.
 
 Stop when the user tells you to, or when every run you were asked to watch has ended.
 

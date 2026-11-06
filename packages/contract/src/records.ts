@@ -1125,7 +1125,8 @@ export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended"
 /**
  * One line of `awf inbox --json`, oldest first. Agents are peer addresses, qualified in a child
  * call; message ids are `{attempt}.{n}`, a post's `{attempt}.p{n}`. A reader ignores the kinds and fields it does not know;
- * `v` changes only when one is renamed or removed.
+ * `v` changes only when one is renamed or removed, or with the command's refusal: version 2 moved
+ * with `InboxRefusalJson`'s renames.
  */
 export type InboxItemJson = {
   v: 2;

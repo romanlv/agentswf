@@ -13,13 +13,16 @@ import { WorkflowFileError } from "./workflow-loader";
  * `internal-error` is the command's word for an error with no code, which the client throws as it
  * is.
  */
-const COMMAND_ONLY = new Set<RefusalCode>([
-  "usage",
-  "ambiguous",
-  "not-started",
-  "unreachable",
-  "internal-error",
-] satisfies Exclude<RefusalCode, ClientErrorCode>[]);
+const COMMAND_ONLY = new Set<RefusalCode>(
+  Object.keys({
+    usage: true,
+    ambiguous: true,
+    "not-started": true,
+    unreachable: true,
+    "internal-error": true,
+    // Every code a client doesn't throw, so a new one is either a client's or listed here.
+  } satisfies Record<Exclude<RefusalCode, ClientErrorCode>, true>) as RefusalCode[],
+);
 
 /**
  * The code an engine error is refused with, by a `--json` command and as a `ClientError` alike, so

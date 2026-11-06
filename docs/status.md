@@ -293,6 +293,13 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   `replaced/`, the mailbox, `calls/`, `decisions/` and `process.log` are gone; every start point is
   a redo line; `awf logs` shows each session on the `run.jsonl` line that first names it, its
   cursor spanning both files; a run made before is listed `unreadable` and not read. ADR 0014.
+- [043 — every --json command says why it failed, as a document](stories/043-json-refusals.md):
+  built, awaiting human review. With `--json`, stdout ends with one document, the result or a
+  refusal `{v, code, error}` from `REFUSAL_CODES`, the words `agentswf/client` throws; exit codes
+  unchanged, the sentence still on stderr. `awf reply`/`awf send --json` at `v` 3, a success
+  `{v, id}`; `awf inbox --json` at `v` 2; `not-found` is `no-run`, `bad-cursor` `cursor`. A guard
+  runs every `--json` command into each failure its help names. Q6, `awf run --id`'s text line
+  for a workflow with events, open.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

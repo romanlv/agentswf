@@ -87,15 +87,7 @@ export async function loadAndPrepare(
   let command = given;
   if (isEventWorkflow(loaded.workflow)) {
     const refused = eventRunRefusal(command);
-    // A continue given arguments is refused as a plain run's is; the rest are flags that clash.
-    if (refused)
-      return {
-        refused,
-        code:
-          command.continueId !== undefined && command.workflowArgs.length > 0
-            ? "other-args"
-            : "usage",
-      };
+    if (refused) return refused;
     // An event run lives and works in its file's project, whoever starts or continues it (Q15).
     let project: string;
     try {
@@ -277,14 +269,21 @@ async function unusedId(runRoot: string, workflow: string, now: number): Promise
  * started by a wake, which passes on none of the flags a run would have to keep. A `--from-stage`
  * is the one attempt's, and its stage line keeps what it redid.
  */
-function eventRunRefusal(command: RunCommand): string | undefined {
+function eventRunRefusal(command: RunCommand): { refused: string; code: RefusalCode } | undefined {
+  const usage = (refused: string) => ({ refused, code: "usage" as const });
   if (command.values !== undefined)
-    return "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs";
+    return usage(
+      "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs",
+    );
   if (command.fromStage !== undefined && command.continueId === undefined)
-    return "a run of a workflow with events takes --from-stage only with --continue";
+    return usage("a run of a workflow with events takes --from-stage only with --continue");
   if (command.continueId !== undefined) {
+    // Refused as a plain run's continue with arguments is.
     if (command.workflowArgs.length > 0)
-      return "a continue takes no arguments: it goes on with those its run was started with";
+      return {
+        refused: "a continue takes no arguments: it goes on with those its run was started with",
+        code: "other-args",
+      };
     return undefined;
   }
   const unkept = [
@@ -294,7 +293,9 @@ function eventRunRefusal(command: RunCommand): string | undefined {
     command.runRootGiven ? "--run-root" : undefined,
   ].filter((flag) => flag !== undefined);
   if (unkept.length > 0)
-    return `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`;
+    return usage(
+      `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`,
+    );
   return undefined;
 }
 
