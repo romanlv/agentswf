@@ -6,14 +6,17 @@ answers back. `awf` runs the workflow and handles the parts that make agent scri
 agents that never answer, answer in prose, hang, or quietly run up a bill.
 
 ```ts
-const reviewer = await wf.agents.open({ key: "reviewer", runtime: { harness: "codex", model: "gpt-6-luna" } });
-const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", schema: FINDINGS });
-if (outcome.answered) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
+const reviewer = await wf.agents.open({
+  key: "reviewer",
+  runtime: { harness: "codex", model: "gpt-6-luna" },
+});
+const { outcome } = await reviewer.run({
+  prompt: "Review `git diff main`.",
+  schema: FINDINGS,
+});
+// The answer is validated against FINDINGS, or outcome says why there is none.
+if (outcome.answered) console.log(outcome.value.findings);
 ```
-
-> **Shaped by use.** agents.wf is in its evaluation phase, and what people build with it decides
-> where the design goes next. Found a bug, missing a use case, or have an idea?
-> [Open an issue](https://github.com/romanlv/agentswf/issues).
 
 ## How it works
 
