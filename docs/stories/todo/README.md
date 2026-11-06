@@ -100,6 +100,7 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
   and enforce.
 - [[operator-settings]], [[context-size]], [[agent-identity]], [[attended-agent]].
 - [[run-in-background]], [[mid-turn-messages]], [[workflow-state]], [[workflow-schedules]].
+- [[coordinator-app-trials]] — an app and an existing host drive a run as its coordinator.
 - [[comparison-efficiency]], [[loop-next]] — the loop's next version, when it runs again.
 - [[workflow-in-sandbox]], [[sandbox-host-protection]], [[sandbox-setsid-escape]] — containment's
   edge cases.

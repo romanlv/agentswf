@@ -3,7 +3,7 @@ id: "032"
 title: "A coordinator outside the run talks with its agents"
 summary: "A workflow connects a coordinator. Agents with a route to it report findings and ask questions with wf send. Whatever answers for it (awf run's terminal, another session, or an app such as a Slack bridge) reads with awf inbox and answers with awf reply or awf send, and an agent that asked goes on in the same session."
 type: story
-status: in-progress
+status: done
 depends_on: ["029"]
 ---
 
@@ -617,14 +617,16 @@ is built first.
   Q10 settles it, with `awf run`'s help and the docs that state 1h.
 - [x] 4. Interactive mode in `awf run`, then a live run with real agents answered at the terminal,
   before moving on to the next tasks.
-- [ ] 5. Stubs of the three commands from task 1's design (canned items, cursor and result codes),
-  then the sample app (M3) against them; fold what it finds into task 1's design.
+- [x] 5. Stubs of the three commands from task 1's design (canned items, cursor and result codes),
+  then the sample app (M3) against them; fold what it finds into task 1's design. Dropped at
+  close: the real commands were built first, and M3 moved to [[coordinator-app-trials]].
 - [x] 6. The coordinator socket: hashed name, liveness, `AWF_COORDINATOR_DIR`, the sandbox refusal.
 - [x] 7. `awf inbox`: items, text and `--json`, cursor, `{run}`, `--all`, `--open`, `--workflow`,
   `--as`, `--wait`, `--cwd`/`--run-root`.
 - [x] 8. `awf reply` and `awf send`: `--to`, `--as`, stdin, codes and their order, peer addresses,
   first answer wins, including the interactive prompt moving on.
-- [ ] 9. M3 again on the real commands, then M2 on one host.
+- [x] 9. M3 again on the real commands, then M2 on one host. Moved at close to
+  [[coordinator-app-trials]], not run.
 - [x] 10. Docs: the holder's CLI reference, the skill that teaches a session the job,
   [[status]].
 
@@ -949,8 +951,8 @@ Manual or live evaluation:
   on in the same session.
 - [x] A question answered after its asker's operation deadline would have passed: the agent goes on.
 - [x] M1: resume after hours, with its cost.
-- [ ] M3: the sample app through a restart and a laptop sleep.
-- [ ] M2: one host drives a run, with its cost.
+- [ ] M3: the sample app through a restart and a laptop sleep. Not run; [[coordinator-app-trials]].
+- [ ] M2: one host drives a run, with its cost. Not run; [[coordinator-app-trials]].
 
 ## Review record
 
@@ -1246,10 +1248,12 @@ commands, the items, the codes and the cursor's guarantees. The `awf-coordinator
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes, but for M2 and M3.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here: closed as built on
+  2026-11-06; the app and host trials, M2 and M3, moved to [[coordinator-app-trials]].
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+  None were.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
