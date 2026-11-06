@@ -1,6 +1,7 @@
 import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type RunLine, type RunView, readRun } from "@agentswf/contract/records";
+import { messageOf } from "./errors";
 import { isCode, syncDir } from "./files";
 import { queued } from "./jsonl";
 import { unendedTurns } from "./run-policy/waits";
@@ -80,7 +81,7 @@ export async function readRunLines(runDir: string): Promise<{ lines: RunLine[]; 
     view = readRun(parsed);
   } catch (error) {
     // A line of no kind this awf knows: the run's record can't be read, as a line not JSON.
-    throw new RunUnreachable(error instanceof Error ? error.message : String(error));
+    throw new RunUnreachable(messageOf(error));
   }
   return { lines: parsed as RunLine[], view };
 }

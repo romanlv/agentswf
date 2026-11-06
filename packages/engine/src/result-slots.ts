@@ -4,6 +4,7 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { GivenInput, ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
+import { messageOf } from "./errors";
 import { recordAnswer, writeAcceptedExclusive } from "./ops";
 import { evaluateGiven } from "./result-validation";
 
@@ -232,7 +233,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
           },
           () => {},
         );
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = messageOf(error);
         if (slot.state === "committing") {
           slot.state = "failed";
           slot.settle({ kind: "failed", reason });

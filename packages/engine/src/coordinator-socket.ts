@@ -9,6 +9,7 @@ import {
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
+import { messageOf } from "./errors";
 import { isInside, realPath } from "./files";
 import type { MessagingEventBody } from "./messaging/messaging";
 import type { RunStatus } from "./run-state";
@@ -197,10 +198,7 @@ export function coordinatorSocket(options: {
       .then((result) => socket.end(result ? `${JSON.stringify(result)}\n` : undefined));
   };
 
-  if (options.nudged)
-    opening = open().catch((error: unknown) =>
-      options.failed(error instanceof Error ? error.message : String(error)),
-    );
+  if (options.nudged) opening = open().catch((error: unknown) => options.failed(messageOf(error)));
   return {
     path,
     attach(given) {
@@ -208,9 +206,7 @@ export function coordinatorSocket(options: {
     },
     recorded(event: MessagingEventBody) {
       if (event.kind === "participant-connected" && !opening) {
-        opening = open().catch((error: unknown) =>
-          options.failed(error instanceof Error ? error.message : String(error)),
-        );
+        opening = open().catch((error: unknown) => options.failed(messageOf(error)));
       }
     },
     async close() {
