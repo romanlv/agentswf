@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /** `path` with its symlinks resolved, or only made absolute when it doesn't exist. */
 export function realPath(path: string): string {
@@ -94,6 +94,12 @@ export async function syncDir(dir: string): Promise<void> {
   } finally {
     await handle.close();
   }
+}
+
+/** Whether `path` is below `root`, not `root` itself; a child named `..x` is below it. */
+export function isInside(root: string, path: string): boolean {
+  const inside = relative(root, path);
+  return inside !== "" && inside !== ".." && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
 }
 
 /** Whether `path` names anything, a dangling link included. */

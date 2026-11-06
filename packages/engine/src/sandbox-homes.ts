@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@agentswf/contract";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 import { messageOf } from "./errors";
+import { isInside } from "./files";
 
 /** A seeded home's credentials, and a way to hand a refreshed one back to the operator. */
 export type SeededHome = {
@@ -39,11 +40,8 @@ export async function seedHome(
   populate?: (staged: string) => Promise<void>,
 ): Promise<SeededHome> {
   const staged = (path: string) => {
-    const inside = relative(home, path);
-    if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
-      throw new Error(`${path} is not in the agent's home ${home}`);
-    }
-    return join(staging, inside);
+    if (!isInside(home, path)) throw new Error(`${path} is not in the agent's home ${home}`);
+    return join(staging, relative(home, path));
   };
   await mkdir(dirname(staging), { recursive: true, mode: 0o700 });
   await mkdir(staging, { mode: 0o700 });

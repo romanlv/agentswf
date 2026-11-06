@@ -144,3 +144,22 @@ test("a missing credential is refused, naming it", async () => {
   // Nothing it copied is left behind.
   expect(await readdir(root)).toEqual([]);
 });
+
+test("a file in a folder named `..x` is in the home; one outside it is refused", async () => {
+  const root = mkdtempSync(join(tmpdir(), "wf-homes-"));
+  roots.push(root);
+  const home = join(root, "home");
+  const seed = (path: string, staging: string) =>
+    seedHome(
+      home,
+      join(root, staging),
+      { seed: [], defaults: () => [{ path, contents: "{}" }] } as unknown as HarnessSandboxNeeds,
+      "/repo",
+      new Map(),
+    );
+  await seed(join(home, "..x", "settings.json"), "staging-a");
+  expect(await readFile(join(home, "..x", "settings.json"), "utf8")).toBe("{}");
+  await expect(seed(join(root, "settings.json"), "staging-b")).rejects.toThrow(
+    "is not in the agent's home",
+  );
+});
