@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -147,24 +147,33 @@ describe("runWorkflow", () => {
 
   test("exposes and enforces the invocation deadline even without a workflow wait", async () => {
     const controller = new AbortController();
-    const deadline = { unixMilliseconds: Date.now() + 20 };
+    // The clock stands still until the body runs: a deadline passed while the run opens refuses
+    // the run instead, which a loaded machine would otherwise make this test see.
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const deadline = { unixMilliseconds: now + 20 };
     const workflow = workflowOf("run-deadline", async (context) => {
       expect(context.deadline?.getTime()).toBe(deadline.unixMilliseconds);
       expect(context.cwd).toBe("/repo");
+      setSystemTime(new Date(deadline.unixMilliseconds));
       return await new Promise<never>(() => undefined);
     });
 
-    expect(
-      await causeOf(
-        runNew(workflow, null, {
-          runRoot: tempRunDir(),
-          runtime: emptyRuntime(),
-          deadline,
-          cwd: "/repo",
-          signal: controller.signal,
-        }),
-      ),
-    ).toBeInstanceOf(DeadlineExceededError);
+    try {
+      expect(
+        await causeOf(
+          runNew(workflow, null, {
+            runRoot: tempRunDir(),
+            runtime: emptyRuntime(),
+            deadline,
+            cwd: "/repo",
+            signal: controller.signal,
+          }),
+        ),
+      ).toBeInstanceOf(DeadlineExceededError);
+    } finally {
+      setSystemTime();
+    }
     expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
     controller.abort("too late");
   });
@@ -594,6 +603,10 @@ describe("runWorkflow", () => {
   });
 
   test("a run whose deadline passes fails, and closes a turn held to that deadline", async () => {
+    // The clock stands still until the turn acts, so the run's deadline passes only during it.
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const deadline = { unixMilliseconds: now + 30 };
     let nativeCancelled = 0;
     const adapter = createFakeAdapter({
       script: () => ({
@@ -607,6 +620,7 @@ describe("runWorkflow", () => {
               },
               { once: true },
             );
+            setSystemTime(new Date(deadline.unixMilliseconds));
           }),
       }),
     });
@@ -622,18 +636,22 @@ describe("runWorkflow", () => {
     });
     const runRoot = tempRunDir();
 
-    await withSocketRoot(async (socketRoot) => {
-      expect(
-        await causeOf(
-          runNew(workflow, null, {
-            runRoot,
-            runtime: runtime(adapter),
-            deadline: { unixMilliseconds: Date.now() + 30 },
-            socketRoot,
-          }),
-        ),
-      ).toBeInstanceOf(DeadlineExceededError);
-    });
+    try {
+      await withSocketRoot(async (socketRoot) => {
+        expect(
+          await causeOf(
+            runNew(workflow, null, {
+              runRoot,
+              runtime: runtime(adapter),
+              deadline,
+              socketRoot,
+            }),
+          ),
+        ).toBeInstanceOf(DeadlineExceededError);
+      });
+    } finally {
+      setSystemTime();
+    }
     expect(nativeCancelled).toBe(1);
     expect(adapter.closed).toEqual(["reviewer"]);
   });
