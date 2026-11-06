@@ -742,5 +742,9 @@ The docs and the eval, checked by the site's build (every link resolves) and the
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
+  - 2026-11-06, trying it by hand (a copy, then `--no-fork`, on codex): `awf open {run}` with
+    no agent was a usage error with the whole help. Changed: it asks which agent and prints the
+    command that opens each of the run's agents with a session, the run named once, in the
+    commands.
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
