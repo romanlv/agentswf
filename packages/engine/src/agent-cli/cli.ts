@@ -48,7 +48,7 @@ function messageUsage(wfa: string, indent = "usage: "): string[] {
 const MAX_STDIN_BYTES = 1024 * 1024;
 const STDIN_TIMEOUT_MS = 30_000;
 
-export type CliOutcome = { exitCode: number; stdout: string; stderr: string };
+type CliOutcome = { exitCode: number; stdout: string; stderr: string };
 
 type Submit = (
   endpoint: string,

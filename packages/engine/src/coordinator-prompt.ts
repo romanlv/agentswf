@@ -13,7 +13,7 @@ export type LineReader = {
 };
 
 /** What the prompt shows beside the progress view, which holds its block while a prompt is open. */
-export type PromptOutput = {
+type PromptOutput = {
   /** A line in the run's log, above the progress block. */
   log(line: string): void;
   /** The progress block stops redrawing while a prompt waits for a line, and lines go above it. */

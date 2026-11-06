@@ -49,7 +49,6 @@ export type RunCommand = {
 
 /** `awf run`'s options and workflow; `"help"` for a `-h` or `--help` anywhere before `--`. */
 export function parseCommand(argv: readonly string[], cwd: string): RunCommand | "help" {
-  if (argv[0] !== "run") throw new Error("expected the run command");
   const end = argv.indexOf("--");
   const own = end < 0 ? argv : argv.slice(0, end);
   if (own.includes("-h") || own.includes("--help")) return "help";

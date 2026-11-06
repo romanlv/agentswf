@@ -326,7 +326,6 @@ function help(
   return 0;
 }
 
-/** `awf run`: parses it, then starts or continues the run, here or in a tab. */
 /**
  * `awf run --id` for a workflow with events: the run is made with no event and started detached, as
  * an event starts one, so it runs to its first wait and parks; one already there is only woken.
@@ -361,6 +360,7 @@ async function openRun(
   }
 }
 
+/** `awf run`: parses it, then starts or continues the run, here or in a tab. */
 async function runCommand(
   argv: readonly string[],
   environment: OperatorEnvironment,

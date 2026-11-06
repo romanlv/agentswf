@@ -116,7 +116,7 @@ export type OpenedAgent = {
 /** The sandbox an agent ran in, as the run's record keeps it. */
 export type AgentSandbox = Pick<SandboxRecord, "key" | "provider" | "spec" | "domains">;
 
-export type ScriptedHost = {
+type ScriptedHost = {
   factory: AgentRunHostFactory;
   turns: TestTurn[];
   compactions: CompactionRecord[];

@@ -190,10 +190,7 @@ export async function get(
 }
 
 /** A run, read from its files whenever asked. */
-export function runHandle(
-  run: Run,
-  context: Pick<ClientContext, "now"> & { pollMs?: number },
-): RunHandle<JsonValue> {
+function runHandle(run: Run, context: Pick<ClientContext, "pollMs">): RunHandle<JsonValue> {
   const { id, workflow } = run.record;
   return {
     id,

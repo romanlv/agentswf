@@ -404,7 +404,7 @@ function awaitingNote(turn: NonNullable<Agent["turn"]>, now: number): string {
 }
 
 /** A message admitted: who to whom, its size, and whether it asks or answers. */
-export function messageLine(message: WorkflowRunSnapshot["messages"][number]): string {
+function messageLine(message: WorkflowRunSnapshot["messages"][number]): string {
   const size =
     message.bytes < 1024 ? `${message.bytes} B` : `${(message.bytes / 1024).toFixed(1)} KB`;
   const kind = [message.answers ? "reply" : "", message.asks ? "reply owed" : ""].filter(Boolean);

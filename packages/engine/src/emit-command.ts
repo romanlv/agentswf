@@ -71,7 +71,7 @@ export async function emitCommand(
   return printEmit(result, parsed.json, out);
 }
 
-/** Prints an emit's result, as `awf emit` and `awf send` do: 1 when the run's attempt didn't start. */
+/** Prints an emit's result, as `awf emit` does: 1 when the run's attempt didn't start. */
 export function printEmit(result: EmitResultJson, json: boolean, out: Out): number {
   out.stdout(json ? JSON.stringify(result) : emitLine(result));
   if (result.why !== "launch-failed") return 0;

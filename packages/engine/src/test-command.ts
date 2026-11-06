@@ -12,7 +12,7 @@ const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.
 
 export const testUsage = help.trimEnd();
 
-export type TestCommand = { paths: string[]; bunArgs: string[] };
+type TestCommand = { paths: string[]; bunArgs: string[] };
 
 /**
  * `awf test`: the workflow tests under the given paths, with Bun's test runner. Their output goes
@@ -58,7 +58,7 @@ export async function testCommand(
  * Only these flags pass through, so the published command is awf's, not the whole of `bun test`'s,
  * and a later runner can take its place. A path must exist; Bun would take it as a filter.
  */
-export function parseTestCommand(argv: readonly string[], cwd: string): TestCommand | "help" {
+function parseTestCommand(argv: readonly string[], cwd: string): TestCommand | "help" {
   const paths: string[] = [];
   const bunArgs: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -90,7 +90,7 @@ export function parseTestCommand(argv: readonly string[], cwd: string): TestComm
  * Runs `bun test` in `cwd` with the author surface preloaded, and resolves to its exit code. When
  * `signal` aborts, as on Ctrl-C to awf alone, the tests are stopped with the same signal.
  */
-export async function runWorkflowTests(
+async function runWorkflowTests(
   command: TestCommand,
   cwd: string,
   options: {

@@ -25,7 +25,7 @@ type Options = {
   as?: string;
 };
 
-export type HolderIo = Out & {
+type HolderIo = Out & {
   /** Stdin, when no text is given as an argument. */
   stdin(): Promise<string>;
   /** Then there is nothing piped in to read: refused rather than waited on. */

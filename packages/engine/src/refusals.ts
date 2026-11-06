@@ -29,7 +29,7 @@ const COMMAND_ONLY = new Set<RefusalCode>(
  * The code an engine error is refused with, by a `--json` command and as a `ClientError` alike, so
  * the two can't drift; none for an error that isn't the caller's.
  */
-export function refusalCode(error: unknown): RefusalCode | undefined {
+function refusalCode(error: unknown): RefusalCode | undefined {
   if (error instanceof EmitError || error instanceof EngineRefused) return error.code;
   if (error instanceof RunNotFound || error instanceof WorkflowFileError) return error.code;
   if (error instanceof RunUnreachable) return error.code;

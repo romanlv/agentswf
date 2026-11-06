@@ -7,7 +7,7 @@ import type { Out } from "./run-commands";
 
 export const initUsage = help.trimEnd();
 
-export type InitCommand = { dir: string; install: boolean };
+type InitCommand = { dir: string; install: boolean };
 
 /** `awf init`: a folder set up for writing workflows. */
 export async function initCommand(
@@ -86,7 +86,7 @@ function targetOf(dir: string, path: string): Target {
  * Writes what `awf init` writes into `dir`, and says what it did to each file. Everything that
  * would stop it, such as a package.json that isn't a JSON object, is found before it writes.
  */
-export function initFolder(dir: string): Change[] {
+function initFolder(dir: string): Change[] {
   for (const parent of new Set(COPIED.map(dirname))) {
     const stat = lstatSync(join(dir, parent), { throwIfNoEntry: false });
     if (stat !== undefined && !stat.isDirectory()) {
@@ -219,7 +219,7 @@ function shellWord(word: string): string {
 }
 
 /** `awf init`: writes the folder, installs unless told not to, and says what to run next. */
-export async function runInit(
+async function runInit(
   command: InitCommand,
   cwd: string,
   output: { stdout(text: string): void; stderr(text: string): void },

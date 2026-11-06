@@ -11,7 +11,7 @@ import type { Out } from "./run-commands";
 
 export const allowanceUsage = help.trimEnd();
 
-export type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
+type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
 
 export function parseAllowanceCommand(argv: readonly string[]): AllowanceCommand {
   const harnesses: Harness[] = [];
