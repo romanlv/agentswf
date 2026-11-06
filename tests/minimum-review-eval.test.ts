@@ -129,7 +129,7 @@ describe("minimum review live evaluation plan", () => {
   });
 
   test("retained evidence replaces permissive files and symlinks with a private regular file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "wf-evidence-test-"));
+    const root = await mkdtemp(join(tmpdir(), "awf-evidence-test-"));
     const evidence = join(root, "evaluation.json");
     const target = join(root, "symlink-target");
     try {

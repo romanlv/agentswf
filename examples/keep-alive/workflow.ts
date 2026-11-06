@@ -2,13 +2,13 @@ import { typed } from "agentswf/typebox";
 import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
-export const Note = typed(Type.Object({ text: Type.String() }));
+const Note = typed(Type.Object({ text: Type.String() }));
 
-/** Short, so the live check waits minutes rather than claude's cache hour, the default. */
-export const WINDOW = "90s";
+/** Short, so a run watched by hand passes it in minutes, not claude's default cache hour. */
+const WINDOW = "90s";
 
 /** What onTimeout asks the compaction to keep: the notes, which a later wake recalls. */
-export const FOCUS = "Keep every note's text exactly, in order; drop everything else.";
+const FOCUS = "Keep every note's text exactly, in order; drop everything else.";
 
 /**
  * An agent kept alive between events (story 036): each `note` is a turn for the same claude TUI agent

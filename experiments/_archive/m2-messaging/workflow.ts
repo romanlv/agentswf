@@ -2,7 +2,7 @@ import {
   defineWorkflow,
   type ExecutionConfig,
   type OutputSchema,
-} from "../../packages/contract/src/workflow";
+} from "../../../packages/contract/src/workflow";
 
 /**
  * M2's trial: a planner must plan retries whose home is the architect's call, with a route to ask

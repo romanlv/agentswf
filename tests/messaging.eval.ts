@@ -1,11 +1,9 @@
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { OutputRecord, RunLogLine } from "../packages/contract/src/records";
 import { canAwaitReply } from "../packages/engine/src/messaging/limits";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { CODEWORD, HEADLESS_NAMES, RUNTIMES, type SmokeResult } from "./fixtures/messaging-smoke";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Story 029's delivery smoke, with `--await-reply` turned on for what it runs: a question wakes a
@@ -80,50 +78,21 @@ export async function problems(
 if (import.meta.main) {
   assertLiveOptIn();
   const names = process.argv.slice(2).length ? process.argv.slice(2) : HEADLESS_NAMES;
-  const workDir = await mkdtemp(join(tmpdir(), "awf-messaging-"));
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "8m",
-      "--json",
-      SMOKE,
-      "--",
-      ...names,
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-      // The engine's list has what M2 passed; this smoke turns cursor on too, to show its delivery
-      // works, and checks every harness headless and a claude TUI that confirms what it was sent.
-      awaitReply: (execution, confirms) =>
-        canAwaitReply(execution, confirms, {
-          claude: { headless: true, tui: "confirmed" },
-          codex: { headless: true },
-          pi: { headless: true },
-          cursor: { headless: true },
-        }),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = await problems(exitCode, record, names);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        results: record?.outcome === "completed" ? record.value : undefined,
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  process.exit(failed.length === 0 ? 0 : 1);
+  const { exitCode, record } = await runLive("messaging", SMOKE, names, {
+    timeout: "8m",
+    // The engine's list has what M2 passed; this smoke turns cursor on too, to show its delivery
+    // works, and checks every harness headless and a claude TUI that confirms what it was sent.
+    awaitReply: (execution, confirms) =>
+      canAwaitReply(execution, confirms, {
+        claude: { headless: true, tui: "confirmed" },
+        codex: { headless: true },
+        pi: { headless: true },
+        cursor: { headless: true },
+      }),
+  });
+  report(await problems(exitCode, record, names), {
+    results: record?.outcome === "completed" ? record.value : undefined,
+    ...recorded(record),
+  });
+  process.exit();
 }

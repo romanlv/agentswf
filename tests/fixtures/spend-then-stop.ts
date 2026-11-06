@@ -1,7 +1,4 @@
-import {
-  defineWorkflow,
-  type OutputSchema,
-} from "../../packages/contract/src/workflow";
+import { defineWorkflow, type OutputSchema } from "../../packages/contract/src/workflow";
 
 /**
  * One headless codex agent answers a question, so the run has spent something, and then the run

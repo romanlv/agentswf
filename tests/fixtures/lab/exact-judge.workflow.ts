@@ -9,8 +9,8 @@ import { defineWorkflow, type WorkflowInvocation } from "../../../packages/contr
 import type { AnswerKey } from "../../../packages/lab/src/review/format/format";
 import type {
   FindingLabel,
-  ScorerResult,
   ReviewFinding,
+  ScorerResult,
 } from "../../../packages/lab/src/review/format/scoring";
 
 type Args = { fixture: string; findings: string; mode: string; settled?: string };
@@ -26,12 +26,15 @@ export default defineWorkflow<Args, ScorerResult>({
     const labels = findings.map((finding, index): FindingLabel => {
       const read = [{ path: "src/app.ts", start: 1, end: 1 }];
       const given = kept.get(index);
-      if (given && args.mode === "tamper") return { finding: index, label: "noise", why: "tampered", read };
+      if (given && args.mode === "tamper")
+        return { finding: index, label: "noise", why: "tampered", read };
       if (given) return given;
       if (args.mode === "noise") return { finding: index, label: "noise", why: "noise mode", read };
       const earlier = findings.findIndex((f) => f.text === finding.text);
-      if (earlier < index) return { finding: index, label: "duplicate", of: earlier, why: "same", read: [] };
-      if (args.mode === "bad") return { finding: index, label: "hit", issue: "K99", why: "bad", read };
+      if (earlier < index)
+        return { finding: index, label: "duplicate", of: earlier, why: "same", read: [] };
+      if (args.mode === "bad")
+        return { finding: index, label: "hit", issue: "K99", why: "bad", read };
       const issue = key.issues.find((i) => i.mechanism === finding.text && !claimed.has(i.id));
       if (issue) {
         claimed.add(issue.id);
@@ -46,13 +49,21 @@ export default defineWorkflow<Args, ScorerResult>({
             {
               by: "b",
               role: "panel" as const,
-              labels: labels.map((l): FindingLabel =>
-                l.label === "hit" ? { finding: l.finding, label: "noise", why: "b says noise", read: l.read } : l,
+              labels: labels.map(
+                (l): FindingLabel =>
+                  l.label === "hit"
+                    ? { finding: l.finding, label: "noise", why: "b says noise", read: l.read }
+                    : l,
               ),
             },
           ]
         : undefined;
-    return { format: "awf.review-judgement/1", labels, missed: `mode ${args.mode}`, ...(votes ? { votes } : {}) };
+    return {
+      format: "awf.review-judgement/1",
+      labels,
+      missed: `mode ${args.mode}`,
+      ...(votes ? { votes } : {}),
+    };
   },
   prepare: (invocation: WorkflowInvocation) => {
     const values = new Map<string, string>();
@@ -67,4 +78,3 @@ export default defineWorkflow<Args, ScorerResult>({
     };
   },
 });
-

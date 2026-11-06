@@ -93,13 +93,14 @@ stale without a red check. Two sources:
 Show part of a file with a region, and the import picks out the lines between the markers:
 
 ```ts
-// #region open
-const agent = await wf.agents.open({ key: "reviewer", runtime: "claude" });
-// #endregion open
+// #region turns
+const planner = await wf.agents.open({ key: "planner", runtime: "codex" });
+const first = await planner.run({ prompt: "Read ISSUE.md and plan its fix." });
+// #endregion turns
 ```
 
 ```md
-<<< @/../examples/site/guide/agents.ts#open
+<<< @/../examples/site/guide/agents.ts#turns
 ```
 
 `@/` is `site/`, so `@/../` is the repository root, from any page. An example's file imports

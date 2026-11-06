@@ -2,10 +2,5 @@
   "name": "@agentswf/e4-concurrency",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
-  "dependencies": {
-    "@agentswf/contract": "workspace:*",
-    "@agentswf/engine": "workspace:*",
-    "@agentswf/harness": "workspace:*"
-  }
+  "type": "module"
 }

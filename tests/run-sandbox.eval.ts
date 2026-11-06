@@ -1,4 +1,4 @@
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, interruption, report } from "./live";
 import { gather, problems } from "./run-sandbox";
 
 /**
@@ -9,9 +9,5 @@ import { gather, problems } from "./run-sandbox";
 if (import.meta.main) {
   assertLiveOptIn();
   const { evidence, estimate, artifacts } = await gather("srt", interruption());
-  const failed = problems(evidence);
-  console.log(
-    JSON.stringify({ ok: failed.length === 0, failed, estimateUsd: estimate, artifacts }, null, 2),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  report(problems(evidence), { estimateUsd: estimate, artifacts });
 }

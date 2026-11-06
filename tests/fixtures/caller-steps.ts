@@ -1,7 +1,4 @@
-import {
-  defineWorkflow,
-  type OutputSchema,
-} from "../../packages/contract/src/workflow";
+import { defineWorkflow, type OutputSchema } from "../../packages/contract/src/workflow";
 
 /**
  * The calling-session eval's steps: a number picked, a long step the eval interrupts, and the number
@@ -35,7 +32,8 @@ export default defineWorkflow<null, CallerSteps>({
     if (!author) throw new Error("start this with awf run --here");
     const timeout = "4m";
     const { outcome: picked } = await author.run({
-      prompt: "Pick a whole number between 1000 and 9999 and remember it. Do not run any code to pick it.",
+      prompt:
+        "Pick a whole number between 1000 and 9999 and remember it. Do not run any code to pick it.",
       schema: PICKED,
       timeout,
     });
@@ -45,7 +43,8 @@ export default defineWorkflow<null, CallerSteps>({
       timeout,
     });
     const { outcome: recalled } = await author.run({
-      prompt: "The previous essay step was cancelled. Do not resume or complete it. What number did you pick two steps ago? Answer from memory using wfa result, then end your turn immediately. No other work.",
+      prompt:
+        "The previous essay step was cancelled. Do not resume or complete it. What number did you pick two steps ago? Answer from memory using wfa result, then end your turn immediately. No other work.",
       schema: RECALLED,
       timeout,
     });

@@ -3,10 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ITEMS, RUNTIMES, type ToolsResult } from "../examples/tools/workflow";
 import type { OutputRecord, RunLogLine } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { readAnswers } from "../packages/engine/src/ops";
 import { readEvents } from "../packages/engine/src/runs";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Story 035's tools, live, from the lesson alone: every harness on its cheap model, in a pane and
@@ -26,17 +25,7 @@ const SLOW: [string, number][] = [
 ];
 
 async function run(workDir: string, argv: string[]) {
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    ["run", "--run-root", join(workDir, "runs"), "--timeout", "8m", "--json", TOOLS, "--", ...argv],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
+  const { exitCode, record } = await runLive("tools", TOOLS, argv, { workDir, timeout: "8m" });
   // Its own run's records: two runs started in the same minute don't sort by their start.
   const dir = record?.artifacts;
   const lines = dir ? await readEvents(dir) : [];
@@ -135,13 +124,12 @@ if (import.meta.main) {
   const runtimes = picked.length === 0 ? ALL : named;
   const workDir = await mkdtemp(join(tmpdir(), "awf-tools-"));
   const failed: string[] = [];
-  const report: Record<string, unknown> = {};
+  const fields: Record<string, unknown> = {};
   if (runtimes.length > 0) {
     const main = await run(workDir, runtimes);
     failed.push(...problems(main.exitCode, main.record, runtimes));
-    report.firstTry = firstTry(main.lines, main.rejected);
-    report.estimateUsd = main.record?.accounting.totals.estimate;
-    report.artifacts = main.record?.artifacts;
+    fields.firstTry = firstTry(main.lines, main.rejected);
+    Object.assign(fields, recorded(main.record));
   }
   if (picked.length === 0 || picked.includes("slow")) {
     const slow: Record<string, unknown> = {};
@@ -154,8 +142,7 @@ if (import.meta.main) {
       failed.push(...found.map((problem) => `slow ${runtime}: ${problem}`));
       slow[runtime] = { ms, firstTry: firstTry(result.lines, result.rejected), problems: found };
     }
-    report.slow = slow;
+    fields.slow = slow;
   }
-  console.log(JSON.stringify({ ok: failed.length === 0, failed, ...report }, null, 2));
-  if (failed.length > 0) process.exitCode = 1;
+  report(failed, fields);
 }

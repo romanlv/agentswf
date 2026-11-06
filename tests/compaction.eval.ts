@@ -1,10 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CompactionResult } from "../examples/compaction/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Native compaction on every harness and placement, live, on its cheapest model (story 015): each
@@ -47,47 +44,17 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const workDir = await mkdtemp(join(tmpdir(), "awf-compaction-"));
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "15m",
-      "--json",
-      COMPACTION,
-      "--",
-      ...process.argv.slice(2),
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = problems(exitCode, record);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        checks: (record?.outcome === "completed"
-          ? (record.value as CompactionResult)
-          : undefined
-        )?.checks.map((check) => ({
-          ...check,
-          summary: check.summary?.slice(0, 300),
-        })),
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  const { exitCode, record } = await runLive("compaction", COMPACTION, process.argv.slice(2), {
+    timeout: "15m",
+  });
+  report(problems(exitCode, record), {
+    checks: (record?.outcome === "completed"
+      ? (record.value as CompactionResult)
+      : undefined
+    )?.checks.map((check) => ({
+      ...check,
+      summary: check.summary?.slice(0, 300),
+    })),
+    ...recorded(record),
+  });
 }

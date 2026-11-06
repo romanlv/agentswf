@@ -11,7 +11,7 @@
       "**",
       "!docs",
       "!site",
-      "!tests/fixtures",
+      "!experiments/_archive",
       "!examples/minimum-review/fixtures",
       "!packages/harness/src/usage/fixtures"
     ]

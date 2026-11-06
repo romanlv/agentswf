@@ -12,7 +12,11 @@ import {
 const HEADLESS = {
   claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  pi: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017", placement: "headless" },
+  pi: {
+    harness: "pi",
+    model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    placement: "headless",
+  },
 } satisfies Record<string, ExecutionConfig>;
 export const HEADLESS_NAMES = ["claude", "codex"];
 
@@ -29,10 +33,7 @@ const ANSWER: OutputSchema<{ codeword: string }> = {
 export type CoordinatorSmokeResult = { runtime: string; outcome: string; codeword?: string }[];
 
 /** `--timeout-ms {n}` bounds each investigator's operation, which a late answer outlasts. */
-export default defineWorkflow<
-  { runtimes: string[]; timeoutMs: number },
-  CoordinatorSmokeResult
->({
+export default defineWorkflow<{ runtimes: string[]; timeoutMs: number }, CoordinatorSmokeResult>({
   meta: {
     name: "coordinator-smoke",
     description: "Agents report to a coordinator outside the run and ask it for a codeword.",

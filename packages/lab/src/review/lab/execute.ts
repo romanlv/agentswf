@@ -796,7 +796,7 @@ export async function executePlan(
       if (running === 0) {
         stopped = true;
         lab.log(
-          `budget: stopped before ${what}; $${listPrice.toFixed(2)} of $${budget} at list prices so far`,
+          `budget: stopped before ${what}; ${usd(listPrice)} of $${budget} at list prices so far`,
         );
         return null;
       }

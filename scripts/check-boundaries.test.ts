@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { boundaryProblems } from "./check-boundaries";
 
-const root = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
+const root = mkdtempSync(join(tmpdir(), "awf-boundaries-"));
 afterAll(() => rm(root, { recursive: true, force: true }));
 
 async function write(files: Record<string, string>): Promise<void> {
@@ -68,7 +68,7 @@ test("sandbox providers stay behind the seam and the composition root", async ()
 });
 
 test("a workflow's test installs the fakes, never a provider, and imports no test runner", async () => {
-  const at = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
+  const at = mkdtempSync(join(tmpdir(), "awf-boundaries-"));
   try {
     for (const [path, contents] of Object.entries({
       "packages/engine/package.json": manifest("@agentswf/engine", "@agentswf/sandbox"),
@@ -93,7 +93,7 @@ test("a workflow's test installs the fakes, never a provider, and imports no tes
 });
 
 test("an example imports agentswf/workflow and agentswf/typebox, and its test agentswf/testing, as an author's do", async () => {
-  const at = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
+  const at = mkdtempSync(join(tmpdir(), "awf-boundaries-"));
   try {
     for (const [path, contents] of Object.entries({
       "examples/package.json": manifest("@agentswf/examples", "agentswf", "@agentswf/engine"),

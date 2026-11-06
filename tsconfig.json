@@ -7,5 +7,5 @@
     "scripts/**/*.ts",
     "tests/**/*.ts"
   ],
-  "exclude": ["node_modules", "**/node_modules", "**/runs", "reference"]
+  "exclude": ["node_modules", "**/node_modules", "**/runs", "reference", "experiments/_archive"]
 }
