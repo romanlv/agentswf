@@ -13,7 +13,7 @@ import { createSrtProvider, findSrt } from ".";
 const home = realpathSync(homedir());
 // The defaults of `harnessState` in packages/harness/src/state.ts, which this package cannot import.
 const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".pi", "agent")];
-const found = await findSrt(process.env, harnessState);
+const found = await findSrt(process.env, harnessState).catch(() => undefined);
 const provider = found && createSrtProvider(found);
 
 sandboxConformance("srt", provider && { provider, confines: true });

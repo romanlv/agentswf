@@ -103,6 +103,7 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[comparison-efficiency]], [[loop-next]] — the loop's next version, when it runs again.
 - [[workflow-in-sandbox]], [[sandbox-host-protection]], [[sandbox-setsid-escape]] — containment's
   edge cases.
+- [[linux-host-sandbox]] — a sandbox on the host on Linux, where awf refuses srt (X24).
 - [[split-large-modules]], [[test-host-teardown]] — the repository's own.
 
 ### P3

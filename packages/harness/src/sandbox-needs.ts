@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { AGENT_SHELL, type HarnessSandboxNeeds } from "@agentswf/sandbox";
+import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 import { CLAUDE_SESSION_SETTINGS } from "./harnesses/claude-settings";
 import { harnessSpec } from "./spec";
 import { HOME_ENV, harnessState } from "./state";
@@ -168,10 +168,10 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     webSearch: { absent: "pi's core has no web tools" },
     hostHome: true,
     // pi runs `/bin/bash` unless told otherwise, and macOS's bash 3.2 writes every heredoc,
-    // `wfa result`'s included, where a sandbox denies it (X22): it runs the sandbox's shell. The
-    // docker image carries both.
+    // `wfa result`'s included, where a sandbox denies it (X22); zsh writes it under `TMPPREFIX`.
+    // The docker image carries zsh too.
     defaults: () => [
-      { name: "settings.json", contents: `${JSON.stringify({ shellPath: AGENT_SHELL })}\n` },
+      { name: "settings.json", contents: `${JSON.stringify({ shellPath: "/bin/zsh" })}\n` },
     ],
   },
   cursor: {

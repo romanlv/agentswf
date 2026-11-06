@@ -3,10 +3,9 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readFile, readlink, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_SHELL } from "../pane";
 import type { AgentContext, ResolvedSandbox, SandboxContext } from "../seam";
-import { createSrtProvider, type SrtOptions } from ".";
-import { agentProfile, baseProfile, checkProfile, DENIED } from "./profile";
+import { createSrtProvider, findSrt, type SrtOptions } from ".";
+import { agentProfile, baseProfile, checkProfile } from "./profile";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-srt-unit-")));
 afterAll(() => rm(root, { recursive: true, force: true }));
@@ -74,7 +73,17 @@ describe("srt profiles", () => {
       enableWeakerNetworkIsolation: true,
       network: { allowedDomains: ["registry.npmjs.org"], deniedDomains: [], allowUnixSockets: [] },
       filesystem: {
-        denyRead: [home, ...DENIED, context.runRoot],
+        denyRead: [
+          home,
+          "/Users",
+          "/home",
+          "/Volumes",
+          "/tmp",
+          "/private/tmp",
+          "/private/var/folders",
+          "/private/var/tmp",
+          context.runRoot,
+        ],
         allowRead: [
           "/Users/op/repo",
           "/Users/op/notes",
@@ -260,6 +269,12 @@ describe("a run root inside the project", () => {
 });
 
 describe("the srt provider", () => {
+  test("refuses Linux, where srt does not yet hold what awf asks of it", async () => {
+    await expect(findSrt({ PATH: "/usr/bin" }, [], "linux")).rejects.toThrow(
+      'srt is macOS-only in awf for now; on Linux name "docker": {}',
+    );
+  });
+
   test("refuses a write inside a read inside a write, which srt would deny", async () => {
     await expect(
       createSrtProvider(host).open(
@@ -323,8 +338,8 @@ describe("the srt provider", () => {
       HOME: "/nonexistent-home",
       PATH: "/Users/op/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
       CLAUDE_CODE_TMPDIR: join(directory, "tmp"),
-      SHELL: AGENT_SHELL,
-      ...(AGENT_SHELL === "/bin/zsh" ? { TMPPREFIX: join(directory, "tmp", "zsh") } : {}),
+      SHELL: "/bin/zsh",
+      TMPPREFIX: join(directory, "tmp", "zsh"),
       GIT_CONFIG_GLOBAL: join(directory, "homes", "h1", "gitconfig"),
       npm_config_cache: join(directory, "tmp", "npm"),
       CODEX_HOME: join(directory, "homes", "h1"),
@@ -346,15 +361,13 @@ describe("the srt provider", () => {
     expect(pane.prelude).not.toContain("SOME_TOKEN");
     expect(pane.prelude).not.toContain("'secret'");
     // What its prompt shows, the typed prelude cannot.
-    expect(pane.ready).toMatch(
-      AGENT_SHELL === "/bin/zsh" ? /^awf-%-[0-9a-f]{32}% $/ : /^awf-%-[0-9a-f]{32}\$ $/,
-    );
+    expect(pane.ready).toMatch(/^awf-%-[0-9a-f]{32}% $/);
     expect(pane.prelude).not.toContain(pane.ready.trimEnd());
-    expect(pane.prelude).toContain(`'\\''${AGENT_SHELL}'\\''`);
+    expect(pane.prelude).toContain(`'\\''/bin/zsh'\\'' '\\''-f'\\'' '\\''+m'\\''`);
     const bin = /PATH='([^:']+)/.exec(pane.prelude)![1]!;
     expect(await readlink(join(bin, "codex"))).toBe("/opt/codex/bin/codex");
     expect(pane.prelude).toContain("TERM='xterm-256color'");
-    expect(pane.prelude).toContain(AGENT_SHELL === "/bin/zsh" ? "TMPPREFIX=" : "PROMPT_COMMAND=");
+    expect(pane.prelude).toContain("TMPPREFIX=");
     const [secrets] = await readdir(`${directory}.secrets`);
     const secretsFile = join(`${directory}.secrets`, secrets!);
     expect(await readFile(secretsFile, "utf8")).toBe("SOME_TOKEN='secret'\n");

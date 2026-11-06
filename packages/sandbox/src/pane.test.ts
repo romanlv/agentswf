@@ -3,22 +3,16 @@ import { existsSync, mkdtempSync, realpathSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_SHELL, panePrelude } from "./pane";
+import { panePrelude } from "./pane";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "awf-pane-")));
 afterAll(() => rm(root, { recursive: true, force: true }));
 
-test("an srt agent's shell is zsh on macOS and bash elsewhere", () => {
-  expect(AGENT_SHELL).toBe(process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
-});
-
-// Each shell a pane may run, where this machine has it: the platform's own always.
-const shells = (["/bin/zsh", "/bin/bash"] as const).filter((shell) => existsSync(shell));
-
-describe.each(shells)("a pane whose shell is %s", (shell) => {
-  test("shows its prompt only once the shell draws it, through a non-interactive bash", async () => {
-    const pidFile = join(root, shell.slice(5), "pid");
-    const secretsFile = join(root, `${shell.slice(5)}.secrets`);
+// A pane's shell is zsh, which every Mac has; the docker image carries it too.
+describe.skipIf(!existsSync("/bin/zsh"))("a pane's zsh", () => {
+  test("shows its prompt only once zsh draws it, through a non-interactive bash", async () => {
+    const pidFile = join(root, "pane", "pid");
+    const secretsFile = join(root, "pane.secrets");
     await writeFile(secretsFile, "PANE_TOKEN='pane-secret'\n");
     // srt runs its command through `bash -c`, which drops an inherited `PS1`.
     const pane = panePrelude({
@@ -26,7 +20,6 @@ describe.each(shells)("a pane whose shell is %s", (shell) => {
       pidFile,
       secretsFile,
       through: ["/bin/bash", "-c", 'exec "$@"', "bash"],
-      shell,
     });
     expect(pane.prelude).not.toContain(pane.ready.trimEnd());
     let shown = "";
@@ -49,7 +42,7 @@ describe.each(shells)("a pane whose shell is %s", (shell) => {
       expect(existsSync(secretsFile)).toBe(false);
       expect((await readFile(pidFile, "utf8")).trim()).toMatch(/^\d+$/);
       process.terminal!.write('echo "token=$PANE_TOKEN shell=$0"\n');
-      expect(await until(() => shown.includes(`token=pane-secret shell=${shell}`))).toBe(true);
+      expect(await until(() => shown.includes("token=pane-secret shell=/bin/zsh"))).toBe(true);
       process.terminal!.write("exit\n");
       expect(await process.exited).toBe(0);
     } finally {

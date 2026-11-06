@@ -71,8 +71,9 @@ sandboxed agent of theirs reads a token from awf's environment instead.
 A sandbox limits what an agent can write and reach. It needs one of:
 
 - **srt**, Anthropic's [sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime),
-  with `srt` and `node` on your PATH, and bubblewrap on Linux. On its first use in a run awf checks
-  that srt really confines on this machine, and stops if it doesn't.
+  with `srt` and `node` on your PATH. macOS only for now: on Linux awf refuses it, so use docker
+  there. On its first use in a run awf checks that srt really confines on this machine, and stops
+  if it doesn't.
 - **docker**, with its daemon running and awf's image built once: the first docker sandbox stops
   with the `docker build` command to run
   ([Troubleshooting](/guide/troubleshooting#docker-the-sandbox-image-image-is-not-built)). A docker

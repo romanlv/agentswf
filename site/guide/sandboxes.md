@@ -48,7 +48,8 @@ sandbox's `cwd`, and `~` is your home.
 **srt** is Anthropic's
 [sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime). Agents run on your
 machine with your toolchain: the same `bun`, `node` and compilers you use, minus your home
-directory and whatever the spec doesn't name. Each agent is wrapped on its own.
+directory and whatever the spec doesn't name. Each agent is wrapped on its own. It runs on macOS
+only for now; on Linux, use docker.
 
 **docker** runs the agents in one container per sandbox, as your user, from awf's image or the one
 you name with `docker: { image }`. Paths you name are mounted at the same path, and traffic leaves

@@ -3,7 +3,6 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { AGENT_SHELL } from "@agentswf/sandbox";
 import { hostHome, sandboxedArgs, sandboxNeeds } from "./sandbox-needs";
 import { HARNESSES } from "./spec";
 
@@ -156,9 +155,9 @@ describe("sandboxNeeds", () => {
     });
     expect(sandboxedArgs("pi", false)).toEqual(["--no-extensions"]);
     expect(sandboxedArgs("pi", true)).toEqual(["--no-extensions"]);
-    // Its shell is the sandbox's, whose heredocs a sandbox lets it write (X22).
+    // Its shell is zsh, whose heredocs a sandbox lets it write (X22).
     expect(needs.defaults("/repo")).toEqual([
-      { path: join(agentHome, "settings.json"), contents: `{"shellPath":"${AGENT_SHELL}"}\n` },
+      { path: join(agentHome, "settings.json"), contents: '{"shellPath":"/bin/zsh"}\n' },
     ]);
     const anthropic = await sandboxNeeds("pi", agentHome, "anthropic/claude-opus-4-8", environment);
     expect(anthropic.domains).toContain("api.anthropic.com");

@@ -438,6 +438,15 @@ The spec names a provider that isn't on this machine. Install it
 ([Install](/guide/install#sandboxes)), or name the one you have. A provider that is installed but
 can't be used says why instead: `the srt sandbox provider is not usable: {why}`.
 
+### `srt is macOS-only in awf for now`
+
+```text
+the srt sandbox provider is not usable: srt is macOS-only in awf for now; on Linux name "docker": {}
+```
+
+On Linux, srt doesn't yet hold a sandbox the way awf needs: git, the network and the agent's way
+back to awf all fail inside it. Name `docker: {}` in the spec instead.
+
 ### `a sandbox spec names its provider`
 
 ```text
@@ -475,7 +484,7 @@ srt does not confine on this machine: its probe read a denied file or domain
 ```
 
 On its first use in a run, awf checks that srt really holds a process in, and it didn't, so the
-sandbox doesn't open. On Linux, srt needs bubblewrap installed. Until srt confines, name
+sandbox doesn't open. Until srt confines, name
 `docker: {}` in the spec.
 
 ### `would expose ~`

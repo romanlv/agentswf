@@ -414,6 +414,8 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 
 ## Known gaps
 
+- On Linux the only sandbox is docker: awf refuses srt there, which does not yet hold what awf
+  asks of it (X24, [`linux-host-sandbox`](stories/todo/linux-host-sandbox.md)).
 - An agent opened without a sandbox runs with the operator's authority, and a sandboxed one still
   spends the operator's login, which a refresh in its copy may rotate (X13). The harness-level
   permissions are designed, not built, but for a sandboxed claude's prompts, which are off

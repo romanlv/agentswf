@@ -18,7 +18,7 @@ import type { SrtEnvironment } from "@agentswf/contract/workflow";
 import { protectedPaths } from "../git";
 import { LaunchedGroups } from "../groups";
 import { onceUnlessFailed } from "../once";
-import { AGENT_SHELL, panePrelude } from "../pane";
+import { panePrelude } from "../pane";
 import { contains, DOORS_PREFIX, repositoryOf } from "../resolve";
 import type {
   OpenedSandbox,
@@ -56,7 +56,7 @@ const MAX_TIMER_MS = 2_147_483_647;
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
 /** Where an agent's short directory is made: `/tmp` by its real path, which srt matches. */
-const SHORT_ROOT = process.platform === "darwin" ? "/private/tmp" : "/tmp";
+const SHORT_ROOT = "/private/tmp";
 
 /**
  * Anthropic's sandbox-runtime on this machine. A sandbox is a base profile; each admitted agent
@@ -157,11 +157,12 @@ function openSandbox(
         HOME: options.home,
         PATH: [...options.path, ...SYSTEM_PATH].join(":"),
         CLAUDE_CODE_TMPDIR: temp,
-        // The `wfa result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file: zsh
-        // writes it under `TMPPREFIX`, `/tmp/zsh` by default, which is denied, so it is moved into
-        // the sandbox's temp; bash writes it in `TMPDIR`, which srt sets there (X22).
-        SHELL: AGENT_SHELL,
-        ...(AGENT_SHELL === "/bin/zsh" ? { TMPPREFIX: join(temp, "zsh") } : {}),
+        // The `wfa result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file. zsh
+        // writes it under `TMPPREFIX`, `/tmp/zsh` by default, which is denied; macOS's bash 3.2
+        // writes it in `/var/tmp` whatever `TMPDIR` says, which is denied too (X22). So the
+        // harnesses' shell is zsh, its heredocs in the sandbox's temp.
+        SHELL: "/bin/zsh",
+        TMPPREFIX: join(temp, "zsh"),
         GIT_CONFIG_GLOBAL: gitconfig,
         npm_config_cache: join(temp, "npm"),
         ...agent.harness.env,
@@ -208,8 +209,8 @@ function openSandbox(
           unread.push(secretsFile);
           return {
             herdr: "run",
+            // zsh, as srt's bash drops `PS1`.
             ...panePrelude({
-              shell: AGENT_SHELL,
               environment: {
                 ...environment,
                 PATH: [bin, ...options.path, ...SYSTEM_PATH].join(":"),
@@ -337,7 +338,13 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
 export async function findSrt(
   environment: Readonly<Record<string, string | undefined>>,
   harnessState: readonly string[],
+  platform: NodeJS.Platform = process.platform,
 ): Promise<SrtOptions | undefined> {
+  // On Linux srt 0.0.81 loses a write nested in a read, git, the network with `/tmp` denied, and
+  // every Unix socket, the door's among them (docs/findings/sandbox-providers.md, X23).
+  if (platform !== "darwin") {
+    throw new Error('srt is macOS-only in awf for now; on Linux name "docker": {}');
+  }
   const home = await realpath(environment.HOME ?? homedir());
   const state = await Promise.all(harnessState.map((root) => realpath(root).catch(() => root)));
   const path = (environment.PATH ?? "").split(":").filter(Boolean);
