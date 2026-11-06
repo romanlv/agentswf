@@ -37,6 +37,17 @@ Two parts:
    observed billing, and list-price estimates as estimates. `OutputRecord` is a published format:
    bump its version, and change `awf.review-findings/1` and `awf.review-score/1`'s run summary
    with it (story 008 keeps `charged` there today).
+
+   **Done, 2026-11-06, before 0.1.0:** the rename. `charged` is `reportedCost` wherever awf
+   records or sums it (`spend.json`, `SettledOperation`, `SettledDecision`, `AccountingFigures`,
+   `DecisionFigures`), `out.json` is version 6, and `awf run`'s line prints `$0.42 reported`. Each
+   JSON file in `ops/{key}.{n}/` now carries a `version` (1), and a reader refuses a file without
+   it, or with another: its usage, or the run's cost, reads as unknown. **Remains:** provenance
+   itself, `observed` or `assumed` on `Billing`, and a `charged` kept only for observed metered
+   billing; and `awf-lab`'s
+   run summary, which still keeps the figure as `charged`: its formats are already at
+   `awf.review-findings/2`, `awf.review-score/2` and `awf.review-partial/2`, read beside `/1`,
+   so renaming it is a `/3` with a third reading, left for the operator to decide.
 2. **The rule itself.** `meteredHeadless` rests on E3 and story 002 ("`claude -p` bills per token
    even on a subscription login", untried live then, as the account had no API credit); story 004
    left the setup-token case open "until the account's usage shows otherwise". Measure it: one
