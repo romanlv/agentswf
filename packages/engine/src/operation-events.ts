@@ -31,7 +31,7 @@ export function createOperationEvents(
   record(event: OperationEvent): void;
   close(): Promise<void>;
 } {
-  const path = eventFile(runDir, operationId);
+  const path = liveFile(runDir, operationId);
   const write = options.write ?? append;
   const schedule =
     options.schedule ??
@@ -145,7 +145,7 @@ export function createOperationEvents(
   };
 }
 
-function validEvent(value: OperationEvent): boolean {
+export function validEvent(value: OperationEvent): boolean {
   return (
     typeof value.kind === "string" &&
     (OPERATION_LIVENESS_KINDS as readonly string[]).includes(value.kind) &&
@@ -173,9 +173,6 @@ function bound(value: number | undefined, fallback: number, minimum: number): nu
   if (!Number.isSafeInteger(actual) || actual < minimum)
     throw new Error(`diagnostic bound must be an integer >= ${minimum}`);
   return actual;
-}
-function eventFile(runDir: string, operationId: string): string {
-  return liveFile(runDir, operationId);
 }
 async function append(path: string, line: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
