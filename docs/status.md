@@ -262,13 +262,13 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
 - [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
   awaiting human review. Live on every harness, headless and in their TUI, claude in its TUI only.
-- [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): tasks 1–2 built,
-  task 3's code and a live check done; the watcher's case run in Slack waits for the operator.
+- [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): done;
+  the watcher's case run in Slack is left to the operator.
   `keepAlive: { window?, onTimeout? }` on an agent of a workflow with events keeps the run live
   for a window after its turns, so a message then is a warm turn in the same pane, and its
   `onTimeout` compacts it before the run parks. ADR 0012.
 - [037 — a workflow waits on time in code that says what it waits for](stories/037-workflow-timers.md):
-  built, awaiting human review. Named timers that a wait takes as `timer:due` once due; sources
+  done. Named timers that a wait takes as `timer:due` once due; sources
   (timers, signals, participants, agents, turns); `race`, recorded by name; `select`, a loop beside
   `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer. A
   select's branch can be a time read from state, `wf.at(() => date)`, that follows the state
@@ -280,8 +280,7 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   done. `agentswf/client`:
   typed `emit` (events and replies), `start` with recorded args, `get`, `inbox` and `wait`; the
   fake client; one engine per project, the `agentswf` it depends on, the global `awf` handing over.
-- [041 — a run's records, one home per fact](stories/041-run-record-layout.md): built, awaiting
-  human review. A run's folder has the layout of [`design/run-record.md`](design/run-record.md):
+- [041 — a run's records, one home per fact](stories/041-run-record-layout.md): done. A run's folder has the layout of [`design/run-record.md`](design/run-record.md):
   `run.json` with `format: 1`; `run.jsonl`, what the run settled (claims, stage ends, races,
   timers, waits and what they took, started turns and their ends, sessions), one writer fenced by
   each attempt's `claimed` line, read through `contract`'s published `readRun`; `in.jsonl`, the

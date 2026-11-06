@@ -149,11 +149,11 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wfa tool`
   mid-turn, and the handler's return value is the tool's result.
 - [`036` — An agent stays live after its turn, and compacts before the run parks](036-agent-keep-alive.md) —
-  `in-progress` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
+  `done` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
   follow-up is a warm turn in the same pane; at the window's end its `onTimeout` handler can
   compact it with a focus written then; the run parks once every window has passed.
 - [`037` — A workflow waits on time in code that says what it waits for](037-workflow-timers.md) —
-  `awaiting-human-review` — named timers, typed sources, a named `race` that takes only its winner, `select`
+  `done` — named timers, typed sources, a named `race` that takes only its winner, `select`
   as its loop form beside `receive`, and `sleep`, so time reads well in a loop and in straight-line
   code alike.
 - [`038` — agents.wf shows what the project is and how to use it, for people and agents](038-agents-wf-site.md) —
@@ -168,7 +168,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — an ordinary Bun program imports a workflow and emits events to it, starts runs and
   waits on them in-process, typed from the workflow, on the engine the project depends on.
 - [`041` — A run's records, one home per fact](041-run-record-layout.md) —
-  `awaiting-human-review` — a run's folder gets the run-record design's layout: `run.jsonl` with a
+  `done` — a run's folder gets the run-record design's layout: `run.jsonl` with a
   published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
   ends.
 - [[043-json-refusals|043 — Every --json command says why it failed, as a document]] —

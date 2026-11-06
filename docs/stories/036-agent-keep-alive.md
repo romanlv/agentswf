@@ -3,7 +3,7 @@ id: "036"
 title: "An agent stays live after its turn, and compacts before the run parks"
 summary: "An agent opened with keepAlive keeps the run live for a while after its last turn, so a follow-up is a warm turn in the same pane; when its window passes, its onTimeout handler can compact it with a focus written then, while the cache is warm. The run parks once every window has passed and its handlers have run."
 type: story
-status: in-progress
+status: done
 depends_on: ["034"]
 ---
 
@@ -528,6 +528,8 @@ checks the mailbox file's size each second, as every wait does for a lost nudge.
 - [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Accepted 2026-11-05 as
+  built: tasks 1–2 and the `examples/keep-alive` live check. Task 3's case run in Slack was not
+  run; it is left to the operator, outside this story.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

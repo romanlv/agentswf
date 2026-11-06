@@ -3,7 +3,7 @@ id: "041"
 title: "A run's records, one home per fact"
 summary: "A run's folder gets the layout of docs/design/run-record.md: run.json, run.jsonl with a published readRun, in.jsonl, attempts/, log.jsonl, ops/{agent}.{n}/, out.json and work/, before agents.wf leaves evaluation."
 type: story
-status: awaiting-human-review
+status: done
 depends_on: ["039"]
 ---
 
@@ -1796,6 +1796,6 @@ ends:
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Accepted 2026-11-05.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

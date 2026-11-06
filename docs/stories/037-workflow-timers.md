@@ -3,7 +3,7 @@ id: "037"
 title: "A workflow waits on time in code that says what it waits for"
 summary: "Reminders, expiries, retries, debounces and follow-ups read as what they are, in a loop and in straight-line code alike: named timers, typed sources, a named race that takes only its winner, select as its loop form beside receive, and sleep."
 type: story
-status: awaiting-human-review
+status: done
 depends_on: ["034"]
 ---
 
@@ -916,6 +916,8 @@ Manual or live evaluation:
 
 - [x] Task 5's live run, on a cheap model (Implementation notes).
 - [x] Task 6's live run, `examples/nudges` (Implementation notes).
+
+Human review: accepted 2026-11-05.
 
 ## Review record
 
