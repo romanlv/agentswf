@@ -213,15 +213,20 @@ describe("runWorkflow", () => {
   });
 
   test("a host acquired after the run deadline is still closed", async () => {
+    // The clock stands still until the host is asked for, so the deadline passes while it opens.
+    const now = Date.now();
+    setSystemTime(new Date(now));
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const deadline = { unixMilliseconds: now + 20 };
     let closed = false;
     const runtime: AgentRuntimeConfig = {
       aliases: {},
       host: {
         async openRun() {
+          setSystemTime(new Date(deadline.unixMilliseconds));
           await gate;
           return {
             openAgent: async () => {
@@ -238,13 +243,13 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("late-host", async () => {
       return null;
     });
-    const running = runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      runtime,
-      deadline: { unixMilliseconds: Date.now() + 20 },
-    });
+    const running = runNew(workflow, null, { runRoot: tempRunDir(), runtime, deadline });
 
-    await expect(running).rejects.toBeInstanceOf(DeadlineExceededError);
+    try {
+      await expect(running).rejects.toBeInstanceOf(DeadlineExceededError);
+    } finally {
+      setSystemTime();
+    }
     release();
     await Bun.sleep(0);
     expect(closed).toBe(true);
@@ -672,10 +677,17 @@ describe("runWorkflow", () => {
   });
 
   test("cleanup is bounded when activation and adapter close never settle", async () => {
+    // The clock stands still until the turn acts, then runs again: the deadline passes during
+    // the turn, and the cleanup grace after it is timed by the real clock.
+    const now = Date.now();
+    setSystemTime(new Date(now));
     let closeStarted = 0;
     const base = createFakeAdapter({
       script: () => ({
-        act: () => new Promise<void>(() => undefined),
+        act: () => {
+          setSystemTime();
+          return new Promise<void>(() => undefined);
+        },
       }),
     });
     const adapter: AgentSessionAdapter = {
@@ -700,16 +712,16 @@ describe("runWorkflow", () => {
       await active.run({ prompt: "Wait.", timeout: "60s" });
       return null;
     });
-    const startedAt = Date.now();
+    const startedAt = now;
     const result = runNew(workflow, null, {
       runRoot: tempRunDir(),
       runtime: runtime(adapter),
-      deadline: { unixMilliseconds: Date.now() + 30 },
+      deadline: { unixMilliseconds: now + 30 },
     });
     const error = await Promise.race([
       causeOf(result),
       Bun.sleep(6_000).then(() => new Error("cleanup did not respect its shutdown grace")),
-    ]);
+    ]).finally(() => setSystemTime());
 
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors[0]).toBeInstanceOf(DeadlineExceededError);
