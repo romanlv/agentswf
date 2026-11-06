@@ -30,7 +30,9 @@ const VERDICT: OutputSchema<{ verdict: string }> = {
   additionalProperties: false,
 };
 const PURPOSE = "Review and revise the implementation until both agree it is ready.";
-const POLICY = { quietMs: 20, responseMs: 2_000, deliveryMs: 2_000, releaseMs: 50 };
+// An answered turn that hasn't ended within releaseMs fails the run as cleanup-unresolved: a short
+// one fails on a loaded machine.
+const POLICY = { quietMs: 20, responseMs: 2_000, deliveryMs: 2_000, releaseMs: 5_000 };
 
 type Turn = FakeAdapterTurnContext;
 type Script = (turn: Turn) => Promise<FakeAdapterTurn | undefined> | FakeAdapterTurn | undefined;
@@ -538,6 +540,7 @@ describe("messaging through the runner", () => {
   });
 
   test("stopping an agent closes its routes and fails what it owed", async () => {
+    const woken = Promise.withResolvers<void>();
     const { outcome } = await run(
       {
         asker: [
@@ -557,14 +560,20 @@ describe("messaging through the runner", () => {
             return {};
           },
         ],
-        peer: [async (turn) => sleep(200, turn.signal)],
+        peer: [
+          async (turn) => {
+            woken.resolve();
+            return sleep(30_000, turn.signal);
+          },
+        ],
       },
       async (context) => {
         const asker = await open(context, "asker");
         const peer = await open(context, "peer");
         await context.messages.allow({ from: asker, to: peer, purpose: "Ask." });
         const asked = asker.run({ prompt: "Ask.", schema: VERDICT });
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // The question has reached the peer, which is still working on it.
+        await woken.promise;
         await peer.close("not needed");
         return (await asked).outcome.kind;
       },
@@ -663,6 +672,8 @@ describe("messaging through the runner", () => {
   });
 
   test("a question withdrawn while its peer compacts leaves no operation of its own", async () => {
+    const compacting = Promise.withResolvers<void>();
+    const answered = Promise.withResolvers<void>();
     const { outcome, ops } = await run(
       {
         asker: [
@@ -672,16 +683,25 @@ describe("messaging through the runner", () => {
             return {};
           },
         ],
-        busy: [async (turn) => ({ ...(await sleep(150, turn.signal)), summary: "kept" })],
+        // Compacting for the whole of the asker's call, so the question is held, never shown.
+        busy: [
+          async () => {
+            compacting.resolve();
+            await answered.promise;
+            return { summary: "kept" };
+          },
+        ],
       },
       async (context) => {
         const asker = await open(context, "asker");
         const busy = await open(context, "busy");
         await context.messages.allow({ from: asker, to: busy, purpose: "Ask." });
-        const compacting = busy.compact({ prompt: "Keep it." });
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        const asked = await asker.run({ prompt: "Ask.", schema: VERDICT });
-        await compacting;
+        const compacted = busy.compact({ prompt: "Keep it." });
+        await compacting.promise;
+        const asked = await asker
+          .run({ prompt: "Ask.", schema: VERDICT })
+          .finally(() => answered.resolve());
+        await compacted;
         return asked.outcome.kind;
       },
     );
@@ -981,6 +1001,8 @@ describe("messaging through the runner", () => {
   });
 
   test("a result drops the wait; the question it had not shown is withdrawn", async () => {
+    const working = Promise.withResolvers<void>();
+    const answered = Promise.withResolvers<void>();
     const { outcome, adapter, log } = await run(
       {
         asker: [
@@ -990,16 +1012,25 @@ describe("messaging through the runner", () => {
             return {};
           },
         ],
-        busy: [async (turn) => sleep(150, turn.signal)],
+        // Busy for the whole of the asker's call, so the question is held, never shown.
+        busy: [
+          async () => {
+            working.resolve();
+            await answered.promise;
+            return {};
+          },
+        ],
       },
       async (context) => {
         const asker = await open(context, "asker");
         const busy = await open(context, "busy");
         await context.messages.allow({ from: asker, to: busy, purpose: "Ask." });
-        const working = busy.run({ prompt: "Work.", nudge: false });
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        const asked = await asker.run({ prompt: "Ask.", schema: VERDICT });
-        await working;
+        const worked = busy.run({ prompt: "Work.", nudge: false });
+        await working.promise;
+        const asked = await asker
+          .run({ prompt: "Ask.", schema: VERDICT })
+          .finally(() => answered.resolve());
+        await worked;
         return asked.outcome.kind;
       },
     );
