@@ -195,8 +195,9 @@ export default defineWorkflow({
 });
 ```
 
-`awf run` prints the agent's answer, `{ "answer": 391 }`, and a line on time, tokens and estimated
-cost. The run's full record stays in `.awf/runs/hello/{id}`.
+`awf run` prints a line on time, tokens and estimated cost, then the run's record as JSON, whose
+`value` is the agent's answer, `{ "answer": 391 }`; a workflow's `present` prints something shorter
+instead. The record stays in `.awf/runs/hello/{id}`.
 
 ### Things to know
 

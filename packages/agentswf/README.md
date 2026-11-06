@@ -85,8 +85,9 @@ export default defineWorkflow({
 });
 ```
 
-`awf run` prints `{ "answer": 391 }` and a line on time, tokens and estimated cost. The run's
-record stays in `.awf/runs/hello/{id}`; `awf runs` and `awf logs` show what it did.
+`awf run` prints a line on time, tokens and estimated cost, then the run's record as JSON, its
+`value` `{ "answer": 391 }`; a workflow's `present` prints something shorter instead. The record
+stays in `.awf/runs/hello/{id}`; `awf runs` and `awf logs` show what it did.
 
 ## What this package gives you
 
