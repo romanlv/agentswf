@@ -127,10 +127,6 @@ export async function openCommand(
   out: Out,
   context: OpenContext = {},
 ): Promise<number> {
-  if (argv[0] === "-h" || argv[0] === "--help") {
-    out.stdout(openUsage);
-    return 0;
-  }
   let place: ReadPlace;
   let json: boolean;
   let options: Options;
