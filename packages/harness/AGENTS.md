@@ -23,7 +23,7 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `allowance.ts` | `readAllowance`: what is left of a harness's plan, by its own command or its TUI's usage screen |
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `placement-host.ts` | one run host over a TUI host and a headless one, routing each agent and its accounting by placement |
-| `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
+| `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent) and the command runner every Herdr path uses |
 | `turns/record.ts` | reading a pane's turn from its harness's own session files, bounded: the file found by the prompt's delivery marker, then its rows told to the harness's reducer |
 | `turns/claude.ts`, `turns/codex.ts` | each harness's reducer over those rows: the prompt taken in, its model's answer, the turn's end or interrupt; claude's also confirms delivery. `turns/fixtures/` holds the rows each version writes |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the waits and outcomes every pane path shares |

@@ -3,7 +3,6 @@ import { isAbsolute } from "node:path";
 import { type PaneHerdr, type PaneTerminal, shellQuote } from "@agentswf/sandbox";
 import type {
   AgentRunHostFactory,
-  AgentSessionAdapter,
   NativeFork,
   PanePlacement,
   SessionCopy,
@@ -27,13 +26,7 @@ import {
   reasonOf,
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
-import {
-  findHarness,
-  HARNESS_NAMES,
-  harnessSpec,
-  knownHarness,
-  PLACEMENT_HARNESSES,
-} from "../spec";
+import { findHarness, harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { harnessState } from "../state";
 import { prepareTurnRecord, watchSessionEnd } from "../turns/record";
 import type { Harness } from "../types";
@@ -65,8 +58,6 @@ import {
   herdrFailure,
   observeRelease,
   paneCancelled,
-  readId,
-  readPaneId,
   readSessionRef,
   releaseDeadlineExceeded,
   releasedOutcome,
@@ -568,201 +559,6 @@ const TYPED_START_SETTLE_MS = 10_000;
 const TYPED_START_POLL_MS = 300;
 /** How often a pane whose harness looks idle while it compacts is read for the compaction's end. */
 const COMPACTION_POLL_MS = 500;
-
-export function createPaneAdapter(
-  config: HerdrConfig,
-  run: RunProcess = runProcess,
-): AgentSessionAdapter {
-  const emptyEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
-  const { herdr, startAgent } = createHerdrCommands(config, run);
-  return createSessionAdapter({
-    harnesses: HARNESS_NAMES,
-    async activate(request) {
-      const harness = knownHarness(request.execution.harness);
-      const spec = harnessSpec(harness);
-      const identity: { sessionId: string; cwd: string } = {
-        sessionId: randomUUID(),
-        cwd: request.cwd,
-      };
-      const openWorkspaces = new Set<string>();
-      let executed = false;
-      let closed = false;
-      let activeController: AbortController | undefined;
-      let activeCompletion: Promise<void> | undefined;
-
-      const closeWorkspace = async (workspaceId: string): Promise<void> => {
-        const result = await herdr(["workspace", "close", workspaceId]);
-        if (result.ok) {
-          openWorkspaces.delete(workspaceId);
-          return;
-        }
-        throw new Error(`workspace close failed: ${result.error}`);
-      };
-      const closeOpenWorkspaces = async (): Promise<void> => {
-        const results = await Promise.allSettled([...openWorkspaces].map(closeWorkspace));
-        const failed = results.find((result) => result.status === "rejected");
-        if (failed?.status === "rejected") throw failed.reason;
-      };
-
-      return {
-        identity,
-        async execute(operation) {
-          if (closed) throw new Error("pane session is closed");
-          if (executed || operation.previousSessionRef) {
-            return localOutcome(
-              "failed",
-              "safe pane continuation is unavailable without a measured " +
-                "interactive-resume primitive",
-            );
-          }
-          executed = true;
-          const remaining = () => operation.deadline.unixMilliseconds - Date.now();
-          if (remaining() <= 0) return deadlineExceeded();
-          const controller = new AbortController();
-          activeController = controller;
-          let finish!: () => void;
-          activeCompletion = new Promise<void>((resolve) => {
-            finish = resolve;
-          });
-          let workspaceId: string | undefined;
-          try {
-            const prompt = request.instructions
-              ? `${request.instructions}\n\n${operation.prompt}`
-              : operation.prompt;
-            const name = safeAgentName(
-              `wf-${request.key}`,
-              operation.binding?.operationId ?? `${request.key}-${operation.id}`,
-            );
-            const created = await herdr(
-              [
-                "workspace",
-                "create",
-                "--label",
-                `${config.workspaceLabel} ${request.key} ${operation.id}`,
-                ...emptyEnvironment,
-                "--cwd",
-                request.cwd,
-                "--no-focus",
-              ],
-              Math.max(1, remaining()),
-              controller.signal,
-            );
-            if (!created.ok) return herdrFailure(created, remaining());
-            const paneId = readPaneId(created.result);
-            workspaceId = readId(created.result.workspace, "workspace_id");
-            if (workspaceId) openWorkspaces.add(workspaceId);
-            if (!paneId || !workspaceId) {
-              throw new Error("workspace create returned incomplete identity");
-            }
-            const launch = spec.interactive(launchSettings(request.execution));
-            const started = await startAgent(
-              name,
-              harness,
-              paneId,
-              launch.argv.slice(1),
-              operation.deadline.unixMilliseconds,
-              controller.signal,
-            );
-            if (!started.ok) {
-              const login = started.cancelled
-                ? undefined
-                : await loginShown(
-                    herdr,
-                    harness,
-                    paneId,
-                    config.commandTimeoutMs,
-                    controller.signal,
-                  );
-              if (controller.signal.aborted || started.cancelled) {
-                return paneCancelled();
-              }
-              return (
-                login ??
-                localOutcome(
-                  started.timedOut || remaining() <= 0 ? "timed-out" : "failed",
-                  `agent start failed after ${started.attempts}: ${started.error}`,
-                )
-              );
-            }
-            if (remaining() <= 0) return deadlineExceeded();
-            const waitMs = Math.max(1, remaining());
-            const sent = await herdr(
-              ["agent", "prompt", name, prompt, "--wait", "--timeout", String(waitMs)],
-              waitMs + HERDR_REPORT_GRACE_MS,
-              controller.signal,
-            );
-            if (!sent.ok) {
-              const login = sent.cancelled
-                ? undefined
-                : await loginShown(
-                    herdr,
-                    harness,
-                    paneId,
-                    config.commandTimeoutMs,
-                    controller.signal,
-                    operation.binding?.operationId,
-                  );
-              if (sent.cancelled || controller.signal.aborted) {
-                return paneCancelled();
-              }
-              return login ?? herdrFailure(sent, remaining());
-            }
-            if (remaining() <= 0) return deadlineExceeded();
-            const read = await herdr(
-              ["agent", "read", name, "--source", "detection"],
-              Math.max(1, remaining()),
-              controller.signal,
-            );
-            if (!read.ok && read.cancelled) {
-              return paneCancelled();
-            }
-            const herdrSaid = herdrSettled(harness, sent);
-            const outcome = paneOutcome(
-              harness,
-              herdrSaid.settled,
-              herdrSaid.session,
-              read,
-              await loginShown(
-                herdr,
-                harness,
-                paneId,
-                config.commandTimeoutMs,
-                controller.signal,
-                operation.binding?.operationId,
-                read.ok ? read.stdout : "",
-              ),
-            );
-            if (outcome.sessionRef) identity.sessionId = outcome.sessionRef;
-            return outcome;
-          } finally {
-            try {
-              if (workspaceId && openWorkspaces.has(workspaceId)) await closeWorkspace(workspaceId);
-            } catch {
-              // A failed close leaves the workspace in `openWorkspaces` for `close()` to retry and
-              // report; it must not overwrite the outcome this operation already produced.
-            } finally {
-              if (activeController === controller) activeController = undefined;
-              finish();
-            }
-          }
-        },
-        async close() {
-          if (closed) return;
-          activeController?.abort();
-          await activeCompletion;
-          await closeOpenWorkspaces();
-          closed = true;
-        },
-        async cancel() {
-          if (!activeController) return false;
-          activeController.abort();
-          await activeCompletion;
-          return true;
-        },
-      };
-    },
-  });
-}
 
 /** The production host: a pane for each agent, placed as its layout says. */
 export function createHerdrRunHostFactory(
