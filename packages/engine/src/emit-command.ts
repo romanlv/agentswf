@@ -1,10 +1,10 @@
 import type { EmitResultJson } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
+import { type Out, parsePlace, type ReadPlace } from "./command-line";
 import { EmitError, emitEvent, emitToRun } from "./emit";
 import { messageOf } from "./errors";
 import help from "./help/emit.txt" with { type: "text" };
 import { asksJson, printRefusal, readFailureCode } from "./refusals";
-import { type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef } from "./run-state";
 import type { Launch } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";

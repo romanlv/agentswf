@@ -10,10 +10,10 @@ import {
 import type { AttemptRecord, ClaimedAttempt, OutputRecord } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
+import { shellLine } from "../command-line";
 import { messageOf } from "../errors";
 import { exists } from "../files";
 import { recordProject } from "../projects";
-import { shellLine } from "../run-commands";
 import { lockHeld, runLockFile, withRunLock } from "../run-lock";
 import { type RunState, runStatus, statusOf, stuckOf } from "../run-state";
 import {

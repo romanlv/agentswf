@@ -30,6 +30,7 @@ import {
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
+import { placeFlags, shellLine } from "./command-line";
 import { type CommandName, helpOf, index, isCommand, reference, unknownCommand } from "./commands";
 import {
   type LineReader,
@@ -58,7 +59,7 @@ import {
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { asksJson, NO_JSON, printRefusal, readFailureCode, refusalLine } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
-import { placeFlags, shellLine, startedLine } from "./run-commands";
+import { startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
 import {
   claimNext,

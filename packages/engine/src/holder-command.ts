@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import type { ParticipantResultJson, RefusalCode } from "@agentswf/contract/records";
 import { type HolderWireAnswer, type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
+import { type Out, parsePlace, type ReadPlace } from "./command-line";
 import { liveCoordinatorSocket } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
@@ -8,7 +9,7 @@ import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
 import { asksJson, printRefusal, refusalLine } from "./refusals";
-import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
+import { failed } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { RunUnreachable } from "./run-unreachable";
 import { readAttempts, readNumberedEvents } from "./runs";

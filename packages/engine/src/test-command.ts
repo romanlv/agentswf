@@ -2,12 +2,12 @@ import { existsSync, statSync } from "node:fs";
 import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Out } from "./command-line";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/test.txt" with { type: "text" };
 import { checkProjectEngine } from "./project-engine";
 import { NO_JSON, printRefusal } from "./refusals";
-import type { Out } from "./run-commands";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
 

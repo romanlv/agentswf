@@ -1,10 +1,10 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
+import type { Out } from "./command-line";
 import { messageOf } from "./errors";
 import help from "./help/init.txt" with { type: "text" };
 import { NO_JSON, printRefusal } from "./refusals";
-import type { Out } from "./run-commands";
 
 export const initUsage = help.trimEnd();
 

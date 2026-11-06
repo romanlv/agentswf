@@ -11,23 +11,17 @@ import type {
 import type { InboxCode } from "@agentswf/contract/wire";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { maskCredentials } from "@agentswf/harness";
+import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import {
-  clockTime,
-  command,
-  failed,
-  type Out,
-  parsePlace,
-  type ReadPlace,
-  shellLine,
-} from "./run-commands";
+import { failed } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import { waitLabels as labelsOf } from "./run-policy/waits";
 import { findRunByRef, listRuns, RunNotFound, statusOf } from "./run-state";
+import { clockTime } from "./run-text";
 import {
   attemptsToken,
   type LogMark,

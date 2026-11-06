@@ -1,28 +1,14 @@
 import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
+import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
 import { screenFile } from "./ops";
 import { asksJson, printRefusal, refusalLine } from "./refusals";
-import {
-  clockTime,
-  command,
-  continueOf,
-  currentStage,
-  failed,
-  masked,
-  nextLogs,
-  type Out,
-  parsePlace,
-  type ReadPlace,
-  said,
-  shellLine,
-  span,
-  stateWord,
-} from "./run-commands";
+import { continueOf, currentStage, failed, nextLogs, span, stateWord } from "./run-commands";
 import {
   type Cursor,
   cutCursor,
@@ -37,6 +23,7 @@ import {
   timeOf,
 } from "./run-read";
 import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-state";
+import { clockTime, masked, said } from "./run-text";
 import { describeActivity } from "./run-view";
 
 export const logsUsage = help.trimEnd();

@@ -1,11 +1,11 @@
 import { allowanceUsage } from "./allowance-command";
+import { shellLine } from "./command-line";
 import { emitUsage } from "./emit-command";
 import { replyUsage } from "./holder-command";
 import { inboxUsage } from "./inbox-command";
 import { initUsage } from "./init-command";
 import { logsUsage } from "./logs-command";
 import { usage as runUsage } from "./run-command";
-import { shellLine } from "./run-commands";
 import { runsUsage } from "./runs-command";
 import { testUsage } from "./test-command";
 import { tickUsage } from "./tick-command";

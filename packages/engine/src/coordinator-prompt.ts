@@ -1,7 +1,7 @@
 import { createInterface, type Interface } from "node:readline/promises";
+import { shellLine } from "./command-line";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import type { MessagingEventBody } from "./messaging/messaging";
-import { shellLine } from "./run-commands";
 
 /** Where the prompt reads a line: `awf run`'s terminal, or a test's script. */
 export type LineReader = {

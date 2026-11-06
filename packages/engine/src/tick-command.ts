@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { TickResultJson } from "@agentswf/contract/records";
+import { type Out, parsePlace } from "./command-line";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { ENGINE_VARIABLE, type InstalledEngine, type ProjectEngine } from "./hand-over";
@@ -8,8 +9,6 @@ import help from "./help/tick.txt" with { type: "text" };
 import { ENGINE_VERSION, EngineRefused, engineOf } from "./project-engine";
 import { listProjects, projectRunRoot } from "./projects";
 import { asksJson, printRefusal } from "./refusals";
-import type { Out } from "./run-commands";
-import { parsePlace } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
 import { listRunEntries, listRuns } from "./run-state";
 import { RunUnreadable, readAttempts } from "./runs";

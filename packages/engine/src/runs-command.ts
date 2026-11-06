@@ -1,29 +1,15 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import type { JsonValue } from "@agentswf/contract/workflow";
+import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import {
-  clockTime,
-  command,
-  continueOf,
-  estimateOf,
-  failed,
-  masked,
-  money,
-  nextLogs,
-  type Out,
-  parsePlace,
-  type ReadPlace,
-  said,
-  shellLine,
-  span,
-  stateWord,
-} from "./run-commands";
+import { continueOf, estimateOf, failed, nextLogs, span, stateWord } from "./run-commands";
 import { encodeCursor } from "./run-read";
 import { findRunByRef, listRunEntries, type RunStatus, runStatus } from "./run-state";
+import { clockTime, masked, money, said } from "./run-text";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 import { isClaimed, RunUnreadable } from "./runs";
 

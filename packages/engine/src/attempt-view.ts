@@ -11,6 +11,7 @@ import type { EarlierSpent } from "./accounting/spent";
 import { attemptAccounting, sumAttempts } from "./accounting/summary";
 import { type AttemptEnd, OUTCOMES } from "./attempt-ending";
 import type { Kept } from "./attempt-output";
+import { shellWord } from "./command-line";
 import { pathFrom } from "./display-path";
 import { messageOf } from "./errors";
 import { ANSI, type Paint, PLAIN } from "./progress-view";
@@ -368,7 +369,3 @@ export function continueCommand(
 const STAGE = "{stage}";
 /** The placeholder for the file of values a go-on needs and none was given. */
 const FILE = "{file}";
-
-export function shellWord(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-}
