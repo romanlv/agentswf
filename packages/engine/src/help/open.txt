@@ -19,7 +19,7 @@ As the harness exits, awf prints the command that opens the same session again.
 With --json, -p prints {"v": 1, "agent", "harness", "session", "forkedFrom"?, "cwd", "model"?,
 "reply", "again"}, or a refusal whose code says why: usage, no-run, ambiguous, id, no-session,
 live, opened, unreachable, no-engine, other-engine or internal-error. no-session is an agent with
-no session to open; live, --no-fork on a running run; opened, a run another awf open --no-fork
-holds. A TUI has no JSON: --json without -p is a usage error. Exits with the TUI's exit code, or 0
+no session to open; live, --no-fork, or a sandboxed agent, on a running run; opened, a run another
+awf open --no-fork holds, or a sandbox another awf open has open. A TUI has no JSON: --json without -p is a usage error. Exits with the TUI's exit code, or 0
 once -p printed its answer; 1 when refused, 2 on a usage error, 3 when the run or the agent's
 place could not be read.

@@ -172,6 +172,16 @@ another agent.
 <!--@include: @/../packages/engine/src/help/logs.txt-->
 ```
 
+### awf open {#open}
+
+Opens a copy of an agent's session in its harness's TUI where the agent worked, or asks it one
+question with `-p`; `--no-fork` opens the session itself, the run held meanwhile.
+[Following runs](/guide/following-runs#awf-open-ask-an-agent-why) teaches it.
+
+```text
+<!--@include: @/../packages/engine/src/help/open.txt-->
+```
+
 ## Coordinate a run from outside
 
 ### awf inbox {#inbox}

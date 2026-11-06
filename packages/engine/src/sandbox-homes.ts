@@ -93,6 +93,7 @@ type Seed = {
  * are. Nothing else in the home changes: its sessions and skills are the agent's.
  */
 export async function refreshHome(
+  home: string,
   needs: Pick<HarnessSandboxNeeds, "seed">,
   locks: CredentialLocks,
 ): Promise<SeededHome> {
@@ -104,19 +105,26 @@ export async function refreshHome(
     } catch {
       throw new Error(`cannot refresh ${to}: ${from} is missing; log the harness in first`);
     }
+    // Only a file at the home's top, which the engine made: never through a directory the agent
+    // made. Written as a new file and renamed over whatever is there, so a link, hard or soft, or
+    // a FIFO the agent left in its place is replaced, never written through or waited on.
+    if (dirname(to) !== home)
+      throw new Error(`${to} is not at the top of the agent's home ${home}`);
+    const fresh = join(home, `.awf-${randomUUID()}.tmp`);
     const handle = await open(
-      to,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+      fresh,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o600,
-    ).catch((error: NodeJS.ErrnoException) => {
-      throw new Error(error.code === "ELOOP" ? `${to} is a link` : error.message);
-    });
+    );
     try {
-      if (!(await handle.stat()).isFile()) throw new Error(`${to} is not a file`);
       await handle.writeFile(bytes);
     } finally {
       await handle.close();
     }
+    await rename(fresh, to).catch(async (error: unknown) => {
+      await rm(fresh, { force: true });
+      throw error;
+    });
     seeds.push({
       from,
       to,

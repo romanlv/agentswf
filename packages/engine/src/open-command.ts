@@ -32,7 +32,14 @@ import { listOps, opFile } from "./ops";
 import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace, shellLine } from "./run-commands";
 import { readRunLines } from "./run-lines";
-import { claimNow, releaseClaim, runLockFile, runOpenFile, withRunLock } from "./run-lock";
+import {
+  type ClaimHolder,
+  claimNow,
+  releaseClaim,
+  runLockFile,
+  runOpenFile,
+  withRunLock,
+} from "./run-lock";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { isLive, readAttempts, workDir } from "./runs";
 import { type ReopenedPlace, reopenSandbox } from "./sandboxes";
@@ -73,8 +80,11 @@ const INERT_WFA = `console.error("wfa: this session was opened with awf open, ou
 process.exit(1);
 `;
 
-/** How long a person's TUI in a sandbox may stay open. */
-const TUI_TIMEOUT_MS = 7 * 24 * 60 * 60_000;
+/**
+ * How long a person's TUI in a sandbox may stay open. A docker box lives as long, so one an `awf
+ * open` killed outright left behind is gone within a day.
+ */
+const TUI_TIMEOUT_MS = 24 * 60 * 60_000;
 
 /** What a TUI in a sandbox is given of the operator's terminal, which a provider's environment drops. */
 const TERMINAL_ENVIRONMENT = ["TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE"];
@@ -203,6 +213,7 @@ export async function openCommand(
     const held = options.noFork ? await holdRun(status, options.agent, place) : undefined;
     let box: ReopenedPlace | undefined;
     let doors: string | undefined;
+    let boxClaim: { file: string; held: ClaimHolder } | undefined;
     let finished: Promise<void> | undefined;
     // The sandbox closed first, then the run let go: an attempt the release wakes finds it closed.
     const finish = () => {
@@ -210,6 +221,7 @@ export async function openCommand(
         for (const failure of (await box?.close()) ?? [])
           out.stderr(`awf: the sandbox did not close cleanly: ${failure}`);
         if (doors) await rm(doors, { recursive: true, force: true });
+        if (boxClaim) await releaseClaim(boxClaim.file, boxClaim.held);
         await held?.release(out, context);
       })();
       return finished;
@@ -222,6 +234,22 @@ export async function openCommand(
           "live",
         );
       if (where.sandbox) {
+        // A provider keeps a sandbox's open state in its directory: the run's own sandbox, open
+        // while an attempt runs, or another awf open's, would be broken by this one's close.
+        const plain = shellLine(["awf", "open", status.ref, options.agent, ...place.repeat]);
+        if ((await readAttempts(status.run)).some((attempt) => isLive(attempt)))
+          throw new OpenRefused(
+            `${status.ref} is running, and ${options.agent}'s sandbox is open in it; open it once the run is parked or done: ${plain}`,
+            "live",
+          );
+        const file = `${where.sandbox.directory}.open`;
+        const claimed = await claimNow(file);
+        if ("heldBy" in claimed)
+          throw new OpenRefused(
+            `${options.agent}'s sandbox is open in another awf open (pid ${claimed.heldBy.pid}); open it once that exits: ${plain}`,
+            "opened",
+          );
+        boxClaim = { file, held: claimed.held };
         doors = await mkdtemp(join(tmpdir(), "awf-open-"));
         const door = await installSandboxedDoor(
           doors,
@@ -237,7 +265,11 @@ export async function openCommand(
             providers,
             runRoot: status.run.root,
             door,
-            deadline: { unixMilliseconds: Date.now() + 10 * 60_000 },
+            // The box lives as long as what runs in it may: a docker box ends at its deadline.
+            deadline: {
+              unixMilliseconds:
+                Date.now() + (text === undefined ? TUI_TIMEOUT_MS : PRINT_TIMEOUT_MS + 10 * 60_000),
+            },
             environment,
           },
         ).catch((error: unknown) => {

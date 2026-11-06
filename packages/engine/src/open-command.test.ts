@@ -21,7 +21,7 @@ import {
 } from "@agentswf/sandbox/testing";
 import { writeJson } from "./files";
 import { type Attach, openCommand } from "./open-command";
-import { runOpenFile } from "./run-lock";
+import { claimNow, releaseClaim, runOpenFile } from "./run-lock";
 import { createRun, processStart, type Run, workDir } from "./runs";
 import { createTempRunDirs, writeAttempt } from "./testing";
 import type { Launch } from "./wake";
@@ -522,4 +522,22 @@ test("an agent's skills on the host are given again, and refused once gone", asy
   const gone = await open(f, ["review/r7", "skilled"]);
   expect(gone.code).toBe(3);
   expect(gone.stderr.join("\n")).toContain(`skills were in ${directory}, which is gone`);
+});
+
+test("a sandboxed agent is refused on a live run, and while another awf open has its sandbox", async () => {
+  const f = await fixture();
+  const box = boxed(f);
+  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m" });
+  const held = await claimNow(`${box.directory}.open`);
+  const busy = await open(f, ["review/r7", "boxed", "--session", "copy-b"], box.options);
+  expect(busy.code).toBe(1);
+  expect(busy.stderr.join("\n")).toContain("sandbox is open in another awf open");
+  if ("held" in held) await releaseClaim(`${box.directory}.open`, held.held);
+  await writeAttempt(f.run, { ...ALIVE });
+  const live = await open(f, ["review/r7", "boxed", "--session", "copy-b"], box.options);
+  expect(live.code).toBe(1);
+  expect(live.stderr.join("\n")).toContain("sandbox is open in it");
+  expect(box.fake.events).toEqual([]);
+  // Let go after each, as after an open that ran.
+  expect(existsSync(`${box.directory}.open`)).toBe(false);
 });

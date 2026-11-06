@@ -3,7 +3,7 @@ id: "042"
 title: "The operator opens any agent's session and asks it more"
 summary: "awf open <run> <agent> opens a copy of the agent's latest session, made with no model turn, in its harness's own TUI, where the agent worked (its home, cwd, sandbox and model), or asks it one question with -p; --no-fork opens the session itself, and awf keeps every other writer out while it is open."
 type: story
-status: in-progress
+status: awaiting-human-review
 depends_on: ["041"]
 ---
 
@@ -95,8 +95,9 @@ meanwhile, while {id}.open is held by a live process:
   the reach the agent had there.
 - **The operator's terminal in a sandbox.** A sandbox today gives an agent a headless command
   (`launch`) or a Herdr pane (`pane()`), never the terminal it was asked from. `launch` gains a
-  terminal: srt's wrapped argv inherits it as is, docker's `exec` adds `-t`; a provider that cannot
-  refuses, and `awf open` names it.
+  terminal: srt runs it under a second profile with `allowPty`, as a pane's (a TUI sets its
+  terminal raw, which srt otherwise refuses, M10); docker's `exec` adds `-t`; a provider that
+  cannot refuses, and `awf open` names it.
 - **A copy, by default.** Forked in that same home, so it opens in the same place and goes when that
   home does; awf records nothing of it. Each `-p` without `--session` makes a new copy; a second
   question to the same copy names it with `--session`.
@@ -319,8 +320,8 @@ $ awf open triage/c41 investigator --no-fork
 ✗ triage/c41 is open in awf open --no-fork (pid 4121): awf open triage/c41 investigator
 ```
 
-- `--json` with `-p`: `{ agent, harness, session, forkedFrom?, cwd, model, reply, again }`. Without
-  `-p` it is refused: a TUI has no JSON.
+- `--json` with `-p`: `{ v, session, forkedFrom?, reply, again }` (narrowed in review: the rest
+  describes the agent, which the caller named). Without `-p` it is refused: a TUI has no JSON.
 - `-p` with no text reads stdin, as `awf send` does.
 - `awf emit --json` on a held run: `{ … "did": "none", "why": "opened" }`; the event is accepted.
 
@@ -373,11 +374,11 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. An attended resume on every harness
-- [ ] 2. `awf open`, a copy, on the host
-- [ ] 3. `--no-fork`, the run held while it is open
-- [ ] 4. Sandboxed and skilled agents, as they ran, and a live run
-- [ ] 5. Docs and a live check on every harness
+- [x] 1. An attended resume on every harness
+- [x] 2. `awf open`, a copy, on the host
+- [x] 3. `--no-fork`, the run held while it is open
+- [x] 4. Sandboxed and skilled agents, as they ran, and a live run
+- [x] 5. Docs and a live check on every harness
 
 ## Open questions
 
@@ -463,14 +464,14 @@ harness's own permission prompts (per Q2), or why it cannot.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -489,11 +490,11 @@ prints a copy's answer; the run's files and the session are unchanged, on a live
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -513,11 +514,11 @@ Outcome: `--no-fork` opens the session itself; while it is open no attempt start
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -540,11 +541,11 @@ opens or is refused with a reason (M1, M2, M5, M9, M10).
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -566,11 +567,11 @@ attended path end to end.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -588,28 +589,86 @@ Done when:
 
 Automated:
 
-- [ ] the command's tests on fake harnesses, each harness's `operatorResume` argv, and the held
-  run's wake and continue
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] the command's tests on fake harnesses, each harness's `operatorResume` argv, and the held
+  run's wake and continue (`open-command.test.ts`, `operator-resume.test.ts`, `emit.test.ts`)
+- [x] `bun test`: 2,857 pass; one timing test under full-suite load fails now and then, a different
+  one each run, each passing alone on the branch and on main
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] the task 3 and task 5 live checks: cents on codex and pi, cursor on its plan
-- [ ] by hand: `awf open` into the TUI on each harness, one question, exit, `again` reopens it
+- [x] the task 3 and task 5 live checks: `tests/open.eval.ts` passes on codex, pi and cursor, a copy
+  and the session itself each naming 391 and 400; `--no-fork` held a pi TUI while a second
+  `--no-fork` was refused, and the pi session kept one branch
+- [x] in a pseudo-terminal, not by hand: `awf open` into the TUI on claude, codex, pi and cursor on
+  the host, pi and codex in srt and in docker; one question each, answered from the agent's
+  context, exit, `again` reopens the same copy (checked on codex with `-p`)
 
 ## Review record
 
 ### Task 1
 
+Reviewed with task 2. Architecture: a positional `sandboxed` flag on `operatorResume` was the wrong
+seam; codex's in-sandbox flags moved to `sandbox-needs.ts` as `operatorArgs`, given through
+`sandboxedOperatorArgs`. Fixed.
+
 ### Task 2
+
+Two reviewers (architecture, correctness). Fixed:
+
+- `--session` naming another agent's recorded session opened it as a copy, writing into the run's
+  session: refused, naming the agent it is.
+- The copy was made before refusals (metered claude `-p`, missing capability): every refusal now
+  comes first, stdin read included.
+- SIGTSTP was ignored around the TUI, which hangs job control: left alone; SIGINT and SIGQUIT go
+  to the harness.
+- A line without `operation` took another session's operation: now the agent's own latest.
+- `usage` refusals exited 1: now 2, as the help says.
+- `-p -` and a question starting with `-`; a `-p` that timed out read as an exit code.
+- The env built by hand: now `hostHome(...).env`; `operator-runtime` hands `awf open` a withholding
+  `{ run, attach }`; `callingSession` and `awf open` share `forkRecordedSession`.
+- `OpenResultJson` narrowed; refusal codes documented; the header names each fact once and says
+  the effort.
+
+Kept: `within(workDir)` as the test of a home a line names without `sandbox` (old lines only).
 
 ### Task 3
 
+One reviewer; no interleaving lets an attempt and a `--no-fork` both in. Fixed:
+
+- An attempt's refusal checked "opened" before "completed"; the message promised a wake a plain run
+  never gets; `--here`'s early refusal missed it. Now after `attemptRefusal`, worded per run, and in
+  `run-prepare`'s early check.
+- The session chosen before the hold could be stale: read again once held, refused if it moved.
+- awf killed by SIGHUP or SIGTERM never released or woke: `runAttached` forwards both to the TUI and
+  waits for it, so the ending runs.
+- A throw in the re-check left the claim held: released.
+- Tests: a copy while held; release after a failed `-p --no-fork`.
+
+Disposition: a holder is awf's own process, so awf killed outright (SIGKILL) while the harness
+stays up lets the next event in beside the operator. Stated, not fixed: recording the harness's pid
+too is possible if it matters.
+
 ### Task 4
 
+One reviewer. Fixed:
+
+- Reopening shares the sandbox directory with the run's own sandbox, whose provider keeps its open
+  state there: a sandboxed open on a live run, or two opens of one sandbox at once, would break the
+  other. Refused: a live attempt, or `{directory}.open` held by another `awf open`.
+- A docker box's lifetime is its deadline: it now follows the mode (the TUI's day, `-p`'s hour).
+- `refreshHome` wrote through a hard link or blocked on a FIFO the agent left: now a new file
+  renamed over it, at the home's top only.
+- What docker's close moved aside is said; a pinned image gone says rebuilt or removed.
+
+Dispositions: `directory` kept on `SessionSandbox` (Q6, below); an old host claude or pi line opens
+without skills, as nothing says it had any; Ctrl-C while the sandbox reopens leaves the box to its
+deadline.
+
 ### Task 5
+
+The docs and the eval, checked by the site's build (every link resolves) and the eval's live run.
 
 ## Readiness
 
@@ -622,6 +681,44 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+- **Q6 shape.** `SessionSandbox` is `provider`, `spec`, `provided` and `directory`: reopening opens the
+  provider in the directory the agent's home is in, which `dirname(dirname(home))` would only give by
+  baking the `homes/{id}` layout into `awf open`. `awf logs --json` handle lines carry it, the resolved
+  spec with no secret.
+- **Q7 shape.** `SessionSkills` is `{ names, directory }`; whether they are a sandbox's and codex's own
+  home on the host are derived from `sandbox` and `home`.
+- **codex has no `untrusted`** (0.167: `on-request` and `never`). On the host a person's codex takes
+  its config's sandbox and approvals; in awf's sandbox `-c sandbox_mode="danger-full-access"
+  --ask-for-approval on-request`, which asks nothing in practice (M10).
+- **A door that reaches no run.** A reopened sandbox admits the agent through a door whose `wfa`
+  says it reaches nothing, so an old prompt's `wfa result` cannot answer into the run.
+- **Credentials.** A reopened home's seeded files are refreshed from the operator's, and refreshed
+  ones handed back, as a run's are.
+- **What the measurements found:**
+  - M1: homes survive the sandbox's close on srt and docker; the recorded cwd is a host path; codex
+    and pi log in from refreshed credentials.
+  - M3: claude resumed from the recorded cwd (a worktree path); the `/tmp` realpath case was not
+    tried.
+  - M4: cursor resumes a copied chat attended; its turns go to the copy. Its TUI writes the prompt
+    into the parent's `prompt_history.json` (the up-arrow list, not the conversation) and on exit
+    names the parent's id: `again` is the one to use.
+  - M5: srt and docker (on the recorded digest) reopen after the run, the home admitted again (srt
+    now keeps a home's own `gitconfig`), the copy forked and asked inside; a write outside reach is
+    refused as in the run. On a live run a sandboxed open is refused rather than opened beside.
+  - M10: srt refuses a TUI raw mode without a pty profile (fixed: a terminal launch uses one, as a
+    pane does); docker `exec -it` draws pi's and codex's TUIs. codex in a sandbox ran a command
+    without asking. cursor keeps "Run Everything" in the agent's chat (`isRunEverything`,
+    `approvalMode: unrestricted` in its store), so a resumed cursor agent asks nothing whatever
+    the flags. pi asks nothing.
+  - codex's TUI leaves a turn running in its own daemon when it exits ("Any running work
+    continues"): with `--no-fork`, exiting mid-turn wakes the run while codex still writes; codex
+    refuses the second writer (E4), so the attempt's turn fails rather than forks.
+  - Not measured: M2 (a copy mid-turn), M6 (spend after `--no-fork`), M7 (claude and cursor with two
+    writers), M8 live (covered by tests), M9 (kept panes).
+- **Open for review:** cursor's prompts cannot be turned on by a flag. Rewriting the copy's chat
+  store (`isRunEverything: false`) would do it for a copy, at the price of writing cursor's private
+  format; left as is, and the site says so.
 
 ## Human review
 

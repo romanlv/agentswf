@@ -150,8 +150,36 @@ it uses. `--follow` doesn't take `--json`; page with `--after` and `--wait`. [Ru
 To hand the session itself to the run, so that it becomes one of the run's agents, use
 `awf run --here`: [Calling session](/guide/calling-session).
 
+## `awf open`: ask an agent why
+
+```sh
+awf open review/r7 fixer                                    # a copy of fixer's session, in its harness's TUI
+awf open review/r7 fixer -p "why did you skip migrate.ts?"  # one question to a copy, the answer printed
+awf open review/r7 fixer --no-fork                          # fixer's session itself
+```
+
+`awf open` copies an agent's latest session, without asking the model, and opens the copy in its
+harness's TUI where the agent worked: its working directory, its skills, its sandbox, on its model
+and effort. You ask what it read, why it did what it did, and it answers with its whole context.
+The run and the agent's session are untouched, so it works on a finished run, a parked one and a
+live one. The harness asks before it runs a command, as it would for you, except where it never
+asks: pi; a cursor agent's chat, which keeps the run's "Run Everything"; and codex in a sandbox,
+where its own sandbox is off and the agent's sandbox is the boundary.
+
+As the harness exits, awf prints `again:`, the command that opens the same copy, `--session` and
+its id. `-p` asks one question headless and prints the answer; it runs as the agent's turns did,
+without prompts.
+
+`--no-fork` opens the session itself, so what you say stays with the agent: the next attempt
+resumes it with your turns in it, and `awf logs` shows them. It is refused while an attempt runs.
+While it is open, no attempt starts and a second `--no-fork` is refused; an event that arrives
+waits, `awf emit` says `opened`, and once the harness exits a run of a workflow with events is
+woken for it.
+
 ## Catches
 
+- **A copy is yours.** awf keeps no record of it: it lives in the agent's harness home until that
+  goes. Note its `again:` line to come back to it.
 - **They look where the run is kept.** `awf runs` and `awf logs` read `.awf/runs` under the
   current directory. A run started with `--cwd` or `--run-root` is read with the same flag; the
   commands awf prints repeat it for you.

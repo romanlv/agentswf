@@ -69,7 +69,7 @@ started, which can take seconds. The result is `awf emit --json`'s line:
 | `ok` | whether the run has the event and needs no one; [below](#emit-ok) |
 | `outcome` | `accepted`, `duplicate`, `refused` |
 | `did` | what was done to the run: `started`, `nudged`, `continued`, `none` |
-| `why` | with `none` or `refused`: `returned`, `not-a-start`, `stuck`, `stopped`, `cancelled`, `nothing-due`, `nudge-failed`, `launch-failed` |
+| `why` | with `none` or `refused`: `returned`, `not-a-start`, `stuck`, `stopped`, `cancelled`, `nothing-due`, `nudge-failed`, `launch-failed`, `opened` |
 | `error` | with `launch-failed`: what the attempt said before it exited |
 | `ref`, `eventId` | the run, `{workflow}/{id}`, and the event's id |
 
@@ -83,6 +83,7 @@ doesn't start one), or the run wasn't woken because its launch failed or the ope
 | none | yes | started, nudged or continued |
 | `nothing-due` | yes | the run is parked at a wait that doesn't take this event; a later wait will |
 | `nudge-failed` | yes | the running attempt wasn't nudged, but its wait takes the event |
+| `opened` | yes | `awf open --no-fork` has an agent's session open; the run is woken once it exits |
 | `returned` | yes, if `duplicate` | the event was already taken before the run returned |
 | `returned`, `not-a-start` | no | `refused`: no run will take it |
 | `launch-failed` | no | the event is kept; the next event, a resend or `awf tick` launches again |

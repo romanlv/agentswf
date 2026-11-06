@@ -609,16 +609,25 @@ export async function reopenSandbox(
   });
   const installed = options.providers.installed[provider];
   if (!installed) throw new Error(`the ${provider} sandbox provider is not installed`);
-  const opened = await installed.open(resolved, {
-    runRoot: await realpath(options.runRoot),
-    directory: recorded.directory,
-    deadline: options.deadline,
-  });
+  const opened = await installed
+    .open(resolved, {
+      runRoot: await realpath(options.runRoot),
+      directory: recorded.directory,
+      deadline: options.deadline,
+    })
+    .catch((error: unknown) => {
+      // A local image id cannot be pulled: the image the run ran was rebuilt or removed.
+      if (provider === "docker" && typeof image === "string" && messageOf(error).includes(image))
+        throw new Error(
+          `the image the run ran, ${image}, is no longer here: it was rebuilt or removed`,
+        );
+      throw error;
+    });
   const locks: CredentialLocks = new Map();
   let refreshed: SeededHome | undefined;
   try {
     const needs = await sandboxNeeds(agent.harness, agent.home, agent.model, options.environment);
-    refreshed = await refreshHome(needs, locks);
+    refreshed = await refreshHome(agent.home, needs, locks);
     const occupant = await opened.admit({
       cwd: agent.cwd,
       home: agent.home,
@@ -634,6 +643,10 @@ export async function reopenSandbox(
         await occupant.release().catch(said);
         await refreshed?.writeBack().catch(said);
         await opened.close().catch(said);
+        // What the provider moved aside as it closed, which would vanish without a word.
+        const quarantined = opened.record?.quarantined;
+        if (Array.isArray(quarantined) && quarantined.length > 0)
+          failures.push(`it moved aside ${quarantined.join(", ")}`);
         return failures;
       },
     };
