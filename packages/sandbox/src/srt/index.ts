@@ -128,16 +128,30 @@ function openSandbox(
       checkProfile(settings, options, context, spec);
       const profile = join(profiles, `${randomUUID()}.json`);
       await writeFile(profile, JSON.stringify(settings, null, 2), { mode: 0o600 });
+      // A person's TUI sets its terminal raw, which srt allows only with a pty: the same reach,
+      // as a pane's has (story 042, M10).
+      const terminalProfile = join(profiles, `${randomUUID()}-terminal.json`);
+      await writeFile(terminalProfile, JSON.stringify({ ...settings, allowPty: true }, null, 2), {
+        mode: 0o600,
+      });
       // git refuses an unreadable `~/.gitconfig`; this one is empty (X4). Made anew, never through
-      // a link a co-tenant planted in the home.
+      // a link a co-tenant planted in the home; one a home admitted again kept is left as it is
+      // when it is a file of its own (story 042).
       const gitconfig = join(agent.home, "gitconfig");
-      await (
-        await open(
-          gitconfig,
-          constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_WRONLY,
-          0o600,
-        )
-      ).close();
+      try {
+        await (
+          await open(
+            gitconfig,
+            constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_WRONLY,
+            0o600,
+          )
+        ).close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const kept = await lstat(gitconfig);
+        if (!kept.isFile() || kept.nlink !== 1)
+          throw new Error(`srt: ${gitconfig} is not a file of its own`);
+      }
       // The agent's whole environment: nothing of the engine's reaches it (X20).
       const environment: Record<string, string> = {
         HOME: options.home,
@@ -165,7 +179,8 @@ function openSandbox(
           // `~/.local/bin` and its links are denied, so the harness runs by its real path; `--`
           // keeps srt from reading the harness's flags as its own (Task 0).
           const command = first === agent.harness.command ? agent.harness.executable : first!;
-          const wrapped = groups.wrap([...options.command, "-s", profile, "--", command, ...rest]);
+          const chosen = root.terminal ? terminalProfile : profile;
+          const wrapped = groups.wrap([...options.command, "-s", chosen, "--", command, ...rest]);
           return {
             ...root,
             argv: wrapped.argv,

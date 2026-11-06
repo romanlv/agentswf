@@ -311,6 +311,18 @@ export type RunAccounting = {
   unpriced: string[];
 };
 
+/**
+ * The sandbox a session lives in, as its `SandboxRecord` has it: enough to open it again where the
+ * agent ran, its home under `directory`. Tier: public, stable.
+ */
+export type SessionSandbox = Pick<SandboxRecord, "provider" | "spec" | "directory" | "provided">;
+
+/**
+ * The skills an agent's harness was given: their names, and the directory they were placed in,
+ * which its launch points the harness at. Tier: public, stable.
+ */
+export type SessionSkills = { names: string[]; directory: string };
+
 /** A sandbox a run opened, with every agent it admitted. Tier: public, stable. */
 export type SandboxRecord = {
   callPath: string[];
@@ -530,7 +542,11 @@ export type RunLine = {
       began: number;
       end: AgentEnded;
     }
-  /** An agent's native session, as soon as it is known. */
+  /**
+   * An agent's native session, as soon as it is known, and where it lives: the agent's own harness
+   * home, the sandbox that home is in, and the skills its harness was given, as `awf open` reopens
+   * them (story 042).
+   */
   | {
       kind: "session";
       agent: AgentKey;
@@ -538,6 +554,8 @@ export type RunLine = {
       session: string;
       operation?: string;
       home?: string;
+      sandbox?: SessionSandbox;
+      skills?: SessionSkills;
     }
 );
 
@@ -1251,7 +1269,9 @@ export type WakeWhy =
   | "cancelled"
   | "nothing-due"
   | "nudge-failed"
-  | "launch-failed";
+  | "launch-failed"
+  /** `awf open --no-fork` holds the run's session: the event waits for its exit (story 042). */
+  | "opened";
 
 /** `awf emit --json`. */
 export type EmitResultJson = {
@@ -1283,6 +1303,21 @@ export function emitOk(outcome: EmitOutcome, why: WakeWhy | undefined): boolean 
     why !== "cancelled"
   );
 }
+
+/**
+ * `awf open -p --json`: the answer to one question, asked of a copy of an agent's session or of
+ * the session itself.
+ */
+export type OpenResultJson = {
+  v: 1;
+  /** The session asked: the copy, or with `--no-fork` the agent's own. */
+  session: string;
+  /** The agent's session the copy was made from; absent when none was made. */
+  forkedFrom?: string;
+  reply: string;
+  /** The command that asks the same session again. */
+  again: string;
+};
 
 /** `awf tick --json`: each run it woke, in the order woken. */
 export type TickResultJson = {
@@ -1319,7 +1354,11 @@ export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
  * fit: made for another run or filter, past the run's end, or naming no event; `project`, a
  * workflow in no project; `no-engine` and `other-engine`, a project's `agentswf` missing or another
  * version; `internal-error`, a failure that is neither the caller's nor the run's, such as awf's
- * own record of projects not written, which `error` names. `reply` and `send` also refuse with
+ * own record of projects not written, which `error` names; `no-session`, an agent `awf open` names
+ * with no session or no operation recorded in the run, or a session that is another agent's;
+ * `live`, `awf open --no-fork`, or a sandboxed agent's, on a run whose attempt is running, or a
+ * `--no-fork` whose session changed as it held the run; `opened`, a run another `awf open
+ * --no-fork` holds, or a sandbox another `awf open` has open. `reply` and `send` also refuse with
  * `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
  */
 export const REFUSAL_CODES = [
@@ -1339,6 +1378,9 @@ export const REFUSAL_CODES = [
   "no-engine",
   "other-engine",
   "internal-error",
+  "no-session",
+  "live",
+  "opened",
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

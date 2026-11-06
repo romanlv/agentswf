@@ -24,6 +24,7 @@ import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
 import type { EarlierOps } from "./ops";
 import { type RunLines, readRunLines } from "./run-lines";
+import { liveHolder, runOpenFile } from "./run-lock";
 import { upcomingStages } from "./run-policy/stages";
 
 /**
@@ -405,9 +406,14 @@ export function sameStart(now: string, started: string): boolean {
   return Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
 }
 
-/** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
+/**
+ * Why a run takes no attempt now: one of its attempts is still running, `awf open --no-fork`
+ * holds its session, or it completed.
+ */
 export type AttemptRefusal =
   | { kind: "running"; attempt: ClaimedAttempt }
+  /** `events`: the run is woken once that exits; a plain run is continued by hand. */
+  | { kind: "opened"; pid: number; events: boolean }
   /**
    * `stages`, each recorded stage's latest line in the order they started, but those the last
    * redo left behind, are what `--from-stage` redoes.
@@ -429,6 +435,14 @@ export function attemptRefusal(
   if (last?.outcome !== "completed" || options.fromStage) return undefined;
   // A stage the code no longer has keeps its line, but the last redo left it behind.
   return { kind: "completed", stages: upcomingStages(run) };
+}
+
+/** Why `awf open --no-fork` holding the run refuses an attempt, or undefined when none holds it. */
+export async function openedRefusal(run: Run): Promise<AttemptRefusal | undefined> {
+  const holder = await liveHolder(runOpenFile(run.root, run.record.workflow, run.record.id));
+  return holder
+    ? { kind: "opened", pid: holder.pid, events: run.record.events === true }
+    : undefined;
 }
 
 /**
@@ -481,10 +495,13 @@ export async function claimAttempt(
       try {
         await syncDir(dir);
         const before = (await readAttempts(run)).filter((other) => other.attempt < n);
-        const refused = attemptRefusal(before, (await readRunLines(run.dir)).view, {
-          fromStage: options.fromStage ?? false,
-          probe,
-        });
+        // Linked first, then looked for: `awf open --no-fork` claims its file, then looks for a
+        // live attempt, so of the two one always sees the other.
+        const refused =
+          attemptRefusal(before, (await readRunLines(run.dir)).view, {
+            fromStage: options.fromStage ?? false,
+            probe,
+          }) ?? (await openedRefusal(run));
         if (refused) {
           await unclaim();
           return { refused };

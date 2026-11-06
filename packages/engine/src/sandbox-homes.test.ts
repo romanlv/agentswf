@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { linkSync, mkdtempSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
-import { seedHome } from "./sandbox-homes";
+import { refreshHome, seedHome } from "./sandbox-homes";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -143,6 +143,31 @@ test("a missing credential is refused, naming it", async () => {
   ).rejects.toThrow(`${join(root, "absent.json")} is missing`);
   // Nothing it copied is left behind.
   expect(await readdir(root)).toEqual([]);
+});
+
+test("a home admitted again gets its credential refreshed, replacing a link the agent left, never writing through it", async () => {
+  const { root, operator, copy, home } = await seeded();
+  const victim = join(root, "repo-file.txt");
+  await writeFile(victim, "the operator's\n");
+  await rm(copy);
+  linkSync(victim, copy);
+  await writeFile(operator, '{"account":"a1","refresh":"two"}', { mode: 0o600 });
+  const needs = {
+    seed: [{ from: operator, to: copy, refreshes: ["refresh"] }],
+  } as unknown as HarnessSandboxNeeds;
+  const refreshed = await refreshHome(home, needs, new Map());
+  expect(await readFile(victim, "utf8")).toBe("the operator's\n");
+  expect(await readFile(copy, "utf8")).toBe('{"account":"a1","refresh":"two"}');
+  expect((await stat(copy)).nlink).toBe(1);
+  // A refresh inside is handed back, as a seeded home's is.
+  await writeFile(copy, '{"account":"a1","refresh":"three"}');
+  await refreshed.writeBack();
+  expect(await readFile(operator, "utf8")).toBe('{"account":"a1","refresh":"three"}');
+  // Only a file at the home's top.
+  const nested = { seed: [{ from: operator, to: join(home, "sub", "auth.json"), refreshes: [] }] };
+  await expect(
+    refreshHome(home, nested as unknown as HarnessSandboxNeeds, new Map()),
+  ).rejects.toThrow("is not at the top of the agent's home");
 });
 
 test("a file in a folder named `..x` is in the home; one outside it is refused", async () => {

@@ -45,6 +45,18 @@ function codexInteractive(
 }
 
 /**
+ * The same launch for a person: codex's own sandbox and approvals as its config sets them. In awf's
+ * sandbox, `sandboxedOperatorArgs` turns its own sandbox off, as on an agent's turns (M10).
+ */
+function codexOperatorResume(
+  sessionId: string,
+  settings: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
+  return { argv: ["codex", "resume", sessionId, ...codexSettings(settings), ...launchArgs] };
+}
+
+/**
  * A config override, which beats a profile and `config.toml`; a resume without it takes theirs,
  * not the session's last (M1, M4).
  */
@@ -87,6 +99,7 @@ const CODEX = {
   interactive: codexInteractive,
   interactiveResume: (sessionId, settings, launchArgs) =>
     resuming(codexInteractive(settings, launchArgs), "resume", sessionId),
+  operatorResume: codexOperatorResume,
   // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
   // than through a flag that exists on only one of them.
   headlessTurn: (prompt, { launchArgs = [], ...settings }) => ({

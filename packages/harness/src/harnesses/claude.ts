@@ -47,6 +47,15 @@ function claudeInteractive(
   };
 }
 
+/** The same launch for a person, who answers claude's own permission prompts. */
+function claudeOperatorResume(
+  sessionId: string,
+  settings: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
+  return { argv: ["claude", "--resume", sessionId, ...claudeSettings(settings), ...launchArgs] };
+}
+
 /**
  * `--effort` beats the settings file's level, and a resume without it runs at the default (M1).
  * `CLAUDE_CODE_EFFORT_LEVEL` beats it, so it is withheld; the settings' `maxEffortLevel` caps it
@@ -109,6 +118,7 @@ const CLAUDE = {
   interactive: claudeInteractive,
   interactiveResume: (sessionId, settings, launchArgs) =>
     resuming(claudeInteractive(settings, launchArgs), "--resume", sessionId),
+  operatorResume: claudeOperatorResume,
   // The session is named at launch, so its file can be read while the first turn runs; the id
   // printed by `--output-format json` confirms it.
   headlessTurn: (prompt, { sessionHint, launchArgs = [], ...settings }) => ({

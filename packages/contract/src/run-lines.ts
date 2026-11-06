@@ -41,7 +41,7 @@ export type RunView = {
   fenced: number;
 };
 
-type Field = "string" | "string?" | "strings?" | "array?";
+type Field = "string" | "string?" | "strings?" | "array?" | "object?";
 
 /** Every kind, with the fields this reading relies on or returns, and their types. */
 const KINDS: Record<RunLineKind, Record<string, Field>> = {
@@ -71,6 +71,8 @@ const KINDS: Record<RunLineKind, Record<string, Field>> = {
     session: "string",
     operation: "string?",
     home: "string?",
+    sandbox: "object?",
+    skills: "object?",
   },
 };
 
@@ -85,6 +87,8 @@ function fits(value: unknown, field: Field): boolean {
   if (field === "strings?") {
     return Array.isArray(value) && value.every((item) => typeof item === "string");
   }
+  if (field === "object?")
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   return Array.isArray(value);
 }
 

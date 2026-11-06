@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import type { HarnessAllowance, RefusalCode } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
-import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
+import { type Harness, handBack, type RunProcess, terminalAttached } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
 import { earlierSpent, unreadEarlier } from "./accounting/spent";
@@ -40,11 +40,13 @@ import { INBOX_V, inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
 import { LOGS_V, logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
+import { OPEN_V, openCommand } from "./open-command";
 import {
   allowanceReader,
   herdrConfig,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
+  openRuntime,
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
@@ -239,6 +241,21 @@ export async function runOperatorCli(
         { now, sleep: (ms) => Bun.sleep(ms) },
         environment.home,
       ),
+    open: () =>
+      openCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        {
+          home: environment.home,
+          environment: environment.environment,
+          ...openRuntime(environment.environment),
+          ...(environment.signal ? { signal: environment.signal } : {}),
+          ...(environment.stdin
+            ? { stdin: environment.stdin }
+            : { stdinIsTerminal: process.stdin.isTTY === true }),
+        },
+      ),
     inbox: () =>
       inboxCommand(
         argv.slice(1),
@@ -307,6 +324,7 @@ const JSON_VERSION = {
   reply: HOLDER_V,
   send: HOLDER_V,
   allowance: ALLOWANCE_V,
+  open: OPEN_V,
 } as const;
 
 /**
@@ -833,16 +851,19 @@ const EXIT_GRACE_MS = 2_000;
  * Cancels `controller` at the first signal that asks the run to stop, and stops the process at
  * once at a second the operator sends, without the run's cleanup. Ctrl-C reaches the whole
  * process group and `bun awf` forwards it once more, so a repeat within `REPEAT_MS` is ignored:
- * taken as the second, it would kill the run mid-cleanup and leave its sandboxes behind. Returns
- * what removes the handlers.
+ * taken as the second, it would kill the run mid-cleanup and leave its sandboxes behind. While a
+ * person's TUI has the terminal, Ctrl-C is the TUI's: ending awf then would leave it writing a
+ * session nothing holds. Returns what removes the handlers.
  */
 export function cancelOnSignals(
   controller: AbortController,
   exit: (code: number) => void = (code) => process.exit(code),
   now: () => number = Date.now,
+  attached: () => boolean = terminalAttached,
 ): () => void {
   let first: number | undefined;
   const cancel = (signal: NodeJS.Signals) => {
+    if (signal === "SIGINT" && attached()) return;
     if (first === undefined) {
       first = now();
       controller.abort(signal);

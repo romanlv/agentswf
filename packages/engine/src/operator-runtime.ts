@@ -23,6 +23,7 @@ import {
   readClaudeBilling,
   readCodexBilling,
   readCursorLogin,
+  runAttached,
   runProcess,
   withholding,
 } from "@agentswf/harness";
@@ -48,6 +49,7 @@ import { markWorkspace } from "./herdr-workspace-marks";
 
 export type { RunSession } from "./herdr-run-session";
 
+import type { Attach } from "./open-command";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 
 export type OperatorRuntimeInstallation = {
@@ -422,6 +424,27 @@ const WITHHELD_ENVIRONMENT = [
   ...CALLING_SESSION_ENVIRONMENT,
   "AWF_CALLER_SESSIONS",
 ];
+
+/**
+ * How `awf open` runs a harness on an agent's session: its fork and `-p` turn, and its TUI on this
+ * terminal, each withholding what no agent inherits (story 042).
+ */
+export function openRuntime(environment: Readonly<Record<string, string | undefined>>): {
+  run: RunProcess;
+  attach: Attach;
+  providers: () => Promise<SandboxProviders>;
+} {
+  const withheld = Object.fromEntries(WITHHELD_ENVIRONMENT.map((name) => [name, undefined]));
+  return {
+    run: withholding(runProcess, WITHHELD_ENVIRONMENT),
+    // A sandbox's command has exactly its own environment; on the host, the operator's less these.
+    attach: (input) =>
+      input.exact
+        ? runAttached(input, {})
+        : runAttached({ ...input, env: { ...input.env, ...withheld } }, environment),
+    providers: () => installSandboxes(environment),
+  };
+}
 
 /**
  * Unset in a run's panes besides: the config the run session's server starts with, which a `herdr`

@@ -39,6 +39,27 @@ function cursorInteractive(
   };
 }
 
+/**
+ * The same launch for a person, without `--force`: cursor asks before it runs a tool. `--trust`
+ * stays: it trusts the directory the agent already worked in, and runs nothing.
+ */
+function cursorOperatorResume(
+  sessionId: string,
+  { model }: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
+  return {
+    argv: [
+      "cursor-agent",
+      "--resume",
+      sessionId,
+      "--trust",
+      ...(model ? ["--model", model] : []),
+      ...launchArgs,
+    ],
+  };
+}
+
 function cursorHeadless(
   prompt: string,
   resume: readonly string[],
@@ -76,6 +97,7 @@ const CURSOR = {
   paneReady: "Run Everything",
   interactiveResume: (sessionId, settings, launchArgs) =>
     resuming(cursorInteractive(settings, launchArgs), "--resume", sessionId),
+  operatorResume: cursorOperatorResume,
   headlessTurn: (prompt, context) => cursorHeadless(prompt, [], context),
   resumeTurn: (prompt, sessionId, context) =>
     cursorHeadless(prompt, ["--resume", sessionId], context),

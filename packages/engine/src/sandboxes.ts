@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { SandboxRecord } from "@agentswf/contract/records";
+import type { SandboxRecord, SessionSandbox } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
@@ -33,7 +33,13 @@ import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { harnessDeadline } from "./deadlines";
 import { messageOf } from "./errors";
 import { machinePaths } from "./machine";
-import { type CredentialLocks, placeCarried, type SeededHome, seedHome } from "./sandbox-homes";
+import {
+  type CredentialLocks,
+  placeCarried,
+  refreshHome,
+  type SeededHome,
+  seedHome,
+} from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 
 /** The providers a run may open sandboxes with, and where their directories are made. */
@@ -342,6 +348,16 @@ export class RunSandboxes {
     return undefined;
   }
 
+  /** The sandbox `agent` was last admitted to, as its sessions' lines record it (story 042). */
+  sessionSandbox(agent: string): SessionSandbox | undefined {
+    for (const sandbox of [...this.#opened].reverse()) {
+      if (!sandbox.agents.some((each) => each.agent === agent)) continue;
+      const { provider, spec, directory, provided } = recordOf(sandbox);
+      return { provider, spec, directory, ...(provided ? { provided } : {}) };
+    }
+    return undefined;
+  }
+
   /** Each sandbox the run opened, a private one closed after its agent failed too, with its agents. */
   records(): SandboxRecord[] {
     return this.#opened.map(recordOf);
@@ -554,5 +570,113 @@ function assertWithin(
     throw new Error(
       `agent ${agent}: its gitdir ${missing} is outside sandbox ${sandbox.key}'s reach`,
     );
+  }
+}
+
+/** A sandbox reopened where an agent ran, its home admitted again: `awf open`'s (story 042). */
+export type ReopenedPlace = {
+  occupant: Occupant;
+  /** What the sandbox's spec keeps of web search: a turn inside drops the harness's otherwise. */
+  webSearch: boolean;
+  /** Releases the agent, hands refreshed credentials back, and closes the sandbox. Never rejects. */
+  close(): Promise<string[]>;
+};
+
+/**
+ * Opens a session's recorded sandbox again, in the directory it ran in, and admits the agent with
+ * the home it had: its credentials refreshed, nothing else reseeded. docker runs the image the run
+ * ran, by digest. `door` is the agent's way back, which reaches no run.
+ */
+export async function reopenSandbox(
+  recorded: SessionSandbox,
+  agent: { harness: string; model?: string; cwd: string; home: string },
+  options: {
+    providers: SandboxProviders;
+    runRoot: string;
+    door: AgentDoor;
+    deadline: AbsoluteDeadline;
+    environment: Readonly<Record<string, string | undefined>>;
+    /** The operator's home, whose machine and coordinator paths a spec may not reach. */
+    machineHome: string;
+    coordinatorRoot: string;
+  },
+): Promise<ReopenedPlace> {
+  // The sandbox could write `homes/`: a home it swapped for a link would have the refresh and the
+  // admit write through it, outside. Nothing runs in it now, so a check before use holds.
+  const entry = await lstat(agent.home).catch(() => undefined);
+  if (
+    !entry?.isDirectory() ||
+    dirname(agent.home) !== join(recorded.directory, "homes") ||
+    (await realpath(agent.home)) !== agent.home
+  )
+    throw new Error(`${agent.home} is not a home in ${recorded.directory}: it was moved or linked`);
+  const { provider } = recorded;
+  const spec: Record<string, unknown> = structuredClone(recorded.spec);
+  const image = recorded.provided?.image;
+  if (provider === "docker" && typeof image === "string")
+    spec.docker = { ...(spec.docker as object | undefined), image };
+  const { sandbox: resolved } = await resolveSandbox(spec, {
+    key: "awf-open",
+    cwd: recorded.spec.cwd,
+    runRoot: await realpath(options.runRoot),
+    machineRoot: machinePaths(options.machineHome).root,
+    providers: options.providers,
+    harnessState: Object.values(harnessState(options.environment)),
+    controlRoot: CONTROL_PLANE_ROOT,
+    coordinatorRoot: options.coordinatorRoot,
+    inline: false,
+  });
+  const installed = options.providers.installed[provider];
+  if (!installed) throw new Error(`the ${provider} sandbox provider is not installed`);
+  const opened = await installed
+    .open(resolved, {
+      runRoot: await realpath(options.runRoot),
+      directory: recorded.directory,
+      deadline: options.deadline,
+    })
+    .catch((error: unknown) => {
+      // A local image id cannot be pulled: the image the run ran was rebuilt or removed.
+      if (provider === "docker" && typeof image === "string" && messageOf(error).includes(image))
+        throw new Error(
+          `the image the run ran, ${image}, is no longer here: it was rebuilt or removed`,
+        );
+      throw error;
+    });
+  const locks: CredentialLocks = new Map();
+  let refreshed: SeededHome | undefined;
+  try {
+    const needs = await OPERATOR_HOMES.sandboxed(
+      agent.harness,
+      agent.home,
+      agent.model,
+      options.environment,
+    );
+    refreshed = await refreshHome(agent.home, needs, locks);
+    const occupant = await opened.admit({
+      cwd: agent.cwd,
+      home: agent.home,
+      harness: needs,
+      door: options.door,
+    });
+    return {
+      occupant,
+      webSearch: resolved.webSearch,
+      async close() {
+        const failures: string[] = [];
+        const said = (error: unknown) => void failures.push(messageOf(error));
+        await occupant.release().catch(said);
+        await refreshed?.writeBack().catch(said);
+        await opened.close().catch(said);
+        // What the provider moved aside as it closed, which would vanish without a word.
+        const quarantined = opened.record?.quarantined;
+        if (Array.isArray(quarantined) && quarantined.length > 0)
+          failures.push(`it moved aside ${quarantined.join(", ")}`);
+        return failures;
+      },
+    };
+  } catch (error) {
+    await refreshed?.writeBack().catch(() => undefined);
+    await opened.close().catch(() => undefined);
+    throw error;
   }
 }

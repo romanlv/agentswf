@@ -30,6 +30,7 @@ import {
   generateId,
   idProblem,
   launchLog,
+  openedRefusal,
   openRun,
   previousGone,
   type Run,
@@ -222,7 +223,9 @@ async function prepareRun(
   const attempts = await readAttempts(run);
   const { view } = await readRunLines(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
-  const refused = attemptRefusal(attempts, view, { fromStage: command.fromStage !== undefined });
+  const refused =
+    attemptRefusal(attempts, view, { fromStage: command.fromStage !== undefined }) ??
+    (await openedRefusal(run));
   if (refused) throw new RunRefused(refusalMessage(id, refused, now), "not-started");
   // A plain run's redo that crashed inside its stage wrote no line, so nothing says it: it goes on
   // from there, as 018 has a crash mid-stage do. A wake carries no flag, so an event run's is lost.

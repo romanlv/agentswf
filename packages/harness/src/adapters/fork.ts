@@ -7,7 +7,7 @@ import type { Occupant } from "@agentswf/sandbox";
 import type { CallingSession, NativeFork, SessionCopy } from "../adapter";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { record, text } from "../json";
-import { type ForkPlan, harnessSpec } from "../spec";
+import { type ForkPlan, harnessSpec, type TurnContext } from "../spec";
 import { harnessState } from "../state";
 import type { Harness } from "../types";
 
@@ -101,6 +101,26 @@ export function forkOrCopy(
   run: () => Promise<NativeFork>,
 ): Promise<NativeFork> {
   return into ? copySession(harness, from.home, from.session, from.cwd, into) : run();
+}
+
+/**
+ * Forks a session a run recorded, with no model turn, where the agent's turns ran: its cwd, its
+ * settings, home and launch arguments in `context`, `env` for its process; `run` runs it inside the
+ * agent's sandbox where it had one (story 042). The new session.
+ */
+export async function forkRecordedSession(
+  harness: Harness,
+  session: string,
+  where: { cwd: string; env: Record<string, string>; context: TurnContext },
+  run: RunProcess,
+  bound: { deadline?: AbsoluteDeadline; signal?: AbortSignal } = {},
+): Promise<NativeFork> {
+  const spec = harnessSpec(harness);
+  if (!spec.forkSession) throw new Error(`${harness} cannot fork: ${spec.absent.forkSession}`);
+  const deadline = bound.deadline ?? { unixMilliseconds: Date.now() + FORK_ACTIVATION_MS };
+  const signal = bound.signal ?? new AbortController().signal;
+  const plan = await spec.forkSession(session, randomUUID(), where.context);
+  return runForkPlan(harness, plan, { cwd: where.cwd, env: where.env, deadline, signal }, run);
 }
 
 /**

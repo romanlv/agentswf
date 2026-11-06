@@ -7,6 +7,7 @@ import { coordinatorSocketPath, liveCoordinatorSocket } from "./coordinator-sock
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { coordinatorDir } from "./machine";
+import { liveHolder, runOpenFile } from "./run-lock";
 import { wakeCause } from "./run-policy/waits";
 import { statusOf, stuckOf } from "./run-state";
 import {
@@ -66,6 +67,9 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
     did: "started" | "continued",
     cause: NonNullable<Woken["cause"]>,
   ): Promise<Woken> => {
+    // Held by `awf open --no-fork`: nothing starts; the event waits in `in.jsonl` for its exit.
+    if (await liveHolder(runOpenFile(run.root, run.record.workflow, run.record.id)))
+      return { did: "none", why: "opened" };
     const file = context.file ?? claimed.at(-1)?.file ?? run.record.file;
     const started = now();
     const id = generateId(started, randomBytes(3).toString("hex"));

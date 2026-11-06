@@ -382,6 +382,15 @@ describe("the docker provider", () => {
     });
     expect(command.argv.slice(-2)).toEqual(["claude", "-p"]);
     expect(command).toMatchObject({ group: true, stdin: "prompt", timeoutMs: 1_000 });
+    // A person's TUI gets a tty in the box; a turn never does.
+    expect(command.argv).not.toContain("-t");
+    const attended = occupant.launch({
+      argv: ["claude"],
+      cwd: repo,
+      timeoutMs: 1_000,
+      terminal: true,
+    });
+    expect(attended.argv.slice(1, 4)).toEqual(["exec", "-i", "-t"]);
 
     // A turn's reap kills its group in the box, and a `commondir` an agent made is moved out.
     await writeFile(join(repo, ".git", "commondir"), "../elsewhere\n");

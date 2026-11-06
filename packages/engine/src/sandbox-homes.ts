@@ -45,13 +45,7 @@ export async function seedHome(
   };
   await mkdir(dirname(staging), { recursive: true, mode: 0o700 });
   await mkdir(staging, { mode: 0o700 });
-  const seeds: {
-    from: string;
-    to: string;
-    refreshes: string[][];
-    baseline: Buffer;
-    refused?: Buffer;
-  }[] = [];
+  const seeds: Seed[] = [];
   try {
     for (const { from, to, refreshes } of needs.seed) {
       let bytes: Buffer;
@@ -80,6 +74,66 @@ export async function seedHome(
     await rm(staging, { recursive: true, force: true });
     throw error;
   }
+  return writingBack(seeds, locks);
+}
+
+type Seed = {
+  from: string;
+  to: string;
+  refreshes: string[][];
+  baseline: Buffer;
+  refused?: Buffer;
+};
+
+/**
+ * Refreshes the credentials of a home an agent had before, for `awf open` (story 042): each seed's
+ * file written over with the operator's, never through a link, and handed back as `seedHome`'s
+ * are. Nothing else in the home changes: its sessions and skills are the agent's.
+ */
+export async function refreshHome(
+  home: string,
+  needs: Pick<HarnessSandboxNeeds, "seed">,
+  locks: CredentialLocks,
+): Promise<SeededHome> {
+  const seeds: Seed[] = [];
+  for (const { from, to, refreshes } of needs.seed) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(from);
+    } catch {
+      throw new Error(`cannot refresh ${to}: ${from} is missing; log the harness in first`);
+    }
+    // Only a file at the home's top, which the engine made: never through a directory the agent
+    // made. Written as a new file and renamed over whatever is there, so a link, hard or soft, or
+    // a FIFO the agent left in its place is replaced, never written through or waited on.
+    if (dirname(to) !== home)
+      throw new Error(`${to} is not at the top of the agent's home ${home}`);
+    const fresh = join(home, `.awf-${randomUUID()}.tmp`);
+    const handle = await open(
+      fresh,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await handle.writeFile(bytes);
+    } finally {
+      await handle.close();
+    }
+    await rename(fresh, to).catch(async (error: unknown) => {
+      await rm(fresh, { force: true });
+      throw error;
+    });
+    seeds.push({
+      from,
+      to,
+      refreshes: refreshes.map((field) => field.split(".")),
+      baseline: bytes,
+    });
+  }
+  return writingBack(seeds, locks);
+}
+
+function writingBack(seeds: Seed[], locks: CredentialLocks): SeededHome {
   return {
     async writeBack() {
       // Every seed is tried: one refused leaves the others' refreshes to go back.

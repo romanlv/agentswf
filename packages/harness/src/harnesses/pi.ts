@@ -38,6 +38,10 @@ const PI = {
   interactiveResume: (session, settings = {}, launchArgs = []) => ({
     argv: ["pi", ...piSession(session), ...piSettings(settings), ...launchArgs],
   }),
+  // pi asks before nothing, so a person's TUI is an agent's: it runs what the model asks (M10).
+  operatorResume: (session, settings = {}, launchArgs = []) => ({
+    argv: ["pi", ...piSession(session), ...piSettings(settings), ...launchArgs],
+  }),
   // pi is the one harness whose session id we choose: `--session-id` creates it on the first
   // turn and reuses it on the second, so no id has to be scraped back out of the output.
   headlessTurn: (prompt, { sessionHint, launchArgs = [], ...settings }) => ({

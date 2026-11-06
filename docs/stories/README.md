@@ -172,7 +172,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   published `readRun`, `in.jsonl`, `ops/{agent}.{n}/`, `out.json` and `work/`, before evaluation
   ends.
 - [[042-open-agent-session|042 — The operator opens any agent's session and asks it more]] —
-  `in-progress` — `awf open <run> <agent>` opens a copy of the agent's latest session in its
+  `done` — `awf open <run> <agent>` opens a copy of the agent's latest session in its
   harness's TUI where the agent worked, its sandbox included, or asks it one question with `-p`;
   `--no-fork` opens the session itself, the run held meanwhile.
 - [[043-json-refusals|043 — Every --json command says why it failed, as a document]] —

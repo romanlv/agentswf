@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { SandboxedCommand } from "@agentswf/sandbox";
-import { type ProcessInput, runProcess, withholding } from "./command";
+import {
+  type ProcessInput,
+  runAttached,
+  runProcess,
+  terminalAttached,
+  withholding,
+} from "./command";
 
 test("withholding unsets the named variables and leaves everything else alone", async () => {
   const seen: ProcessInput[] = [];
@@ -291,4 +297,20 @@ test("answer admission can extend process expiry through its release grace", asy
   expect(result.timedOut).toBe(false);
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("natural end");
+});
+
+test("runAttached lets go of the terminal's signals when its command can't start", async () => {
+  const before = process.listenerCount("SIGINT");
+  await expect(
+    runAttached({ argv: ["awf-no-such-command"], cwd: process.cwd(), env: {} }),
+  ).rejects.toThrow();
+  expect(process.listenerCount("SIGINT")).toBe(before);
+  expect(terminalAttached()).toBe(false);
+});
+
+test("runAttached has the terminal while its command runs", async () => {
+  const running = runAttached({ argv: ["sleep", "0.2"], cwd: process.cwd(), env: {} });
+  expect(terminalAttached()).toBe(true);
+  expect(await running).toBe(0);
+  expect(terminalAttached()).toBe(false);
 });
