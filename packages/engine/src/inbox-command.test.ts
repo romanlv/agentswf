@@ -338,12 +338,10 @@ describe("awf inbox", () => {
     expect(waited.items).toEqual([]);
     expect(waited.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(2_900);
     expect(waited.stderr).toBe("");
-    // A bare number is still seconds until 0.1.0, said once.
-    const bare = await inbox(root, ref, "--json", "--after", first.items[0].cursor, "--wait", "3");
-    expect(bare.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(2_900);
-    expect(bare.stderr).toBe(
-      "awf: a bare number for --wait, 3, is deprecated; give a duration, --wait 3s",
-    );
+    const bare = await inbox(root, ref, "--after", first.items[0].cursor, "--wait", "3");
+    expect(bare.code).toBe(2);
+    expect(bare.sleeps).toEqual([]);
+    expect(bare.stderr).toContain("give --wait 3s");
   });
 
   test("a parked attempt's end carries its last wait's label", async () => {

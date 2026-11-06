@@ -1,5 +1,4 @@
 import type { JsonObject, JsonValue } from "./json";
-import type { AbsoluteDeadline } from "./timing";
 import type { Timeout } from "./waits";
 
 /** Instructions, an option's description or a level: text, or structured text, as Jev allows. */
@@ -109,8 +108,8 @@ export type DecisionAliasName = string;
 
 export interface DecisionSpec<Q extends Record<string, Question> = Record<string, Question>> {
   /**
-   * Names the call in its record, and its prefix before `:` is its accounting stage. Not unique: the
-   * `n`th asking is `ops/{key}.{n}/`. A name, as an agent's key is, and never an agent's key.
+   * Names the call in its record. Not unique: the `n`th asking is `ops/{key}.{n}/`. A name without
+   * a colon, as an agent's key is, and never an agent's key.
    */
   key: string;
   model: DecisionAliasName;
@@ -120,8 +119,6 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
   questions: Q;
   /** Bounds the call, within the stage, `parallel` and run around it. */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"30s"`. */
-  deadline?: AbsoluteDeadline;
 }
 
 /** One `decide` call, as the run keeps it in its `decision.json` and `out.json` shows it. */

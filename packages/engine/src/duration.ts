@@ -1,43 +1,37 @@
 import { durationMilliseconds, positiveDurationMilliseconds } from "@agentswf/contract/workflow";
-import { deprecationLine } from "./deprecations";
 import { messageOf } from "./errors";
 
 /**
  * A flag's duration in milliseconds, longer than none: the one grammar, `"90s"`, `"1.5h"`, `"1d"`.
- * A whole number of `ms`, which the CLI took before, is read until 0.1.0 and `deprecated` told.
+ * A number of `ms`, which the CLI took before 0.1.0-beta.6, is refused with its replacement.
  */
-export function parseDuration(
-  value: string,
-  flag: string,
-  deprecated: (line: string) => void,
-): number {
+export function parseDuration(value: string, flag: string): number {
   const ms = /^(\d+)ms$/.exec(value);
   if (!ms) return positiveDurationMilliseconds(value, flag);
   const milliseconds = Number(ms[1]);
   if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0)
     throw new Error(`${flag} is a positive duration: not ${value}`);
-  deprecated(deprecationLine("duration-ms", value));
-  return milliseconds;
+  throw new Error(
+    `${flag} is a duration, a decimal and s, m, h or d: give ${milliseconds / 1000}s, not ${value}`,
+  );
 }
 
 /**
  * `--wait`, in seconds from none to `maxSeconds`: a duration, `"90s"`. A bare number of seconds,
- * which it took before, is read until 0.1.0 and `deprecated` told.
+ * which it took before 0.1.0-beta.6, is refused with its replacement.
  */
-export function parseWait(
-  value: string,
-  maxSeconds: number,
-  deprecated: (line: string) => void,
-): number {
-  const bare = /^\d+(\.\d+)?$/.test(value);
+export function parseWait(value: string, maxSeconds: number): number {
+  if (/^\d+(\.\d+)?$/.test(value))
+    throw new Error(
+      `--wait takes a duration up to ${maxSeconds}s: give --wait ${Math.min(Number(value), maxSeconds)}s`,
+    );
   let seconds: number;
   try {
-    seconds = bare ? Number(value) : durationMilliseconds(value) / 1000;
+    seconds = durationMilliseconds(value) / 1000;
   } catch (error) {
     throw new Error(`--wait takes a duration up to ${maxSeconds}s: ${messageOf(error)}`);
   }
   if (seconds > maxSeconds) throw new Error(`--wait takes a duration up to ${maxSeconds}s`);
-  if (bare) deprecated(deprecationLine("wait-seconds", value));
   return seconds;
 }
 

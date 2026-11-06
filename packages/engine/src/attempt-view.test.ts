@@ -14,7 +14,7 @@ describe("the closing block's pane rows", () => {
           {
             callPath: [],
             agent: "security",
-            layout: { beside: "lead", side: "right" },
+            pane: { beside: "lead", side: "right" },
             placed: {
               session: "awf",
               workspace: "run",
@@ -25,13 +25,11 @@ describe("the closing block's pane rows", () => {
           {
             callPath: [],
             agent: "lead",
-            keepPane: "always",
             placed: { session: "default", workspace: "origin", tab: "review · r1", kept: true },
           },
           {
             callPath: [],
             agent: "style",
-            keepPane: "on-failure",
             placed: {
               session: "awf-review",
               workspace: { name: "review" },
@@ -42,13 +40,11 @@ describe("the closing block's pane rows", () => {
           {
             callPath: [],
             agent: "mine",
-            keepPane: "always",
             placed: { session: "work", workspace: "run", tab: "mine", kept: true },
           },
           {
             callPath: [],
             agent: "stuck",
-            keepPane: "always",
             placed: {
               session: "awf",
               workspace: "run",

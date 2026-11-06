@@ -369,7 +369,7 @@ async function runCommand(
   const { stdout, stderr, notice, terminal, now } = output;
   let parsed: RunCommand | "help";
   try {
-    parsed = parseCommand(argv, environment.cwd ?? process.cwd(), stderr);
+    parsed = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     printRefusal({ stdout, stderr }, { json: asksJson(argv), v: 1 }, error, "usage", usage);
     return 2;

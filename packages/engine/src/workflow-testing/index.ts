@@ -1,5 +1,5 @@
 // What `agentswf/testing` publishes, which `awf test` serves too: nothing here is the engine's own.
-import type { EventSchemas, JsonValue, Workflow, WorkflowMeta } from "@agentswf/contract/workflow";
+import type { EventSchemas, JsonValue, Workflow } from "@agentswf/contract/workflow";
 import { runTest, type TestOptions, type TestRun, testCall } from "./run-test";
 
 export type { DecisionRequest, DecisionScript } from "./decisions";
@@ -13,7 +13,6 @@ export type { TestTurn } from "./host";
 export type {
   EarlierAttempt,
   EmittedEvent,
-  EventTestOptions,
   FileTree,
   MessageRecord,
   ScriptedEvent,
@@ -31,16 +30,12 @@ export {
   type ParticipantRoute,
   type ParticipantScript,
   type ReceivedMessage,
-  reply,
   type Script,
   type SendOptions,
   type TestTurnOutcome,
   type ToolOutcome,
   type Turn,
 } from "./script";
-
-/** What an array, `null` or a primitive is: args the deprecated form may give second. */
-type NotAnObject = null | string | number | boolean | JsonValue[];
 
 /**
  * Runs `workflow` through the real engine, answering each agent from its script and each decision
@@ -62,28 +57,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     ? [options?: TestOptions<NoInfer<Args>>]
     : [options: TestOptions<NoInfer<Args>>]
 ): Promise<TestRun<Result>>;
-/** @deprecated Give args among the options: `testWorkflow(workflow, { args, … })`. */
-export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  workflow: DeprecatedWorkflow<Args, Result>,
-  args: NoInfer<Args>,
-  options: Omit<TestOptions<NoInfer<Args>>, "args"> | undefined,
-): Promise<TestRun<Result>>;
-/** @deprecated Give args among the options: `testWorkflow(workflow, { args })`. */
-export async function testWorkflow<Args extends NotAnObject, Result extends JsonValue>(
-  workflow: DeprecatedWorkflow<Args, Result>,
-  args: Args,
-): Promise<TestRun<Result>>;
 export async function testWorkflow(
-  workflow: DeprecatedWorkflow<JsonValue, JsonValue>,
+  workflow: Parameters<typeof runTest>[0],
   ...given: unknown[]
 ): Promise<TestRun<JsonValue>> {
-  const { options, used } = testCall(workflow, given);
-  return runTest(workflow, options, { used });
+  return runTest(workflow, testCall(workflow, given));
 }
-
-/** What the deprecated form still takes: a workflow, or its `meta` and `run` alone. */
-type DeprecatedWorkflow<Args extends JsonValue, Result extends JsonValue> = {
-  readonly meta: WorkflowMeta;
-  readonly events?: undefined;
-  run: Workflow<Args, Result>["run"];
-};

@@ -3,8 +3,10 @@ import { join } from "node:path";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
+  AgentEnded,
   type AgentRef,
   type AgentTools,
+  defineWorkflow,
   type JsonObject,
   type JsonValue,
   type OutputSchema,
@@ -19,11 +21,28 @@ import Type from "typebox";
 import { messageOf } from "./errors";
 import { logsCommand } from "./logs-command";
 import { readTurns } from "./runs";
-import { caseRun, createTempRunDirs, exchange, future, runNew, startCase } from "./testing";
+import { caseEvents, createTempRunDirs, exchange, future, runNew, startCase } from "./testing";
 import { ToolCalls, toolsLesson } from "./tools";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { answer } from "./workflow-testing";
 import { runTest } from "./workflow-testing/run-test";
+
+const events = {
+  ...caseEvents,
+  "investigator:ended": AgentEnded,
+  "a:ended": AgentEnded,
+  "b:ended": AgentEnded,
+};
+
+/** A case whose agents' started turns end as declared events. */
+const caseRun = (run: (workflow: WorkflowContext<typeof events>) => Promise<JsonValue>) =>
+  defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events,
+    starts: ["dd.changes"],
+    run,
+  });
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -109,7 +128,7 @@ async function withTools(
         await agent.run({
           prompt: options.prompt ?? "work",
           schema: TEXT,
-          deadline: future(),
+          timeout: "1m",
           nudge: false,
         });
       return null;
@@ -284,7 +303,7 @@ describe("a tool call", () => {
       {
         stuck: tool({
           description: "Waits for its signal.",
-          timeoutMs: 100,
+          timeout: "0.1s",
           handler: (_input, call) =>
             new Promise((resolve) => {
               call.signal.addEventListener("abort", () => {
@@ -312,7 +331,7 @@ describe("a tool call", () => {
       },
       {
         around: async (agent) => {
-          await agent.run({ prompt: "work", schema: TEXT, deadline: future(), nudge: false });
+          await agent.run({ prompt: "work", schema: TEXT, timeout: "1m", nudge: false });
           const after = await wfa(launcher, ["tool", "list"]);
           expect(after.exitCode).toBe(3);
           expect(after.stderr).toContain("(no-operation)");
@@ -347,14 +366,14 @@ describe("a handler", () => {
             ask: tool({
               description: "Ask.",
               handler: async () => {
-                own = await triager.run({ prompt: "self", schema: TEXT, deadline: future() }).then(
+                own = await triager.run({ prompt: "self", schema: TEXT, timeout: "1m" }).then(
                   () => "ran",
                   (error: Error) => error.message,
                 );
                 const other = await helper.run({
                   prompt: "help",
                   schema: TEXT,
-                  deadline: future(),
+                  timeout: "1m",
                   nudge: false,
                 });
                 return other.outcome.kind;
@@ -365,7 +384,7 @@ describe("a handler", () => {
         const outcome = await triager.run({
           prompt: "work",
           schema: TEXT,
-          deadline: future(),
+          timeout: "1m",
           nudge: false,
         });
         return outcome.outcome.kind;
@@ -395,7 +414,7 @@ describe("tools on a spec", () => {
           Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`t${i}`, typed("x")])),
           { long: typed("x".repeat(1025)) },
           { scalar: { description: "x", input: { type: "string" }, handler: () => "x" } as never },
-          { slow: { ...typed("x"), timeoutMs: 0 } },
+          { slow: { ...typed("x"), timeout: "0s" } },
         ];
         for (const [index, tools] of tries.entries()) {
           await context.agents.open({ key: `a${index}`, runtime: "fake", tools }).then(
@@ -416,7 +435,7 @@ describe("tools on a spec", () => {
       expect.stringContaining("at most 16"),
       expect.stringContaining("over 1024 bytes"),
       expect.stringContaining("must be an object"),
-      expect.stringContaining("timeoutMs is a positive integer, or false"),
+      expect.stringContaining("its timeout is a positive duration"),
     ]);
   });
 
@@ -440,7 +459,7 @@ describe("tools on a spec", () => {
         const open = (tools?: AgentTools) =>
           context.agents.open({ key: "triager", runtime: "fake", ...(tools ? { tools } : {}) });
         const run = async (agent: AgentRef) =>
-          agent.run({ prompt: "work", schema: TEXT, deadline: future(), nudge: false });
+          agent.run({ prompt: "work", schema: TEXT, timeout: "1m", nudge: false });
         await run(await open({ close: typed("first") }));
         // The same schema written as plain JSON Schema, keys in another order, matches.
         await run(
@@ -495,7 +514,7 @@ describe("tools on a spec", () => {
           tools: { who: who("parent's") },
         });
         const run = (agent: AgentRef) =>
-          agent.run({ prompt: "work", schema: TEXT, deadline: future(), nudge: false });
+          agent.run({ prompt: "work", schema: TEXT, timeout: "1m", nudge: false });
         await run(parent);
         await run(await parent.fork({ key: "inherits" }));
         await run(await parent.fork({ key: "own", tools: { who: who("own") } }));
@@ -555,7 +574,7 @@ describe("a call in a message turn, and at an operation's end", () => {
             quick: tool({ description: "Quick.", handler: () => "quick answered" }),
             stuck: tool({
               description: "Stuck until stopped.",
-              timeoutMs: false,
+              timeout: false,
               handler: (_input, call) =>
                 new Promise((resolve) => {
                   stuckEntered.resolve();
@@ -568,10 +587,10 @@ describe("a call in a message turn, and at an operation's end", () => {
           },
         });
         await context.messages.allow({ from: asker, to: peer, purpose: "Ask." });
-        await asker.run({ prompt: "Ask.", schema: TEXT, deadline: future(), nudge: false });
+        await asker.run({ prompt: "Ask.", schema: TEXT, timeout: "1m", nudge: false });
         // Queued while its message turn still has the call running.
         await stuckEntered.promise;
-        await peer.run({ prompt: "Next.", schema: TEXT, deadline: future(), nudge: false });
+        await peer.run({ prompt: "Next.", schema: TEXT, timeout: "1m", nudge: false });
         return null;
       },
     };
@@ -597,7 +616,7 @@ describe("a call in a message turn, and at an operation's end", () => {
       {
         never: tool({
           description: "Never answers.",
-          timeoutMs: 200,
+          timeout: "0.2s",
           handler: () => new Promise(() => {}),
         }),
       },
@@ -609,12 +628,12 @@ describe("a call in a message turn, and at an operation's end", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(5_000);
   }, 15_000);
 
-  test("a deadline shorter than the budget wins, and timeoutMs: false is bounded by it alone", async () => {
+  test("a deadline shorter than the budget wins, and timeout: false is bounded by it alone", async () => {
     const { seen } = await withTools(
       {
         slow: tool({
           description: "Slow.",
-          timeoutMs: false,
+          timeout: false,
           handler: async (_input, call) => {
             await new Promise((resolve) => call.signal.addEventListener("abort", resolve));
             return "stopped";
@@ -624,7 +643,7 @@ describe("a call in a message turn, and at an operation's end", () => {
       (wfa) => wfa(["tool", "slow"]),
       {
         around: async (agent) => {
-          await agent.run({ prompt: "work", schema: TEXT, timeoutMs: 1_500, nudge: false });
+          await agent.run({ prompt: "work", schema: TEXT, timeout: "1.5s", nudge: false });
         },
       },
     );
@@ -719,7 +738,7 @@ describe("ToolCalls", () => {
   const spec = {
     slow: tool({
       description: "Slow.",
-      timeoutMs: false,
+      timeout: false,
       handler: (_i, call) =>
         new Promise((resolve) => call.signal.addEventListener("abort", () => resolve("late"))),
     }),
@@ -813,7 +832,7 @@ describe("ToolCalls", () => {
     calls.give("a", {
       far: tool({
         description: "Far.",
-        timeoutMs: 30 * 24 * 3_600_000,
+        timeout: "30d",
         handler: () => Bun.sleep(50).then(() => "in time"),
       }),
     });
@@ -877,7 +896,7 @@ describe("ToolCalls", () => {
 });
 
 describe("more of a handler's limits", () => {
-  test("compact, set, fork, close and agents.stop on its own agent are refused, and so is run up the chain", async () => {
+  test("compact, set, fork and close on its own agent are refused, and so is run up the chain", async () => {
     const refused: string[] = [];
     const adapter = createFakeAdapter({
       script: (context) => ({
@@ -922,7 +941,6 @@ describe("more of a handler's limits", () => {
                 await caught("set", () => a.set({ model: "other" }));
                 await caught("fork", () => a.fork({ key: "f" }));
                 await caught("close", () => a.close());
-                await caught("stop", () => context.agents.stop("a"));
                 await b.run({ prompt: "go", schema: TEXT, nudge: false });
               },
             }),
@@ -942,7 +960,6 @@ describe("more of a handler's limits", () => {
       "set: agent-in-tool",
       "fork: agent-in-tool",
       "close: agent-in-tool",
-      "stop: agent-in-tool",
       "run a from b's handler: agent-in-tool",
     ]);
   });
@@ -979,7 +996,7 @@ describe("more of a handler's limits", () => {
       {
         wait: tool({
           description: "Waits.",
-          timeoutMs: false,
+          timeout: false,
           handler: (_input, call) =>
             new Promise((resolve) => {
               entered.resolve();
@@ -992,10 +1009,10 @@ describe("more of a handler's limits", () => {
       },
       (wfa) => wfa(["tool", "wait"]),
       {
-        around: async (agent, context) => {
+        around: async (agent) => {
           const running = agent.run({ prompt: "work", schema: TEXT, nudge: false });
           await entered.promise;
-          await context.agents.stop("triager", "enough");
+          await agent.close("enough");
           await running;
         },
       },
@@ -1389,7 +1406,7 @@ describe("tool records and awf logs", () => {
             }),
             slow: tool({
               description: "Slow.",
-              timeoutMs: 50,
+              timeout: "0.05s",
               handler: () => new Promise((resolve) => setTimeout(resolve, 200)),
             }),
           },

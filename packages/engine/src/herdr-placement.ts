@@ -2,45 +2,14 @@ import { createHash } from "node:crypto";
 import { mkdir, rename, rmdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { HERDR_VERSION, type RunProcess } from "@agentswf/harness";
-import { messageOf } from "./errors";
-import { ensureRunSession, parseSessions, type RunSessionDeps } from "./herdr-run-session";
+import { parseSessions } from "./herdr-run-session";
 import { machinePaths } from "./machine";
 
-/** Where a layout may open a session awf does not otherwise use: one named `awf-…` it starts. */
-const OWN_SESSION = /^awf(-|$)/;
 const LOCK_POLL_MS = 100;
 /** Held inside a session's queue: a short wait, then made anyway. */
 const LOCK_WAIT_MS = 5_000;
 /** A lock older than this was left by a run that died holding it. */
 const LOCK_STALE_MS = 30_000;
-
-/**
- * Whether a session a layout names can be used: undefined when it can, else why not. One named
- * `awf-…` is started, swept and restarted as the run session is; any other must be running. Either
- * must answer, on the Herdr the adapter drives.
- */
-export async function namedSession(
-  name: string,
-  deps: RunSessionDeps,
-): Promise<string | undefined> {
-  if (OWN_SESSION.test(name)) {
-    try {
-      await ensureRunSession(name, deps);
-    } catch (error) {
-      return messageOf(error);
-    }
-  } else {
-    const listed = await deps.run({
-      argv: ["herdr", "session", "list", "--json"],
-      timeoutMs: 10_000,
-    });
-    const found = parseSessions(listed.stdout).find((session) => session.name === name);
-    if (!found?.running) {
-      return "it is not running, and awf starts only sessions named awf-…";
-    }
-  }
-  return wrongVersion(name, deps.run);
-}
 
 /** Why the session's server is not the Herdr the adapter drives; undefined when it is. */
 async function wrongVersion(session: string, run: RunProcess): Promise<string | undefined> {

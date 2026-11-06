@@ -103,7 +103,7 @@ export async function inboxCommand(
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseInbox(parsed.rest, (line) => out.stderr(line));
+    options = parseInbox(parsed.rest);
   } catch (error) {
     printRefusal(out, { json: asksJson(argv), v: 2 }, error, "usage", inboxUsage);
     return 2;
@@ -201,7 +201,7 @@ export async function inboxCommand(
   }
 }
 
-function parseInbox(rest: readonly string[], deprecated: (line: string) => void): Options {
+function parseInbox(rest: readonly string[]): Options {
   const options: Options = { all: false, open: false, waitSeconds: 0 };
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
@@ -215,8 +215,7 @@ function parseInbox(rest: readonly string[], deprecated: (line: string) => void)
     else if (arg === "--workflow") options.workflow = value();
     else if (arg === "--as") options.as = value();
     else if (arg === "--after") options.after = value();
-    else if (arg === "--wait")
-      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS, deprecated);
+    else if (arg === "--wait") options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS);
     else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
     else if (options.ref === undefined) options.ref = arg;
     else throw new Error(`one run at a time: ${options.ref} and ${arg}`);

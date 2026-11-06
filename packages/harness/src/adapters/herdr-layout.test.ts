@@ -394,42 +394,6 @@ describe("sessions and workspaces", () => {
   const labelOf = (fake: FakeHerdr, verb: "tab create" | "workspace create") =>
     calls(fake, verb).map((call) => call.argv[call.argv.indexOf("--label") + 1]);
 
-  test("a named session holds the run's own workspace there, closed at the run's end", async () => {
-    const { fakes, run } = sessions("awf", "awf-review");
-    const asked: string[] = [];
-    const host = await createHerdrRunHostFactory(
-      { ...CONFIG, sessionFor: async (name) => void asked.push(name) },
-      run,
-    ).openRun({ runId: "r1", label: "awf review r1", cwd: "/repo", deadline: deadline() });
-    const a = await open(host, "a", { session: "awf-review", tab: "lens" });
-    const b = await open(host, "b", { session: "awf-review" });
-    expect(asked).toEqual(["awf-review"]);
-    expect(a.pane?.()).toEqual({ session: "awf-review", workspace: "run", tab: "lens" });
-    expect(b.pane?.()?.session).toBe("awf-review");
-    expect(fakes["awf-review"]!.workspaceLabels()).toEqual(["awf review r1"]);
-    expect(labelOf(fakes["awf-review"]!, "tab create")).toEqual(["lens", "b"]);
-    expect(fakes.awf!.openWorkspaces()).toEqual([]);
-    await host.close();
-    expect(fakes["awf-review"]!.openWorkspaces()).toEqual([]);
-  });
-
-  test("a session that can't be used falls back to the same workspace in the run session", async () => {
-    const { fakes, run } = sessions("awf");
-    const host = await createHerdrRunHostFactory(
-      { ...CONFIG, sessionFor: async () => "it is not running" },
-      run,
-    ).openRun({ runId: "r1", label: "awf review r1", cwd: "/repo", deadline: deadline() });
-    const a = await open(host, "a", { session: "work", workspace: { name: "review" } });
-    expect(a.pane?.()).toEqual({
-      session: "awf",
-      workspace: { name: "review" },
-      tab: "a · r1",
-      fallback: "session work can't be used: it is not running",
-    });
-    expect(fakes.awf!.workspaceLabels()).toEqual(["review"]);
-    await host.close();
-  });
-
   test("a named workspace is found by its label, shared: tabs labelled by run, never closed", async () => {
     const { fakes, run } = sessions("awf");
     const awf = fakes.awf!;

@@ -589,12 +589,12 @@ const ROWS: Row[] = [
   },
   {
     command: "send",
-    failure: "an --event-id the grammar refuses",
-    argv: () => ["dd-case/r1", "--as", "slack", "--event-id", "a b", "hi"],
-    code: "id",
+    failure: "--event-id, which awf emit replaced",
+    argv: () => ["dd-case/r1", "--as", "slack", "--event-id", "m1", "hi"],
+    code: "usage",
     exit: 2,
     v: 3,
-    says: /--event-id a b/,
+    says: /send --event-id was removed: .*awf emit \{run\} \{participant\}:reply/,
   },
   {
     command: "run",

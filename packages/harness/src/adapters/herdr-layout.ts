@@ -486,8 +486,6 @@ export function createPaneLayout(options: {
   run: PaneScreen;
   /** The run's id, which a tab in a shared workspace ends with: its label would crowd the tab out. */
   runId: string;
-  /** The screen for the session a layout names; why not, where it can't be used. */
-  session?: (name: string) => Promise<PaneScreen | string>;
   /** `"origin"`'s screen and workspace; why not, where it can't be used. */
   origin?: () => Promise<{ screen: PaneScreen; workspaceId: string } | string>;
 }) {
@@ -502,15 +500,6 @@ export function createPaneLayout(options: {
   ): Promise<{ to: Destination; fallback?: string }> => {
     const runs = { screen: run, workspace: "run" as const };
     if (!layout || "beside" in layout) return { to: runs };
-    let screen = run;
-    let fallback: string | undefined;
-    if (layout.session !== undefined) {
-      const named = options.session
-        ? await options.session(layout.session)
-        : `session ${layout.session} is not one this run can use`;
-      if (typeof named === "string") fallback = named;
-      else screen = named;
-    }
     const workspace = layout.workspace ?? "run";
     if (workspace === "origin") {
       const origin = options.origin
@@ -519,12 +508,8 @@ export function createPaneLayout(options: {
       if (typeof origin === "string") return { to: runs, fallback: origin };
       return { to: { screen: origin.screen, workspace, workspaceId: origin.workspaceId } };
     }
-    if (workspace === "run")
-      return { to: { screen, workspace }, ...(fallback ? { fallback } : {}) };
-    return {
-      to: { screen, workspace, name: workspace.name },
-      ...(fallback ? { fallback } : {}),
-    };
+    if (workspace === "run") return { to: { screen: run, workspace } };
+    return { to: { screen: run, workspace, name: workspace.name } };
   };
 
   /** A new tab at `to`, labelled for it; its pane. */

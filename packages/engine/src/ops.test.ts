@@ -257,17 +257,29 @@ describe("operation ids", () => {
     expect(String(decision)).toContain("reviewer is an agent's key: agents and decisions share");
   });
 
-  test("a key with a colon is still opened, and its folder holds it", async () => {
-    const runRoot = runDirs.tempRunDir();
-    await runAttempt(
-      workflowOf(async (wf) => {
-        const agent = await wf.agents.open({ key: "triage:42", runtime: "codex" });
-        await agent.run({ prompt: "Look.", schema: DOC });
+  test("a key with a colon is refused, for a decision and an agent, naming the key to take", async () => {
+    const refused = (work: Parameters<typeof workflowOf>[0]) =>
+      runAttempt(workflowOf(work), {
+        runRoot: runDirs.tempRunDir(),
+        decisions: DECISIONS,
+      }).catch((error: unknown) => String(error));
+    expect(
+      await refused(async (wf) => {
+        await wf.decisions.decide({
+          key: "triage:42",
+          model: "jev",
+          state: "s",
+          questions: { bug: yesNo("A bug?") },
+        });
         return null;
       }),
-      { runRoot },
-    );
-    expect(await readdir(join(runRoot, "staged", "r1", "ops"))).toEqual(["triage:42.1"]);
+    ).toContain("take another key, such as triage-42");
+    expect(
+      await refused(async (wf) => {
+        await wf.agents.open({ key: "triage:43", runtime: "codex" });
+        return null;
+      }),
+    ).toContain("an agent takes another key, such as triage-43");
   });
 });
 

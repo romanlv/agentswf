@@ -247,14 +247,13 @@ describe("wfa waiting", () => {
     expect(called).toBe(0);
   });
 
-  test("takes the one duration grammar, and ms deprecated", async () => {
+  test("takes the one duration grammar; a number of ms is a usage error naming its seconds", async () => {
     for (const [duration, milliseconds] of [
       ["2s", 2000],
       ["1.5s", 1500],
       ["3m", 180000],
       ["4h", 14400000],
       ["2d", 172800000],
-      ["1500ms", 1500],
     ] as const) {
       const outcome = await runCli(
         at("waiting", "op-1", "--reason", "ok", "--timeout", duration),
@@ -264,42 +263,29 @@ describe("wfa waiting", () => {
           return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 };
         },
       );
-      expect(outcome.exitCode).toBe(0);
-      expect(outcome.stderr).toBe(
-        duration === "1500ms"
-          ? "wfa: --timeout 1500ms is deprecated; give 1.5s: a duration is a decimal and s, m, h or d"
-          : "",
-      );
+      expect(outcome).toMatchObject({ exitCode: 0, stderr: "" });
     }
-    // Not beside a usage error, where the form wasn't taken; and from the flag itself.
-    const reasoned = await runCli(
-      at("waiting", "op-1", "--reason", "--timeout", "--timeout", "1500ms"),
+    let asked = false;
+    const submit = async () => {
+      asked = true;
+      return { version: WIRE_VERSION, kind: "sent" as const, message: 1, notice: "sent." };
+    };
+    const waiting = await runCli(
+      at("waiting", "op-1", "--reason", "ok", "--timeout", "1500ms"),
       null,
-      async (_endpoint, request) => {
-        expect(request).toMatchObject({ reason: "--timeout", timeoutMs: 1500 });
-        return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000 };
-      },
+      submit,
     );
-    expect(reasoned.exitCode).toBe(0);
-    expect(reasoned.stderr).toBe(
-      "wfa: --timeout 1500ms is deprecated; give 1.5s: a duration is a decimal and s, m, h or d",
-    );
+    expect(waiting.exitCode).toBe(2);
+    expect(waiting.stderr).toContain("--timeout takes a duration");
+    expect(waiting.stderr).toContain("give 1.5s");
     const sent = await runCli(
       ["--at", "/tmp/s", "send", "--await-reply", "--timeout", "500ms", "fixer", "hi"],
       null,
-      async () => ({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "sent." }),
+      submit,
     );
-    expect(sent).toMatchObject({ exitCode: 0, stdout: "wfa: sent." });
-    expect(sent.stderr).toBe(
-      "wfa: --timeout 500ms is deprecated; give 0.5s: a duration is a decimal and s, m, h or d",
-    );
-    const misplaced = await runCli(
-      ["--at", "/tmp/s", "send", "--timeout", "500ms", "fixer", "hi"],
-      null,
-      async () => ({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "sent." }),
-    );
-    expect(misplaced.exitCode).toBe(2);
-    expect(misplaced.stderr).not.toContain("deprecated");
+    expect(sent.exitCode).toBe(2);
+    expect(sent.stderr).toContain("give 0.5s");
+    expect(asked).toBe(false);
   });
 
   test("lost acknowledgement reports uncertainty and does not retry", async () => {

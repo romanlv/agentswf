@@ -123,6 +123,11 @@ describe("awf help", () => {
       expect(() => parseCommand(["run", "--timeout", timeout, "x.ts"], ROOT)).toThrow(
         "--timeout is a positive duration",
       );
+    const ms = await said("run", "--timeout", "500ms", "x.ts");
+    expect(ms.exitCode).toBe(2);
+    expect(ms.stderr).toStartWith(
+      "awf: --timeout is a duration, a decimal and s, m, h or d: give 0.5s, not 500ms",
+    );
     const refused = await said("run", "--bogus");
     expect(refused.exitCode).toBe(2);
     expect(refused.stderr).toStartWith("awf: unknown option: --bogus");
@@ -633,7 +638,7 @@ describe("awf run", () => {
       workflow,
       executableModule(
         "return null;",
-        'const { answers } = await arguments[0].decisions.decide({ key: "triage:1", model: "jev", state: "a ticket", questions: { bug: { type: "yes-no", instructions: "Broken?" } } }); return answers.bug.yes;',
+        'const { answers } = await arguments[0].decisions.decide({ key: "triage-1", model: "jev", state: "a ticket", questions: { bug: { type: "yes-no", instructions: "Broken?" } } }); return answers.bug.yes;',
       ),
     );
     const provider = createFakeDecisionProvider();
@@ -656,15 +661,15 @@ describe("awf run", () => {
     expect(record.value).toBe(0.9);
     expect(record.decisions).toEqual([
       expect.objectContaining({
-        key: "triage:1",
+        key: "triage-1",
         provider: "fake",
         snapshot: "fake/jev-1-20260926",
         outcome: "answered",
         charged: { amount: 0.000042, currency: "USD" },
-        artifact: "ops/triage:1.1/decision.json",
+        artifact: "ops/triage-1.1/decision.json",
       }),
     ]);
-    expect(existsSync(join(record.artifacts, "ops/triage:1.1/decision.json"))).toBe(true);
+    expect(existsSync(join(record.artifacts, "ops/triage-1.1/decision.json"))).toBe(true);
     expect(JSON.parse(readFileSync(join(record.artifacts, "out.json"), "utf8")).decisions).toEqual(
       record.decisions,
     );
@@ -1183,20 +1188,16 @@ describe("awf run", () => {
     test("a stage with no deadline of its own outlives the run", async () => {
       const ended = await endedBy(
         `await workflow.parallel([1, 2], async () => { ${never} });`,
-        "500ms",
+        "0.5s",
       );
       expect(ended.exitCode).toBe(1);
       expect(ended.saved.outcome).toBe("timed-out");
       expect(ended.stderr).toMatch(/^✗ timed out: .*\n {2}fixture /m);
-      // The CLI's old ms still works until 0.1.0, said once.
-      expect(ended.stderr).toStartWith(
-        "awf: a duration in ms, 500ms, is deprecated; give 0.5s: a duration is a decimal and s, m, h or d\n",
-      );
     });
 
     test("a stage deadline the workflow set and let escape is failed", async () => {
       const ended = await endedBy(
-        `await workflow.parallel([1], async () => { ${never} }, { deadline: { unixMilliseconds: Date.now() + 50 } });`,
+        `await workflow.parallel([1], async () => { ${never} }, { timeout: "0.05s" });`,
         "10s",
       );
       expect(ended.exitCode).toBe(1);
@@ -1217,7 +1218,7 @@ describe("awf run", () => {
       });
       const ended = await endedBy(
         `const agent = await workflow.agents.open({ key: "a", runtime: "claude" });
-         const { outcome } = await agent.run({ prompt: "p", timeoutMs: 50, nudge: false });
+         const { outcome } = await agent.run({ prompt: "p", timeout: "0.05s", nudge: false });
          throw new Error("the turn " + outcome.kind);`,
         "10s",
         adapter,
@@ -2710,8 +2711,7 @@ describe("awf run --here", () => {
       executableModule(
         "return null;",
         `
-      await workflow.agents.caller({ key: "author" });
-      await workflow.agents.stop("author", "finished editing");
+      await (await workflow.agents.caller({ key: "author" })).close("finished editing");
       workflow.log("caller released");
       return null;
     `,

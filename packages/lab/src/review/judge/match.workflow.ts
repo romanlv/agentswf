@@ -73,7 +73,7 @@ export const matchJudge = defineWorkflow<Args, ScorerResult>({
       const matched = await Promise.all(
         findings.map(async (finding, index) => {
           const { answers } = await wf.decisions.decide({
-            key: `match:${index}`,
+            key: `match-${index}`,
             model: "jev",
             state: { finding: finding.text },
             questions: {

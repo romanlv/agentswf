@@ -185,36 +185,6 @@ test("a waiting receive takes an event appended later, nudged or not", async () 
   expect(ids(await unnudged)).toEqual(["b"]);
 });
 
-test("a wait in a stage holds its batch: acknowledged at once, and read back by the stage", async () => {
-  const runDir = await withEvents("a");
-  const box = await waitsOf(runDir);
-  expect(ids(await box.receive(undefined, "approval-1"))).toEqual(["a"]);
-  await appendIn(runDir, event("b"));
-  // A later attempt, rerun from the top, gets the stage's batch, not b.
-  const next = await waitsOf(runDir, 2);
-  expect(ids((await next.batchOf("approval-1")) ?? [])).toEqual(["a"]);
-  expect(ids(await next.receive(undefined))).toEqual(["b"]);
-});
-
-test("a stage that took its batch and failed, or died before its record, gets it again", async () => {
-  const runDir = await withEvents("a");
-  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined, "approval-1"))).toEqual(["a"]);
-  await appendIn(runDir, event("b"));
-  const rerun = await waitsOf(runDir, 2);
-  expect(ids(await rerun.receive(undefined, "approval-1"))).toEqual(["a"]);
-  // Nothing was written for it, and b still waits for the loop.
-  expect(ids(await rerun.receive(undefined))).toEqual(["b"]);
-});
-
-test("a first wait in a stage leaves a crash's held batch to the first wait outside one", async () => {
-  const runDir = await withEvents("a");
-  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined))).toEqual(["a"]);
-  await appendIn(runDir, event("b"));
-  const next = await waitsOf(runDir, 2);
-  expect(ids(await next.receive(undefined, "approval-1"))).toEqual(["b"]);
-  expect(ids(await next.receive(undefined))).toEqual(["a"]);
-});
-
 test("an event sent as the run parks is taken: parking checks again under the run's lock", async () => {
   const runDir = runDirs.tempRunDir();
   let parked = false;
@@ -415,8 +385,8 @@ test("a rerun's first select leaves a held event it doesn't take waiting, not ac
 test("two waits at once, in parallel branches, never take one event both", async () => {
   const runDir = await withEvents("a");
   const box = await waitsOf(runDir);
-  const first = box.receive(undefined, "left");
-  const second = box.receive(undefined, "right");
+  const first = box.receive(undefined);
+  const second = box.receive(undefined);
   await Bun.sleep(50);
   await appendIn(runDir, event("b"));
   box.nudge();

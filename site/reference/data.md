@@ -232,7 +232,7 @@ an earlier attempt adds after it is ignored.
 | --- | --- |
 | `session` | an agent's native session, as soon as it is known: `agent`, `harness`, `session`, the `operation` it was seen in, and a sandboxed agent's `home` |
 | `turn-started` | a turn `start()` began: `agent`, `turn`, `meta` and `execution` |
-| `turn-ended` | its end, which a wait takes as `agent:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
+| `turn-ended` | its end, recorded in `in.jsonl` as `agent:ended` and taken by the workflow as `{key}:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
 
 **Timers and waits**
 
@@ -350,7 +350,7 @@ the attempt ran with. A run that failed or was cancelled once its agents started
 | `artifacts` | the run's folder |
 | `sandboxes` | each sandbox the run opened, with its spec, provider and the agents in it |
 | `skills` | the skills each agent was given, with their source, commit and digest |
-| `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it (or a deprecated `layout` and `keepPane`), and in `placed` where it landed and whether it was kept |
+| `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it, and in `placed` where it landed and whether it was kept |
 | `decisions` | every decision asked |
 
 ### report.md

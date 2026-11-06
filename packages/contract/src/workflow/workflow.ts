@@ -16,7 +16,6 @@ import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
 import type { ParticipantDirectory } from "./participants";
 import type { SandboxDirectory } from "./sandboxes";
-import type { AbsoluteDeadline } from "./timing";
 import type {
   Branches,
   Checked,
@@ -38,8 +37,6 @@ export interface WorkflowMeta {
   /** What its runs are kept under; a file may move or be copied and stay the same workflow. */
   name: string;
   description: string;
-  /** @deprecated Drop it: nothing reads it. */
-  whenToUse?: string;
   /** Semver, recorded with each attempt. */
   version?: string;
 }
@@ -47,8 +44,6 @@ export interface WorkflowMeta {
 export interface ParallelOptions {
   /** Bounds every item, within the stage, `parallel` and run around it. */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"20m"`. */
-  deadline?: AbsoluteDeadline;
   /** Positive integer local maximum; global admission may reduce it. */
   concurrency?: number;
   label?: string;
@@ -86,10 +81,7 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   /** Working directory and hard bound for this invocation, supplied and enforced by the engine. */
   readonly cwd: string;
   /** The run's deadline; absent when it has none, as it has unless `awf run --timeout` sets one. */
-  readonly deadline?: Date & {
-    /** @deprecated `wf.deadline` is a `Date`: read `wf.deadline.getTime()`. */
-    readonly unixMilliseconds: number;
-  };
+  readonly deadline?: Date;
   readonly agents: AgentDirectory;
   readonly sandboxes: SandboxDirectory;
   /** Closed questions to a decision model: probabilities back in a few hundred milliseconds. */
@@ -111,16 +103,6 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
    * often its name is entered, whatever version of the code recorded it, while its value fits.
    */
   stage(name: string, work: () => Promise<void>): Promise<void>;
-  /**
-   * A stage around a wait, `stage(name, () => wf.receive(…))`, returns the batch that wait took,
-   * then and on every rerun. Its work is the wait alone.
-   *
-   * @deprecated Wait with `wf.race(…)`, which is recorded under its name, outside a stage.
-   */
-  stage(
-    name: string,
-    work: () => Promise<ReceivedEvent<Events>[]>,
-  ): Promise<ReceivedEvent<Events>[]>;
   stage<T extends JsonValue>(
     name: string,
     options: StageOptions<T>,
@@ -173,8 +155,8 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   /**
    * Acknowledges what the last call returned, then waits for events not yet acknowledged and
    * returns them in arrival order: the first call of a run takes the event that started it, if one did. After
-   * a crash, the first call returns the batch taken and not acknowledged, alone. In a stage, it
-   * returns the stage's recorded batch on a rerun.
+   * a crash, the first call returns the batch taken and not acknowledged, alone. Not in a stage:
+   * a wait recorded under its name is `race`.
    */
   receive(options?: WaitOptions): Promise<ReceivedEvent<Events>[]>;
 
@@ -231,6 +213,3 @@ export interface WorkflowContext<Events extends EventSchemas = any> {
   /** The event that started the run; absent for a run started by hand. Typed by `events`, not `starts`. */
   readonly started?: Extract<OwnEvent<Events>, { readonly name: OwnNames<Events> }>;
 }
-
-/** @deprecated Use `WorkflowContext<Events>`: every workflow has one context. */
-export type EventWorkflowContext<Events extends EventSchemas> = WorkflowContext<Events>;

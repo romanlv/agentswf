@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { JsonValue, ParticipantRef, WorkflowContext } from "@agentswf/contract/workflow";
+import type {
+  Duration,
+  JsonValue,
+  ParticipantRef,
+  WorkflowContext,
+} from "@agentswf/contract/workflow";
 import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, type ParticipantScript } from "./index";
 import { runTest } from "./run-test";
@@ -10,7 +15,7 @@ const PURPOSE = "report findings that hold up; ask when the logs can't settle it
 /** An investigator with a route both ways to a coordinator; `beside` runs once the route is open. */
 function investigate(
   options: {
-    timeoutMs?: number;
+    timeout?: Duration;
     beside?: (workflow: WorkflowContext, coordinator: ParticipantRef) => Promise<unknown>;
     run?: boolean;
   } = {},
@@ -26,7 +31,7 @@ function investigate(
       await workflow.messages.allow({
         between: [investigator, coordinator],
         purpose: PURPOSE,
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
       });
       const side = options.beside?.(workflow, coordinator);
       if (options.run === false) {
@@ -86,8 +91,8 @@ describe("a coordinator in a workflow's test", () => {
     ]);
   });
 
-  test("a question closes at its route's timeoutMs", async () => {
-    const run = await runTest(investigate({ timeoutMs: 50 }), {
+  test("a question closes at its route's timeout", async () => {
+    const run = await runTest(investigate({ timeout: "0.05s" }), {
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
     });
@@ -101,13 +106,13 @@ describe("a coordinator in a workflow's test", () => {
   });
 
   test("an agent's shorter --timeout closes its question first", async () => {
-    const run = await runTest(investigate({ timeoutMs: 60 * 60_000 }), {
+    const run = await runTest(investigate({ timeout: "1h" }), {
       agents: {
         investigator: [
           answer(async (turn) => {
             const answered = await turn.send("coordinator", "Merge?", {
               awaitReply: true,
-              timeoutMs: 50,
+              timeout: "0.05s",
             });
             return answered.kind;
           }),
@@ -176,7 +181,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("a script that never answers ends the attempt instead of hanging", async () => {
     const run = await runTest(investigate(), {
-      stallMs: 200,
+      stall: "0.2s",
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
     });
@@ -303,7 +308,7 @@ describe("a coordinator in a workflow's test", () => {
         const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
         const coordinator = await workflow.participants.connect({ key: "coordinator" });
         await workflow.messages.allow({ between: [investigator, coordinator], purpose: PURPOSE });
-        const { outcome } = await investigator.run({ prompt: "Ask.", timeoutMs: 200 });
+        const { outcome } = await investigator.run({ prompt: "Ask.", timeout: "0.2s" });
         return outcome.kind;
       },
     };
@@ -336,7 +341,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("the run's own deadline during the wait ends the question attempt-ended", async () => {
     const run = await runTest(investigate(), {
-      timeoutMs: 300,
+      timeout: "0.3s",
       agents: { investigator: [asks] },
       participants: { coordinator: () => undefined },
     });
@@ -361,7 +366,7 @@ describe("a coordinator in a workflow's test", () => {
               const { outcome } = await agent.run({ prompt: "Ask." });
               return "reason" in outcome ? `${outcome.kind}: ${outcome.reason}` : outcome.kind;
             },
-            { deadline: { unixMilliseconds: Date.now() + 200 } },
+            { timeout: "0.2s" },
           )
           .catch((error: Error) => [error.name]);
         return kind ?? null;

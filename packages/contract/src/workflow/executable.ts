@@ -1,5 +1,4 @@
 import type { JsonSchema } from "../schema";
-import { DEPRECATED_DEFINITION } from "./deprecated";
 import {
   AGENT_ENDED_ID,
   awfEventOf,
@@ -196,29 +195,6 @@ export function defineWorkflow<Args extends JsonValue = null, Result extends Jso
 ): Workflow<Args, Result>;
 export function defineWorkflow(spec: { readonly prepare?: unknown }): unknown {
   return { ...spec, prepare: spec.prepare ?? noArguments, kind: WORKFLOW_KIND };
-}
-
-/**
- * @deprecated Use `defineWorkflow`, with `meta` and `run` beside `prepare`. Kept, for now, for
- * workflows written against 0.1.0-beta.2, whose nested `definition` it flattens.
- */
-export function defineExecutableWorkflow<
-  Args extends JsonValue = null,
-  Result extends JsonValue = JsonValue,
->(
-  spec: Omit<WorkflowParts<Args, Result>, "meta" | "prepare"> & {
-    readonly definition: {
-      readonly meta: WorkflowMeta;
-      run(context: WorkflowContext<NoEvents>, args: Args): Promise<Result>;
-    };
-  } & ([Args] extends [null]
-      ? { prepare?: WorkflowParts<Args, Result>["prepare"] }
-      : { prepare: WorkflowParts<Args, Result>["prepare"] }),
-): Workflow<Args, Result> {
-  const { definition, ...rest } = spec;
-  const workflow = defineWorkflow({ ...rest, ...definition } as PrepareSpec<Args, Result> &
-    WithoutEvents<Args, Result>);
-  return Object.assign(workflow, { [DEPRECATED_DEFINITION]: true });
 }
 
 function noArguments({ argv }: WorkflowInvocation): null {

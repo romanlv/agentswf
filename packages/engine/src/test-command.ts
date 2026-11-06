@@ -25,7 +25,7 @@ export async function testCommand(
 ): Promise<number> {
   let tests: TestCommand | "help";
   try {
-    tests = parseTestCommand(argv, cwd, (line) => io.stderr(line));
+    tests = parseTestCommand(argv, cwd);
   } catch (error) {
     io.stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
     return 2;
@@ -58,11 +58,7 @@ export async function testCommand(
  * Only these flags pass through, so the published command is awf's, not the whole of `bun test`'s,
  * and a later runner can take its place. A path must exist; Bun would take it as a filter.
  */
-export function parseTestCommand(
-  argv: readonly string[],
-  cwd: string,
-  deprecated: (line: string) => void = () => {},
-): TestCommand | "help" {
+export function parseTestCommand(argv: readonly string[], cwd: string): TestCommand | "help" {
   const paths: string[] = [];
   const bunArgs: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -77,7 +73,7 @@ export function parseTestCommand(
       index += 1;
     } else if (option === "--timeout") {
       if (value === undefined) throw new Error("--timeout needs a duration such as 10s");
-      bunArgs.push("--timeout", String(parseDuration(value, "--timeout", deprecated)));
+      bunArgs.push("--timeout", String(parseDuration(value, "--timeout")));
       index += 1;
     } else if (option.startsWith("-")) {
       throw new Error(`unknown option: ${option}`);

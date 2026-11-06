@@ -69,7 +69,7 @@ async function ask(
       prompt: next,
       schema: ANSWER,
       nudge: false,
-      timeoutMs: turnMs,
+      timeout: `${turnMs / 1000}s`,
     });
     if (outcome.answered) {
       const problems = labelProblems(outcome.value.labels, input.findings, input.key, {

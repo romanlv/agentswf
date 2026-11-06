@@ -24,27 +24,15 @@ export function asTimeoutHandler<T>(fn: () => T): T {
   return inHandler.run(true, fn);
 }
 
-/**
- * `keepAlive` as an open gave it, checked: what a typed caller can't get wrong, a plain one can.
- * Its deprecated `timeoutMs` is reported, and refused beside `window`.
- */
-export function checkedKeepAlive(key: string, given: unknown, deprecated: () => void): KeepAlive {
+/** `keepAlive` as an open gave it, checked: a plain caller can get wrong what a typed one can't. */
+export function checkedKeepAlive(key: string, given: unknown): KeepAlive {
   if (typeof given !== "object" || given === null)
     throw new Error(`agent ${key}: keepAlive is { window?, onTimeout? }`);
-  const { window, timeoutMs, onTimeout } = given as Record<string, unknown>;
-  let windowMs: number | undefined;
-  if (window != null) {
-    if (timeoutMs != null)
-      throw new Error(
-        `agent ${key}: keepAlive's window is given alone: timeoutMs is its deprecated form`,
-      );
-    windowMs = positiveDurationMilliseconds(window, `agent ${key}: keepAlive's window`);
-  } else if (timeoutMs != null) {
-    if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0)
-      throw new Error(`agent ${key}: keepAlive's timeoutMs is a positive number of milliseconds`);
-    deprecated();
-    windowMs = timeoutMs;
-  }
+  const { window, onTimeout } = given as Record<string, unknown>;
+  const windowMs =
+    window == null
+      ? undefined
+      : positiveDurationMilliseconds(window, `agent ${key}: keepAlive's window`);
   if (onTimeout !== undefined && typeof onTimeout !== "function")
     throw new Error(`agent ${key}: keepAlive's onTimeout is a function`);
   // A copy: a later change to the caller's object would skip this check.

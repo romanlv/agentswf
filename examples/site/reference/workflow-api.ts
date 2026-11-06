@@ -190,7 +190,7 @@ export const composing = defineWorkflow({
     const body = "Paying by card returns a 500.";
     // #region decide
     const { answers } = await wf.decisions.decide({
-      key: "triage:42", // the part before ":" is its cost group, for a run without stages
+      key: "triage-42",
       model: "jev",
       state: { title, body },
       questions: {

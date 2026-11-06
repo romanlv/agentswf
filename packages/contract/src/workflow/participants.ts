@@ -1,7 +1,5 @@
 import type { PARTICIPANT } from "../participant";
-import type { ParticipantReply, ParticipantReplyOf } from "./events";
 import type { JsonObject } from "./json";
-import type { EventLike, Source, Taken } from "./waits";
 
 export type PeerKey = string;
 
@@ -43,41 +41,3 @@ export interface ParticipantDirectory {
    */
   connect(spec: ParticipantSpec): Promise<ParticipantRef>;
 }
-
-// First, so a `to: "code"` spec held in a variable, which no excess-property check sets apart,
-// still gets the ref it got before.
-export interface ParticipantDirectory {
-  /**
-   * @deprecated Declare `{key}:reply: ParticipantReply` in `events` and drop `to: "code"`; take
-   * its messages as `e.name === "{key}:reply"`, or race `wf.signal("{key}:reply")`.
-   */
-  connect(spec: CodeParticipantSpec): Promise<CodeParticipantRef>;
-}
-
-/** @deprecated Declare `{key}:reply: ParticipantReply` in `events`, and connect it without `to`. */
-export interface CodeParticipantSpec extends ParticipantSpec {
-  /**
-   * Its messages come to the run's code, each a `participant:reply` from its key taken at a wait,
-   * not to an agent.
-   *
-   * @deprecated Declare `{key}:reply: ParticipantReply` in `events` instead.
-   */
-  to: "code";
-}
-
-/**
- * A participant routed to the code: a source of its replies, one per wait.
- *
- * @deprecated A `ParticipantRef`: race `wf.signal("{key}:reply")`, declared in `events`.
- */
-export interface CodeParticipantRef extends ParticipantRef, Source<Taken<ParticipantReply>> {
-  /**
-   * True for a message on this participant.
-   *
-   * @deprecated Read `e.name === "{key}:reply"`, declared in `events`.
-   */
-  is<E extends EventLike = EventLike>(event: E): event is E & ParticipantReplyOf<E>;
-}
-
-/** @deprecated Use `ParticipantDirectory`: every participant is connected by it. */
-export type CodeParticipantDirectory = ParticipantDirectory;

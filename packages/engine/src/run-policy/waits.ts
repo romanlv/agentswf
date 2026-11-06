@@ -59,8 +59,6 @@ export type WaitState = {
   heldTakes?: WaitTake[];
   /** The last wait called, and whether it is still waiting: nothing taken after it. */
   lastWait?: WaitLine & { waiting: boolean };
-  /** Each stage's batch, as a wait in it took it. */
-  batches: ReadonlyMap<string, string[]>;
   /** Every turn `start()` began, in order. */
   turns: readonly TurnStartedLine[];
   /** Every timer by name, as first set. */
@@ -121,7 +119,6 @@ export function foldWaits(given: {
       ...(line.source === undefined ? {} : { source: line.source }),
     });
   const acknowledged = new Set<string>();
-  const batches = new Map<string, string[]>();
   const races = new Map<string, { branch: string; ids: string[] }>();
   const timers = new Map<string, TimerState>();
   const turns: TurnStartedLine[] = [];
@@ -171,10 +168,9 @@ export function foldWaits(given: {
       case "took": {
         const taken = took(line.took, line.at);
         if (lastWait) lastWait.waiting = false;
-        if (line.stage !== undefined) {
-          for (const id of taken) acknowledged.add(id);
-          batches.set(line.stage, taken);
-        } else {
+        // A wait in a stage, before 0.1.0-beta.6, held its batch as acknowledged.
+        if (line.stage !== undefined) for (const id of taken) acknowledged.add(id);
+        else {
           held = taken.length > 0 ? taken : undefined;
           heldTakes = lastWait?.takes;
         }
@@ -227,7 +223,6 @@ export function foldWaits(given: {
     ...(held ? { held } : {}),
     ...(held && heldTakes ? { heldTakes } : {}),
     ...(lastWait ? { lastWait } : {}),
-    batches,
     turns,
     timers,
     races,

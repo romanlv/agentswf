@@ -1,29 +1,17 @@
 // Checked by `tsc --noEmit`, never run: what `agentswf/workflow` offers an author, and what it
-// doesn't. Each deprecated name compiles until story 039's last task removes it.
+// doesn't, the names story 039 deprecated and then removed included.
 
 import {
-  type AgentDirectory,
   AgentEnded,
-  type AgentEndedEvent,
-  type AgentOpenSpec,
   type AgentRef,
   type CallerRef,
-  type CodeParticipantRef,
-  type CodeParticipantSpec,
   type Duration,
-  defineExecutableWorkflow,
   defineWorkflow,
   duration,
-  type EventAgentDirectory,
-  type EventAgentOpenSpec,
-  type EventAgentRef,
-  type EventWorkflowContext,
-  isAnswered,
   type JsonValue,
   type OutputSchema,
   type ParticipantRef,
   ParticipantReply,
-  type ParticipantReplyEvent,
   tool,
   type WorkflowContext,
   type WorkflowEvent,
@@ -45,6 +33,30 @@ export type StepSpec = import("./workflow").StepSpec;
 export type SelectOptions = import("./workflow").SelectOptions;
 // @ts-expect-error One `WaitOptions` for receive, race and select.
 export type ReceiveOptions = import("./workflow").ReceiveOptions;
+// @ts-expect-error Every workflow has one context: `WorkflowContext<Events>`.
+export type EventContext = import("./workflow").EventWorkflowContext<Events>;
+// @ts-expect-error Every agent is an `AgentRef`.
+export type EventAgent = import("./workflow").EventAgentRef;
+// @ts-expect-error `AgentOpenSpec` holds `keepAlive`.
+export type EventOpenSpec = import("./workflow").EventAgentOpenSpec;
+// @ts-expect-error Every workflow's agents are one `AgentDirectory`.
+export type EventAgents = import("./workflow").EventAgentDirectory;
+// @ts-expect-error A participant's messages reach the code by `{key}:reply`, declared.
+export type CodeRef = import("./workflow").CodeParticipantRef;
+// @ts-expect-error A participant's messages reach the code by `{key}:reply`, declared.
+export type CodeSpec = import("./workflow").CodeParticipantSpec;
+// @ts-expect-error Every participant is connected by `ParticipantDirectory`.
+export type CodeDirectory = import("./workflow").CodeParticipantDirectory;
+// @ts-expect-error An agent's end is the declared `{key}:ended`, one of the workflow's events.
+export type EndedEvent = import("./workflow").AgentEndedEvent;
+// @ts-expect-error A participant's message is the declared `{key}:reply`.
+export type ReplyEvent = import("./workflow").ParticipantReplyEvent;
+// @ts-expect-error A pane is `pane: PaneSpec`; where it goes is the operator's.
+export type Layout = import("./workflow").PaneLayout;
+// @ts-expect-error Check `outcome.answered`.
+export const answered = import("./workflow").then((surface) => surface.isAnswered);
+// @ts-expect-error `defineWorkflow`, with meta and run beside prepare.
+export const executable = import("./workflow").then((surface) => surface.defineExecutableWorkflow);
 
 declare const plain: WorkflowContext;
 declare const Changed: OutputSchema<{ head: string }>;
@@ -66,33 +78,41 @@ export async function removed(): Promise<void> {
   await wf.receive({ take: "oldest" });
 }
 
-export async function deprecated(): Promise<void> {
-  const reviewer = await wf.agents.open({ key: "r", runtime: "claude", labels: { lens: "x" } });
+export async function removedForms(): Promise<void> {
+  const reviewer = await wf.agents.open({ key: "r", runtime: "claude" });
+  // @ts-expect-error Nothing read an agent's labels.
+  await wf.agents.open({ key: "r1", runtime: "claude", labels: { lens: "x" } });
+  // @ts-expect-error Nothing read a fork's labels.
   await reviewer.fork({ key: "r2", labels: { lens: "y" } });
-  await plain.agents.forkCaller({ key: "me2", labels: { lens: "z" } });
-  const { outcome } = await reviewer.run({ id: "turn-1", prompt: "Review." });
-  if (isAnswered(outcome)) void outcome.value;
+  // @ts-expect-error A call's id: a stage keeps a call from running twice.
+  await reviewer.run({ id: "turn-1", prompt: "Review." });
+  // @ts-expect-error A compaction takes no id.
   await reviewer.compact({ id: "c-1", prompt: "Keep the findings." });
+  // @ts-expect-error A switch takes no id.
   await reviewer.set({ id: "s-1", effort: "high" });
-  const batch = await wf.stage("first", () => wf.receive());
-  void batch;
-  const turn = await reviewer.start({ id: "turn-2", prompt: "Again." });
-  const won = await wf.race("review", { done: turn, quiet: "1d" });
-  if (won.done && turn.is({ name: "agent:ended", from: "r", data: won.done })) void turn.id;
-  for await (const next of wf.select({ done: turn })) void next.done;
-  // One context and one agent: the event-only names are the same types.
-  const context: EventWorkflowContext<Events> = wf;
-  const agent: EventAgentRef = reviewer;
-  const spec: EventAgentOpenSpec = { key: "k", runtime: "claude", keepAlive: {} };
-  const agents: EventAgentDirectory = context.agents;
-  void [agent satisfies AgentRef, spec satisfies AgentOpenSpec, agents satisfies AgentDirectory];
-}
-
-export async function deprecatedAgents(): Promise<void> {
-  const worker = await plain.agents.open({ key: "worker", runtime: "codex" });
-  await worker.fork({ key: "w2", placement: "headless", metered: true, effort: "low" });
-  await plain.agents.forkCaller({ key: "me2", placement: "headless" });
-  await plain.agents.stop("worker", "done");
+  // @ts-expect-error A started turn takes no id.
+  await reviewer.start({ id: "turn-2", prompt: "Again." });
+  // @ts-expect-error A stage returns its result, not a batch; receive() in one is refused at run time.
+  await wf.stage("first", () => wf.receive());
+  const turn = await reviewer.start({ prompt: "Again." });
+  // @ts-expect-error A wait names the agent, { done: reviewer }, not its started turn.
+  await wf.race("review", { done: turn, quiet: "1d" });
+  // @ts-expect-error Nor does select take a started turn.
+  for await (const next of wf.select({ done: turn })) void next;
+  // @ts-expect-error agent.is(e), since an agent has at most one started turn.
+  void turn.is;
+  // @ts-expect-error A fork's placement, metered and effort go in its runtime.
+  await reviewer.fork({ key: "w2", placement: "headless" });
+  // @ts-expect-error The same for the calling session's fork.
+  await plain.agents.forkCaller({ key: "me2", effort: "low" });
+  // @ts-expect-error close() on the agent's ref.
+  await plain.agents.stop("r", "done");
+  // @ts-expect-error A pane is pane: { tab } or { beside, side }.
+  await wf.agents.open({ key: "p", runtime: "claude", layout: { tab: "review" } });
+  // @ts-expect-error Keeping panes is the operator's, awf run --keep-panes.
+  await wf.agents.open({ key: "q", runtime: "claude", keepPane: "always" });
+  // @ts-expect-error A participant's messages reach the code by its declared {key}:reply.
+  await wf.participants.connect({ key: "thread", to: "code" });
 }
 
 export async function caller(): Promise<void> {
@@ -164,37 +184,39 @@ export async function time(): Promise<void> {
   tool({ description: "Look.", handler: () => "seen", timeout: until });
 }
 
-export async function deprecatedTime(): Promise<void> {
+export async function removedTime(): Promise<void> {
   const deadline = { unixMilliseconds: Date.now() + 60_000 };
-  const reviewer = await wf.agents.open({ key: "r", runtime: "claude", deadline });
-  await reviewer.run({ prompt: "Review.", timeoutMs: 60_000, nudge: { deadline } });
+  const reviewer = await wf.agents.open({ key: "r", runtime: "claude" });
+  // @ts-expect-error timeout: a Date, or a Duration.
+  await wf.agents.open({ key: "r1", runtime: "claude", deadline });
+  // @ts-expect-error timeout, a Duration such as "10m".
+  await reviewer.run({ prompt: "Review.", timeoutMs: 60_000 });
+  // @ts-expect-error The turn's timeout bounds its check-ins.
+  await reviewer.run({ prompt: "Review.", nudge: { deadline } });
+  // @ts-expect-error timeout: a Date, or a Duration.
   await reviewer.run({ prompt: "Review.", deadline });
+  // @ts-expect-error timeout, a Duration.
   await reviewer.compact({ prompt: "Keep it.", timeoutMs: 60_000 });
+  // @ts-expect-error timeout: a Date, or a Duration.
   await reviewer.set({ effort: "high", deadline });
+  // @ts-expect-error timeout: a Date, or a Duration.
   await plain.parallel([1], async (n) => n, { deadline });
-  await plain.decisions.decide({
-    key: "ok",
-    model: "jev",
-    state: "x",
-    questions: { ok: yesNo("Is it ok?") },
-    deadline,
-  });
-  await wf.agents.open({
-    key: "k",
-    runtime: "claude",
-    keepAlive: { timeoutMs: 90_000 },
-    tools: { look: tool({ description: "Look.", handler: () => "seen", timeoutMs: false }) },
-  });
+  // @ts-expect-error timeout: a Date, or a Duration.
+  await plain.decisions.decide({ key: "ok", model: "jev", state: "x", questions: {}, deadline });
+  // @ts-expect-error keepAlive's window, a Duration.
+  await wf.agents.open({ key: "k", runtime: "claude", keepAlive: { timeoutMs: 90_000 } });
+  // @ts-expect-error A tool's timeout, a Duration or false.
+  tool({ description: "Look.", handler: () => "seen", timeoutMs: false });
+  // @ts-expect-error A route's timeout, a Duration.
   await wf.messages.allow({ from: reviewer, to: reviewer, purpose: "p", timeoutMs: 60_000 });
-  const left = plain.deadline ? plain.deadline.unixMilliseconds - Date.now() : undefined;
-  void left;
+  // @ts-expect-error wf.deadline is a Date: wf.deadline.getTime().
+  void plain.deadline?.unixMilliseconds;
 }
 
-export const old = defineExecutableWorkflow({
-  definition: {
-    meta: { name: "old", description: "beta.2's shape.", whenToUse: "Never." },
-    run: async () => null,
-  },
+export const whenToUse = defineWorkflow({
+  // @ts-expect-error Nothing read meta.whenToUse.
+  meta: { name: "old", description: "Says when.", whenToUse: "Never." },
+  run: async () => null,
 });
 
 export async function current(): Promise<void> {
@@ -280,30 +302,9 @@ export const awfStart = defineWorkflow({
   run: async () => null,
 });
 
-export const stillCompiles = defineWorkflow({
-  meta: { name: "old-routing", description: "The deprecated form." },
-  events: { change: Change },
-  async run(wf) {
-    const thread: CodeParticipantRef = await wf.participants.connect({ key: "thread", to: "code" });
-    await thread.post("Looking.");
-    for (const e of await wf.receive()) if (thread.is(e)) void e.data.text;
-    const next = await wf.race("reply", { reply: thread, quiet: "1d" });
-    if (next.reply) void next.reply.text;
-    // A spec held in a variable, which no excess-property check sets apart, still routes.
-    const spec: CodeParticipantSpec = { key: "pager", to: "code" };
-    const pager = await wf.participants.connect(spec);
-    for (const e of await wf.receive()) if (pager.is(e)) void e.data.text;
-    await wf.race("page", { reply: pager, quiet: "1d" });
-    return null;
-  },
-});
-
-// As before task 7: an end read from a loosely typed event narrows to `AgentEndedEvent`.
+// A loosely typed event narrows to the agent's end under its declared name.
 declare const loose: WorkflowEvent<string, JsonValue>;
-declare function handleEnd(e: AgentEndedEvent<{ n: number }>): void;
-declare function handleReply(e: ParticipantReplyEvent): void;
-export async function looseEvents(inv: AgentRef, thread: CodeParticipantRef): Promise<void> {
-  if (inv.is<{ n: number }>(loose)) handleEnd(loose);
+export async function looseEvents(inv: AgentRef): Promise<void> {
+  if (inv.is<{ n: number }>(loose)) void loose.data.meta.n;
   if (inv.is(loose)) void loose.data.outcome;
-  if (thread.is(loose)) handleReply(loose);
 }

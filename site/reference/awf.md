@@ -78,9 +78,7 @@ own `version` says its format, and its refusals carry `"v": 1`.
 ## Durations {#durations}
 
 `--timeout` and `--wait` take a duration, as a workflow does: a decimal and `s`, `m`, `h` or `d`,
-such as `90s`, `1.5h` or `1d`. Until 0.1.0 two older forms still work, each with a line on
-standard error naming its replacement: a whole number of `ms`, `--timeout 500ms`, and a bare
-number of seconds for `--wait`, `--wait 90`.
+such as `90s`, `1.5h` or `1d`.
 
 ## Run a workflow
 
@@ -185,9 +183,8 @@ back. [Answering for a participant](/guide/people) teaches it.
 
 ### awf reply and awf send {#reply}
 
-`awf reply` answers a question an agent asked; `awf send` messages an agent first, or, with
-the deprecated `--event-id`, a run's code, which `awf emit {run} {key}:reply` replaces. They
-share one help.
+`awf reply` answers a question an agent asked; `awf send` messages an agent first. A message on a
+participant to a run's code is [`awf emit {run} {key}:reply`](#emit). They share one help.
 [Answering for a participant](/guide/people) teaches both.
 
 <a id="send"></a>
@@ -202,8 +199,7 @@ With `--json`, each prints one line: `{"v": 3, "id": …}` when delivered, or a
 `peer-stopped`, `closed`, `too-large`, `limit`, `inbox-full`, or `unsupported-version`, when the
 run's engine is another version of awf than the command's, as after installing awf anew while the
 run is live. Version 1 named `peer-stopped` `stopped`; version 2 said `"code": "delivered"` on
-success, and `not-found` for `no-run`. The deprecated `awf send --event-id` prints
-[`awf emit`](#emit)'s result when it worked, at `awf emit`'s `"v"`, 1, and its refusals at 3.
+success, and `not-found` for `no-run`.
 
 ## This machine
 

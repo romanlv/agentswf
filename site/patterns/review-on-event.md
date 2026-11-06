@@ -83,9 +83,11 @@ process and runs no turn.
 
 - **A run that returns is done for good.** Events for it are refused afterwards. That's right for
   a closed merge request; a run that might be needed again keeps waiting instead.
-- **A failed or timed-out turn closes its agent.** The sample logs it and opens `reviewer-2` for
-  the next push; the failed head isn't reviewed again. Retry it on a timer, as the fuller sketch
-  below does, if a missed review matters.
+- **A failed or timed-out turn closes its agent** for the rest of the attempt. The sample logs it
+  and waits; the run parks, and the next push wakes it with the reviewer opened again on its
+  session. The failed head, and one pushed during the failed review, aren't reviewed unless
+  another push comes. Retry on a timer, as the fuller sketch below does, if a missed review
+  matters.
 - **Event ids deduplicate.** `--event-id` names one occurrence: a webhook delivered twice is
   accepted once. Without one, nothing deduplicates.
 - **Check what becomes a name.** Event ids and stage names are lowercase letters, digits, `.`,

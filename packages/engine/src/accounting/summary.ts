@@ -23,7 +23,7 @@ export const NO_STAGE = "(no stage)";
  * What a run cost and how long it took, from its usage and decision records alone, so a finished
  * run can be priced again with another table. `entered` are the workflow stages entered, in order:
  * each is a row timed by its own span, a reused one at zero; without them, a row per call path and
- * key prefix, timed by what ran in it.
+ * agent or decision key, timed by what ran in it.
  */
 export function summarizeRun(
   usage: readonly PricedOperation[],
@@ -41,8 +41,8 @@ export function summarizeRun(
     entered.length > 0 ||
     usage.some((record) => record.stage !== undefined) ||
     decisions.some((record) => record.stage !== undefined);
-  const stageOf = staged ? workflowStageOf : prefixStageOf;
-  const decisionStageOf = staged ? workflowStageOf : decisionPrefixStageOf;
+  const stageOf = staged ? workflowStageOf : agentStageOf;
+  const decisionStageOf = staged ? workflowStageOf : decisionKeyStageOf;
   const stages = unique([
     ...entered.map(({ stage }) => stage),
     ...usage.map(stageOf),
@@ -64,7 +64,7 @@ export function summarizeRun(
     startedAt: times.startedAt,
     finishedAt: times.finishedAt,
     wallMs: Date.parse(times.finishedAt) - Date.parse(times.startedAt),
-    grouping: staged ? "stages" : "prefix",
+    grouping: staged ? "stages" : "agents",
     billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
     totals: figures(usage, decisions),
     byStage: stages.map((stage) => {
@@ -209,8 +209,8 @@ function decisionModelOf(record: SettledDecision): string {
   return record.snapshot ?? record.model;
 }
 
-function decisionPrefixStageOf(record: SettledDecision): string {
-  return [...record.callPath, prefixOf(record.key)].join("/");
+function decisionKeyStageOf(record: SettledDecision): string {
+  return [...record.callPath, record.key].join("/");
 }
 
 function modelFigures(
@@ -253,13 +253,8 @@ function noStageLast(a: string, b: string): number {
   return Number(a === NO_STAGE) - Number(b === NO_STAGE);
 }
 
-function prefixStageOf(record: SettledOperation): string {
-  return [...record.callPath, prefixOf(record.agent)].join("/");
-}
-
-function prefixOf(key: string): string {
-  const separator = key.indexOf(":");
-  return separator === -1 ? key : key.slice(0, separator);
+function agentStageOf(record: SettledOperation): string {
+  return [...record.callPath, record.agent].join("/");
 }
 
 function spanOf(
@@ -302,15 +297,22 @@ export function attemptAccounting({
 
 /**
  * A run's attempts summed, each estimate as its attempt recorded it, under the last one's basis:
- * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
- * before it entered one, ran between stages.
+ * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages,
+ * what another grouped by agent, having failed before it entered one, ran between stages. An older
+ * attempt's `prefix` rows, by a key's part before `:`, sum with `agents` rows by name: a key
+ * without a colon is both.
  */
 export function sumAttempts(attempts: readonly AttemptAccounting[]): AttemptAccounting {
-  const grouping = attempts.some((attempt) => attempt.grouping === "stages") ? "stages" : "prefix";
+  const grouping = attempts.some((attempt) => attempt.grouping === "stages")
+    ? "stages"
+    : attempts.some((attempt) => attempt.grouping === "agents")
+      ? "agents"
+      : "prefix";
   const byStage = new Map<string, RunAccounting["byStage"][number]>();
   for (const attempt of attempts) {
     for (const row of attempt.byStage) {
-      const stage = grouping === attempt.grouping ? row.stage : NO_STAGE;
+      const stage =
+        (grouping === "stages") === (attempt.grouping === "stages") ? row.stage : NO_STAGE;
       const before = byStage.get(stage);
       byStage.set(
         stage,

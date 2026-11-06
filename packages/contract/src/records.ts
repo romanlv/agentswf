@@ -248,17 +248,18 @@ export type RunAccounting = {
   finishedAt: string;
   wallMs: number;
   /**
-   * What `byStage` groups by: the workflow's stages, or, for a run without any, the call path and
-   * key prefix.
+   * What `byStage` groups by: the workflow's stages, or, for a run without any, `agents`: the call
+   * path and the agent's or decision's key. `prefix`, a key's part before `:`, is what an attempt
+   * before 0.1.0-beta.6 recorded.
    */
-  grouping: "stages" | "prefix";
+  grouping: "stages" | "agents" | "prefix";
   /** `mixed` when agents whose billing is known disagree; `unknown` when none is known. */
   billing: Billing | "mixed";
   totals: AccountingFigures;
   /**
    * Each workflow stage entered, in order, a reused one at zero, then `(no stage)` for what ran
-   * between stages. A run without stages groups by the call path and the agent or decision key's
-   * prefix before `:`, joined with `/`.
+   * between stages. A run without stages groups by the call path and the agent's or decision's
+   * key, joined with `/`.
    */
   byStage: (AccountingFigures & { stage: string; spanMs: number })[];
   byModel: ModelFigures[];
@@ -318,14 +319,14 @@ export type PanePlacement = {
 };
 
 /**
- * Where a TUI agent's pane went: its `pane`, or deprecated `layout` and `keepPane`, as the workflow
- * wrote them, and where it was placed, the run's `--workspace` and `--keep-panes` applied.
- * Tier: public, stable.
+ * Where a TUI agent's pane went: its `pane` as the workflow wrote it, and where it was placed, the
+ * run's `--workspace` and `--keep-panes` applied. Tier: public, stable.
  */
 export type AgentPaneRecord = {
   callPath: string[];
   agent: string;
   pane?: PaneSpec;
+  /** The workflow's `layout` and `keepPane`, written only before 0.1.0-beta.6. */
   layout?: PaneLayout;
   keepPane?: KeepPane;
   placed: PanePlacement;
@@ -405,8 +406,8 @@ export type RunRecord = {
 
 /**
  * The operator's choices for a run's TUI agents on the host: the workspace their new tabs open in,
- * and whether a pane stays once its agent is done. Each wins over a deprecated `layout` or
- * `keepPane`; absent, those apply, else the run's workspace and `never`. Tier: public, stable.
+ * and whether a pane stays once its agent is done; absent, the run's workspace and `never`.
+ * Tier: public, stable.
  */
 export type RunPanes = { workspace?: PaneWorkspace; keep?: KeepPane };
 
@@ -455,9 +456,15 @@ export type RunLine = {
   | { kind: "race"; name: string; branch: string; took: Taken[] }
   /** A timer as first called; cancelled, the same line again with `cancelled`. */
   | { kind: "timer"; name: string; due: string; when: string; cancelled?: true }
-  /** What a wait returned: held until a later wait acknowledges it, or a stage's own. */
+  /**
+   * What a wait returned, held until a later wait acknowledges it. `stage`, a wait in a stage, is
+   * written only before 0.1.0-beta.6.
+   */
   | { kind: "took"; took: Taken[]; stage?: string }
-  /** A wait: what it waits for and, outside a stage and a race, what it acknowledges and saves. */
+  /**
+   * A wait: what it waits for and, outside a race, what it acknowledges and saves. `stage`, a wait
+   * in a stage, is written only before 0.1.0-beta.6.
+   */
   | {
       kind: "wait";
       label?: string;
@@ -757,7 +764,7 @@ export type MessagingEvent =
   /**
    * An outside participant connected, with the labels the workflow gave it; `to: "code"` when its
    * messages go to the run's code, each recorded in `in.jsonl` as `participant:reply` from its key:
-   * its workflow declares `{key}:reply`, or connected it with the deprecated `to: "code"`.
+   * its workflow declares `{key}:reply`, or, before 0.1.0-beta.6, connected it `to: "code"`.
    */
   | {
       kind: "participant-connected";
@@ -946,7 +953,8 @@ export type RunLogLine = TurnRecord | RunEvent;
 export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
 
 /**
- * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given.
+ * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given,
+ * which only a wait before 0.1.0-beta.6 gave.
  * A timer's `timer:due` is from its name. A select's time read from state is `at:due` from its
  * branch, with `due`, the ISO time read, when the read gave one: a deadline, not part of the match.
  * With no event ready, the wait takes it at once, under id `awf.at.{hash}` of the branch and the
@@ -1184,8 +1192,7 @@ export type InboxItemJson = {
  * a reply, the question answered, as its `answered` item has it; for a send, the new message), or
  * a refusal, `ambiguous`'s with its `choices`. Version 2 renamed the refusal `stopped` to
  * `peer-stopped`, as `wfa` has it; version 3 took `code: "delivered"` off the success, as only a
- * refusal has a code, and renamed `not-found` to `no-run`. The deprecated `awf send --event-id`
- * prints `EmitResultJson` instead when it worked.
+ * refusal has a code, and renamed `not-found` to `no-run`.
  */
 export type ParticipantResultJson =
   | { v: 3; id: string }
@@ -1209,7 +1216,7 @@ export type WakeWhy =
   | "nudge-failed"
   | "launch-failed";
 
-/** `awf emit --json`, and the deprecated `awf send --event-id --json`. */
+/** `awf emit --json`. */
 export type EmitResultJson = {
   v: 1;
   /**

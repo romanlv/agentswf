@@ -3,7 +3,7 @@ id: "039"
 title: "An author learns one way to do each thing"
 summary: "One context type for every workflow, participants routed to the code declared in events, one duration grammar, one testWorkflow signature, one word per state, and what is unbuilt or unused removed, each through a deprecation that ends before 0.1.0."
 type: story
-status: in-progress
+status: awaiting-human-review
 priority: P0
 epic: authoring
 discovered_in: "a review of the workflow API while running the Datadog watcher, 2026-10-26"
@@ -204,7 +204,7 @@ Betas from the design's §8 in brackets.
 - [x] 7. Participants routed to the code declared in `events`; a reply to the code by `awf emit` (C)
 - [x] 8. Durations and one word per state on the CLI and the wire (D)
 - [x] 9. Pane workspace and keeping panes move to the operator (E)
-- [ ] 10. What tasks 1–9 deprecated is removed (F)
+- [x] 10. What tasks 1–9 deprecated is removed (F)
 
 ## Open questions
 
@@ -528,11 +528,11 @@ Outcome: no deprecated name ships in 0.1.0.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -565,11 +565,11 @@ implementation without changing their outcomes, order, or the story's scope.
 
 Automated:
 
-- [ ] Each task's typecheck fixtures and engine tests above.
-- [ ] Every example's test passes on the new forms.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] Each task's typecheck fixtures and engine tests above.
+- [x] Every example's test passes on the new forms.
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
@@ -772,6 +772,42 @@ Correctness and proof review:
   both tests then fail.
 
 Not run: the Herdr live check (the command is in the task 9 notes), which would also settle `front`.
+
+### Task 10
+
+Decided by the lead during the task: a decision's key loses its colon too, as an agent's does, and
+a run without stages counts each decision key on its own row (see the task 10 notes).
+
+Architecture and scope review:
+- Flat fork fields, `layout` and `keepPane` were dropped silently at run time, where the plan said
+  refused: each now throws naming its replacement (`forkSpecOf`, `checkPaneOptions`), with tests.
+- The plan still said decision keys keep their colon: corrected, with `docs/status.md`.
+- One cost row per decision key makes keys made per item (`match-{n}`, `triage-{id}`) one row per
+  call. Accepted: keys need not be unique, and a workflow wanting one row gives one key; the lab and
+  the triage example keep per-item keys, whose test scripts answer each.
+- `AgentPaneRecord` lost `layout` and `keepPane`, which beta.5 runs wrote: kept in the type,
+  documented as written before beta.6; so are the `stage` of `took` and `wait` lines and
+  `WaitTake.turn`.
+- review-on-event drops a head pushed during a failed review until the next push: documented in
+  the pattern's catches; the test shows the next push's attempt reopens the reviewer.
+- `WaitState.batches` was dead: removed; an old stage `took` is still acknowledged.
+- `testWorkflow`'s `panes` went unchecked: checked as `awf run` checks its flags, with a test.
+- Nits fixed: the design doc's banner, an orphaned comment, the colon message for decisions,
+  `data.md`'s `agent:ended`, long lines. Rebase onto main before the commit: done.
+
+Correctness and proof review: each `@ts-expect-error` was checked to fail for its intended reason,
+and each run-time refusal is tested naming its replacement. Findings:
+- Decision keys refusing a colon: the lead's decision, recorded above.
+- Flat fork fields ignored: fixed, as above.
+- A started turn as a wait's branch got the generic "not a source": it now says `name its agent,
+  { done: agent }`, tested in `receive.test.ts`.
+- Three tests deleted with `deprecations.test.ts` covered behaviour that still ships: `take:
+  "oldest"` refused, a race whose label throws, and a fork's `runtime` forms (empty, `model`
+  refused, a TUI fork dropping `metered`). Restored in `receive.test.ts` and `fork.test.ts`.
+- `--wait 900` suggested `--wait 900s`, itself refused: the hint is capped at the maximum.
+- The stage-around-`receive` fixture fails because a stage's work returns its result; its comment
+  says so, and the run-time refusal is `receive.test.ts`'s.
+- Lost on removal, accepted: no caller-given id remains, so no test covers same-id dedupe.
 
 ## Readiness
 
@@ -1497,15 +1533,76 @@ Built:
 - An older awf continuing a run with `panes` ignores them silently (it reads `run.json` version 1
   and doesn't know the field).
 
-### Task 10, not started
+### Task 10
 
-It removes what tasks 1–9 deprecated, at least one beta after the beta that ships them. Tasks
-1–9 are one branch, so all of them ship together and task 10 waits for the beta after. Its three
-open decisions were settled 2026-11-03 and are in the task's Work: the review-on-event pattern
-makes no key at run time, cost is one row per agent, and `testWorkflow` takes `awf run`'s pane
-settings.
+The deprecations of tasks 1–9 shipped in 0.1.0-beta.5, so they are removed for the beta after it.
 
-Engine tests that still call deprecated forms move with it.
+Plan, settled before coding:
+
+- **One removal per entry of `DEPRECATIONS`**, and the list goes with its last use: the engine's
+  `deprecations.ts`, its test, contract's `workflow/deprecated.ts` (`reportDeprecated`,
+  `REPORT_DEPRECATED`, `DEPRECATED_DEFINITION`) and the runner's and testing's `RunDeprecations`.
+  A removed TypeScript name or option leaves the type, so `tsc` refuses it; the typecheck fixtures
+  show each, a started turn as `race`'s branch included. At run time a JavaScript caller passing a
+  removed option is not checked for it, except where the old form would otherwise do something
+  else silently: a started turn as a wait's branch, a stage around `receive`, `to: "code"`, the
+  flat fork fields, `layout` and `keepPane`, and the old `testWorkflow` forms are refused, each
+  naming its replacement.
+- **Refused, with the replacement named:** `awf send --event-id` (usage, naming `awf emit`); a
+  bare number for `--wait` (`give a duration, --wait 90s`); `ms` for `--timeout` on `awf` and
+  `wfa` (`give 0.5s`); a key with a colon, when the agent, fork, caller or participant opens
+  (`name it reviewer-security: a colon is kept for awf's own event names`).
+- **`start()` without its `{key}:ended` declared throws** in every workflow, and a participant's
+  messages reach the code only by `{key}:reply`. The mailbox keeps `participant:reply` and
+  `agent:ended` as its record names; the author no longer meets them, so `AgentEndedEvent` and
+  `ParticipantReplyEvent` leave the author list.
+- **Cost grouping.** A run without stages groups by `"agents"`, a row per call path and agent key;
+  `"prefix"` stays readable in the record type and in `sumAttempts`.
+- **Panes in a test.** `testWorkflow` takes `panes: { workspace?, keep? }`, `RunPanes`, as `awf
+  run --workspace` and `--keep-panes` record it in `run.json`, handed to the runner as a run's.
+- **review-on-event** keeps one `reviewer`: a failed or timed-out review closes it for the rest of
+  the attempt, the run parks, and the next push wakes it with the reviewer opened again.
+- Docs: `site/reference/` loses its deprecated tables and names only the new forms; the guide,
+  patterns and `docs/status.md` follow.
+
+As built:
+
+- **Decision keys lose their colon too**, decided by the lead during the task: agents and
+  decisions share one set of names, and a colon is awf's event-name separator. `keyProblem`
+  (`ops.ts`) refuses a colon in any key, naming the `-` key, with no beta of deprecation for a
+  decision's, which was never deprecated. So a run without stages has a row per agent and per
+  decision key, `"agents"`; a workflow wanting one row for many calls gives them one key, as keys
+  need not be unique. The examples, the lab's `match-{n}` and `agentKeyOf`, and the docs moved to
+  `-`.
+- **Run-time refusals** where a removed option would otherwise do something else silently: a
+  fork's flat `placement`, `metered` or `effort` (naming `runtime`), `layout` and `keepPane`
+  (naming `pane` and `--workspace`, `--keep-panes`), `to:` on `connect` (naming `{key}:reply`),
+  `receive()` in a stage (naming `wf.race`), and `start()` without `{key}:ended` declared. A
+  removed option that would change nothing, such as `labels` or a call's `id`, is dropped. The old
+  `testWorkflow` forms, `null` second included, are refused naming `{ args }`.
+- **Machinery only the deprecated forms used is gone:** the deprecation list and the contract's
+  reporting hook; the stage batches in `RunWaits` and `WaitState`; per-call id dedupe of turns,
+  compactions and switches (start()'s turn id is now the one internal id, `#runTurn`); named Herdr
+  sessions, which only `layout.session` reached (`namedSession`, `sessionFor`, `PaneLayout.session`).
+- **Records** keep what older runs wrote readable: `took` and `wait` lines' `stage`,
+  `WaitTake.turn`, and `output.json`'s `panes[].layout`/`keepPane` stay in the types, documented as
+  written only before 0.1.0-beta.6.
+- **`testWorkflow`'s `panes`** is `RunPanes`, checked as `awf run` checks its flags, handed to the
+  runner as a run's `panes`; `run.agentOf(key)` shows `layout`, `keepPane` and `keptPane`.
+- **review-on-event** keeps one `reviewer` and declares `reviewer:ended`; its test shows a failed
+  review parks the run and the next push's attempt reopens the reviewer.
+- `DeadlineExceededError.deadline` stays `{ unixMilliseconds }` (task 5 left it to this task): no
+  change was made to a published error shape; whether it becomes a `Date` is open.
+- Proof: `packages/agentswf/src/workflow.typecheck.ts` and `testing.typecheck.ts` (each removed
+  name and option fails `tsc`, a started turn in `race` and `select` included);
+  `workflow-runner.test.ts` (colon keys for open, fork, caller and connect; `to:`; flat fork
+  fields), `ops.test.ts` (a decision's and an agent's colon), `event-testing.test.ts` (`start()`
+  undeclared), `receive.test.ts` (in a stage), `pane-layout.test.ts` (`layout`, `keepPane`),
+  `participant-e2e.test.ts` and `json-refusals.test.ts` (`awf send --event-id`),
+  `logs-command.test.ts` and `inbox-command.test.ts` (`--wait 90`), `tests/operator-cli.test.ts`
+  (`--timeout 500ms`), `agent-cli/cli.test.ts` (`wfa --timeout 1500ms`), `test-options.test.ts`
+  (old forms and `panes` refused), `workflow-testing.test.ts` (`panes` reaches the host and keeps a
+  failed agent's pane), `accounting.test.ts` (`"agents"`, and a `"prefix"` attempt summed).
 
 ### Live checks not run
 
@@ -1519,8 +1616,8 @@ Each costs model turns, so each is left for a person. The commands are in the ta
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes, but for the live checks.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.

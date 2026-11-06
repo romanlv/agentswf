@@ -88,10 +88,12 @@ export async function listOps(runDir: string): Promise<EarlierOps> {
 
 /**
  * Why `key` can't be an agent's or a decision's: it names folders, so it is a name, as an event's
- * or stage's is. A colon is still allowed, deprecated, until 039's task 10 refuses it.
+ * or stage's is, and has no colon, which awf's own event names, `{key}:ended`, split at.
  */
 export function keyProblem(key: string): string | undefined {
-  return nameProblem(key.replaceAll(":", "-"));
+  if (key.includes(":"))
+    return `a colon is kept for awf's own event names, such as {key}:ended; take another key, such as ${key.replaceAll(":", "-")}`;
+  return nameProblem(key);
 }
 
 /**

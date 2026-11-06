@@ -5,10 +5,10 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type EventLine,
   type RunLine,
+  type RunPanes,
   readRun,
   type SandboxRecord,
   type StageLine,
-  type StageNeed,
 } from "@agentswf/contract/records";
 import {
   AWF_ID_PREFIX,
@@ -20,8 +20,8 @@ import {
   isEventWorkflow,
   type JsonObject,
   type JsonValue,
+  type KeepPane,
   type OutputOf,
-  type ParticipantReply,
   positiveDurationMilliseconds,
   type RuntimeAliases,
   WORKFLOW_KIND,
@@ -31,16 +31,16 @@ import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { decideEnding, type Finished } from "../attempt-ending";
 import { continueCommand } from "../attempt-view";
-import { type Deprecated, RunDeprecations } from "../deprecations";
 import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
 import { appendIn, readIn } from "../in-lines";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { type EarlierOps, listOps } from "../ops";
+import { KEEP_PANES } from "../pane-layout";
 import { claimRunLines, type RunLines, readRunLines, runLinesFile } from "../run-lines";
 import type { TimerState } from "../run-policy/waits";
 import { createRun, idProblem, readEvents, readTurns } from "../runs";
-import { primaryFailure, WorkflowStopped } from "../stopped";
+import { primaryFailure, type WorkflowStopped } from "../stopped";
 import { RunParked, readWaits } from "../waits";
 import { assertJsonValue, type EventWorkflow } from "../workflow-loader";
 import type { RunnableWorkflow } from "../workflow-runner";
@@ -167,12 +167,8 @@ type CommonTestOptions = {
   runtimes?: RuntimeAliases;
   /** The run's deadline; none unless given, as `awf run` has none unless `--timeout` gives one. */
   timeout?: Duration;
-  /** @deprecated Give `timeout`, a `Duration` such as `"5m"`. */
-  timeoutMs?: number;
   /** Real time with no turn or decision starting or ending before the test fails; `"2s"`. */
   stall?: Duration;
-  /** @deprecated Give `stall`, a `Duration` such as `"2s"`. */
-  stallMs?: number;
   /**
    * The run's clock is virtual: where a run would park with a timer to come, the clock moves to it
    * and the timer fires, so a two-day reminder takes no time. After this many, the run parks
@@ -196,8 +192,6 @@ type CommonTestOptions = {
   maxTurns?: number;
   /** What an earlier attempt left; given, the test's attempt is its continue. */
   earlier?: EarlierAttempt;
-  /** @deprecated Give `earlier: { stages }`. */
-  recorded?: Readonly<Record<string, JsonValue | undefined>>;
   /**
    * The stage the attempt starts at, as `--from-stage`: a continue of `earlier`, or a new run
    * started there. A workflow with events takes it only with `earlier`, as `awf run` takes it only
@@ -209,6 +203,12 @@ type CommonTestOptions = {
    * a workflow with events takes none.
    */
   values?: Readonly<Record<string, JsonValue>>;
+  /**
+   * Where the run's TUI agents' panes go and whether they stay, as `awf run --workspace` and
+   * `--keep-panes` give them: `run.agents` shows what each agent's host was asked. Absent, the
+   * run's workspace, and no pane kept.
+   */
+  panes?: RunPanes;
 };
 
 /** Every option a test may give, whatever its workflow's args and events: what the run reads. */
@@ -238,49 +238,34 @@ const OPTION_KEYS: readonly (keyof AnyTestOptions)[] = [
   "earlier",
   "fromStage",
   "values",
+  "panes",
   "event",
   "events",
 ];
-/** Taken, logged, until story 039's last task removes them; never suggested. */
-const DEPRECATED_KEYS: readonly (keyof AnyTestOptions)[] = ["timeoutMs", "stallMs", "recorded"];
 const EARLIER_KEYS: readonly (keyof EarlierAttempt)[] = ["stages", "events", "run"];
 
 /**
- * A test's options as `testWorkflow` was called: `(workflow, options?)`, or the deprecated
- * `(workflow, args, options)`. Three arguments are always the deprecated form. With two, the second
- * is the options when it is an object, and args otherwise (`null`, a string, a number, a boolean or
- * an array), so a workflow's object args are never taken for args there: they are read as options,
- * and refused by their first key.
+ * A test's options as `testWorkflow` was called, `(workflow, options?)`: a workflow's args given
+ * second, or options third, are refused, naming `{ args }`; object args given second are named by
+ * their first key.
  */
-export function testCall(
-  workflow: unknown,
-  given: readonly unknown[],
-): { options: AnyTestOptions; used: Deprecated[] } {
-  const deprecatedForm =
-    given.length >= 2 || (given.length === 1 && given[0] !== undefined && !isObject(given[0]));
-  if (!deprecatedForm) {
-    const options = plainOptions(given[0] ?? {});
-    // Object args given second are named by their key, whatever the workflow is.
-    const problem = optionsProblem(
-      options,
-      isEventWorkflow(workflow),
-      (workflow as { meta?: { name?: string } } | null)?.meta?.name ?? "the workflow",
+export function testCall(workflow: unknown, given: readonly unknown[]): AnyTestOptions {
+  if (given.length > 1)
+    throw new Error(
+      "testWorkflow takes (workflow, options?): give args among the options, testWorkflow(workflow, { args, … })",
     );
-    if (problem) throw new Error(problem);
-    if (!isWorkflow(workflow))
-      throw new Error(
-        "testWorkflow(workflow, options?) tests a workflow defineWorkflow made: define it with defineWorkflow",
-      );
-    return { options, used: [] };
-  }
-  // The args-second form never existed for a workflow with events: refused, not deprecated.
-  if (isEventWorkflow(workflow))
-    throw new Error("a workflow with events is tested as testWorkflow(workflow, { id, event? })");
-  const [args, optionsGiven = {}] = given;
-  const options = plainOptions(optionsGiven);
-  if ("args" in options)
-    throw new Error("args are given once: testWorkflow(workflow, { args, … }) is the one form");
-  return { options: { ...options, args: args as JsonValue }, used: ["test-args"] };
+  const options = plainOptions(given[0] === undefined ? {} : given[0]);
+  const problem = optionsProblem(
+    options,
+    isEventWorkflow(workflow),
+    (workflow as { meta?: { name?: string } } | null)?.meta?.name ?? "the workflow",
+  );
+  if (problem) throw new Error(problem);
+  if (!isWorkflow(workflow))
+    throw new Error(
+      "testWorkflow(workflow, options?) tests a workflow defineWorkflow made: define it with defineWorkflow",
+    );
+  return options;
 }
 
 function isObject(value: unknown): value is AnyTestOptions {
@@ -319,13 +304,15 @@ function optionsProblem(
   name: string,
 ): string | undefined {
   for (const key of Object.keys(options) as (keyof AnyTestOptions)[]) {
-    if (!OPTION_KEYS.includes(key) && !DEPRECATED_KEYS.includes(key))
+    if (!OPTION_KEYS.includes(key))
       return `testWorkflow has no option ${JSON.stringify(key)}: its options are ${OPTION_KEYS.join(", ")}${
         "args" in options ? "" : "; a workflow's args are given as { args }"
       }`;
     if (!withEvents && (key === "event" || key === "events"))
       return `${key} is an option for a workflow with events, and ${name} declares none`;
   }
+  const panes = panesProblem(options.panes);
+  if (panes) return panes;
   const { earlier } = options;
   if (earlier === undefined) return undefined;
   if (!isObject(earlier)) return "earlier is an object: { stages?, events?, run? }";
@@ -337,6 +324,25 @@ function optionsProblem(
     : `earlier has no ${JSON.stringify(unknown)}: it gives ${EARLIER_KEYS.join(", ")}`;
 }
 
+/** Why `panes` isn't what `awf run --workspace` and `--keep-panes` could give; undefined when it is. */
+function panesProblem(panes: unknown): string | undefined {
+  if (panes === undefined) return undefined;
+  if (!isObject(panes)) return "panes is an object: { workspace?, keep? }";
+  const { workspace, keep, ...rest } = panes as Record<string, unknown>;
+  const other = Object.keys(rest)[0];
+  if (other !== undefined) return `panes has no ${JSON.stringify(other)}: it gives workspace, keep`;
+  if (keep !== undefined && !KEEP_PANES.includes(keep as KeepPane))
+    return `panes.keep is ${KEEP_PANES.join(", ")}, not ${JSON.stringify(keep)}`;
+  const named =
+    isObject(workspace) &&
+    Object.keys(workspace).join() === "name" &&
+    typeof (workspace as { name?: unknown }).name === "string" &&
+    (workspace as { name: string }).name.trim() !== "";
+  if (workspace !== undefined && workspace !== "run" && workspace !== "origin" && !named)
+    return `panes.workspace is "run", "origin" or { name }, not ${JSON.stringify(workspace)}`;
+  return undefined;
+}
+
 /** What a test of the engine, not of a workflow, may give `runTest`. */
 export type EngineTestOptions = {
   /**
@@ -344,31 +350,12 @@ export type EngineTestOptions = {
    * agent's harness and placement, as a run would; `anywhere`, on any harness, the fake's included.
    */
   awaitReply?: "listed" | "anywhere";
-  /** Deprecated forms the call itself used, logged with the run's own. */
-  used?: readonly Deprecated[];
 };
 
-/**
- * A test's length of time in milliseconds: `field`, a `Duration`, or `old`, its deprecated form in
- * milliseconds, which is reported; both at once are refused.
- */
-function milliseconds(
-  options: AnyTestOptions,
-  field: "timeout" | "stall",
-  old: "timeoutMs" | "stallMs",
-  deprecated: () => void,
-): number | undefined {
+/** A test's length of time in milliseconds, a `Duration` checked; undefined when not given. */
+function milliseconds(options: AnyTestOptions, field: "timeout" | "stall"): number | undefined {
   const given = options[field];
-  const ms = options[old];
-  if (given != null) {
-    if (ms != null) throw new Error(`give ${field} alone: ${old} is its deprecated form`);
-    return positiveDurationMilliseconds(given, `a test's ${field}`);
-  }
-  if (ms == null) return undefined;
-  if (!Number.isSafeInteger(ms) || ms <= 0)
-    throw new Error(`a test's ${old} is a positive whole number of milliseconds: not ${ms}`);
-  deprecated();
-  return ms;
+  return given == null ? undefined : positiveDurationMilliseconds(given, `a test's ${field}`);
 }
 
 /** A file's contents, or a directory of them by name. */
@@ -390,34 +377,15 @@ export type ScriptedEvent<Events extends EventSchemas> = (
   | { after: string; during?: undefined }
 ) &
   EventIds &
-  (
-    | {
-        [Name in Exclude<keyof Events & string, `${string}:ended`>]: {
-          name: Name;
-          data: OutputOf<Events[Name]>;
-        };
-      }[Exclude<keyof Events & string, `${string}:ended`>]
-    /**
-     * A reply on a participant routed to the code with `to: "code"`; awf fills its author and id
-     * when absent.
-     *
-     * @deprecated Declare `{key}:reply: ParticipantReply` and script `{ name: "{key}:reply", data }`.
-     */
-    | { name: "participant:reply"; from: string; data: ParticipantReply }
-  );
+  {
+    [Name in Exclude<keyof Events & string, `${string}:ended`>]: {
+      name: Name;
+      data: OutputOf<Events[Name]>;
+    };
+  }[Exclude<keyof Events & string, `${string}:ended`>];
 
 /** An event's id in the run's `in.jsonl`, as `awf emit --event-id` gives it. */
-type EventIds = {
-  eventId?: string;
-  /** @deprecated Give it as `eventId`. */
-  id?: string;
-};
-
-/** @deprecated Use `TestOptions<Args, Events>`, the one options type. */
-export type EventTestOptions<
-  Events extends EventSchemas,
-  Args extends JsonValue = JsonValue,
-> = TestOptions<Args, Events>;
+type EventIds = { eventId?: string };
 
 /** An event the run sent, to the run whose ref is `ref`, which a test doesn't start. */
 export type EmittedEvent = { ref: string; name: string; data: JsonValue; eventId?: string };
@@ -463,18 +431,8 @@ export type TestRun<Result> = {
    * the stage it ended in and why.
    */
   ending: Ending<Result>;
-  /**
-   * @deprecated Read `run.ending`, whose kind is `"stopped"`. How the attempt stopped, and the
-   * values it stopped for; absent when it didn't.
-   */
-  readonly stopped?: { reason: string; stage?: string; needs?: readonly StageNeed[] };
   /** Every event the run sent to another workflow, in order. */
   emits: EmittedEvent[];
-  /**
-   * @deprecated Read `run.ending`, whose kind is `"parked"`. A run that parked, and its last wait;
-   * absent when it returned.
-   */
-  readonly parked?: { label?: string; until?: string };
   /** The run's timers in the order set: when each was due, and whether it fired or was cancelled. */
   timers: { name: string; due: string; state: "fired" | "cancelled" | "pending" }[];
   /** The events senders gave the run, its `in.jsonl` as the run left it, in order. */
@@ -500,11 +458,7 @@ export async function runTest<Result extends JsonValue>(
   const problem = optionsProblem(options, withEvents !== undefined, workflow.meta.name);
   if (problem) throw new Error(problem);
   const logs: TestRun<Result>["logs"] = [];
-  // A test's own forms, apart from the run's: said in its logs as the run says a warning.
-  const deprecations = new RunDeprecations((message) => logs.push({ message }));
-  const deprecated = (name: Deprecated) => deprecations.used(name);
-  for (const name of engine.used ?? []) deprecated(name);
-  const earlier = earlierOf(options, deprecated);
+  const earlier = earlierOf(options);
   if (withEvents && options.values !== undefined)
     throw new Error(
       "a run of a workflow with events takes no values: before fromStage, a stage with no record runs",
@@ -513,7 +467,7 @@ export async function runTest<Result extends JsonValue>(
     throw new Error(
       "a run of a workflow with events takes fromStage only with earlier, as awf run takes --from-stage only with --continue",
     );
-  const started = startOf(withEvents, options, deprecated);
+  const started = startOf(withEvents, options);
   const definition = workflow as RunnableWorkflow<JsonValue, Result>;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
@@ -526,11 +480,8 @@ export async function runTest<Result extends JsonValue>(
   }
   const stopping = new AbortController();
   const problems: string[] = [];
-  const stallMs =
-    milliseconds(options, "stall", "stallMs", () => deprecations.used("stall-ms")) ?? 2_000;
-  const timeoutMs = milliseconds(options, "timeout", "timeoutMs", () =>
-    deprecations.used("timeout-ms", "in testWorkflow's options"),
-  );
+  const stallMs = milliseconds(options, "stall") ?? 2_000;
+  const timeoutMs = milliseconds(options, "timeout");
   let stall: ReturnType<typeof setTimeout> | undefined;
   /** The test ended the attempt: everything left waited on a coordinator's script. */
   let waitedOut = false;
@@ -581,8 +532,7 @@ export async function runTest<Result extends JsonValue>(
     events.onActivity();
     return true;
   };
-  const scripted =
-    withEvents && new ScriptedEvents(withEvents, options, earlier.events ?? [], now, deprecated);
+  const scripted = withEvents && new ScriptedEvents(withEvents, options, earlier.events ?? [], now);
   const maxTurns = options.maxTurns ?? 20;
   if (!Number.isInteger(maxTurns) || maxTurns < 1)
     throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
@@ -593,7 +543,6 @@ export async function runTest<Result extends JsonValue>(
   const events = {
     onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
-    onDeprecated: (name: Deprecated, subject?: string) => deprecations.used(name, subject),
     onTurnStarted: async (turn: TestTurn) => {
       turnsStarted += 1;
       if (turnsStarted > maxTurns)
@@ -719,6 +668,7 @@ export async function runTest<Result extends JsonValue>(
         lines,
         ops,
         ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
+        ...(options.panes === undefined ? {} : { panes: options.panes }),
         ...(options.values === undefined
           ? {}
           : { values: new Map(Object.entries(options.values)) }),
@@ -852,9 +802,7 @@ export async function runTest<Result extends JsonValue>(
             continue: goOn(undefined, decided.stages),
           }
         : decided;
-  const stopped = stoppedOf(settled);
-  const parked = parkedOf(settled);
-  const result: TestRun<Result> = {
+  return {
     get value() {
       if ("value" in settled) return settled.value;
       if (primaryFailure(settled.error) instanceof RunParked)
@@ -889,22 +837,6 @@ export async function runTest<Result extends JsonValue>(
     timers,
     ending,
   };
-  // Not enumerable, so spreading the run reads neither.
-  Object.defineProperties(result, {
-    stopped: {
-      get: () => {
-        deprecated("run-stopped");
-        return stopped;
-      },
-    },
-    parked: {
-      get: () => {
-        deprecated("run-parked");
-        return parked;
-      },
-    },
-  });
-  return result;
 }
 
 /** Each timer: taken, or due by the run's clock and not cancelled, is `fired`. */
@@ -1028,7 +960,6 @@ class ScriptedEvents {
     earlier: readonly EventLine[],
     /** The run's clock, which stamps what is sent. */
     private readonly now: () => number,
-    deprecated: (name: Deprecated) => void,
   ) {
     const ids = new Set<string>();
     const idOf = (given: string | undefined, made: string) => {
@@ -1042,7 +973,7 @@ class ScriptedEvents {
       return id;
     };
     for (const line of earlier) ids.add(line.id);
-    if (options.event) idOf(eventIdOf(options.event, deprecated), `${AWF_ID_PREFIX}start`);
+    if (options.event) idOf(options.event.eventId, `${AWF_ID_PREFIX}start`);
     this.#pending = (options.events ?? []).map((event, index) => {
       if ((event.during === undefined) === (event.after === undefined))
         throw new Error("a scripted event gives during or after, one of them");
@@ -1052,7 +983,7 @@ class ScriptedEvents {
         throw new Error(
           `a scripted event's ${after ? "after" : "during"} is "{agent}#{n}", an agent's nth turn, not ${at}`,
         );
-      const id = idOf(eventIdOf(event, deprecated), `${AWF_ID_PREFIX}test.${index + 1}`);
+      const id = idOf(event.eventId, `${AWF_ID_PREFIX}test.${index + 1}`);
       // A participant's reply is recorded as `awf emit` records one, whatever name it is sent by.
       const stamped = new Date().toISOString();
       let sent = {
@@ -1063,11 +994,7 @@ class ScriptedEvents {
         at: stamped,
       };
       const reply = awfEventOf(event.name);
-      if (event.name === "participant:reply") {
-        deprecated("test-participant-reply");
-        const old = event as { from: string; data: ParticipantReply };
-        sent = replyRecord(old.from, id, { author: "engineer", ...old.data }, stamped);
-      } else if (reply?.kind === "reply") {
+      if (reply?.kind === "reply") {
         checkEvent(workflow, event, true);
         sent = replyRecord(reply.key, id, event.data, stamped);
       } else checkEvent(workflow, event);
@@ -1141,7 +1068,6 @@ async function layOut(
 function startOf(
   workflow: EventWorkflow | undefined,
   options: AnyTestOptions,
-  deprecated: (name: Deprecated) => void,
 ): { id: string; record?: EventLine } {
   const { event, id = "test" } = options;
   if (typeof id !== "string") throw new Error(`a run's id is a string, not ${JSON.stringify(id)}`);
@@ -1156,7 +1082,7 @@ function startOf(
     );
   const record: EventLine = {
     at: new Date().toISOString(),
-    id: eventIdOf(event, deprecated) ?? `${AWF_ID_PREFIX}start`,
+    id: event.eventId ?? `${AWF_ID_PREFIX}start`,
     name: event.name,
     data: event.data,
     from: "operator",
@@ -1165,26 +1091,9 @@ function startOf(
   return { id, record };
 }
 
-/**
- * What the earlier attempt left, from `earlier` or its deprecated form `recorded`; `continues`
- * when it left anything, so the test's attempt is a continue.
- */
-function earlierOf(
-  options: AnyTestOptions,
-  deprecated: (name: Deprecated) => void,
-): EarlierAttempt & { continues: boolean } {
-  const { earlier = {}, recorded } = options;
-  if (recorded !== undefined) {
-    if (earlier.stages !== undefined)
-      throw new Error("give earlier.stages alone: recorded is its deprecated form");
-    deprecated("test-recorded");
-  }
-  const stages = earlier.stages ?? recorded;
-  return {
-    ...earlier,
-    ...(stages === undefined ? {} : { stages }),
-    continues: options.earlier !== undefined || stages !== undefined,
-  };
+/** What the earlier attempt left; `continues` when `earlier` is given: the test's is a continue. */
+function earlierOf(options: AnyTestOptions): EarlierAttempt & { continues: boolean } {
+  return { ...options.earlier, continues: options.earlier !== undefined };
 }
 
 /**
@@ -1211,38 +1120,10 @@ function argsOf(
   }
 }
 
-/** An event's id, given as `eventId` or, deprecated, `id`. */
-function eventIdOf(event: EventIds, deprecated: (name: Deprecated) => void): string | undefined {
-  if (event.id === undefined) return event.eventId;
-  deprecated("test-event-id");
-  if (event.eventId !== undefined && event.eventId !== event.id)
-    throw new Error(`an event gives eventId ${event.eventId} and id ${event.id}: give eventId`);
-  return event.id;
-}
-
 function sandboxesOf(sandboxes: readonly SandboxRecord[] | undefined): Map<string, AgentSandbox> {
   return new Map(
     (sandboxes ?? []).flatMap(({ key, provider, spec, domains, agents }) =>
       agents.map(({ agent }) => [agent, { key, provider, spec, domains }] as const),
     ),
   );
-}
-
-/** A run that parked, and its last wait: what the attempt ended with. */
-function parkedOf(settled: { value: unknown } | { error: unknown }): TestRun<unknown>["parked"] {
-  if (!("error" in settled)) return undefined;
-  const parked = primaryFailure(settled.error);
-  return parked instanceof RunParked ? parked.wait : undefined;
-}
-
-/** Decided as `awf run` decides it: a stop is the run's first failure, whatever failed beside it. */
-function stoppedOf(settled: { value: unknown } | { error: unknown }): TestRun<unknown>["stopped"] {
-  if (!("error" in settled)) return undefined;
-  const stop = primaryFailure(settled.error);
-  if (!(stop instanceof WorkflowStopped)) return undefined;
-  return {
-    reason: stop.reason,
-    ...(stop.stage === undefined ? {} : { stage: stop.stage }),
-    ...(stop.needs === undefined ? {} : { needs: stop.needs }),
-  };
 }

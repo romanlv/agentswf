@@ -126,7 +126,8 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   run by its id, and the run's code takes it at a wait. Between events the run parks and no
   process runs, so a case that lives for weeks costs a file ([events](https://agents.wf/reference/workflow-api#events)).
 - **Deadlines and cleanup.** A stalled turn is stopped, deadlines you set nest, and every agent is
-  closed when the run ends, however it ends, unless the workflow asked to keep its pane.
+  closed when the run ends, however it ends, unless you asked to keep its pane
+  (`awf run --keep-panes`).
 
 ## Quick start
 
@@ -303,7 +304,7 @@ route, triage or gate, and hand only the uncertain cases to an agent or a person
 import { choice, yesNo } from "agentswf/workflow";
 
 const { answers } = await wf.decisions.decide({
-  key: "triage:42",
+  key: "triage-42",
   model: "jev",
   state: { ticket },
   questions: {
@@ -344,8 +345,7 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
 ## Not yet
 
 Deliberately left out until something real needs them: calling one workflow from another, and
-reopening a stopped run's agent sessions (a continue redoes the stage with fresh agents). Their
-types exist, and calling them fails with a clear "unavailable" error.
+reopening a stopped run's agent sessions (a continue redoes the stage with fresh agents).
 [`docs/status.md`](docs/status.md) has what runs today and what's next.
 
 ## Contributing and design docs
