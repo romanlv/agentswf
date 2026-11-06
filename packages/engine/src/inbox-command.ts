@@ -173,13 +173,12 @@ export async function inboxCommand(
           const words = options.all
             ? ["awf", "inbox", ...(options.workflow ? ["--workflow", options.workflow] : [])]
             : ["awf", "inbox", options.ref!];
-          const again = command(
-            place,
-            ...words,
+          const again = [
+            ...command(place, ...words),
             ...(options.as ? ["--as", options.as] : []),
             "--after",
             encodeCursor(state),
-          );
+          ];
           out.stdout([...lines, `next: ${shellLine(again)}`].join("\n"));
         }
         return 0;

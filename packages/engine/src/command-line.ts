@@ -39,10 +39,9 @@ export function parsePlace(
   return { place: { shellCwd, runRoot: runRoot ?? runRootOf(cwd), repeat }, json, rest };
 }
 
-/** A suggested command, with the place repeated. */
+/** A suggested command, `words` and then the place repeated, before any options added after. */
 export function command(place: ReadPlace, ...words: string[]): string[] {
-  const [first, second, ...rest] = words;
-  return [first!, second!, ...rest.slice(0, 1), ...place.repeat, ...rest.slice(1)];
+  return [...words, ...place.repeat];
 }
 
 /** The flags that find this run again from another command: the folder or run root given. */

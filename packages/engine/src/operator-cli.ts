@@ -385,13 +385,7 @@ async function runCommand(
     printRefusal({ stdout, stderr }, { json: command.json, v: 1 }, error, code);
   const meant = await runNamed(command);
   if (meant) {
-    const look = shellLine([
-      "awf",
-      "runs",
-      meant,
-      ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
-      ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
-    ]);
+    const look = shellLine(["awf", "runs", meant, ...placeFlags(command)]);
     refused("file", `${command.workflowFile} is not a workflow file; did you mean: ${look}`);
     return 2;
   }
