@@ -289,7 +289,12 @@ async function createEventRun(
     undefined,
     first,
   );
-  await recordProject(context.home, project);
+  try {
+    await recordProject(context.home, project);
+  } catch (error) {
+    // awf's own record of projects, not the run's: `internal-error`, as `awf run` refuses it.
+    throw new Error(`~/.awf/projects was not written: ${messageOf(error)}`);
+  }
   return run;
 }
 

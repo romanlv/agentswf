@@ -7,8 +7,12 @@ export class RunUnreachable extends Error {
   }
 }
 
-/** An error the system gave, `ENOENT`, `EACCES` and the like: a run's file that couldn't be read. */
+/**
+ * An error the system gave, `ENOENT`, `EACCES` and the like, or one awf wrapped around it as its
+ * cause: a run's file that couldn't be read or written.
+ */
 export function isSystemError(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" && /^E[A-Z]+$/.test(code);
+  const { code, cause } = (error ?? {}) as { code?: unknown; cause?: unknown };
+  if (typeof code === "string" && /^E[A-Z]+$/.test(code)) return true;
+  return cause !== undefined && cause !== error && isSystemError(cause);
 }

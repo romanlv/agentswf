@@ -51,19 +51,19 @@ failure, is the word [`ClientError`](/reference/client-api#clienterror) throws f
 | --- | --- | --- |
 | `usage` | its arguments can't be parsed, or two of them clash | every command |
 | `no-run` | there is no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
-| `ambiguous` | a name fits more than one: a run's id runs of two workflows or projects, or `--as`, an agent or `--to` more than one of theirs, with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `ambiguous` | a name fits more than one: a run's id, runs of two workflows or projects; or `--as`, an agent or `--to`, those with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `id` | a run or event id the grammar refuses, one the workflow's `id(args)` returns, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
 | `event` | the workflow doesn't take the event's name, data or source, or takes no events | `emit` |
-| `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
+| `prepare` | the workflow refuses its arguments or options, or its `id(args)` throws | `run`, `emit` |
 | `no-id` | a workflow that starts on events, with no `--id` and no `id(args)` | `run` |
 | `other-args` | a run there, started with other arguments or options | `run` |
 | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose working folder is gone | `run` |
-| `unreachable` | the run's files can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `unreachable` | the run's files, a new run's folder included, can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `cursor` | a cursor or handle doesn't fit: made for another run or filter, past the run's end, or naming no event | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `project` | the workflow isn't in a project | `run`, `emit` |
-| `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | every command |
+| `internal-error` | something failed that is neither the caller's nor the run's, such as awf's own record of projects; `error` says what | every command |
 
 `awf reply` and `awf send` also refuse for the [participant's reasons](#reply), and `awf inbox`
 with `no-participant`, a run that never connected the one asked for.

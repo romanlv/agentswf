@@ -56,7 +56,7 @@ import {
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
-import { asksJson, printRefusal, readFailureCode, refusalCode, refusalLine } from "./refusals";
+import { asksJson, printRefusal, readFailureCode, refusalLine } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -524,7 +524,7 @@ async function runAttempt(
   } catch (error) {
     return refuse(
       `${error instanceof RunRefused ? "" : `${command.runRoot}: `}${messageOf(error)}`,
-      refusalCode(error) ?? "internal-error",
+      readFailureCode(error),
     );
   }
   let attempt: Attempt;

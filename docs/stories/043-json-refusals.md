@@ -210,15 +210,15 @@ Out of scope:
   | `id` | a run or event id the grammar refuses, one `id(args)` returns, or one another run has | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `file` | the workflow file is missing, doesn't load, or doesn't export it | `run`, `emit`; client |
   | `event` | an event name, data or source the workflow doesn't take, or it takes none | `emit`; client |
-  | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
+  | `prepare` | the workflow refuses its arguments or options, or its `id(args)` throws | `run`, `emit`; client |
   | `no-id` | a start naming no run | `run`; client |
   | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
   | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running or completed, or whose working folder is gone | `run` |
-  | `unreachable` | the run's files can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+  | `unreachable` | the run's files, a new run's folder included, can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle that doesn't fit: another run's or filter's, past the run's end, naming no event | `logs`, `inbox`; client |
   | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `project` | a workflow in no project | `run`, `emit`; client |
-  | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | every command |
+  | `internal-error` | a failure neither the caller's nor the run's, such as awf's record of projects; `error` says what | every command |
 
   Plus the participant codes `reply` and `send` have, `no-participant` `inbox` too: `ended`,
   `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
@@ -567,6 +567,16 @@ Manual or live evaluation:
   other malformed id is `id`: both throw `RunRefused(…, "id")`, still exit 2; rows. The
   deprecated `send --event-id`'s two `v`s, its result's 1 and its refusals' 3, said in the
   reference.
+
+- Round 6: the line between `unreachable` and `internal-error` settled by what failed, not the
+  error's type: a run's files and its process, a new run's folder included, are `unreachable`;
+  awf's own record of projects is `internal-error`. `awf run`'s new-run refusal uses
+  `readFailureCode`, as `emit`'s does; the claim's wrapped errors keep their cause, which
+  `isSystemError` reads; `emit`'s failed write of `~/.awf/projects` is no system error; a row for
+  an `ops/` the claim can't list. Docs: the people guide's commands take `--json`, as the
+  refusal it says to post back needs; the workflows guide's "always prints the record"; the
+  status and index entries' claim that every code is the client's; `ambiguous`'s `choices`;
+  `prepare` covers a throwing `id(args)`; `ParticipantResultJson` names the deprecated path.
 
 ## Readiness
 

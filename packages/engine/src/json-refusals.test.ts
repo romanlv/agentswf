@@ -26,6 +26,7 @@ afterAll(() => {
   listening?.stop(true);
   // Readable again, so the folder can go.
   chmodSync(join(fixture.sealed, ".awf", "runs", "dd-case", "r1", "attempts"), 0o700);
+  chmodSync(join(fixture.root, ".awf", "runs", "plain", "closed", "ops"), 0o700);
   dirs.cleanup();
 });
 
@@ -156,6 +157,16 @@ beforeAll(async () => {
   });
   writeFileSync(join(locked.dir, "run.jsonl"), "");
   chmodSync(join(locked.dir, "run.jsonl"), 0o000);
+  // And one whose ops/ the system won't let a new attempt list.
+  const closed = await createRun(runRoot, {
+    id: "closed",
+    workflow: "plain",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  mkdirSync(join(closed.dir, "ops"));
+  chmodSync(join(closed.dir, "ops"), 0o000);
   // A run whose record this awf can't read: one made before `run.json` had a format.
   mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
   writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
@@ -575,6 +586,15 @@ const ROWS: Row[] = [
     exit: 2,
     v: 3,
     says: /--event-id a b/,
+  },
+  {
+    command: "run",
+    failure: "a continue whose ops/ the system won't let it list",
+    argv: (f) => [f.plain, "--id", "closed", "--continue"],
+    code: "unreachable",
+    exit: 2,
+    v: 1,
+    says: /ops\/ was not listed/,
   },
   {
     command: "run",

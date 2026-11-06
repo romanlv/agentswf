@@ -365,7 +365,7 @@ export async function claimNext(
     ops = await listOps(run.dir);
   } catch (error) {
     await unlink(claimed.attempt.file).catch(() => undefined);
-    throw new Error(`ops/ was not listed: ${messageOf(error)}`);
+    throw new Error(`ops/ was not listed: ${messageOf(error)}`, { cause: error });
   }
   let lines: RunLines;
   try {
@@ -373,7 +373,7 @@ export async function claimNext(
   } catch (error) {
     // Without its fence the attempt may not write: it goes, as a refused claim's does.
     await unlink(claimed.attempt.file).catch(() => undefined);
-    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`);
+    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`, { cause: error });
   }
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
