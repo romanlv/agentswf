@@ -3,7 +3,7 @@ id: "042"
 title: "The operator opens any agent's session and asks it more"
 summary: "awf open <run> <agent> opens a copy of the agent's latest session, made with no model turn, in its harness's own TUI, where the agent worked (its home, cwd, sandbox and model), or asks it one question with -p; --no-fork opens the session itself, and awf keeps every other writer out while it is open."
 type: story
-status: awaiting-human-review
+status: done
 depends_on: ["041"]
 ---
 
@@ -741,10 +741,12 @@ The docs and the eval, checked by the site's build (every link resolves) and the
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
+- [x] Record the human's explicit approval or requested changes here: accepted on 2026-11-06,
+  after the change below; claude in a sandbox, a host codex agent with skills and docker skills
+  not run live.
   - 2026-11-06, trying it by hand (a copy, then `--no-fork`, on codex): `awf open {run}` with
     no agent was a usage error with the whole help. Changed: it asks which agent and prints the
     command that opens each of the run's agents with a session, the run named once, in the
     commands.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

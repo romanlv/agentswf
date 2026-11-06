@@ -385,7 +385,7 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   opening a run of a workflow with events refuses `--json` as `usage`, as `--here` does (Q6). A
   scripted participant's `reply`/`send` in `agentswf/testing` resolves to `{ id }` or `{ code }` (Q7).
 - [042 — the operator opens any agent's session and asks it more](stories/042-open-agent-session.md):
-  awaiting human review. `awf open {run} {agent}` copies the agent's latest session with no model
+  done, approved 2026-11-06. `awf open {run} {agent}` copies the agent's latest session with no model
   turn and opens the copy in its harness's TUI where the agent worked (its cwd, own home, skills
   and sandbox, on its model and effort), with the harness's own prompts; `-p` asks it one
   question headless; `--session` reopens a copy or an earlier session; `--no-fork` opens the
