@@ -6,7 +6,7 @@ import { messageOf } from "./errors";
 import help from "./help/emit.txt" with { type: "text" };
 import { asksJson, printRefusal, readFailureCode } from "./refusals";
 import { findRunByRef } from "./run-state";
-import type { Launch } from "./wake";
+import type { Launch, Woken } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";
 
 export const emitUsage = help.trimEnd();
@@ -71,18 +71,23 @@ export async function emitCommand(
   return printEmit(result, parsed.json, out);
 }
 
-/** Prints an emit's result, as `awf emit` does: 1 when the run's attempt didn't start. */
-export function printEmit(result: EmitResultJson, json: boolean, out: Out): number {
-  out.stdout(json ? JSON.stringify(result) : emitLine(result));
-  if (result.why !== "launch-failed") return 0;
-  out.stderr(`awf: the run's attempt did not start: ${result.error}`);
-  return 1;
+/** Prints an emit's result, `accepted dd-case/kombo: started`: 1 when the run's attempt didn't start. */
+function printEmit(result: EmitResultJson, json: boolean, out: Out): number {
+  out.stdout(json ? JSON.stringify(result) : `${result.outcome} ${result.ref}${didOf(result)}`);
+  return launchExit(result, out);
 }
 
-/** `accepted dd-case/kombo: started`. */
-function emitLine(result: EmitResultJson): string {
-  const did = result.did === "none" ? result.why : result.did;
-  return `${result.outcome} ${result.ref}${did === undefined ? "" : `: ${did}`}`;
+/** What waking a run did, `: started`, or why it did nothing; empty when neither is said. */
+export function didOf(woken: Pick<Woken, "did" | "why">): string {
+  const did = woken.did === "none" ? woken.why : woken.did;
+  return did === undefined ? "" : `: ${did}`;
+}
+
+/** 0; or 1, said on stderr, when the run's attempt did not start. */
+export function launchExit(woken: Pick<Woken, "why" | "error">, out: Out): number {
+  if (woken.why !== "launch-failed") return 0;
+  out.stderr(`awf: the run's attempt did not start: ${woken.error}`);
+  return 1;
 }
 
 function parse(argv: readonly string[], shellCwd: string): Parsed {

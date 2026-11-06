@@ -40,7 +40,7 @@ import {
 } from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { EmitError, emitEvent, openEventRun } from "./emit";
-import { emitCommand } from "./emit-command";
+import { didOf, emitCommand, launchExit } from "./emit-command";
 import { messageOf } from "./errors";
 import { installedEngine } from "./hand-over";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
@@ -138,6 +138,12 @@ export type OperatorEnvironment = {
   stdin?: () => Promise<string>;
 };
 
+/** An operator environment with the operator's home and environment variables resolved. */
+type Resolved = OperatorEnvironment & {
+  home: string;
+  environment: Readonly<Record<string, string | undefined>>;
+};
+
 type Output = {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
@@ -167,7 +173,12 @@ export async function runOperatorCli(
   argv: readonly string[],
   given: OperatorEnvironment = {},
 ): Promise<number> {
-  const environment = takeLaunch(given);
+  const taken = takeLaunch(given);
+  const environment: Resolved = {
+    ...taken,
+    home: taken.home ?? homedir(),
+    environment: taken.environment ?? process.env,
+  };
   const print = environment.stdout ?? ((text) => console.log(text));
   let printed = false;
   const stdout = (text: string) => {
@@ -200,16 +211,17 @@ export async function runOperatorCli(
       stderr,
       stdin: environment.stdin ?? (() => new Response(Bun.stdin.stream()).text()),
       ...(environment.stdin ? {} : { stdinIsTerminal: process.stdin.isTTY === true }),
-      ...(environment.environment ? { environment: environment.environment } : {}),
-      ...(environment.home ? { home: environment.home } : {}),
+      environment: environment.environment,
+      home: environment.home,
     });
   const wakes = {
-    home: environment.home ?? homedir(),
-    environment: environment.environment ?? process.env,
+    home: environment.home,
+    environment: environment.environment,
     ...(environment.launch ? { launch: environment.launch } : {}),
   };
+  const output = { stdout, stderr, notice, terminal, now };
   const handlers = {
-    run: () => runCommand(argv, environment, { stdout, stderr, notice, terminal, now }),
+    run: () => runCommand(argv, environment, output),
     test: () => {
       const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
       return testCommand(argv.slice(1), cwd, {
@@ -227,14 +239,21 @@ export async function runOperatorCli(
       }),
     emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
-    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, Date.now(), wakes.home),
-    logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }, undefined, wakes.home),
+    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, now(), environment.home),
+    logs: () =>
+      logsCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        { now, sleep: (ms) => Bun.sleep(ms) },
+        environment.home,
+      ),
     inbox: () =>
       inboxCommand(
         argv.slice(1),
         cwd,
         { stdout, stderr },
-        { home: wakes.home, ...(environment.signal ? { signal: environment.signal } : {}) },
+        { home: environment.home, ...(environment.signal ? { signal: environment.signal } : {}) },
       ),
     reply: () => holder(),
     send: () => holder(),
@@ -244,12 +263,7 @@ export async function runOperatorCli(
         stderr,
         read:
           environment.readAllowance ??
-          allowanceReader(
-            environment.environment ?? process.env,
-            undefined,
-            environment.signal,
-            environment.home ?? homedir(),
-          ),
+          allowanceReader(environment.environment, undefined, environment.signal, environment.home),
         now,
       }),
   } satisfies Record<CommandName, () => Promise<number>>;
@@ -333,7 +347,7 @@ function help(
  */
 async function openRun(
   { loaded, id, argv, panes }: OpensEventRun,
-  environment: OperatorEnvironment,
+  environment: Resolved,
   { stdout, stderr }: Output,
 ): Promise<number> {
   try {
@@ -342,19 +356,14 @@ async function openRun(
       id,
       argv,
       {
-        home: environment.home ?? homedir(),
-        environment: environment.environment ?? process.env,
+        home: environment.home,
+        environment: environment.environment,
         ...(environment.launch ? { launch: environment.launch } : {}),
       },
       panes,
     );
-    const did = opened.did === "none" ? opened.why : opened.did;
-    stdout(
-      `${opened.run}${opened.created ? "" : " was there"}${did === undefined ? "" : `: ${did}`}`,
-    );
-    if (opened.why !== "launch-failed") return 0;
-    stderr(`awf: the run's attempt did not start: ${opened.error}`);
-    return 1;
+    stdout(`${opened.run}${opened.created ? "" : " was there"}${didOf(opened)}`);
+    return launchExit(opened, { stdout, stderr });
   } catch (error) {
     printRefusal({ stdout, stderr }, NO_JSON, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
@@ -364,10 +373,10 @@ async function openRun(
 /** `awf run`: parses it, then starts or continues the run, here or in a tab. */
 async function runCommand(
   argv: readonly string[],
-  environment: OperatorEnvironment,
+  environment: Resolved,
   output: Output,
 ): Promise<number> {
-  const { stdout, stderr, notice, terminal, now } = output;
+  const { stdout, stderr, notice, now } = output;
   let parsed: RunCommand | "help";
   try {
     parsed = parseCommand(argv, environment.cwd ?? process.cwd());
@@ -396,7 +405,7 @@ async function runCommand(
     if (command.session !== undefined) await showOwnTab(environment);
     return exitCode;
   };
-  const home = environment.home ?? homedir();
+  const { home } = environment;
   const { sandboxes, callers } = machinePaths(home);
   const ready = await loadAndPrepare(command, now(), home);
   if ("refused" in ready) {
@@ -435,13 +444,7 @@ async function runCommand(
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
-  return runAttempt(command, ready, calling, environment, home, {
-    stdout,
-    stderr,
-    notice,
-    terminal,
-    now,
-  });
+  return runAttempt(command, ready, calling, environment, output);
 }
 
 /** The run `awf run {ref}` names where `{ref}` is no file: one meant for `awf runs`. */
@@ -459,11 +462,11 @@ async function runAttempt(
   command: RunCommand,
   { loaded, prepared }: { loaded: LoadedWorkflow; prepared: PreparedRun },
   calling: { caller: Caller; release: () => void } | undefined,
-  environment: OperatorEnvironment,
-  home: string,
+  environment: Resolved,
   output: Output,
 ): Promise<number> {
   const { stdout, stderr, notice, terminal, now } = output;
+  const { home } = environment;
   const { workflow } = loaded;
   const { meta } = workflow;
   /** The run, once it is claimed. */
@@ -489,12 +492,12 @@ async function runAttempt(
     return 2;
   };
   // The operator's, never where the workflow's agents work.
-  const coordinatorRoot = coordinatorDir(home, environment.environment ?? process.env);
+  const coordinatorRoot = coordinatorDir(home, environment.environment);
   try {
     await prepareCoordinatorDir(
       coordinatorRoot,
       command.cwd,
-      Boolean((environment.environment ?? process.env).AWF_COORDINATOR_DIR),
+      Boolean(environment.environment.AWF_COORDINATOR_DIR),
     );
   } catch (error) {
     return refuse(messageOf(error), "internal-error");
@@ -536,7 +539,7 @@ async function runAttempt(
   if (run.record.events && previous && previous.ended === undefined)
     await stopCrashed(previous, workspaceLabel(meta.name, run.record.id, previous.attempt), {
       home,
-      environment: environment.environment ?? process.env,
+      environment: environment.environment,
     }).catch((error: unknown) =>
       notice(
         `awf: what attempt ${previous.attempt} left running was not all stopped: ${messageOf(error)}`,
@@ -648,7 +651,7 @@ async function runAttempt(
   placed = (session) => {
     progress.placedIn(session.name);
     const label = workspaceLabel(meta.name, id, n);
-    const insideHerdr = (environment.environment ?? process.env).HERDR_ENV === "1";
+    const insideHerdr = environment.environment.HERDR_ENV === "1";
     for (const line of describeRunSession(session, label, insideHerdr)) progress.log(line);
   };
   // Interactive: a coordinator's questions are asked here, unless the output is for a program.
@@ -710,7 +713,7 @@ async function runAttempt(
           await emitEvent(target, event, {
             from,
             home,
-            environment: environment.environment ?? process.env,
+            environment: environment.environment,
             ...(environment.launch ? { launch: environment.launch } : {}),
           })
         ).outcome,

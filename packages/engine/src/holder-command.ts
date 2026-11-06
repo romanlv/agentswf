@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import type { ParticipantResultJson, RefusalCode } from "@agentswf/contract/records";
 import { type HolderWireAnswer, type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
 import { type Out, parsePlace, type ReadPlace } from "./command-line";
@@ -31,8 +30,8 @@ type HolderIo = Out & {
   stdin(): Promise<string>;
   /** Then there is nothing piped in to read: refused rather than waited on. */
   stdinIsTerminal?: boolean;
-  environment?: Readonly<Record<string, string | undefined>>;
-  home?: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  home: string;
 };
 
 /** A refusal of `reply` or `send`: its document with `--json`, its sentence on stderr, exit 1. */
@@ -82,7 +81,7 @@ export async function holderCommand(
   try {
     let status: RunStatus;
     try {
-      status = await findRunByRef(options.ref, place, io.home ?? homedir());
+      status = await findRunByRef(options.ref, place, io.home);
     } catch (error) {
       if (error instanceof RunNotFound) return refused(error.code, error.message);
       throw error;
@@ -97,7 +96,7 @@ export async function holderCommand(
         "no-participant",
         `${status.ref} has no participant${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
       );
-    const dir = coordinatorDir(io.home ?? homedir(), io.environment ?? process.env);
+    const dir = coordinatorDir(io.home, io.environment);
     // Live with no socket: its attempt has not connected one yet, or is opening it.
     const socket = await liveCoordinatorSocket(dir, status);
     if (!socket) return unreachable();
