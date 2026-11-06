@@ -583,6 +583,10 @@ Manual or live evaluation:
   error's cause's code too, so a `run.jsonl` torn between the claim's two reads stays
   `unreachable`.
 
+- Round 8: correctness clean. The people guide's round 7 wording took every `ok: false` for a
+  refused reply; it now tells a refusal from a reply the run has but wasn't woken for, as the
+  coordinator skill does.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
