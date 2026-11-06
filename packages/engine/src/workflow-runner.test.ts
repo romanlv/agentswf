@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { ResultSubmitResponse } from "@agentswf/contract/wire";
@@ -27,7 +27,6 @@ import type {
   HarnessTurn,
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
-import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type DecisionScope, RunDecisions } from "./decisions/directory";
 import { readAccepted } from "./ops";
 import { createRun, openRun, readEvents, readTurns } from "./runs";
@@ -573,7 +572,6 @@ describe("runWorkflow", () => {
 
   test("a synchronous host acquisition failure still closes the result endpoint", async () => {
     const runRoot = tempRunDir();
-    const before = await controlDirectories();
     const runtime: AgentRuntimeConfig = {
       aliases: {},
       host: {
@@ -583,16 +581,16 @@ describe("runWorkflow", () => {
       },
     };
 
-    const running = runNew(
-      workflowOf("sync-host-failure", async () => null),
-      null,
-      { runRoot, runtime, deadline: future() },
-    );
-    await expect(running).rejects.toThrow("host construction failed");
-    // No agent ran, so there is no spend to carry.
-    await expect(running).rejects.not.toBeInstanceOf(WorkflowRunError);
-
-    expect(await controlDirectoriesSince(before)).toEqual([]);
+    await withSocketRoot(async (socketRoot) => {
+      const running = runNew(
+        workflowOf("sync-host-failure", async () => null),
+        null,
+        { runRoot, runtime, deadline: future(), socketRoot },
+      );
+      await expect(running).rejects.toThrow("host construction failed");
+      // No agent ran, so there is no spend to carry.
+      await expect(running).rejects.not.toBeInstanceOf(WorkflowRunError);
+    });
   });
 
   test("a run whose deadline passes fails, and closes a turn held to that deadline", async () => {
@@ -623,20 +621,21 @@ describe("runWorkflow", () => {
       return await new Promise<null>(() => undefined);
     });
     const runRoot = tempRunDir();
-    const before = await controlDirectories();
 
-    expect(
-      await causeOf(
-        runNew(workflow, null, {
-          runRoot,
-          runtime: runtime(adapter),
-          deadline: { unixMilliseconds: Date.now() + 30 },
-        }),
-      ),
-    ).toBeInstanceOf(DeadlineExceededError);
+    await withSocketRoot(async (socketRoot) => {
+      expect(
+        await causeOf(
+          runNew(workflow, null, {
+            runRoot,
+            runtime: runtime(adapter),
+            deadline: { unixMilliseconds: Date.now() + 30 },
+            socketRoot,
+          }),
+        ),
+      ).toBeInstanceOf(DeadlineExceededError);
+    });
     expect(nativeCancelled).toBe(1);
     expect(adapter.closed).toEqual(["reviewer"]);
-    expect(await controlDirectoriesSince(before)).toEqual([]);
   });
 
   test("cleanup is bounded when activation and adapter close never settle", async () => {
@@ -3100,13 +3099,19 @@ function emptyRuntime(): AgentRuntimeConfig {
   };
 }
 
-/** The control plane's directories live under `CONTROL_PLANE_ROOT`, not the run directory. */
-async function controlDirectories(): Promise<Set<string>> {
-  return new Set((await readdir(CONTROL_PLANE_ROOT)).filter((name) => name.startsWith("awf-")));
-}
-
-async function controlDirectoriesSince(before: Set<string>): Promise<string[]> {
-  return [...(await controlDirectories())].filter((name) => !before.has(name));
+/**
+ * A socket root of the test's own, which `check` finds empty once the run has closed its endpoint:
+ * the shared one holds other runs' directories, which come and go. Short and under /tmp, as a
+ * socket path past `sun_path` won't bind.
+ */
+async function withSocketRoot(check: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp("/tmp/cp-");
+  try {
+    await check(root);
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 function connect(endpoint: string): Promise<void> {

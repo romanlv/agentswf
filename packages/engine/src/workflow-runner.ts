@@ -229,6 +229,8 @@ export type RunWorkflowOptions = {
   defaultWindowMs?: number;
   /** The run's time, which its timers and `wf.now()` read; absent, the clock's. A test's is virtual. */
   now?: () => number;
+  /** Where the control plane's socket directory is made; `/tmp` unless a test watches its own. */
+  socketRoot?: string;
   runRoot: string;
   /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
   run: {
@@ -527,7 +529,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         }
       : {}),
   });
-  const control = await startResultControlPlane({ slots });
+  const control = await startResultControlPlane({
+    slots,
+    ...(options.socketRoot ? { socketRoot: options.socketRoot } : {}),
+  });
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
     options.runtime.host.openRun({
