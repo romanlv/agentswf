@@ -267,6 +267,18 @@ export function sandboxedArgs(harness: string, webSearch: boolean): readonly str
   return webSearch || isAbsent(needs.webSearch) ? needs.args : [...needs.webSearch, ...needs.args];
 }
 
+/** The arguments an agent's harness is launched with: its sandbox's, where it has one, then its skills'. */
+export function launchArgs(
+  harness: string,
+  agent: { occupant?: unknown; webSearch?: boolean },
+  skills?: { args: readonly string[] },
+): string[] {
+  return [
+    ...(agent.occupant ? sandboxedArgs(harness, agent.webSearch === true) : []),
+    ...(skills?.args ?? []),
+  ];
+}
+
 /**
  * What `harness` needs to run in a sandbox with `home` as its home, for `model`, found on
  * `environment`'s `PATH`: the provider gives an agent that same `PATH`. Rejects a harness no

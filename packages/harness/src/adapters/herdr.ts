@@ -14,7 +14,7 @@ import { type RunProcess, runProcess, withholding } from "../command";
 import { failedOnLogin, thisTurn } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { parseRow, record } from "../json";
-import { sandboxedArgs } from "../sandbox-needs";
+import { launchArgs } from "../sandbox-needs";
 import { readable } from "../screen";
 import {
   type ActivatedSessionBackend,
@@ -34,7 +34,13 @@ import { harnessState } from "../state";
 import { prepareTurnRecord, watchSessionEnd } from "../turns/record";
 import type { Harness } from "../types";
 import { createSessionAccounting } from "../usage/accounting";
-import { copySession, FORK_ACTIVATION_MS, forkCommand, forkDeadline, forkResult } from "./fork";
+import {
+  FORK_ACTIVATION_MS,
+  forkDeadline,
+  forkOrCopy,
+  refuseSandboxedFork,
+  runForkPlan,
+} from "./fork";
 import {
   createPaneLayout,
   createPaneScreen,
@@ -897,22 +903,15 @@ export function createHerdrRunHostFactory(
               ...settings,
               sessionHint: sessionRef,
               ...(request.home ? { home: request.home } : {}),
-              launchArgs: [
-                ...(request.occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
-                ...(skills?.args ?? []),
-              ],
+              launchArgs: launchArgs(harness, request, skills),
             });
-            const command = forkCommand(plan, {
-              cwd: request.cwd,
-              env: { ...skills?.env },
-              deadline,
-              signal,
-            });
-            const { holdStdinUntil, ...process } = command;
-            const result = await (request.occupant
-              ? run({ ...request.occupant.launch(process), holdStdinUntil })
-              : forkRun(command));
-            return forkResult(harness, plan, result, deadline);
+            return runForkPlan(
+              harness,
+              plan,
+              { cwd: request.cwd, env: { ...skills?.env }, deadline, signal },
+              request.occupant ? run : forkRun,
+              request.occupant,
+            );
           };
           // A session copied into this agent's home is forked here, before its pane opens on it.
           const continued =
@@ -1604,14 +1603,11 @@ export function createHerdrRunHostFactory(
               `${runSpec.runId}:${request.key}:${operationId}${launches > 1 ? `:${launches}` : ""}`,
             );
             current = { operationId, paneId, agentName };
-            const launchArgs = [
-              ...(request.occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
-              ...(skills?.args ?? []),
-            ];
+            const args = launchArgs(harness, request, skills);
             // A new session named at launch can be read while its first turn runs.
             const launch = resume
-              ? spec.interactiveResume!(resume, settings, launchArgs)
-              : spec.interactive(settings, launchArgs, randomUUID());
+              ? spec.interactiveResume!(resume, settings, args)
+              : spec.interactive(settings, args, randomUUID());
             if (terminal && typed) terminal = await request.occupant!.pane!();
             typed = true;
             const started = terminal
@@ -1769,9 +1765,7 @@ export function createHerdrRunHostFactory(
                   : "this agent's pane was closed, so its session cannot be forked",
               );
             }
-            if (request.occupant && !into) {
-              throw new Error("a sandboxed agent's session is forked by copy");
-            }
+            refuseSandboxedFork(request.occupant !== undefined, into);
             const controller = new AbortController();
             activeController = controller;
             let finish!: () => void;
@@ -1784,17 +1778,16 @@ export function createHerdrRunHostFactory(
               if (!(await untilWritten(sessionRef, deadline, controller.signal))) {
                 throw new Error("the fork was cancelled");
               }
-              // A home of its own is carried whole; the new agent forks it in its own.
-              if (into) {
-                return await copySession(
-                  harness,
-                  request.home ?? harnessState()[harness],
-                  sessionRef,
-                  request.cwd,
-                  into,
-                );
-              }
-              return await runFork(sessionRef, deadline, controller.signal);
+              return await forkOrCopy(
+                harness,
+                {
+                  home: request.home ?? harnessState()[harness],
+                  session: sessionRef,
+                  cwd: request.cwd,
+                },
+                into,
+                () => runFork(sessionRef, deadline, controller.signal),
+              );
             } finally {
               if (activeController === controller) activeController = undefined;
               finish();

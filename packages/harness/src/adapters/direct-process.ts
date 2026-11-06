@@ -14,13 +14,13 @@ import { type RunProcess, runProcess } from "../command";
 import { failedOnLogin } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
-import { sandboxedArgs } from "../sandbox-needs";
+import { launchArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { harnessState } from "../state";
 import { createSessionAccounting } from "../usage/accounting";
-import { copySession, forkCommand, forkDeadline, forkResult } from "./fork";
+import { forkDeadline, forkOrCopy, refuseSandboxedFork, runForkPlan } from "./fork";
 
 export type DirectProcessConfig = {
   newSessionId?: () => string;
@@ -70,16 +70,13 @@ export function createHeadlessAdapter(
       /** Every turn, a resumed one too: none of them remembers the last one's arguments. */
       const launchContext = async () => {
         const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
-        const launchArgs = [
-          ...(occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
-          ...(skills?.args ?? []),
-        ];
+        const args = launchArgs(harness, request, skills);
         return {
           env: { ...skills?.env },
           context: {
             ...settings,
             sessionHint: identity.sessionId,
-            ...(launchArgs.length > 0 ? { launchArgs } : {}),
+            ...(args.length > 0 ? { launchArgs: args } : {}),
             ...(request.home ? { home: request.home } : {}),
           },
         };
@@ -98,23 +95,23 @@ export function createHeadlessAdapter(
         if (closed) throw new Error("headless session is closed");
         const plan = await spec.forkSession!(sessionRef, newSessionId(), context);
         const controller = new AbortController();
-        const command = forkCommand(plan, {
-          cwd: request.cwd,
-          env,
-          deadline,
-          signal: controller.signal,
-        });
-        active = controller;
-        const { holdStdinUntil, ...process } = command;
-        const running = run(occupant ? { ...occupant.launch(process), holdStdinUntil } : command);
-        activeCompletion = running.then(
-          () => undefined,
-          () => undefined,
+        return runForkPlan(
+          harness,
+          plan,
+          { cwd: request.cwd, env, deadline, signal: controller.signal },
+          (input) => {
+            active = controller;
+            const running = run(input);
+            activeCompletion = running.then(
+              () => undefined,
+              () => undefined,
+            );
+            return running.finally(() => {
+              if (active === controller) active = undefined;
+            });
+          },
+          occupant,
         );
-        const result = await running.finally(() => {
-          if (active === controller) active = undefined;
-        });
-        return forkResult(harness, plan, result, deadline);
       };
       // A session copied into this agent's home is forked here, before its first turn resumes it.
       if (request.continues?.copied) {
@@ -364,18 +361,17 @@ export function createHeadlessAdapter(
                 into?: SessionCopy,
               ): Promise<NativeFork> {
                 if (closed) throw new Error("headless session is closed");
-                // A home of its own is carried whole; the new agent forks it in its own.
-                if (into) {
-                  return copySession(
-                    harness,
-                    request.home ?? harnessState()[harness],
-                    sessionRef,
-                    request.cwd,
-                    into,
-                  );
-                }
-                if (occupant) throw new Error("a sandboxed agent's session is forked by copy");
-                return runFork(sessionRef, deadline);
+                refuseSandboxedFork(occupant !== undefined, into);
+                return forkOrCopy(
+                  harness,
+                  {
+                    home: request.home ?? harnessState()[harness],
+                    session: sessionRef,
+                    cwd: request.cwd,
+                  },
+                  into,
+                  () => runFork(sessionRef, deadline),
+                );
               },
             }
           : {}),
