@@ -1,6 +1,6 @@
 import { ClientError, type ClientErrorCode } from "@agentswf/contract/client";
 import { REFUSAL_CODES, type RefusalCode, type RefusalJson } from "@agentswf/contract/records";
-import type { ParticipantCode } from "@agentswf/contract/wire";
+import type { InboxCode, ParticipantCode } from "@agentswf/contract/wire";
 import { EmitError } from "./emit";
 import { messageOf } from "./errors";
 import { EngineRefused } from "./project-engine";
@@ -8,6 +8,9 @@ import { RunNotFound } from "./run-state";
 import { isSystemError, RunUnreachable } from "./run-unreachable";
 import { RunRefused } from "./runs";
 import { WorkflowFileError } from "./workflow-loader";
+
+/** Every code a command refuses with. */
+type CommandCode = RefusalCode | ParticipantCode | InboxCode;
 
 /**
  * The codes only a command prints: a program's call has no argv and reads no run's socket, and
@@ -30,11 +33,14 @@ const COMMAND_ONLY = new Set<RefusalCode>(
  * the two can't drift; none for an error that isn't the caller's.
  */
 function refusalCode(error: unknown): RefusalCode | undefined {
-  if (error instanceof EmitError || error instanceof EngineRefused) return error.code;
-  if (error instanceof RunNotFound || error instanceof WorkflowFileError) return error.code;
-  if (error instanceof RunUnreachable) return error.code;
-  if (error instanceof RunRefused) return error.code;
-  return undefined;
+  return error instanceof EmitError ||
+    error instanceof EngineRefused ||
+    error instanceof RunNotFound ||
+    error instanceof WorkflowFileError ||
+    error instanceof RunUnreachable ||
+    error instanceof RunRefused
+    ? error.code
+    : undefined;
 }
 
 /** `code` as a client's word, when it is one: what a command refused with, read back. */
@@ -74,7 +80,7 @@ export function printRefusal(
   out: { stdout(text: string): void; stderr(text: string): void },
   json: { json: boolean; v: number },
   error: unknown,
-  otherwise: RefusalCode | ParticipantCode,
+  otherwise: CommandCode,
   usage?: string,
 ): void {
   const sentence = messageOf(error);
@@ -83,8 +89,18 @@ export function printRefusal(
 }
 
 /** A refusal as its one line on stdout, for a command whose stderr says it in its own words. */
-export function refusalLine(v: number, code: RefusalCode | ParticipantCode, error: string): string {
-  return JSON.stringify({ v, code, error } satisfies RefusalJson<RefusalCode | ParticipantCode>);
+export function refusalLine(
+  v: number,
+  code: CommandCode,
+  error: string,
+  choices?: string[],
+): string {
+  return JSON.stringify({
+    v,
+    code,
+    error,
+    ...(choices ? { choices } : {}),
+  } satisfies RefusalJson<CommandCode>);
 }
 
 /**

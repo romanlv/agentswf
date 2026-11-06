@@ -380,9 +380,8 @@ async function runCommand(
   }
   let command: RunCommand = parsed;
   // With --json, what makes no run is a refusal, as its sentence on stderr says.
-  const refused = (code: RefusalCode, error: string) => {
-    if (command.json) stdout(refusalLine(1, code, error));
-  };
+  const refused = (code: RefusalCode, error: string) =>
+    printRefusal({ stdout, stderr }, { json: command.json, v: 1 }, error, code);
   const meant = await runNamed(command);
   if (meant) {
     const look = shellLine([
@@ -392,9 +391,7 @@ async function runCommand(
       ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
       ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
     ]);
-    const why = `${command.workflowFile} is not a workflow file; did you mean: ${look}`;
-    refused("file", why);
-    stderr(`awf: ${why}`);
+    refused("file", `${command.workflowFile} is not a workflow file; did you mean: ${look}`);
     return 2;
   }
   if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
@@ -409,16 +406,16 @@ async function runCommand(
   const ready = await loadAndPrepare(command, now(), home);
   if ("refused" in ready) {
     refused(ready.code, ready.refused);
-    stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
   if ("opens" in ready) return openRun(ready.opens, environment, output);
   // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {
-    const why = `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`;
-    refused("usage", why);
-    stderr(`awf: ${why}`);
+    refused(
+      "usage",
+      `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,
+    );
     return unstarted(2);
   }
   for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
@@ -426,7 +423,7 @@ async function runCommand(
   // Loading the workflow imports operator-supplied code before anything listens to the signal, so
   // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
   if (environment.signal?.aborted) {
-    refused("not-started", CANCELLED);
+    if (command.json) stdout(refusalLine(1, "not-started", CANCELLED));
     return unstarted(cancelledBeforeStart(environment.signal, stderr));
   }
   let calling: { caller: Caller; release: () => void } | undefined;
@@ -434,13 +431,12 @@ async function runCommand(
     const taken = await takeCaller(command.session, callers, environment);
     if (typeof taken === "string") {
       refused("not-started", `--session: ${taken}`);
-      stderr(`awf: --session: ${taken}`);
       return 1;
     }
     calling = taken;
     if (environment.signal?.aborted) {
       calling.release();
-      refused("not-started", CANCELLED);
+      if (command.json) stdout(refusalLine(1, "not-started", CANCELLED));
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
@@ -493,8 +489,7 @@ async function runAttempt(
   };
 
   const refuse = async (why: string, code: RefusalCode) => {
-    if (command.json) stdout(refusalLine(1, code, why));
-    stderr(`awf: ${why}`);
+    printRefusal({ stdout, stderr }, { json: command.json, v: 1 }, why, code);
     await handOver(`did not start: ${why}`);
     return 2;
   };
@@ -607,8 +602,12 @@ async function runAttempt(
       const said = cancelled
         ? "run cancelled before it started"
         : `${end.ending.reason}; the run did not start`;
-      if (command.json) stdout(refusalLine(1, "not-started", `${said}, and nothing of it is kept`));
-      stderr(`awf: ${said}, and nothing of it is kept`);
+      printRefusal(
+        { stdout, stderr },
+        { json: command.json, v: 1 },
+        `${said}, and nothing of it is kept`,
+        "not-started",
+      );
       await handOver(`did not start: ${cancelled ? "cancelled" : end.ending.reason}`);
       return end.exitCode;
     }

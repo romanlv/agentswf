@@ -6,6 +6,7 @@ import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/test.txt" with { type: "text" };
 import { checkProjectEngine } from "./project-engine";
+import { NO_JSON, printRefusal } from "./refusals";
 import type { Out } from "./run-commands";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
@@ -27,7 +28,7 @@ export async function testCommand(
   try {
     tests = parseTestCommand(argv, cwd);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
+    printRefusal(io, NO_JSON, error, "usage", testUsage);
     return 2;
   }
   if (tests === "help") {

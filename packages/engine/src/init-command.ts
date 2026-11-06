@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
 import { messageOf } from "./errors";
 import help from "./help/init.txt" with { type: "text" };
+import { NO_JSON, printRefusal } from "./refusals";
 import type { Out } from "./run-commands";
 
 export const initUsage = help.trimEnd();
@@ -19,7 +20,7 @@ export async function initCommand(
   try {
     command = parseInitCommand(argv, cwd);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${initUsage}`);
+    printRefusal(io, NO_JSON, error, "usage", initUsage);
     return 2;
   }
   if (command === "help") {

@@ -7,7 +7,7 @@ import { isCode } from "./files";
 import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
-import { asksJson, printRefusal } from "./refusals";
+import { asksJson, printRefusal, refusalLine } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { RunUnreachable } from "./run-unreachable";
@@ -64,15 +64,7 @@ export async function holderCommand(
     return 0;
   };
   const refused: Refuse = (code, error, choices) => {
-    if (json)
-      io.stdout(
-        JSON.stringify({
-          v: 3,
-          code,
-          error,
-          ...(choices ? { choices } : {}),
-        } satisfies ParticipantResultJson),
-      );
+    if (json) io.stdout(refusalLine(3, code, error, choices));
     io.stderr(
       `awf: ${options.command} refused (${code}): ${error}${choices ? ` Choose: ${choices.join(", ")}` : ""}`,
     );

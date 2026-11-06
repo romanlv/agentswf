@@ -4,7 +4,6 @@ import type {
   AttemptRecord,
   InboxExpiry,
   InboxItemJson,
-  InboxRefusalJson,
   RefusalCode,
   RequestEnd,
   RunLogLine,
@@ -109,8 +108,7 @@ export async function inboxCommand(
     return 2;
   }
   const refuse = (code: InboxCode | RefusalCode, message: string) => {
-    if (json) out.stdout(JSON.stringify({ v: 2, code, error: message } satisfies InboxRefusalJson));
-    out.stderr(`awf: ${message}`);
+    printRefusal(out, { json, v: 2 }, message, code);
     return 1;
   };
   try {
