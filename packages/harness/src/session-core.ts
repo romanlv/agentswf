@@ -113,6 +113,8 @@ export function activeOperation(): ActiveOperation {
   };
 }
 
+export const deadlineExceeded = () => localOutcome("timed-out", "operation deadline exceeded");
+
 type NativeSessionIdentity = {
   sessionId: string;
   cwd: string;

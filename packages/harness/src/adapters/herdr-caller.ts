@@ -8,6 +8,7 @@ import { readable } from "../screen";
 import {
   activeOperation,
   createSessionAdapter,
+  deadlineExceeded,
   localOutcome,
   type NativeTurnOutcome,
 } from "../session-core";
@@ -23,13 +24,18 @@ import {
   type HerdrResult,
   hasHerdrErrorCode,
   herdrFailure,
+  observeRelease,
+  paneCancelled,
   readId,
   readPaneId,
   readSessionRef,
+  releasedOutcome,
   reportedAgent,
   settleAgent,
   settledOutcome,
   submitPrompt,
+  waitForTurnEnd,
+  waitOutStalledPrompt,
 } from "./herdr-protocol";
 
 /**
@@ -215,35 +221,29 @@ export function createCallerHostFactory(
         finishesAnswered: true,
         async finishAnswered(deadline) {
           const stopOriginal = active.stopperForNow();
-          const remaining = deadline.unixMilliseconds - Date.now();
-          if (remaining <= 0) return localOutcome("timed-out", "release deadline exceeded");
-          const controller = new AbortController();
-          releaseObservers.add(controller);
-          const timer = setTimeout(() => controller.abort(), Math.min(remaining, 2_147_483_647));
-          try {
-            const ended = await herdr(
-              ["agent", "wait", pane, "--timeout", String(remaining)],
-              remaining,
-              controller.signal,
-            );
-            if (!ended.ok) return herdrFailure(ended, deadline.unixMilliseconds - Date.now());
-            const agent = reportedAgent(ended.result);
-            const outcome = settledOutcome(agent);
-            if (controller.signal.aborted || outcome.state !== "completed") {
-              return localOutcome("failed", "caller native release was not confirmed");
-            }
-            await stopOriginal();
-            const sessionRef = spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined;
-            return {
-              ...outcome,
-              resultEvidence: { kind: "unavailable" },
-              reportedCostsUsd: [],
-              ...(sessionRef ? { sessionRef } : {}),
-            };
-          } finally {
-            clearTimeout(timer);
-            releaseObservers.delete(controller);
-          }
+          return observeRelease(
+            deadline.unixMilliseconds,
+            releaseObservers,
+            async (signal, remaining) => {
+              const ended = await waitForTurnEnd(
+                herdr,
+                pane,
+                deadline.unixMilliseconds,
+                remaining,
+                signal,
+              );
+              if ("failed" in ended) return ended.failed;
+              const outcome = settledOutcome(ended.agent);
+              if (signal.aborted || outcome.state !== "completed") {
+                return localOutcome("failed", "caller native release was not confirmed");
+              }
+              await stopOriginal();
+              return releasedOutcome(
+                outcome,
+                spec.herdrSessionIsOwn ? readSessionRef(ended.agent) : undefined,
+              );
+            },
+          );
         },
         stopFinishing: stopWaiting,
         leftFinishing() {
@@ -266,7 +266,7 @@ export function createCallerHostFactory(
               const busy = await settleAgent(herdr, pane, deadline, signal);
               if (busy) return busy;
               const waitMs = deadline - Date.now();
-              if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+              if (waitMs <= 0) return deadlineExceeded();
               outstanding = ++prompts;
               firstPrompt ??= Date.now();
               const sent = await submitPrompt(
@@ -280,7 +280,7 @@ export function createCallerHostFactory(
               );
               if (!sent.ok) {
                 if (sent.cancelled || signal.aborted) {
-                  return localOutcome("cancelled", "pane operation cancelled");
+                  return paneCancelled();
                 }
                 // A harness that cannot sign in ends the turn before Herdr sees it working.
                 const shown = await herdr(
@@ -297,7 +297,7 @@ export function createCallerHostFactory(
                   signal,
                 );
                 if (signal.aborted) {
-                  return localOutcome("cancelled", "pane operation cancelled");
+                  return paneCancelled();
                 }
                 const login =
                   shown.ok &&
@@ -311,15 +311,7 @@ export function createCallerHostFactory(
                     reportedCostsUsd: [],
                   };
                 if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
-                  // Submitted, so the turn may be running: wait for its answer, not for a resend.
-                  if (!(await abortableDelay(Math.max(0, deadline - Date.now()), signal))) {
-                    return localOutcome("cancelled", "pane operation cancelled");
-                  }
-                  await interrupt();
-                  return localOutcome(
-                    "timed-out",
-                    "operation deadline exceeded after a stalled prompt observation",
-                  );
+                  return waitOutStalledPrompt(deadline, signal, interrupt);
                 }
                 return herdrFailure(sent, deadline - Date.now());
               }
@@ -338,7 +330,7 @@ export function createCallerHostFactory(
                 signal,
               );
               if (!read.ok && read.cancelled) {
-                return localOutcome("cancelled", "pane operation cancelled");
+                return paneCancelled();
               }
               return callerOutcome(caller.harness, spec.interrupted, sent, read, operation);
             } finally {

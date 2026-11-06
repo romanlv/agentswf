@@ -15,7 +15,7 @@ import { failedOnLogin } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
 import { launchArgs } from "../sandbox-needs";
-import { createSessionAdapter, localOutcome } from "../session-core";
+import { createSessionAdapter, deadlineExceeded, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { harnessState } from "../state";
@@ -167,7 +167,7 @@ export function createHeadlessAdapter(
             if (closed) throw new Error("headless session is closed");
             const remaining = operation.deadline.unixMilliseconds - Date.now();
             if (remaining <= 0) {
-              return localOutcome("timed-out", "operation deadline exceeded");
+              return deadlineExceeded();
             }
             if (hasExecuted && !operation.previousSessionRef) {
               return localOutcome(
