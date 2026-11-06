@@ -44,6 +44,7 @@ test("wfa peers, send and reply through the launcher an agent is told to run", a
       changed: () => undefined,
       schedule: () => () => undefined,
       now: () => Date.parse("2026-10-12T14:00:00Z"),
+      question: (n) => `1.${n}`,
       record: async () => undefined,
     });
     control.attach(messaging);
@@ -168,6 +169,7 @@ test("the design's acknowledgements and refusals, as an agent's launcher prints 
       changed: () => undefined,
       schedule: () => () => undefined,
       now: () => Date.parse("2026-10-12T14:00:00Z"),
+      question: (n) => `1.${n}`,
       record: async () => undefined,
     });
     control.attach(messaging);

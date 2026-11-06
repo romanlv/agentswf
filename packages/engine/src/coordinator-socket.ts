@@ -114,13 +114,14 @@ export function coordinatorSocket(options: {
       return { v: 1, code: "nudged" };
     }
     if (!holder) return refused("no-participant", "the run has no participant connected");
-    // Another attempt's question is never open in this one: a number no message has.
-    const to =
-      request.to === undefined
-        ? undefined
-        : request.to.split(".")[0] === String(options.attempt)
-          ? Number(request.to.split(".")[1])
-          : 0;
+    const [attempt, n] = request.to?.split(".") ?? [];
+    // Another attempt's question ended with it.
+    if (request.to !== undefined && attempt !== String(options.attempt))
+      return refused(
+        "expired",
+        `${request.to} is a question of attempt ${attempt}, which has ended; the run is on attempt ${options.attempt}.`,
+      );
+    const to = n === undefined ? undefined : Number(n);
     const asked = {
       ...(request.participant === undefined ? {} : { coordinator: request.participant }),
       agent: request.agent,

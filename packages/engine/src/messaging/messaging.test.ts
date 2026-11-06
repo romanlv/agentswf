@@ -41,6 +41,7 @@ function setup(
       };
     },
     now: () => now,
+    question: (n) => `1.${n}`,
     async record(event) {
       events.push(event);
     },
@@ -1423,7 +1424,10 @@ describe("an outside participant", () => {
     await messaging.send("investigator", { peer: "coordinator", text: "5xx." });
     // A report is no question; nor is an id that never was.
     expect(await reply({ to: 1 })).toMatchObject({ code: "expired" });
-    expect(await reply({ to: 9 })).toMatchObject({ code: "expired" });
+    expect(await reply({ to: 9 })).toEqual({
+      code: "expired",
+      error: "1.9 is not a question open from investigator.",
+    });
     await messaging.send("investigator", { peer: "coordinator", text: "Merge?", awaitReply: true });
     expect(await reply({ to: 2, coordinator: "pager" })).toMatchObject({ code: "expired" });
     expect(await reply({ to: 2, text: "x".repeat(17 * 1024) })).toMatchObject({

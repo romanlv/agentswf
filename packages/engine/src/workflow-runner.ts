@@ -1058,6 +1058,7 @@ class WorkflowOwner {
       },
       schedule: (at, action) => scheduleAt({ unixMilliseconds: at }, action),
       now: Date.now,
+      question: (n) => `${options.attempt}.${n}`,
       record: async (event) => {
         this.#messagesChanged();
         if (event.kind === "message-sent") {

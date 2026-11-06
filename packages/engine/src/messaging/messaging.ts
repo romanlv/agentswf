@@ -53,6 +53,8 @@ export interface MessagingHost {
   changed(key: AgentKey): void;
   schedule(at: number, action: () => void): () => void;
   now(): number;
+  /** Question `n`'s id as `awf inbox` prints it, the attempt before it: what a refusal names. */
+  question(n: number): string;
   /** Written to the run's event log; `message-sent` is awaited before a send is acknowledged. */
   record(event: MessagingEventBody): Promise<void>;
 }
@@ -444,7 +446,7 @@ export class Messaging {
         return holderRefusal(
           "ambiguous",
           `${agent} has ${open.length} questions open to ${as.key}; name one with --to.`,
-          open.map((each) => String(each.request.n)),
+          open.map((each) => this.#host.question(each.request.n)),
         );
       owed = open[0];
       if (!owed) return holderRefusal("expired", `${agent} has no question open to ${as.key}.`);
@@ -459,7 +461,7 @@ export class Messaging {
       if (!owed)
         return holderRefusal(
           "expired",
-          `${request.to} is not a question open from ${agent}${as.key === undefined ? "" : ` to ${as.key}`}.`,
+          `${this.#host.question(request.to)} is not a question open from ${agent}${as.key === undefined ? "" : ` to ${as.key}`}.`,
         );
     }
     const route = owed.request.route;

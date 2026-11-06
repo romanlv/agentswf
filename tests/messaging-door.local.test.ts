@@ -47,6 +47,7 @@ describe.skipIf(!provider)("messaging through the srt door", () => {
       changed: () => undefined,
       schedule: () => () => undefined,
       now: () => Date.parse("2026-10-12T14:00:00Z"),
+      question: (n) => `1.${n}`,
       record: async () => undefined,
     });
     control.attach(messaging);
