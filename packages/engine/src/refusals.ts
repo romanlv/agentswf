@@ -48,7 +48,12 @@ export function clientCode(code: unknown): ClientErrorCode | undefined {
  * be read, `unreachable`; else `internal-error`.
  */
 export function readFailureCode(error: unknown): RefusalCode {
-  return refusalCode(error) ?? (isSystemError(error) ? "unreachable" : "internal-error");
+  const cause = error instanceof Error ? error.cause : undefined;
+  return (
+    refusalCode(error) ??
+    (cause === undefined ? undefined : refusalCode(cause)) ??
+    (isSystemError(error) ? "unreachable" : "internal-error")
+  );
 }
 
 /** An engine error that is the caller's mistake as a `ClientError`; anything else as it is. */

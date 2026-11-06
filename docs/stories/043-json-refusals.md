@@ -578,6 +578,11 @@ Manual or live evaluation:
   status and index entries' claim that every code is the client's; `ambiguous`'s `choices`;
   `prepare` covers a throwing `id(args)`; `ParticipantResultJson` names the deprecated path.
 
+- Round 7: correctness clean. The people guide says `awf emit`'s result, with no `code`, may
+  still say the run didn't take the reply. Below the bar, taken: `readFailureCode` reads a wrapped
+  error's cause's code too, so a `run.jsonl` torn between the claim's two reads stays
+  `unreachable`.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.

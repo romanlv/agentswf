@@ -174,7 +174,9 @@ code of its own. A sketch of one, run in each folder where runs start:
    when it answers an open question, or to `awf send {ref} {agent} --json` otherwise, and post the
    refusal back when it prints one, a line with a `code`. For a participant whose messages go to
    the code, it is
-   `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`.
+   `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`, whose
+   result, without a `code`, may still say the run didn't take it: post back an `ok: false` one's
+   `outcome` and `why`.
 5. **Answered, expired, ended.** Mark the question answered elsewhere or closed, and say in the
    thread when the run's attempt ended.
 6. **Save the cursor** after each batch, so a restart reads on from there.
