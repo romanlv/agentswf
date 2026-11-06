@@ -17,7 +17,6 @@ import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
 import { createHeadlessAdapter, type DirectProcessConfig } from "./direct-process";
-import { createPaneAdapter } from "./herdr";
 
 function stub(stdouts: string[]): {
   run: RunProcess;
@@ -354,19 +353,6 @@ describe("createHeadlessAdapter", () => {
         ]);
       }
     });
-
-    test("an adapter that cannot give skills refuses the agent", async () => {
-      const adapter = createPaneAdapter({
-        commandTimeoutMs: 1_000,
-      } as never);
-      await expect(
-        adapter.activate({
-          ...activation,
-          execution: { harness: "claude", model: "opus" },
-          skills: { directory: "/run/b/.claude/skills", names: [], sandboxed: false },
-        }),
-      ).rejects.toThrow("cannot be given skills");
-    });
   });
 
   describe("with an occupant", () => {
@@ -446,23 +432,6 @@ describe("createHeadlessAdapter", () => {
         expect(call.argv.at(-1)).toBe("-");
       }
       expect(calls[1]?.argv.slice(1, 5)).toEqual(["codex", "exec", "resume", "thread-1"]);
-    });
-
-    test("a pane adapter refuses one", async () => {
-      const run: RunProcess = async () => {
-        throw new Error("nothing should launch");
-      };
-      const { place } = occupant();
-      await expect(
-        createPaneAdapter(
-          { session: "s", workspaceLabel: "w", commandTimeoutMs: 1_000 },
-          run,
-        ).activate({
-          ...activation,
-          occupant: place,
-          execution: { harness: "claude", model: "m" },
-        }),
-      ).rejects.toThrow("tui agents cannot run in a sandbox yet");
     });
   });
 

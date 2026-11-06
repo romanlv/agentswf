@@ -13,7 +13,7 @@ import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
 import { isolateHarnessHomes, recordCompaction, recordTurn } from "../testing/turn-records";
-import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
+import { createHerdrRunHostFactory, type HerdrConfig } from "./herdr";
 
 let homes: ReturnType<typeof isolateHarnessHomes>;
 beforeAll(() => {
@@ -55,845 +55,6 @@ function argv(calls: ProcessInput[], key: string): string[] {
   const found = calls.find((call) => verb(call) === key);
   return found ? [...found.argv] : [];
 }
-
-describe("createPaneAdapter", () => {
-  const activation = {
-    key: "reviewer/architecture",
-    deadline: { unixMilliseconds: Date.now() + 60_000 },
-    cwd: "/repo",
-    execution: {
-      harness: "claude",
-      model: "opus",
-    },
-  };
-  const firstBinding = {
-    endpoint: "/private/engine.sock",
-    operationId: "op-1",
-  };
-  const secondBinding = {
-    endpoint: "/private/engine.sock",
-    operationId: "op-2",
-  };
-
-  function operationStub() {
-    const calls: ProcessInput[] = [];
-    let workspaces = 0;
-    let reads = 0;
-    const run: RunProcess = async (input) => {
-      calls.push(input);
-      let result: Record<string, unknown> = {};
-      if (verb(input) === "workspace create") {
-        workspaces += 1;
-        result = {
-          root_pane: { pane_id: `w${workspaces}:p1` },
-          workspace: { workspace_id: `w${workspaces}` },
-        };
-      } else if (verb(input) === "agent prompt") {
-        result = {
-          agent: {
-            agent_status: "idle",
-            agent_session: { kind: "id", value: "sess-1" },
-          },
-        };
-      }
-      if (verb(input) === "agent read") {
-        reads += 1;
-        return {
-          stdout: JSON.stringify({
-            session_id: "sess-1",
-            result: reads === 1 ? "first" : "second",
-          }),
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return {
-        stdout: JSON.stringify({ result }),
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      };
-    };
-    return { run, calls };
-  }
-
-  test("does not let workspace environment overrides replace adapter-owned names", () => {
-    expect(() => createPaneAdapter({ ...CONFIG, emptyEnvironment: ["PATH"] })).toThrow(
-      "Herdr workspace environment is adapter-owned: PATH",
-    );
-  });
-
-  test("the provider-neutral launch is translated to Herdr kind and arguments", async () => {
-    for (const [harness, model, args] of [
-      ["codex", "gpt-5", "-- --sandbox danger-full-access --ask-for-approval never --model gpt-5"],
-      // Herdr's naming stays local when its kind differs from the executable.
-      ["cursor", "", "-- --force --trust"],
-    ] as const) {
-      const { run, calls } = operationStub();
-      const session = await createPaneAdapter(CONFIG, run).activate({
-        ...activation,
-        execution: { harness, model },
-      });
-      await (
-        await session.start({ id: "t", prompt: "go", deadline: activation.deadline }, firstBinding)
-      ).settled;
-
-      const start = argv(calls, "agent start");
-      expect(start[start.indexOf("--kind") + 1]).toBe(harness);
-      expect(start.slice(start.indexOf("--")).join(" ")).toBe(args);
-    }
-  });
-
-  test("uses a launcher-bound workspace only with the confirmed interactive launch", async () => {
-    const { run, calls } = operationStub();
-    const session = await createPaneAdapter(CONFIG, run).activate(activation);
-    const first = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    await expect(first.settled).resolves.toMatchObject({
-      state: "completed",
-      resultEvidence: { kind: "transcript", text: "first" },
-    });
-    const nudge = await first.nudge({
-      id: "turn-1:nudge",
-      prompt: "report",
-      deadline: activation.deadline,
-    });
-    await expect(nudge.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("interactive-resume"),
-    });
-
-    const creates = calls.filter((call) => verb(call) === "workspace create");
-    expect(creates).toHaveLength(1);
-    // The return channel puts nothing in the pane: the agent is told a path and runs it.
-    expect(creates[0]?.argv.join(" ")).not.toContain("PATH=");
-    const starts = calls.filter((call) => verb(call) === "agent start");
-    expect(starts).toHaveLength(1);
-    expect(starts[0]?.argv).not.toContain("-p");
-    expect(starts[0]?.argv).toContain("--allowed-tools");
-    expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
-  });
-
-  test("uses a valid compact Herdr name for long operation identities", async () => {
-    const { run, calls } = operationStub();
-    const adapter = createPaneAdapter(CONFIG, run);
-    const session = await adapter.activate({
-      ...activation,
-      key: "Maintainability/Reviewer",
-    });
-    const turn = await session.start(
-      {
-        id: "ce97b25d-d6b0-4af9-9b30-de09abeb8401",
-        prompt: "review",
-        deadline: activation.deadline,
-      },
-      firstBinding,
-    );
-
-    await turn.settled;
-
-    const otherSession = await adapter.activate({
-      ...activation,
-      key: "Maintainability/Reviewer",
-    });
-    const otherTurn = await otherSession.start(
-      {
-        id: "ce97b25d-d6b0-4af9-9b30-de09abeb8401",
-        prompt: "review",
-        deadline: activation.deadline,
-      },
-      secondBinding,
-    );
-
-    await otherTurn.settled;
-
-    const names = calls.filter((call) => verb(call) === "agent start").map((call) => call.argv[5]);
-    expect(names).toHaveLength(2);
-    expect(names[0]).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
-    expect(names[0]).toStartWith("wf-maintainability");
-    expect(names[1]).not.toBe(names[0]);
-  });
-
-  test("accepts only recognized workspace trust gates when explicitly enabled", async () => {
-    for (const [harness, screen, keys] of [
-      [
-        "claude",
-        "Quick safety check: Is this a project you created or one you trust?\nYes, I trust this folder",
-        ["down", "enter"],
-      ],
-      ["codex", "Do you trust the contents of this directory?\n1. Yes, continue", ["enter"]],
-      [
-        "codex",
-        "  Folder access\n  /private/tmp/x\n\n  Trust this folder? Codex can read, edit, and run files here\n\n› 1. Trust and continue\n  2. Back to Agent Command Center",
-        ["enter"],
-      ],
-      // Herdr renders the block into the pane's width, which a narrow terminal makes short.
-      [
-        "claude",
-        " Quick safety check: Is this a project you created or one you\n trust? (Like your own" +
-          " code, a well-known open source project)\n\n ❯ No, exit\n   Yes, I trust this folder",
-        ["down", "enter"],
-      ],
-      [
-        "codex",
-        "  Do you trust the contents of this\n  directory? Working with untrusted\n  contents" +
-          " comes with higher risk.\n\n› 1. Yes, continue\n  2. No, quit",
-        ["enter"],
-      ],
-    ] as const) {
-      const { run: baseRun, calls } = operationStub();
-      let trustAccepted = false;
-      const run: RunProcess = async (input) => {
-        if (verb(input) === "agent start") {
-          calls.push(input);
-          return {
-            stdout: "",
-            stderr: JSON.stringify({
-              error: { code: "agent_not_ready", message: "agent is blocked during startup" },
-            }),
-            exitCode: 1,
-            timedOut: false,
-          };
-        }
-        if (verb(input) === "agent read" && !trustAccepted) {
-          calls.push(input);
-          return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
-        }
-        if (verb(input) === "agent send-keys") trustAccepted = true;
-        return baseRun(input);
-      };
-      const session = await createPaneAdapter(
-        { ...CONFIG, acceptWorkspaceTrust: true },
-        run,
-      ).activate({
-        ...activation,
-        execution: { ...activation.execution, harness },
-      });
-      const turn = await session.start(
-        { id: "review", prompt: "review", deadline: activation.deadline },
-        firstBinding,
-      );
-
-      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
-      expect(argv(calls, "agent send-keys").slice(6)).toEqual([...keys]);
-      expect(argv(calls, "agent wait")).toContain("idle");
-      expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
-    }
-  });
-
-  test("a settle it cannot afford is skipped, not spent turning the agent into a timeout", async () => {
-    const { run: baseRun } = operationStub();
-    let trustAccepted = false;
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start" && !trustAccepted) {
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read" && !trustAccepted) {
-        return {
-          stdout: "Do you trust the contents of this directory?\n1. Yes, continue",
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent send-keys") trustAccepted = true;
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true, trustSettleMs: 5_000 },
-      run,
-    ).activate({ ...activation, execution: { ...activation.execution, harness: "codex" } });
-    const startedAt = Date.now();
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: { unixMilliseconds: Date.now() + 150 } },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
-    expect(Date.now() - startedAt).toBeLessThan(100);
-  });
-
-  test("a startup block is answered even when its envelope does not parse", async () => {
-    const { run: baseRun, calls } = operationStub();
-    let trustAccepted = false;
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start" && !trustAccepted) {
-        const envelope = JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } });
-        return {
-          stdout: "",
-          stderr: `herdr: ${envelope.slice(0, 40)}`,
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read" && !trustAccepted) {
-        return {
-          stdout: "Do you trust the contents of this directory?\n1. Yes, continue",
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent send-keys") {
-        calls.push(input);
-        trustAccepted = true;
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true },
-      run,
-    ).activate({ ...activation, execution: { ...activation.execution, harness: "codex" } });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
-    expect(calls.some((call) => verb(call) === "agent send-keys")).toBe(true);
-  });
-
-  test("the process kill outlasts every wait herdr is asked to report on", async () => {
-    const { run: baseRun, calls } = operationStub();
-    let trustAccepted = false;
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read" && !trustAccepted) {
-        calls.push(input);
-        return {
-          stdout:
-            "Quick safety check: Is this a project you created or one you trust?\nYes, I trust this folder",
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent send-keys") trustAccepted = true;
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true },
-      run,
-    ).activate(activation);
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
-
-    const waits = calls.filter((call) => ["agent prompt", "agent wait"].includes(verb(call)));
-    expect(waits.map(verb)).toEqual(["agent wait", "agent prompt"]);
-    for (const wait of waits) {
-      expect(askedTimeout(wait)).toBeGreaterThan(0);
-      expect(wait.timeoutMs).toBeGreaterThan(askedTimeout(wait));
-    }
-  });
-
-  test("does not accept an unrecognized blocked startup screen", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_not_ready" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read") {
-        calls.push(input);
-        return {
-          stdout: "Approval required for an unrelated action",
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true },
-      run,
-    ).activate(activation);
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("unrecognized startup block"),
-    });
-    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
-    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
-  });
-
-  const loginScreen = (name: string) =>
-    readFileSync(join(import.meta.dir, "../harnesses/fixtures/login", name), "utf8");
-
-  test("a turn whose screen shows its harness cannot sign in fails, saying what to run", async () => {
-    const { run: baseRun } = operationStub();
-    const run: RunProcess = async (input) =>
-      verb(input) === "agent read"
-        ? {
-            stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
-            stderr: "",
-            exitCode: 0,
-            timedOut: false,
-          }
-        : baseRun(input);
-    const session = await createPaneAdapter(CONFIG, run).activate({
-      ...activation,
-      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
-    });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("pi needs a login for openai-codex"),
-      login: { harness: "pi", provider: "openai-codex" },
-    });
-  });
-
-  test("a prompt that fails before Herdr sees pi working reads its screen for a login", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent prompt") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_prompt_stalled" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "pane read") {
-        calls.push(input);
-        return {
-          stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(CONFIG, run).activate({
-      ...activation,
-      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
-    });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({
-      state: "failed",
-      login: { harness: "pi", provider: "openai-codex" },
-    });
-  });
-
-  test("a login shown without the prompt that placed it is read again, deeper, to place it", async () => {
-    for (const [scrollback, state] of [
-      [`review op-1\n${loginScreen("claude-refused.screen")}`, "failed"],
-      [`${loginScreen("claude-refused.screen")}\nreview op-1\nanswered`, "completed"],
-    ] as const) {
-      const { run: baseRun, calls } = operationStub();
-      const run: RunProcess = async (input) => {
-        if (verb(input) === "agent read") {
-          return {
-            stdout: loginScreen("claude-refused.screen"),
-            stderr: "",
-            exitCode: 0,
-            timedOut: false,
-          };
-        }
-        if (verb(input) === "pane read") {
-          calls.push(input);
-          return { stdout: scrollback, stderr: "", exitCode: 0, timedOut: false };
-        }
-        return baseRun(input);
-      };
-      const session = await createPaneAdapter(CONFIG, run).activate(activation);
-      const turn = await session.start(
-        { id: "review", prompt: "review", deadline: activation.deadline },
-        firstBinding,
-      );
-
-      expect((await turn.settled).state).toBe(state);
-      expect(calls.filter((call) => verb(call) === "pane read")).toHaveLength(1);
-    }
-  });
-
-  test("a turn stopped while its screen is read for a login settles cancelled", async () => {
-    const { run: baseRun } = operationStub();
-    let reading!: () => void;
-    const read = new Promise<void>((resolve) => {
-      reading = resolve;
-    });
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent prompt") {
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_prompt_stalled" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "pane read") {
-        reading();
-        await new Promise<void>((resolve) =>
-          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
-        );
-        return {
-          stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(CONFIG, run).activate({
-      ...activation,
-      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
-    });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    await read;
-    await turn.release("stop", activation.deadline);
-
-    const settled = await turn.settled;
-    expect(settled.state).toBe("cancelled");
-    expect(settled.login).toBeUndefined();
-  });
-
-  test("a turn stopped while its failed launch's screen is read settles cancelled", async () => {
-    const { run: baseRun } = operationStub();
-    let reading!: () => void;
-    const read = new Promise<void>((resolve) => {
-      reading = resolve;
-    });
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        return { stdout: "", stderr: "agent exited", exitCode: 1, timedOut: false };
-      }
-      if (verb(input) === "pane read") {
-        reading();
-        await new Promise<void>((resolve) =>
-          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
-        );
-        return {
-          stdout: loginScreen("codex-missing.screen"),
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(CONFIG, run).activate({
-      ...activation,
-      execution: { harness: "codex", model: "gpt-5.6-sol" },
-    });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    await read;
-    await turn.release("stop", activation.deadline);
-
-    const settled = await turn.settled;
-    expect(settled.state).toBe("cancelled");
-    expect(settled.login).toBeUndefined();
-  });
-
-  test("a launch that stops at its sign-in screen fails, saying what to run, and closes", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const screen = loginScreen("codex-missing.screen");
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_not_ready" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read" || verb(input) === "pane read") {
-        calls.push(input);
-        return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true },
-      run,
-    ).activate({ ...activation, execution: { harness: "codex", model: "gpt-5.6-sol" } });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("codex needs a login: run `codex login`"),
-      login: { harness: "codex", run: "run `codex login`" },
-    });
-    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
-    expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
-  });
-
-  test("does not accept workspace trust after the operation deadline", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({ error: { code: "agent_not_ready" } }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      if (verb(input) === "agent read") {
-        calls.push(input);
-        await Bun.sleep(20);
-        return {
-          stdout:
-            "Quick safety check: Is this a project you created or one you trust?\n" +
-            "Yes, I trust this folder",
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const deadline = { unixMilliseconds: Date.now() + 10 };
-    const session = await createPaneAdapter(
-      { ...CONFIG, acceptWorkspaceTrust: true },
-      run,
-    ).activate({ ...activation, deadline });
-    const turn = await session.start({ id: "review", prompt: "review", deadline }, firstBinding);
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
-    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
-  });
-
-  test("does not retry a deterministic error that only mentions pane busy", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: JSON.stringify({
-            error: { code: "invalid_agent", message: "not agent_pane_busy" },
-          }),
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(
-      activation,
-    );
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
-    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
-  });
-
-  test("retries a pane-busy code the error envelope could not be parsed from", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent start") {
-        calls.push(input);
-        return {
-          stdout: "",
-          stderr: `herdr: request failed\n{"error":{"code":"agent_pane_busy","message":"${"x".repeat(500)}`,
-          exitCode: 1,
-          timedOut: false,
-        };
-      }
-      return baseRun(input);
-    };
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(
-      activation,
-    );
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await turn.settled;
-    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(3);
-  });
-
-  test("closes the operation workspace when agent start fails", async () => {
-    const { run: baseRun, calls } = operationStub();
-    const run: RunProcess = async (input) =>
-      verb(input) === "agent start"
-        ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
-        : baseRun(input);
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(
-      activation,
-    );
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
-    expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
-  });
-
-  test("a busy pane is not waited on after its last attempt", async () => {
-    const { run: baseRun } = operationStub();
-    const run: RunProcess = async (input) =>
-      verb(input) === "agent start"
-        ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
-        : baseRun(input);
-
-    const session = await createPaneAdapter(
-      { ...CONFIG, startAttempts: 1, startRetryMs: 5_000 },
-      run,
-    ).activate(activation);
-    const startedAt = Date.now();
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
-  });
-
-  test("preserves a native Herdr timeout as timed-out", async () => {
-    const { run: baseRun } = operationStub();
-    const run: RunProcess = async (input) =>
-      verb(input) === "agent prompt"
-        ? { stdout: "", stderr: "deadline", exitCode: 137, timedOut: true }
-        : baseRun(input);
-    const session = await createPaneAdapter(CONFIG, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
-  });
-
-  test("preserves a Herdr agent-start timeout as timed-out", async () => {
-    const { run: baseRun } = operationStub();
-    const run: RunProcess = async (input) =>
-      verb(input) === "agent start"
-        ? { stdout: "", stderr: "start deadline", exitCode: 137, timedOut: true }
-        : baseRun(input);
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(
-      activation,
-    );
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-
-    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
-  });
-
-  test("cancellation aborts native work and finishes cleanup before returning", async () => {
-    const { run: baseRun, calls } = operationStub();
-    let promptStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      promptStarted = resolve;
-    });
-    const run: RunProcess = async (input) => {
-      if (verb(input) !== "agent prompt") return baseRun(input);
-      calls.push(input);
-      promptStarted();
-      await new Promise<void>((resolve) =>
-        input.signal?.addEventListener("abort", () => resolve(), { once: true }),
-      );
-      return { stdout: "", stderr: "", exitCode: 137, timedOut: false, cancelled: true };
-    };
-    const session = await createPaneAdapter(CONFIG, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    await started;
-
-    await expect(turn.release("stop", activation.deadline)).resolves.toMatchObject({
-      kind: "released",
-    });
-    await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
-    expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
-    const settledCalls = calls.length;
-    await session.close();
-    await Promise.resolve();
-    expect(calls).toHaveLength(settledCalls);
-  });
-
-  test("retains the handle after a close failure so close can retry", async () => {
-    const { run: baseRun, calls } = operationStub();
-    let closeAttempts = 0;
-    const run: RunProcess = async (input) => {
-      if (verb(input) !== "workspace close") return baseRun(input);
-      calls.push(input);
-      closeAttempts += 1;
-      return closeAttempts <= 2
-        ? {
-            stdout: "",
-            stderr: `busy ${firstBinding.operationId}`,
-            exitCode: 1,
-            timedOut: false,
-          }
-        : { stdout: JSON.stringify({ result: {} }), stderr: "", exitCode: 0, timedOut: false };
-    };
-    const session = await createPaneAdapter(CONFIG, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
-    expect(await turn.settled).toMatchObject({ state: "completed" });
-
-    // The reason reaches the caller verbatim: a close failure names the workspace that would
-    // otherwise be left behind.
-    const firstClose = session.close();
-    await expect(firstClose).rejects.toThrow(firstBinding.operationId);
-    await session.close();
-
-    expect(closeAttempts).toBe(3);
-  });
-});
 
 describe("createHerdrRunHostFactory", () => {
   const deadline = () => ({ unixMilliseconds: Date.now() + 60_000 });
@@ -2713,6 +1874,507 @@ describe("createHerdrRunHostFactory", () => {
     );
     return { host, turn };
   }
+
+  /** One turn of an agent in a run's pane, on a host whose Herdr is `run`. */
+  async function paneTurn(
+    run: RunProcess,
+    options: {
+      config?: Partial<HerdrConfig>;
+      execution?: { harness: string; model: string };
+      key?: string;
+      runId?: string;
+      deadline?: { unixMilliseconds: number };
+    } = {},
+  ) {
+    const at = options.deadline ?? deadline();
+    const host = await createHerdrRunHostFactory({ ...CONFIG, ...options.config }, run).openRun({
+      runId: options.runId ?? "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: options.key ?? "reviewer",
+      cwd: "/repo",
+      deadline: at,
+      execution: options.execution ?? { harness: "claude", model: "opus" },
+    });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: at },
+      binding("op-1"),
+    );
+    return { host, session, turn };
+  }
+
+  const loginScreen = (name: string) =>
+    readFileSync(join(import.meta.dir, "../harnesses/fixtures/login", name), "utf8");
+
+  const notReady = (message?: string): ProcessResult => ({
+    stdout: "",
+    stderr: JSON.stringify({ error: { code: "agent_not_ready", ...(message ? { message } : {}) } }),
+    exitCode: 1,
+    timedOut: false,
+  });
+
+  const screenResult = (stdout: string): ProcessResult => ({
+    stdout,
+    stderr: "",
+    exitCode: 0,
+    timedOut: false,
+  });
+
+  test("does not let workspace environment overrides replace adapter-owned names", () => {
+    expect(() => createHerdrRunHostFactory({ ...CONFIG, emptyEnvironment: ["PATH"] })).toThrow(
+      "Herdr workspace environment is adapter-owned: PATH",
+    );
+  });
+
+  test("the provider-neutral launch is translated to Herdr kind and arguments", async () => {
+    for (const [harness, model, args] of [
+      ["codex", "gpt-5", "-- --sandbox danger-full-access --ask-for-approval never --model gpt-5"],
+      // Herdr's naming stays local when its kind differs from the executable.
+      ["cursor", "", "-- --force --trust"],
+    ] as const) {
+      const { run, calls } = hostStub();
+      const { host } = await paneTurn(run, { execution: { harness, model } });
+
+      const start = argv(calls, "agent start");
+      expect(start[start.indexOf("--kind") + 1]).toBe(harness);
+      expect(start.slice(start.indexOf("--")).join(" ")).toBe(args);
+      await host.close();
+    }
+  });
+
+  test("a pane's harness is launched interactive, with nothing of the return channel in its environment", async () => {
+    const { run, calls } = hostStub();
+    const { host, turn } = await paneTurn(run);
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+
+    // The return channel puts nothing in the pane: the agent is told a path and runs it.
+    expect(calls.some((call) => call.argv.join(" ").includes("PATH="))).toBe(false);
+    const starts = calls.filter((call) => verb(call) === "agent start");
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.argv).not.toContain("-p");
+    expect(starts[0]?.argv).toContain("--allowed-tools");
+    await host.close();
+  });
+
+  test("uses a valid compact Herdr name for long agent keys", async () => {
+    const { run, calls } = hostStub();
+    for (const runId of [
+      "ce97b25d-d6b0-4af9-9b30-de09abeb8401",
+      "ce97b25d-d6b0-4af9-9b30-de09abeb8402",
+    ]) {
+      const { host, turn } = await paneTurn(run, { key: "Maintainability/Reviewer", runId });
+      await turn.settled;
+      await host.close();
+    }
+
+    const names = calls.filter((call) => verb(call) === "agent start").map((call) => call.argv[5]);
+    expect(names).toHaveLength(2);
+    expect(names[0]).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+    expect(names[0]).toStartWith("wf-maintainability");
+    expect(names[1]).not.toBe(names[0]);
+  });
+
+  test("accepts only recognized workspace trust gates when explicitly enabled", async () => {
+    for (const [harness, screen, keys] of [
+      [
+        "claude",
+        "Quick safety check: Is this a project you created or one you trust?\nYes, I trust this folder",
+        ["down", "enter"],
+      ],
+      ["codex", "Do you trust the contents of this directory?\n1. Yes, continue", ["enter"]],
+      [
+        "codex",
+        "  Folder access\n  /private/tmp/x\n\n  Trust this folder? Codex can read, edit, and run files here\n\n› 1. Trust and continue\n  2. Back to Agent Command Center",
+        ["enter"],
+      ],
+      // Herdr renders the block into the pane's width, which a narrow terminal makes short.
+      [
+        "claude",
+        " Quick safety check: Is this a project you created or one you\n trust? (Like your own" +
+          " code, a well-known open source project)\n\n ❯ No, exit\n   Yes, I trust this folder",
+        ["down", "enter"],
+      ],
+      [
+        "codex",
+        "  Do you trust the contents of this\n  directory? Working with untrusted\n  contents" +
+          " comes with higher risk.\n\n› 1. Yes, continue\n  2. No, quit",
+        ["enter"],
+      ],
+    ] as const) {
+      const { run: baseRun, calls } = hostStub();
+      let trustAccepted = false;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent start") {
+          calls.push(input);
+          return notReady("agent is blocked during startup");
+        }
+        if (verb(input) === "agent read" && !trustAccepted) {
+          calls.push(input);
+          return screenResult(screen);
+        }
+        if (verb(input) === "agent send-keys") trustAccepted = true;
+        return baseRun(input);
+      };
+      const { host, turn } = await paneTurn(run, {
+        config: { acceptWorkspaceTrust: true },
+        execution: { harness, model: "opus" },
+      });
+
+      await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+      expect(argv(calls, "agent send-keys").slice(6)).toEqual([...keys]);
+      expect(argv(calls, "agent wait")).toContain("idle");
+      expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
+      await host.close();
+    }
+  });
+
+  test("a settle it cannot afford is skipped, not spent turning the agent into a timeout", async () => {
+    const { run: baseRun } = hostStub();
+    let trustAccepted = false;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start" && !trustAccepted) return notReady("blocked");
+      if (verb(input) === "agent read" && !trustAccepted) {
+        return screenResult("Do you trust the contents of this directory?\n1. Yes, continue");
+      }
+      if (verb(input) === "agent send-keys") trustAccepted = true;
+      return baseRun(input);
+    };
+    const startedAt = Date.now();
+    const { host, turn } = await paneTurn(run, {
+      config: { acceptWorkspaceTrust: true, trustSettleMs: 5_000 },
+      execution: { harness: "codex", model: "gpt-5" },
+      deadline: { unixMilliseconds: Date.now() + 1_000 },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    await host.close();
+  });
+
+  test("a startup block is answered even when its envelope does not parse", async () => {
+    const { run: baseRun, calls } = hostStub();
+    let trustAccepted = false;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start" && !trustAccepted) {
+        const envelope = JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } });
+        return {
+          stdout: "",
+          stderr: `herdr: ${envelope.slice(0, 40)}`,
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent read" && !trustAccepted) {
+        return screenResult("Do you trust the contents of this directory?\n1. Yes, continue");
+      }
+      if (verb(input) === "agent send-keys") trustAccepted = true;
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, {
+      config: { acceptWorkspaceTrust: true },
+      execution: { harness: "codex", model: "gpt-5" },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+    expect(calls.some((call) => verb(call) === "agent send-keys")).toBe(true);
+    await host.close();
+  });
+
+  test("the process kill outlasts every wait herdr is asked to report on", async () => {
+    const { run: baseRun, calls } = hostStub();
+    let trustAccepted = false;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return notReady("blocked");
+      }
+      if (verb(input) === "agent read" && !trustAccepted) {
+        calls.push(input);
+        return screenResult(
+          "Quick safety check: Is this a project you created or one you trust?\nYes, I trust this folder",
+        );
+      }
+      if (verb(input) === "agent send-keys") trustAccepted = true;
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, { config: { acceptWorkspaceTrust: true } });
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+
+    const waits = calls.filter(
+      (call) =>
+        ["agent prompt", "agent wait"].includes(verb(call)) && call.argv.includes("--timeout"),
+    );
+    expect(waits.map(verb)).toContain("agent wait");
+    for (const wait of waits) expect(askedTimeout(wait)).toBeGreaterThan(0);
+    for (const wait of waits) expect(wait.timeoutMs).toBeGreaterThan(askedTimeout(wait));
+    await host.close();
+  });
+
+  test("does not accept an unrecognized blocked startup screen", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return notReady();
+      }
+      if (verb(input) === "agent read") {
+        calls.push(input);
+        return screenResult("Approval required for an unrelated action");
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, { config: { acceptWorkspaceTrust: true } });
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("unrecognized startup block"),
+    });
+    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
+    await host.close();
+  });
+
+  test("a turn whose screen shows its harness cannot sign in fails, saying what to run", async () => {
+    const { run: baseRun } = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent read"
+        ? screenResult(`review op-1\n${loginScreen("pi-refused.screen")}`)
+        : baseRun(input);
+    const { host, turn } = await paneTurn(run, {
+      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("pi needs a login for openai-codex"),
+      login: { harness: "pi", provider: "openai-codex" },
+    });
+    await host.close();
+  });
+
+  test("a prompt that fails before Herdr sees pi working reads its screen for a login", async () => {
+    const { run: baseRun } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt") return errorResult("agent_prompt_stalled");
+      if (verb(input) === "pane read") {
+        return screenResult(`review op-1\n${loginScreen("pi-refused.screen")}`);
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, {
+      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      login: { harness: "pi", provider: "openai-codex" },
+    });
+    await host.close();
+  });
+
+  test("a login shown without the prompt that placed it is read again, deeper, to place it", async () => {
+    for (const [scrollback, state] of [
+      [`review op-1\n${loginScreen("claude-refused.screen")}`, "failed"],
+      [`${loginScreen("claude-refused.screen")}\nreview op-1\nanswered`, "completed"],
+    ] as const) {
+      const { run: baseRun, calls } = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent read") return screenResult(loginScreen("claude-refused.screen"));
+        if (verb(input) === "pane read" && !input.argv.includes("visible")) {
+          calls.push(input);
+          return screenResult(scrollback);
+        }
+        return baseRun(input);
+      };
+      const { host, turn } = await paneTurn(run);
+
+      expect((await turn.settled).state).toBe(state);
+      expect(
+        calls.filter((call) => verb(call) === "pane read" && !call.argv.includes("visible")),
+      ).toHaveLength(1);
+      await host.close();
+    }
+  });
+
+  test("a turn stopped while its failed launch's screen is read settles cancelled", async () => {
+    const { run: baseRun } = hostStub();
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        return { stdout: "", stderr: "agent exited", exitCode: 1, timedOut: false };
+      }
+      if (verb(input) === "pane read" && !input.argv.includes("visible")) {
+        reading();
+        await new Promise<void>((resolve) =>
+          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return screenResult(loginScreen("codex-missing.screen"));
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, {
+      config: { startAttempts: 1 },
+      execution: { harness: "codex", model: "gpt-5.6-sol" },
+    });
+    await read;
+    await turn.release("stop", deadline());
+
+    const settled = await turn.settled;
+    expect(settled.state).toBe("cancelled");
+    expect(settled.login).toBeUndefined();
+    await host.close();
+  });
+
+  test("does not accept workspace trust after the operation deadline", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return notReady();
+      }
+      if (verb(input) === "agent read") {
+        calls.push(input);
+        await Bun.sleep(20);
+        return screenResult(
+          "Quick safety check: Is this a project you created or one you trust?\n" +
+            "Yes, I trust this folder",
+        );
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, {
+      config: { acceptWorkspaceTrust: true },
+      deadline: { unixMilliseconds: Date.now() + 10 },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
+    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("does not retry a deterministic error that only mentions pane busy", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return {
+          stdout: "",
+          stderr: JSON.stringify({
+            error: { code: "invalid_agent", message: "not agent_pane_busy" },
+          }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, { config: { startAttempts: 3 } });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
+    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
+    await host.close();
+  });
+
+  test("retries a pane-busy code the error envelope could not be parsed from", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return {
+          stdout: "",
+          stderr: `herdr: request failed\n{"error":{"code":"agent_pane_busy","message":"${"x".repeat(500)}`,
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const { host, turn } = await paneTurn(run, { config: { startAttempts: 3 } });
+
+    await turn.settled;
+    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(3);
+    await host.close();
+  });
+
+  test("closes the pane when agent start fails", async () => {
+    const { run: baseRun, calls } = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent start"
+        ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
+        : baseRun(input);
+    const { host, turn } = await paneTurn(run, { config: { startAttempts: 1 } });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
+    expect(calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
+    await host.close();
+  });
+
+  test("a busy pane is not waited on after its last attempt", async () => {
+    const { run: baseRun } = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent start"
+        ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
+        : baseRun(input);
+    const startedAt = Date.now();
+    const { host, turn } = await paneTurn(run, {
+      config: { startAttempts: 1, startRetryMs: 5_000 },
+    });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    await host.close();
+  });
+
+  test("preserves a native Herdr timeout as timed-out", async () => {
+    const { run: baseRun } = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent prompt"
+        ? { stdout: "", stderr: "deadline", exitCode: 137, timedOut: true }
+        : baseRun(input);
+    const { host, turn } = await paneTurn(run, { execution: { harness: "pi", model: "opus" } });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
+    await host.close();
+  });
+
+  test("preserves a Herdr agent-start timeout as timed-out", async () => {
+    const { run: baseRun } = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent start"
+        ? { stdout: "", stderr: "start deadline", exitCode: 137, timedOut: true }
+        : baseRun(input);
+    const { host, turn } = await paneTurn(run, { config: { startAttempts: 1 } });
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
+    await host.close();
+  });
+
+  test("a stop aborts the native wait and settles the turn cancelled", async () => {
+    const { run: baseRun } = hostStub();
+    let promptStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      promptStarted = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "agent prompt") return baseRun(input);
+      promptStarted();
+      await new Promise<void>((resolve) =>
+        input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return { stdout: "", stderr: "", exitCode: 137, timedOut: false, cancelled: true };
+    };
+    const { host, turn } = await paneTurn(run, { execution: { harness: "pi", model: "opus" } });
+    await started;
+
+    await expect(turn.release("stop", deadline())).resolves.toMatchObject({ kind: "released" });
+    await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
+    await host.close();
+  });
 
   /**
    * Herdr accepts the submission before the stall is reported, so the turn may be running. E2

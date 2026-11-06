@@ -980,10 +980,9 @@ export type Activity =
 /** A line of `log.jsonl`, the run's event log. Tier: public, for reading. */
 export type RunLogLine = TurnRecord | RunEvent;
 
-/**
- * What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
- * kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
- */
+// What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
+// kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
+
 /**
  * `stuck`: a run of a workflow with `events` that failed or crashed three attempts in a row; its
  * events are kept, and only `awf run --continue` goes on.
@@ -1063,7 +1062,7 @@ export type AgentStateJson = (typeof AGENT_STATES)[number];
  * A stage's state in `awf runs {ref} --json`: `running`, `interrupted` when the run's process went
  * while it ran, `reused` or `provided` from an earlier attempt or `--values`, or how it ended.
  */
-export const STAGE_STATES = [
+const STAGE_STATES = [
   "running",
   "interrupted",
   "reused",

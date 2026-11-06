@@ -115,7 +115,7 @@ export type HarnessOperationBinding = {
   operationId: string;
 };
 
-export type HarnessResultEvidence = { kind: "transcript"; text: string } | { kind: "unavailable" };
+type HarnessResultEvidence = { kind: "transcript"; text: string } | { kind: "unavailable" };
 
 export type HarnessTurnOutcome = {
   state: "completed" | "blocked" | "timed-out" | "failed" | "cancelled";
@@ -183,7 +183,7 @@ export interface HarnessTurn {
   ): Promise<HarnessReleaseDisposition>;
 }
 
-export type HarnessReleaseOptions = {
+type HarnessReleaseOptions = {
   /** Await natural completion within the release deadline, without an observer-only stop. */
   awaitCompletion?: true;
   /**
@@ -355,7 +355,7 @@ export interface AgentSessionAdapter {
   readonly outside?: OutsideSessionControl;
 }
 
-export type HarnessRunSpec = {
+type HarnessRunSpec = {
   runId: string;
   /** How the run is named to a person, such as its Herdr workspace's label; its id when absent. */
   label?: string;

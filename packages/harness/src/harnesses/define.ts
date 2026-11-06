@@ -191,7 +191,10 @@ export type HarnessSpec = {
     steps: readonly PaneStep[];
     read(screen: string, now: number): AllowanceRead;
   };
-  /** Whether this agent's tokens are charged, which is not always what its login says. */
+  /**
+   * Whether this agent's tokens draw on a subscription or are metered per token, which is not
+   * always what its login says.
+   */
   billing?(context: BillingContext): Promise<Billing>;
   /**
    * Its own compaction of a headless session, with `focus` as what to keep and drop (ADR 0007).

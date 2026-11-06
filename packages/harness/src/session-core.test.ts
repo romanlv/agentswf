@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { Occupant } from "@agentswf/sandbox";
 import { createSessionAdapter, type NativeTurnRequest } from "./session-core";
 
 test("successors preserve authority and permit only one successor per handle", async () => {
@@ -631,4 +632,29 @@ test("a continuation withdrawn before dispatch leaves the agent's status as it w
   }
   expect(kinds).toEqual(["turn", "nudge", "turn", "deliver"]);
   await session.close();
+});
+
+test("an adapter refuses an agent it cannot place in a sandbox or give skills", async () => {
+  const adapter = createSessionAdapter({
+    harnesses: ["fake"],
+    placement: "tui",
+    async activate() {
+      throw new Error("nothing should activate");
+    },
+  });
+  const request = {
+    key: "agent",
+    cwd: "/repo",
+    deadline: { unixMilliseconds: Date.now() + 60_000 },
+    execution: { harness: "fake", model: "m" },
+  };
+  await expect(
+    adapter.activate({
+      ...request,
+      skills: { directory: "/run/b/.claude/skills", names: [], sandboxed: false },
+    }),
+  ).rejects.toThrow("tui agents cannot be given skills by this adapter");
+  await expect(adapter.activate({ ...request, occupant: {} as Occupant })).rejects.toThrow(
+    "tui agents cannot run in a sandbox yet",
+  );
 });

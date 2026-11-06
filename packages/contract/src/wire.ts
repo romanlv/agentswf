@@ -874,7 +874,3 @@ export function decodeResponseFor<C extends keyof ResponseFor>(
   // Checked against the command's own answers above.
   return { ok: true, value: response as ResponseFor[C] };
 }
-
-export function decodeResultSubmitResponse(value: unknown): WireDecodeResult<ResultSubmitResponse> {
-  return decodeResponseFor("result", value);
-}

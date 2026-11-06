@@ -9,7 +9,7 @@ import { protectedPaths } from "../git";
 import { KILL_GROUPS, RECORD_LEADER } from "../groups";
 import { onceUnlessFailed } from "../once";
 import { panePrelude } from "../pane";
-import { contains } from "../resolve";
+import { contains, deepestRoot } from "../resolve";
 import type {
   AgentContext,
   Occupant,
@@ -841,7 +841,7 @@ function killIn(client: DockerClient, box: string, files: readonly string[], use
  * or no root holds it.
  */
 async function linkAt(path: string, roots: readonly string[]): Promise<string | undefined> {
-  const root = roots.filter((root) => contains(root, path)).sort((a, b) => b.length - a.length)[0];
+  const root = deepestRoot(roots, path);
   if (root === undefined) return undefined;
   let highest: string | undefined;
   for (let at = path; at !== root && contains(root, at); at = dirname(at)) {
@@ -852,7 +852,7 @@ async function linkAt(path: string, roots: readonly string[]): Promise<string | 
 
 /** Which directories `path` is in below the deepest of `roots` holding it, by their identity. */
 async function directoriesOf(path: string, roots: readonly string[]): Promise<string> {
-  const root = roots.filter((root) => contains(root, path)).sort((a, b) => b.length - a.length)[0];
+  const root = deepestRoot(roots, path);
   const identities: string[] = [];
   for (
     let at = dirname(path);

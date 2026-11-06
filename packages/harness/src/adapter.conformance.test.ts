@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionAdapter } from "./adapter";
 import { createHeadlessAdapter } from "./adapters/direct-process";
-import { createPaneAdapter } from "./adapters/herdr";
+import { createHerdrRunHostFactory } from "./adapters/herdr";
 import type { RunProcess } from "./command";
 import { createFakeAdapter } from "./testing/fake";
 
@@ -20,32 +20,37 @@ function headless(): AgentSessionAdapter {
   return createHeadlessAdapter({}, run);
 }
 
-function pane(): AgentSessionAdapter {
+/** A run host's agent, which opens its pane at its first turn as each run's agents do. */
+function pane(): Pick<AgentSessionAdapter, "activate"> {
+  let panes = 0;
   const run: RunProcess = async (input) => {
     const command = input.argv.slice(3, 5).join(" ");
+    if (command === "workspace create" || command === "tab create") {
+      panes += 1;
+      return result({
+        workspace: { workspace_id: "w1" },
+        tab: { tab_id: `w1:t${panes}` },
+        root_pane: { pane_id: `w1:p${panes}` },
+      });
+    }
     return result(
-      command === "workspace create"
-        ? {
-            root_pane: { pane_id: "w1:p1" },
-            workspace: { workspace_id: "w1" },
-          }
-        : command === "agent prompt"
-          ? { agent: { agent_status: "idle", agent_session: { value: "native-1" } } }
-          : {},
+      command === "agent prompt"
+        ? { agent: { agent_status: "idle", agent_session: { value: "native-1" } } }
+        : {},
       command === "agent read"
         ? JSON.stringify({ session_id: "native-1", result: "done" })
         : undefined,
     );
   };
-  return createPaneAdapter(
-    {
-      session: "test",
-      workspaceLabel: "conformance",
-      commandTimeoutMs: 1_000,
-      startRetryMs: 0,
-    },
+  const host = createHerdrRunHostFactory(
+    { session: "test", workspaceLabel: "conformance", commandTimeoutMs: 1_000, startRetryMs: 0 },
     run,
-  );
+  ).openRun({
+    runId: "conformance",
+    cwd: "/repo",
+    deadline: { unixMilliseconds: Date.now() + 60_000 },
+  });
+  return { activate: async (request) => (await host).openAgent(request) };
 }
 
 function result(value: Record<string, unknown>, stdout?: string) {
@@ -60,7 +65,7 @@ function result(value: Record<string, unknown>, stdout?: string) {
 const implementations: ReadonlyArray<{
   name: string;
   harness: string;
-  create(): AgentSessionAdapter;
+  create(): Pick<AgentSessionAdapter, "activate">;
 }> = [
   {
     name: "fake",
@@ -68,7 +73,7 @@ const implementations: ReadonlyArray<{
     create: () => createFakeAdapter({ script: () => ({ sessionRef: "native-1" }) }),
   },
   { name: "headless", harness: "claude", create: headless },
-  { name: "pane", harness: "claude", create: pane },
+  { name: "pane", harness: "pi", create: pane },
 ];
 
 describe("AgentSessionAdapter conformance", () => {

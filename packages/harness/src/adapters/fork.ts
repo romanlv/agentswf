@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
+import type { Occupant } from "@agentswf/sandbox";
 import type { CallingSession, NativeFork, SessionCopy } from "../adapter";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { record, text } from "../json";
@@ -68,6 +69,38 @@ export async function forkResult(
     sessionRef: read.sessionId,
     ...(read.costTotal === undefined ? {} : { costTotal: read.costTotal }),
   };
+}
+
+/** Runs `plan` by `run`, inside `occupant`'s sandbox where there is one: the session it forked. */
+export async function runForkPlan(
+  harness: Harness,
+  plan: ForkPlan,
+  options: Parameters<typeof forkCommand>[1],
+  run: RunProcess,
+  occupant?: Occupant,
+): Promise<NativeFork> {
+  const command = forkCommand(plan, options);
+  const { holdStdinUntil, ...process } = command;
+  const result = await run(occupant ? { ...occupant.launch(process), holdStdinUntil } : command);
+  return forkResult(harness, plan, result, options.deadline);
+}
+
+/** A sandboxed agent's session is never forked by its harness, only copied out for another. */
+export function refuseSandboxedFork(sandboxed: boolean, into: SessionCopy | undefined): void {
+  if (sandboxed && !into) throw new Error("a sandboxed agent's session is forked by copy");
+}
+
+/**
+ * The fork of `from`'s session a new agent continues: into a home of its own the session is carried
+ * whole, for that agent to fork in its own; otherwise `run` forks it here.
+ */
+export function forkOrCopy(
+  harness: Harness,
+  from: { home: string; session: string; cwd: string },
+  into: SessionCopy | undefined,
+  run: () => Promise<NativeFork>,
+): Promise<NativeFork> {
+  return into ? copySession(harness, from.home, from.session, from.cwd, into) : run();
 }
 
 /**
@@ -195,14 +228,12 @@ export function callingSession(
         );
       }
       if (signal.aborted) throw new Error("the fork was cancelled");
-      if (into) {
-        const copied = await copySession(harness, home, session, cwd, into);
-        return { ...copied, model };
-      }
-      if (!spec.forkSession) throw new Error(`${harness} cannot fork`);
-      const plan = await spec.forkSession(session, randomUUID(), { model, sessionHint: session });
-      const command = forkCommand(plan, { cwd, env: {}, deadline, signal });
-      return { ...(await forkResult(harness, plan, await run(command), deadline)), model };
+      const fork = await forkOrCopy(harness, { home, session, cwd }, into, async () => {
+        if (!spec.forkSession) throw new Error(`${harness} cannot fork`);
+        const plan = await spec.forkSession(session, randomUUID(), { model, sessionHint: session });
+        return runForkPlan(harness, plan, { cwd, env: {}, deadline, signal }, run);
+      });
+      return { ...fork, model };
     },
   };
 }

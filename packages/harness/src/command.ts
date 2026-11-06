@@ -1,4 +1,5 @@
 import { REAP_GRACE_MS, type SandboxedCommand } from "@agentswf/sandbox";
+import { MAX_TIMER_MS, reasonOf } from "./session-core";
 
 /** Per-stream capture limit; beyond it output is discarded rather than buffered. */
 const MAX_OUTPUT_BYTES = 1_048_576;
@@ -107,7 +108,7 @@ export const runProcess: RunProcess = async (input) => {
       stderr: "pipe",
     });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = reasonOf(error);
     return reaped({ stdout: "", stderr: reason, exitCode: 127, timedOut: false });
   }
 
@@ -124,13 +125,13 @@ export const runProcess: RunProcess = async (input) => {
   const expire = () => {
     const remaining = input.timeoutAt ? input.timeoutAt() - Date.now() : 0;
     if (remaining > 0) {
-      timer = setTimeout(expire, Math.min(remaining, 2_147_483_647));
+      timer = setTimeout(expire, Math.min(remaining, MAX_TIMER_MS));
       return;
     }
     timedOut = true;
     kill();
   };
-  timer = setTimeout(expire, Math.min(timeoutMs, 2_147_483_647));
+  timer = setTimeout(expire, Math.min(timeoutMs, MAX_TIMER_MS));
 
   let answered: ReturnType<typeof setTimeout> | undefined;
   let result: ProcessResult | undefined;

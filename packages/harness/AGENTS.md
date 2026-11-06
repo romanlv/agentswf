@@ -19,19 +19,24 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `usage/billing.ts` | whether a login is a subscription or metered, from each harness's status command or credentials |
 | `usage/accounting.ts` | `SessionAccounting`: the readers and billing for agents launched through one `run`; each host factory builds its own |
 | `command.ts` | subprocess execution with a timeout and a capture cap, a sandboxed command as its own group with exactly its environment, and `withholding` for credentials an agent must not get |
-| `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup |
+| `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup; the active-operation helper and the outcomes every host shares |
+| `allowance.ts` | `readAllowance`: what is left of a harness's plan, by its own command or its TUI's usage screen |
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `placement-host.ts` | one run host over a TUI host and a headless one, routing each agent and its accounting by placement |
-| `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
+| `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent) and the command runner every Herdr path uses |
 | `turns/record.ts` | reading a pane's turn from its harness's own session files, bounded: the file found by the prompt's delivery marker, then its rows told to the harness's reducer |
 | `turns/claude.ts`, `turns/codex.ts` | each harness's reducer over those rows: the prompt taken in, its model's answer, the turn's end or interrupt; claude's also confirms delivery. `turns/fixtures/` holds the rows each version writes |
-| `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
+| `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the waits and outcomes every pane path shares |
+| `adapters/herdr-layout.ts` | where a run's panes go: its workspace in each Herdr session, and each agent's pane as its layout says |
+| `adapters/herdr-caller.ts` | `awf run --here`: finding the calling session's pane, the run host that prompts into it, and handing it back |
+| `adapters/herdr-allowance.ts` | reading a plan's usage screen in a pane of its own, for a harness whose TUI alone shows it |
+| `adapters/fork.ts` | forking a session: by its harness's own fork, inside a sandbox where the agent has one, or copied into another home; the calling session's fork |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
 | `adapters/direct-process.ts` | the headless run host: one subprocess per headless operation |
 | `adapter.ts` | the engine-facing adapter seam |
 | `types.ts` | `Harness` and `SettledState` |
 | `testing/fake.ts` | scriptable engine-facing adapter and a manual clock |
-| `testing/herdr-cli.ts` | a Herdr 0.8.2 model: pane width, per-process environment, startup blocks, input readiness |
+| `testing/herdr-cli.ts` | a model of the Herdr `HERDR_VERSION` names (0.9.1): pane width, per-process environment, startup blocks, input readiness |
 | `testing/turn-records.ts` | a test's own claude and codex homes, and the turn records a fake harness writes into them |
 
 Before editing:

@@ -2,8 +2,12 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isRecord } from "@agentswf/contract";
-import { SANDBOX_ENVIRONMENTS, type SandboxEnvironmentKey } from "@agentswf/contract/workflow";
-import type { Gitdir, ResolvedSandbox, SandboxProviders } from "./seam";
+import {
+  type Gitdir,
+  SANDBOX_ENVIRONMENTS,
+  type SandboxEnvironmentKey,
+} from "@agentswf/contract/workflow";
+import type { ResolvedSandbox, SandboxProviders } from "./seam";
 
 const REACH_KEYS = ["read", "write", "network", "sockets", "webSearch"] as const;
 
@@ -219,10 +223,13 @@ export function writableIn(
   reach: { read: readonly string[]; write: readonly string[] },
   path: string,
 ): boolean {
-  const deepest = [...reach.read, ...reach.write]
-    .filter((root) => contains(root, path))
-    .sort((a, b) => b.length - a.length)[0];
+  const deepest = deepestRoot([...reach.read, ...reach.write], path);
   return deepest !== undefined && reach.write.includes(deepest);
+}
+
+/** The deepest of `roots` holding `path`, if any does. */
+export function deepestRoot(roots: readonly string[], path: string): string | undefined {
+  return roots.filter((root) => contains(root, path)).sort((a, b) => b.length - a.length)[0];
 }
 
 /** Whether `path` lies in one of the engine's run directories under its control root. */

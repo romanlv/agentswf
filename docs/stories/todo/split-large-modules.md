@@ -36,16 +36,16 @@ Notes:
   - `packages/harness/src/adapters/herdr.ts` (1,141): `createHerdrCommands` with `startAgent`,
     `adoptAgent`, `typeInto` → `herdr-commands.ts`; `compactInPane` and `paneOutcome` beside them.
     Story 026 moved placement out to `herdr-layout.ts` (691) and grew the file to 1,693, the pane's
-    release and keeping now inside its run host. `createPaneAdapter`, about 150 lines, is used
-    only by tests: move it under `testing/` or point the conformance test at the run host.
+    release and keeping now inside its run host. `createPaneAdapter` is gone: its tests, the
+    conformance test's among them, run on the run host.
   - `packages/engine/src/operator-cli.ts` (901) is split already, now 558: the `--here`/`--session`
     code (`startHere`, `claimCaller`, `findCaller`, `showOwnTab`, `SESSION_CODE`) is in `here.ts`,
     and `parseCommand`, `usage` and `readSandboxSpec` in `run-command.ts`.
   - Near the line: lab's `execute.ts` (906), sandbox's `docker/index.ts` (845: the protected-path
     guard, `boxHerdr` and the relay, `dockerClient`).
-- Related duplication to settle in the same pass, not separately: the active-operation pattern
-  (`activeController`, `activeCompletion`, `finish`) written four times across `herdr.ts`,
-  `herdr-caller.ts` and `direct-process.ts`; "spawn in its own group, time out, kill the group,
+- Related duplication to settle in the same pass, not separately: the active-operation pattern,
+  which `activeOperation` in `session-core.ts` now holds for `herdr.ts` and `herdr-caller.ts`
+  while `direct-process.ts` still writes its own; "spawn in its own group, time out, kill the group,
   drain" written four times (`harness/command.ts`, docker's client, the conformance helper, the srt
   probe).
 - Plan before moving: what each new module owns and exports, in the terms of

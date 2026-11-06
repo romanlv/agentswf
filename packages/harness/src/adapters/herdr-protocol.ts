@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { parseRow, record, text } from "../json";
-import { localOutcome, type NativeTurnOutcome } from "../session-core";
+import {
+  deadlineExceeded,
+  localOutcome,
+  MAX_TIMER_MS,
+  type NativeTurnOutcome,
+} from "../session-core";
 import type { SettledState } from "../types";
 
 export type HerdrResult =
@@ -123,12 +128,86 @@ export function settledOutcome(agent: Record<string, unknown>): {
   }
 }
 
+export const paneCancelled = () => localOutcome("cancelled", "pane operation cancelled");
+
 export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remainingMs: number) {
-  if (result.cancelled) return localOutcome("cancelled", "pane operation cancelled");
+  if (result.cancelled) return paneCancelled();
   if (result.timedOut || remainingMs <= 0) {
     return localOutcome("timed-out", "pane operation timed out");
   }
   return localOutcome("failed", result.error);
+}
+
+export const releaseDeadlineExceeded = () => localOutcome("timed-out", "release deadline exceeded");
+
+/**
+ * Watches an answered turn's release until `deadline`, under a signal of its own that `observers`
+ * can abort.
+ */
+export async function observeRelease(
+  deadline: number,
+  observers: Set<AbortController>,
+  observe: (signal: AbortSignal, remainingMs: number) => Promise<NativeTurnOutcome>,
+): Promise<NativeTurnOutcome> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return releaseDeadlineExceeded();
+  const observing = new AbortController();
+  observers.add(observing);
+  const timer = setTimeout(() => observing.abort(), Math.min(remaining, MAX_TIMER_MS));
+  try {
+    return await observe(observing.signal, remaining);
+  } finally {
+    clearTimeout(timer);
+    observers.delete(observing);
+  }
+}
+
+/** Herdr's report of `target`'s agent once its turn ends, or the outcome that ended the wait. */
+export async function waitForTurnEnd(
+  herdr: HerdrCommand,
+  target: string,
+  deadline: number,
+  remainingMs: number,
+  signal: AbortSignal,
+): Promise<{ agent: Record<string, unknown> } | { failed: NativeTurnOutcome }> {
+  const ended = await herdr(
+    ["agent", "wait", target, "--timeout", String(remainingMs)],
+    remainingMs,
+    signal,
+  );
+  if (!ended.ok) return { failed: herdrFailure(ended, deadline - Date.now()) };
+  return { agent: reportedAgent(ended.result) };
+}
+
+/** A release Herdr or the turn's record confirmed, in session `sessionRef` where it is known. */
+export function releasedOutcome(
+  outcome: Pick<NativeTurnOutcome, "state" | "detail">,
+  sessionRef: string | undefined,
+): NativeTurnOutcome {
+  return {
+    ...outcome,
+    resultEvidence: { kind: "unavailable" },
+    reportedCostsUsd: [],
+    ...(sessionRef ? { sessionRef } : {}),
+  };
+}
+
+/**
+ * Herdr reported the prompt stalled after it accepted the submission, so the turn may be running:
+ * settling would close the result slot under a live agent and arm the nudge, and resending would
+ * duplicate a delivered prompt. It is waited out to `deadline`, then `after` runs.
+ */
+export async function waitOutStalledPrompt(
+  deadline: number,
+  signal: AbortSignal,
+  after?: () => Promise<void>,
+): Promise<NativeTurnOutcome> {
+  if (!(await abortableDelay(Math.max(0, deadline - Date.now()), signal))) return paneCancelled();
+  await after?.();
+  return localOutcome(
+    "timed-out",
+    "operation deadline exceeded after a stalled prompt observation",
+  );
 }
 
 /**
@@ -172,7 +251,7 @@ export async function settleAgent(
   signal: AbortSignal,
 ): Promise<NativeTurnOutcome | undefined> {
   const waitMs = deadline - Date.now();
-  if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+  if (waitMs <= 0) return deadlineExceeded();
   const waited = await herdr(
     ["agent", "wait", target, "--timeout", String(waitMs)],
     waitMs + HERDR_REPORT_GRACE_MS,
@@ -180,7 +259,7 @@ export async function settleAgent(
   );
   if (!waited.ok) {
     if (waited.cancelled || signal.aborted) {
-      return localOutcome("cancelled", "pane operation cancelled");
+      return paneCancelled();
     }
     return herdrFailure(waited, deadline - Date.now());
   }
@@ -207,7 +286,7 @@ export function abortableDelay(milliseconds: number, signal?: AbortSignal): Prom
         signal?.removeEventListener("abort", abort);
         resolve(true);
       },
-      Math.min(milliseconds, 2_147_483_647),
+      Math.min(milliseconds, MAX_TIMER_MS),
     );
     const abort = () => {
       clearTimeout(timer);
