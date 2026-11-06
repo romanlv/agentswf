@@ -1,7 +1,7 @@
 # M2 — do agents use `--await-reply` as the gate needs, on the built engine?
 
-Run 2026-10-12 for task 9 of [story 029](../../docs/stories/029-agent-messaging.md), judged by its
-M2 gate. The verdicts are in [`docs/findings/messaging-m2.md`](../../docs/findings/messaging-m2.md).
+Run 2026-10-12 for task 9 of [story 029](../../../docs/stories/029-agent-messaging.md), judged by its
+M2 gate. The verdicts are in [`docs/findings/messaging-m2.md`](../../../docs/findings/messaging-m2.md).
 
 ## Setup
 

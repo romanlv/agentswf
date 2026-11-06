@@ -4,7 +4,6 @@ import {
   decodeControlResponse,
   decodeResponseFor,
   decodeResultSubmitRequest,
-  decodeResultSubmitResponse,
   ENVELOPE_CODES,
   PARTICIPANT_CODES,
   PEER_STATES,
@@ -97,12 +96,12 @@ describe("result-submit wire", () => {
   });
 
   test("decodes accepted and rejected responses without accepting extra fields", () => {
-    expect(decodeResultSubmitResponse({ version: WIRE_VERSION, kind: "accepted" })).toEqual({
+    expect(decodeResponseFor("result", { version: WIRE_VERSION, kind: "accepted" })).toEqual({
       ok: true,
       value: { version: WIRE_VERSION, kind: "accepted" },
     });
     expect(
-      decodeResultSubmitResponse({
+      decodeResponseFor("result", {
         version: WIRE_VERSION,
         kind: "rejected",
         code: "invalid-result",
@@ -110,13 +109,13 @@ describe("result-submit wire", () => {
       }),
     ).toMatchObject({ ok: true });
     expect(
-      decodeResultSubmitResponse({ version: WIRE_VERSION, kind: "accepted", extra: true }),
+      decodeResponseFor("result", { version: WIRE_VERSION, kind: "accepted", extra: true }),
     ).toMatchObject({ ok: false });
-    expect(decodeResultSubmitResponse({ kind: "accepted" })).toMatchObject({
+    expect(decodeResponseFor("result", { kind: "accepted" })).toMatchObject({
       ok: false,
       code: "invalid-request",
     });
-    expect(decodeResultSubmitResponse({ version: 1, kind: "accepted" })).toMatchObject({
+    expect(decodeResponseFor("result", { version: 1, kind: "accepted" })).toMatchObject({
       ok: false,
       code: "unsupported-version",
     });
@@ -178,7 +177,7 @@ test("waiting acknowledgements require integer ordered timestamps and exact fiel
     deadline: 2000,
   } as const;
   expect(decodeControlResponse(response) as unknown).toEqual({ ok: true, value: response });
-  expect(decodeResultSubmitResponse(response)).toMatchObject({ ok: false });
+  expect(decodeResponseFor("result", response)).toMatchObject({ ok: false });
   // An operation with no deadline around it reports none.
   const open = { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000 } as const;
   expect(decodeControlResponse(open) as unknown).toEqual({ ok: true, value: open });
@@ -289,14 +288,14 @@ describe("messaging wire", () => {
 
   test("a result's response is a result code, never a send's", () => {
     const rejected = { version: WIRE_VERSION, kind: "rejected", error: "x" } as const;
-    expect(decodeResultSubmitResponse({ ...rejected, code: "owes-reply" })).toMatchObject({
+    expect(decodeResponseFor("result", { ...rejected, code: "owes-reply" })).toMatchObject({
       ok: true,
     });
-    expect(decodeResultSubmitResponse({ ...rejected, code: "no-route" })).toMatchObject({
+    expect(decodeResponseFor("result", { ...rejected, code: "no-route" })).toMatchObject({
       ok: false,
     });
     expect(
-      decodeResultSubmitResponse({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "x" }),
+      decodeResponseFor("result", { version: WIRE_VERSION, kind: "sent", message: 1, notice: "x" }),
     ).toMatchObject({ ok: false });
   });
 

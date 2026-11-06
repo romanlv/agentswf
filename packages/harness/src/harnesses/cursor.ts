@@ -171,7 +171,7 @@ export const cursor = defineHarness(CURSOR, {
   activityRow:
     "cursor keeps a chat in a SQLite store.db, which cannot be read from an offset, and awf's sidecar beside it holds usage only",
   launchModel: "cursor's files log no model for a session awf did not start",
-  readCharge: "cursor prints no dollars, which E1 also found",
+  readCost: "cursor prints no dollars, which E1 also found",
   readCostTotal: "cursor prints no dollars, which E1 also found",
   billing:
     "nothing cursor reports tells usage within its plan from on-demand usage, which is billed per token",

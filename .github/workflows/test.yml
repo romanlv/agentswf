@@ -1,0 +1,32 @@
+# The free checks on every push and pull request: Biome, tsc, the package boundaries, and the
+# tests, on both systems awf runs on. No live agent runs here; `bun run eval` stays a local, paid
+# run (docs/testing.md).
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      # The runner is slower than a laptop: the lab tests, which spawn awf, pass 5 s there.
+      - run: bun test --timeout 30000

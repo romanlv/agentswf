@@ -670,6 +670,7 @@ describe("awf runs", () => {
 function spent(run: Run, id: string, attempt: number, input: number): void {
   mkdirSync(join(run.dir, "ops", id), { recursive: true });
   const op = {
+    version: 1,
     id,
     attempt,
     at: T(1),
@@ -684,6 +685,7 @@ function spent(run: Run, id: string, attempt: number, input: number): void {
   writeFileSync(
     join(run.dir, "ops", id, "spend.json"),
     JSON.stringify({
+      version: 1,
       billing: "subscription",
       spend: [{ model: "claude-sonnet-5", delegated: false, tokens }],
     }),

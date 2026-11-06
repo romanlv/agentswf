@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { isCode, writeJson } from "./files";
 import { machinePaths } from "./machine";
 import { type ProcessProbe, processStart, sameProcess } from "./runs";
 
-export const WORKSPACE_MARK_VERSION = 2;
+const WORKSPACE_MARK_VERSION = 2;
 
 /**
  * A run's claim on its workspace in a shared Herdr session: the run's process, and when that
@@ -73,7 +74,7 @@ export async function markWorkspace(
   };
   try {
     await mkdir(dir, { recursive: true });
-    await writeWhole(file, mark);
+    await writeJson(file, mark);
   } catch {
     return unmarked;
   }
@@ -85,7 +86,7 @@ export async function markWorkspace(
   const write = (next: WorkspaceMark) => {
     if (released) return writing;
     current = next;
-    writing = writing.then(() => writeWhole(file, current).catch(() => undefined));
+    writing = writing.then(() => writeJson(file, current).catch(() => undefined));
     return writing;
   };
   return {
@@ -108,17 +109,6 @@ export async function markWorkspace(
       released = true;
     },
   };
-}
-
-/** Renamed into place, so a reader never sees half a mark and skips a live run. */
-async function writeWhole(file: string, mark: WorkspaceMark): Promise<void> {
-  const temporary = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(mark));
-    await rename(temporary, file);
-  } finally {
-    await rm(temporary, { force: true }).catch(() => undefined);
-  }
 }
 
 export async function readMarks(
@@ -163,7 +153,7 @@ export async function readAllMarks(
 
 /** Rewrites a mark read from `file`, as one sweep leaves it. */
 export function rewriteMark(file: string, mark: WorkspaceMark): Promise<void> {
-  return writeWhole(file, mark).catch(() => undefined);
+  return writeJson(file, mark).catch(() => undefined);
 }
 
 export function removeMark(file: string): Promise<void> {
@@ -189,6 +179,6 @@ function processExists(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    return !isCode(error, "ESRCH");
   }
 }

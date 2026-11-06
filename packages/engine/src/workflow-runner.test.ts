@@ -1,6 +1,6 @@
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { ResultSubmitResponse } from "@agentswf/contract/wire";
@@ -9,6 +9,7 @@ import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
   JsonValue,
+  KeepPane,
   OutputSchema,
   RunResult,
   RuntimeSelection,
@@ -26,13 +27,38 @@ import type {
   HarnessTurn,
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
-import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type DecisionScope, RunDecisions } from "./decisions/directory";
 import { readAccepted } from "./ops";
-import { openRun, readEvents, readTurns } from "./runs";
-import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
+import { createRun, openRun, readEvents, readTurns } from "./runs";
+import { claimLines, createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
-import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
+import {
+  type RunWorkflowOptions,
+  startWorkflow,
+  WorkflowCancelledError,
+  WorkflowRunError,
+} from "./workflow-runner";
+
+/** `runNew`, as `awf run --keep-panes {keep}` starts it. */
+async function runKeeping<Result extends JsonValue>(
+  definition: RunnableWorkflow<null, Result>,
+  keep: KeepPane,
+  options: Omit<RunWorkflowOptions, "run">,
+) {
+  const run = await createRun(options.runRoot, {
+    workflow: definition.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const lines = await claimLines(run.dir, 1);
+  return (
+    await startWorkflow(definition, null, {
+      ...options,
+      run: { dir: run.dir, id: run.record.id, ...lines, panes: { keep } },
+    })
+  ).result;
+}
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -75,11 +101,7 @@ describe("runWorkflow", () => {
       const agents = await Promise.all(
         ["first", "second"].map((key) => openReviewer(context, key)),
       );
-      await Promise.all(
-        agents.map((agent, index) =>
-          agent.run({ id: `turn-${index}`, prompt: "wait", deadline: future() }),
-        ),
-      );
+      await Promise.all(agents.map((agent) => agent.run({ prompt: "wait", timeout: "60s" })));
       return null;
     });
     const handle = await startNew(workflow, null, {
@@ -125,24 +147,33 @@ describe("runWorkflow", () => {
 
   test("exposes and enforces the invocation deadline even without a workflow wait", async () => {
     const controller = new AbortController();
-    const deadline = { unixMilliseconds: Date.now() + 20 };
+    // The clock stands still until the body runs: a deadline passed while the run opens refuses
+    // the run instead, which a loaded machine would otherwise make this test see.
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const deadline = { unixMilliseconds: now + 20 };
     const workflow = workflowOf("run-deadline", async (context) => {
       expect(context.deadline?.getTime()).toBe(deadline.unixMilliseconds);
       expect(context.cwd).toBe("/repo");
+      setSystemTime(new Date(deadline.unixMilliseconds));
       return await new Promise<never>(() => undefined);
     });
 
-    expect(
-      await causeOf(
-        runNew(workflow, null, {
-          runRoot: tempRunDir(),
-          runtime: emptyRuntime(),
-          deadline,
-          cwd: "/repo",
-          signal: controller.signal,
-        }),
-      ),
-    ).toBeInstanceOf(DeadlineExceededError);
+    try {
+      expect(
+        await causeOf(
+          runNew(workflow, null, {
+            runRoot: tempRunDir(),
+            runtime: emptyRuntime(),
+            deadline,
+            cwd: "/repo",
+            signal: controller.signal,
+          }),
+        ),
+      ).toBeInstanceOf(DeadlineExceededError);
+    } finally {
+      setSystemTime();
+    }
     expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
     controller.abort("too late");
   });
@@ -238,7 +269,7 @@ describe("runWorkflow", () => {
           prompt: "Review the change.",
           label: "review",
           schema: ANSWER_SCHEMA,
-          deadline: future(),
+          timeout: "60s",
           ...(nudgePrompt ? { nudge: { prompt: nudgePrompt } } : {}),
         });
         return outcome.kind;
@@ -288,7 +319,7 @@ describe("runWorkflow", () => {
       const { outcome } = await agent.run({
         prompt: "Review the change.",
         schema: ANSWER_SCHEMA,
-        deadline: future(),
+        timeout: "60s",
       });
       return outcome.kind;
     });
@@ -341,12 +372,16 @@ describe("runWorkflow", () => {
   });
 
   test("a turn is released as answered only once its result is taken", async () => {
+    let turns = 0;
     const adapter = createFakeAdapter({
-      script: (context) => ({
-        act: async () => {
-          if (context.id === "answers") await submit(context.binding!, { answer: "ready" });
-        },
-      }),
+      script: (context) => {
+        const answers = ++turns === 1;
+        return {
+          act: async () => {
+            if (answers) await submit(context.binding!, { answer: "ready" });
+          },
+        };
+      },
     });
     const releases: Array<boolean | undefined> = [];
     const inner = createSingleSessionHostFactory(adapter);
@@ -383,10 +418,9 @@ describe("runWorkflow", () => {
       const kinds: string[] = [];
       for (const id of ["answers", "stays-silent"]) {
         const { outcome } = await agent.run({
-          id,
           prompt: id,
           schema: ANSWER_SCHEMA,
-          deadline: future(),
+          timeout: "60s",
           nudge: false,
         });
         kinds.push(outcome.kind);
@@ -405,7 +439,7 @@ describe("runWorkflow", () => {
     expect(releases).toEqual([true]);
   });
 
-  test("an answer waits for natural release before workflow continuation and records its charge", async () => {
+  test("an answer waits for natural release before workflow continuation and records its reported cost", async () => {
     const events: string[] = [];
     let finish!: () => void;
     const finished = new Promise<void>((resolve) => {
@@ -427,7 +461,7 @@ describe("runWorkflow", () => {
         const native = await dispatch(session, turn, binding);
         const settled = native.settled.then(async (outcome) => {
           await finished;
-          return { ...outcome, chargesUsd: [0.25] };
+          return { ...outcome, reportedCostsUsd: [0.25] };
         });
         return {
           ...native,
@@ -447,7 +481,7 @@ describe("runWorkflow", () => {
     }));
     const workflow = workflowOf("finishing", async (context) => {
       const agent = await openReviewer(context);
-      const result = await agent.run({ prompt: "Answer.", deadline: future(), nudge: false });
+      const result = await agent.run({ prompt: "Answer.", timeout: "60s", nudge: false });
       events.push("workflow continued");
       return result.outcome.kind;
     });
@@ -474,7 +508,7 @@ describe("runWorkflow", () => {
     const result = await running;
     expect(result.value).toBe("answered");
     expect(events).toEqual(["release started", "released", "workflow continued"]);
-    expect(result.usage[0]?.charged).toEqual({ amount: 0.25, currency: "USD" });
+    expect(result.usage[0]?.reportedCost).toEqual({ amount: 0.25, currency: "USD" });
     expect(fake.closed).toEqual(["reviewer"]);
   });
 
@@ -482,7 +516,7 @@ describe("runWorkflow", () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     const workflow = workflowOf("placement", async (context) => {
       const open = (key: string, runtime: RuntimeSelection) =>
-        context.agents.open({ key, deadline: future(), runtime }).then(
+        context.agents.open({ key, timeout: "60s", runtime }).then(
           () => "opened",
           (error: unknown) => String(error),
         );
@@ -547,7 +581,6 @@ describe("runWorkflow", () => {
 
   test("a synchronous host acquisition failure still closes the result endpoint", async () => {
     const runRoot = tempRunDir();
-    const before = await controlDirectories();
     const runtime: AgentRuntimeConfig = {
       aliases: {},
       host: {
@@ -557,19 +590,23 @@ describe("runWorkflow", () => {
       },
     };
 
-    const running = runNew(
-      workflowOf("sync-host-failure", async () => null),
-      null,
-      { runRoot, runtime, deadline: future() },
-    );
-    await expect(running).rejects.toThrow("host construction failed");
-    // No agent ran, so there is no spend to carry.
-    await expect(running).rejects.not.toBeInstanceOf(WorkflowRunError);
-
-    expect(await controlDirectoriesSince(before)).toEqual([]);
+    await withSocketRoot(async (socketRoot) => {
+      const running = runNew(
+        workflowOf("sync-host-failure", async () => null),
+        null,
+        { runRoot, runtime, deadline: future(), socketRoot },
+      );
+      await expect(running).rejects.toThrow("host construction failed");
+      // No agent ran, so there is no spend to carry.
+      await expect(running).rejects.not.toBeInstanceOf(WorkflowRunError);
+    });
   });
 
   test("a run whose deadline passes fails, and closes a turn held to that deadline", async () => {
+    // The clock stands still until the turn acts, so the run's deadline passes only during it.
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const deadline = { unixMilliseconds: now + 30 };
     let nativeCancelled = 0;
     const adapter = createFakeAdapter({
       script: () => ({
@@ -583,34 +620,40 @@ describe("runWorkflow", () => {
               },
               { once: true },
             );
+            setSystemTime(new Date(deadline.unixMilliseconds));
           }),
       }),
     });
     const workflow = workflowOf("active-run-deadline", async (context) => {
       const agent = await context.agents.open({
         key: "reviewer",
-        deadline: future(1_000),
+        timeout: "1s",
         runtime: "review",
       });
-      await agent.run({ id: "wait", prompt: "Wait.", deadline: future(1_000) });
+      await agent.run({ prompt: "Wait.", timeout: "1s" });
       // The turn is held to the run's deadline, so it may time out first; only the run's ends this.
       return await new Promise<null>(() => undefined);
     });
     const runRoot = tempRunDir();
-    const before = await controlDirectories();
 
-    expect(
-      await causeOf(
-        runNew(workflow, null, {
-          runRoot,
-          runtime: runtime(adapter),
-          deadline: { unixMilliseconds: Date.now() + 30 },
-        }),
-      ),
-    ).toBeInstanceOf(DeadlineExceededError);
+    try {
+      await withSocketRoot(async (socketRoot) => {
+        expect(
+          await causeOf(
+            runNew(workflow, null, {
+              runRoot,
+              runtime: runtime(adapter),
+              deadline,
+              socketRoot,
+            }),
+          ),
+        ).toBeInstanceOf(DeadlineExceededError);
+      });
+    } finally {
+      setSystemTime();
+    }
     expect(nativeCancelled).toBe(1);
     expect(adapter.closed).toEqual(["reviewer"]);
-    expect(await controlDirectoriesSince(before)).toEqual([]);
   });
 
   test("cleanup is bounded when activation and adapter close never settle", async () => {
@@ -636,10 +679,10 @@ describe("runWorkflow", () => {
     };
     const workflow = workflowOf("bounded-cleanup", async (context) => {
       void context.agents
-        .open({ key: "activating", deadline: future(), runtime: "review" })
+        .open({ key: "activating", timeout: "60s", runtime: "review" })
         .catch(() => undefined);
       const active = await openReviewer(context, "active");
-      await active.run({ id: "wait", prompt: "Wait.", deadline: future() });
+      await active.run({ prompt: "Wait.", timeout: "60s" });
       return null;
     });
     const startedAt = Date.now();
@@ -680,7 +723,7 @@ describe("runWorkflow", () => {
     });
     const workflow = workflowOf("not-simple", async (context) => {
       const agent = await openReviewer(context);
-      return (await agent.run({ prompt: "list", schema: LIST, deadline: future(), nudge: false }))
+      return (await agent.run({ prompt: "list", schema: LIST, timeout: "60s", nudge: false }))
         .outcome.kind;
     });
 
@@ -725,7 +768,7 @@ describe("runWorkflow", () => {
       const result = await agent.run({
         prompt: "answer",
         schema: ANSWER_SCHEMA,
-        deadline: future(),
+        timeout: "60s",
         nudge: false,
       });
       return result.outcome.answered ? result.outcome.value.answer : result.outcome.kind;
@@ -744,7 +787,7 @@ describe("runWorkflow", () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         sessionRef: "fake-native",
-        chargesUsd: [0.01],
+        reportedCostsUsd: [0.01],
         act: async () => {
           expect(context.binding).toBeDefined();
           // The schema itself, bounds and all, not a rendering that drops them (E5).
@@ -758,10 +801,9 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("one-turn", async (context) => {
       const agent = await openReviewer(context);
       const result = await agent.run({
-        id: "review",
         prompt: "Review the fixture.",
         schema: ANSWER_SCHEMA,
-        deadline: future(),
+        timeout: "60s",
       });
       if (result.outcome.kind !== "answered") throw new Error(result.outcome.reason);
       return result.outcome.value;
@@ -837,7 +879,11 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("timed-out-times", async (context) => {
       const agent = await openReviewer(context);
       deadline = future(50);
-      const result = await agent.run({ prompt: "Wait.", deadline, nudge: false });
+      const result = await agent.run({
+        prompt: "Wait.",
+        timeout: new Date(deadline.unixMilliseconds),
+        nudge: false,
+      });
       return result.outcome.kind;
     });
 
@@ -883,37 +929,7 @@ describe("runWorkflow", () => {
     expect(Date.parse(second!.deliveredAt!)).toBeGreaterThanOrEqual(Date.parse(first!.settledAt!));
   });
 
-  test("an earlier legacy nudge deadline caps the initial attempt", async () => {
-    let nudgeDeadline = future();
-    const adapter = createFakeAdapter({
-      script: () => ({
-        act: async () => {
-          await Bun.sleep(40);
-        },
-      }),
-    });
-    const workflow = workflowOf("late-first-attempt", async (context) => {
-      const agent = await openReviewer(context);
-      nudgeDeadline = future(10);
-      const result = await agent.run({ prompt: "Review.", nudge: { deadline: nudgeDeadline } });
-      return result.outcome.kind;
-    });
-
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
-
-    const { deliveredAt, settledAt } = result.usage[0]!;
-    expect(result.value).toBe("timed-out");
-    expect(Date.parse(settledAt!)).toBe(nudgeDeadline.unixMilliseconds);
-    expect(adapter.turns).toHaveLength(1);
-    expect(adapter.closed).toEqual(["reviewer"]);
-    expect(Date.parse(settledAt!)).toBeGreaterThan(Date.parse(deliveredAt!));
-  });
-
-  test("a nudge that runs out of time settles at the nudge's deadline", async () => {
+  test("a nudge that runs out of time settles at the turn's deadline", async () => {
     let nudgeDeadline = future();
     const adapter = createFakeAdapter({
       script: async (context) => {
@@ -928,7 +944,11 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("nudge-times-out", async (context) => {
       const agent = await openReviewer(context);
       nudgeDeadline = future(50);
-      const result = await agent.run({ prompt: "Review.", nudge: { deadline: nudgeDeadline } });
+      const result = await agent.run({
+        prompt: "Review.",
+        timeout: new Date(nudgeDeadline.unixMilliseconds),
+        nudge: {},
+      });
       return result.outcome.kind;
     });
 
@@ -977,7 +997,7 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("clamped-deadlines", async (context) => {
       const agent = await openReviewer(context);
       const late = future(60_000);
-      await agent.run({ prompt: "Review.", deadline: late, nudge: { deadline: late } });
+      await agent.run({ prompt: "Review.", timeout: new Date(late.unixMilliseconds), nudge: {} });
       return null;
     });
 
@@ -990,13 +1010,13 @@ describe("runWorkflow", () => {
     expect(seen).toEqual({ start: deadline.unixMilliseconds, nudge: deadline.unixMilliseconds });
   });
 
-  test("a turn with an invalid deadline is refused before it is queued", async () => {
+  test("a turn with an invalid timeout is refused before it is queued", async () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     const workflow = workflowOf("invalid-deadline", async (context) => {
       const agent = await openReviewer(context);
-      const refused = agent.run({ prompt: "Review.", deadline: { unixMilliseconds: -1 } });
-      const both = agent.run({ prompt: "Review.", deadline: future(), timeoutMs: 1_000 });
-      return await outcomesOf([refused, both]);
+      const refused = agent.run({ prompt: "Review.", timeout: new Date(-1) });
+      const none = agent.run({ prompt: "Review.", timeout: "0s" });
+      return await outcomesOf([refused, none]);
     });
 
     const result = await runNew(workflow, null, {
@@ -1006,8 +1026,8 @@ describe("runWorkflow", () => {
     });
 
     expect(result.value).toEqual([
-      "deadline.unixMilliseconds must be a non-negative safe integer",
-      "an operation cannot specify both deadline and timeoutMs",
+      "a timeout's Date is a valid time",
+      `a timeout is a positive duration: not "0s"`,
     ]);
     expect(adapter.turns).toEqual([]);
   });
@@ -1017,7 +1037,8 @@ describe("runWorkflow", () => {
     const deadline = { unixMilliseconds: Date.now() - 1 };
     const workflow = workflowOf("expired-before-dispatch", async (context) => {
       const agent = await openReviewer(context);
-      return (await agent.run({ prompt: "Review.", deadline })).outcome.kind;
+      return (await agent.run({ prompt: "Review.", timeout: new Date(deadline.unixMilliseconds) }))
+        .outcome.kind;
     });
 
     const result = await runNew(workflow, null, {
@@ -1091,15 +1112,14 @@ describe("runWorkflow", () => {
         async (key) => {
           const agent = await openReviewer(context, key);
           const result = await agent.run({
-            id: "answer",
             prompt: `Answer as ${key}.`,
             schema: ANSWER_SCHEMA,
-            deadline: future(),
+            timeout: "60s",
           });
           if (result.outcome.kind !== "answered") throw new Error(result.outcome.reason);
           return result.outcome.value.answer;
         },
-        { deadline: future(), concurrency: 2 },
+        { timeout: "60s", concurrency: 2 },
       );
     });
 
@@ -1137,9 +1157,8 @@ describe("runWorkflow", () => {
         runtime: "review",
       });
       const result = await agent.run({
-        id: "slow",
         prompt: "Wait.",
-        timeoutMs: 20,
+        timeout: "0.02s",
       });
       return result.outcome.kind;
     });
@@ -1171,9 +1190,8 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("accepted-hang", async (context) => {
       const agent = await openReviewer(context, "hanging");
       const result = await agent.run({
-        id: "hang",
         prompt: "Submit, then hang.",
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
@@ -1235,8 +1253,8 @@ describe("runWorkflow", () => {
     });
     const workflow = workflowOf("accepted-quarantine", async (context) => {
       const agent = await openReviewer(context);
-      const first = await agent.run({ id: "one", prompt: "one", deadline: future() });
-      const second = await agent.run({ id: "two", prompt: "two", deadline: future() }).then(
+      const first = await agent.run({ prompt: "one", timeout: "60s" });
+      const second = await agent.run({ prompt: "two", timeout: "60s" }).then(
         (value) => value.outcome.kind,
         (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
@@ -1286,11 +1304,10 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("queue-and-nudge", async (context) => {
       const agent = await openReviewer(context);
       const first = agent.run({
-        id: "first",
         prompt: "First.",
-        deadline: future(),
+        timeout: "60s",
       });
-      const second = agent.run({ id: "second", prompt: "Second.", deadline: future() });
+      const second = agent.run({ prompt: "Second.", timeout: "60s" });
       const results = await Promise.all([first, second]);
       return results.map((result) =>
         result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind,
@@ -1362,10 +1379,9 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("pending-nudge", async (context) => {
       const agent = await openReviewer(context);
       const result = await agent.run({
-        id: "review",
         prompt: "Review.",
-        deadline: future(),
-        nudge: { deadline: future() },
+        timeout: "60s",
+        nudge: {},
       });
       returned = true;
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
@@ -1397,7 +1413,7 @@ describe("runWorkflow", () => {
     }));
     const workflow = workflowOf("accepted-start-rejection", async (context) => {
       const agent = await openReviewer(context);
-      const result = await agent.run({ id: "review", prompt: "Review.", deadline: future() });
+      const result = await agent.run({ prompt: "Review.", timeout: "60s" });
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
@@ -1438,8 +1454,8 @@ describe("runWorkflow", () => {
     }));
     const workflow = workflowOf("stuck-accepted-release", async (context) => {
       const agent = await openReviewer(context);
-      const first = agent.run({ id: "first", prompt: "First.", deadline: future() });
-      const second = agent.run({ id: "second", prompt: "Do not dispatch.", deadline: future() });
+      const first = agent.run({ prompt: "First.", timeout: "60s" });
+      const second = agent.run({ prompt: "Do not dispatch.", timeout: "60s" });
       return outcomesOf([first, second]);
     });
 
@@ -1466,7 +1482,7 @@ describe("runWorkflow", () => {
     expect(fake.closed).toEqual(["reviewer"]);
   }, 6_500);
 
-  test("an agent keeps its first alias resolution and turn ids are idempotent", async () => {
+  test("an agent keeps its first alias resolution", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
@@ -1479,18 +1495,8 @@ describe("runWorkflow", () => {
       const agent = await openReviewer(context);
       (configured.aliases as Record<string, { model: string }>).review!.model = "changed";
       const reopened = await openReviewer(context);
-      const deadline = future();
-      const spec = { id: "stable", prompt: "Answer.", deadline };
-      const first = agent.run(spec);
-      const duplicate = agent.run(spec);
-      let conflict = false;
-      try {
-        await agent.run({ ...spec, prompt: "Different." });
-      } catch {
-        conflict = true;
-      }
-      await first;
-      return { sameAgent: agent === reopened, sameTurn: first === duplicate, conflict };
+      await agent.run({ prompt: "Answer." });
+      return { sameAgent: agent === reopened, model: reopened.execution.model };
     });
 
     const result = await runNew(workflow, null, {
@@ -1499,9 +1505,8 @@ describe("runWorkflow", () => {
       runtime: configured,
     });
 
-    expect(result.value).toEqual({ sameAgent: true, sameTurn: true, conflict: true });
+    expect(result.value).toEqual({ sameAgent: true, model: "fake" });
     expect(adapter.turns).toHaveLength(1);
-    expect(result.usage).toHaveLength(1);
   });
 
   test("reattaching to a pending agent honors the new caller's shorter deadline", async () => {
@@ -1522,7 +1527,7 @@ describe("runWorkflow", () => {
       try {
         await context.agents.open({
           key: "reviewer",
-          deadline: { unixMilliseconds: Date.now() + 20 },
+          timeout: "0.02s",
           runtime: "review",
         });
         return "unexpected";
@@ -1565,7 +1570,7 @@ describe("runWorkflow", () => {
           async () => {
             await openReviewer(context);
           },
-          { deadline: { unixMilliseconds: Date.now() + 20 } },
+          { timeout: "0.02s" },
         );
         return "unexpected";
       } catch (error) {
@@ -1610,13 +1615,12 @@ describe("runWorkflow", () => {
           [null],
           async () => {
             const result = await agent.run({
-              id: "pending",
               prompt: "Wait.",
-              deadline: future(),
+              timeout: "60s",
             });
             return result.outcome.kind;
           },
-          { deadline: scopeDeadline },
+          { timeout: new Date(scopeDeadline.unixMilliseconds) },
         )
         .then(
           (values) => values[0]!,
@@ -1679,14 +1683,13 @@ describe("runWorkflow", () => {
           [null],
           async () => {
             const result = await agent.run({
-              id: "review",
               prompt: "Review.",
-              deadline: future(),
-              nudge: { deadline: future() },
+              timeout: "60s",
+              nudge: {},
             });
             return result.outcome.kind;
           },
-          { deadline: { unixMilliseconds: Date.now() + 20 } },
+          { timeout: "0.02s" },
         )
         .then(
           (values) => values[0]!,
@@ -1728,9 +1731,9 @@ describe("runWorkflow", () => {
         ["one", "two"],
         async (key) => {
           const agent = await openReviewer(context, key);
-          await agent.run({ id: "wait", prompt: "Wait.", deadline: future() });
+          await agent.run({ prompt: "Wait.", timeout: "60s" });
         },
-        { deadline: { unixMilliseconds: Date.now() + 20 }, concurrency: 2 },
+        { timeout: "0.02s", concurrency: 2 },
       );
       return null;
     });
@@ -1752,7 +1755,7 @@ describe("runWorkflow", () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     const workflow = workflowOf("non-cooperative", async (context) => {
       await context.parallel([null], () => new Promise<never>(() => undefined), {
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
       return null;
     });
@@ -1784,9 +1787,9 @@ describe("runWorkflow", () => {
         [null],
         async () => {
           const agent = await openReviewer(context, "owned");
-          void agent.run({ id: "owned", prompt: "Wait.", deadline: future() });
+          void agent.run({ prompt: "Wait.", timeout: "60s" });
         },
-        { deadline: { unixMilliseconds: Date.now() + 20 } },
+        { timeout: "0.02s" },
       );
       return null;
     });
@@ -1818,18 +1821,13 @@ describe("runWorkflow", () => {
         async () => {
           const agent = await openReviewer(context, "owned-rejection");
           const first = agent.run({
-            id: "same-id",
             prompt: "First specification.",
-            deadline: future(),
+            timeout: "60s",
           });
-          void agent.run({
-            id: "same-id",
-            prompt: "Different specification.",
-            deadline: future(),
-          });
+          void agent.run({ prompt: "Refused.", timeout: "0s" });
           await first;
         },
-        { deadline: future() },
+        { timeout: "60s" },
       );
       return null;
     });
@@ -1840,7 +1838,7 @@ describe("runWorkflow", () => {
         runtime: runtime(adapter),
         deadline: future(),
       }),
-    ).rejects.toThrow("turn id same-id was reused with a different specification");
+    ).rejects.toThrow("a timeout is a positive duration");
     expect(adapter.turns).toHaveLength(1);
   });
 
@@ -1862,7 +1860,7 @@ describe("runWorkflow", () => {
         async () => {
           void openReviewer(context, "activating");
         },
-        { deadline: future() },
+        { timeout: "60s" },
       );
       return activated;
     });
@@ -1892,14 +1890,14 @@ describe("runWorkflow", () => {
           late = (async () => {
             await gate;
             try {
-              await agent.run({ id: "late", prompt: "Too late.", deadline: future() });
+              await agent.run({ prompt: "Too late.", timeout: "60s" });
               return "dispatched";
             } catch (error) {
               return error instanceof Error ? error.message : String(error);
             }
           })();
         },
-        { deadline: future() },
+        { timeout: "60s" },
       );
       release();
       return late;
@@ -1927,10 +1925,10 @@ describe("runWorkflow", () => {
               await Bun.sleep(20);
               nestedFinished = true;
             },
-            { deadline: future() },
+            { timeout: "60s" },
           );
         },
-        { deadline: future() },
+        { timeout: "60s" },
       );
       return nestedFinished;
     });
@@ -1963,7 +1961,7 @@ describe("runWorkflow", () => {
                 async () => {
                   nestedRan = true;
                 },
-                { deadline: future() },
+                { timeout: "60s" },
               );
               return "dispatched";
             } catch (error) {
@@ -1971,7 +1969,7 @@ describe("runWorkflow", () => {
             }
           })();
         },
-        { deadline: future() },
+        { timeout: "60s" },
       );
       release();
       return late;
@@ -1998,9 +1996,8 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("start-deadline", async (context) => {
       const agent = await openReviewer(context, "starting");
       const result = await agent.run({
-        id: "starting",
         prompt: "Start slowly.",
-        deadline: { unixMilliseconds: Date.now() + 10 },
+        timeout: "0.01s",
       });
       return result.outcome.kind;
     });
@@ -2044,9 +2041,8 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("cancel-rejection", async (context) => {
       const agent = await openReviewer(context, "rejecting-cancel");
       const result = await agent.run({
-        id: "wait",
         prompt: "Wait.",
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
       return result.outcome.kind;
     });
@@ -2089,9 +2085,8 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("stuck-cancel", async (context) => {
       const agent = await openReviewer(context, "stuck-cancel");
       const result = await agent.run({
-        id: "wait",
         prompt: "Wait.",
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
       return result.outcome.kind;
     });
@@ -2133,11 +2128,10 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("terminal-timeout", async (context) => {
       const agent = await openReviewer(context, "terminal");
       const first = agent.run({
-        id: "first",
         prompt: "Wait.",
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
-      const second = agent.run({ id: "second", prompt: "Do not dispatch.", deadline: future() });
+      const second = agent.run({ prompt: "Do not dispatch.", timeout: "60s" });
       return outcomesOf([first, second]);
     });
 
@@ -2169,15 +2163,15 @@ describe("runWorkflow", () => {
             state: "timed-out" as const,
             detail: "native deadline",
             resultEvidence: { kind: "unavailable" as const },
-            chargesUsd: [],
+            reportedCostsUsd: [],
           }),
         };
       }),
     }));
     const workflow = workflowOf("native-timeout", async (context) => {
       const agent = await openReviewer(context, "terminal");
-      const first = agent.run({ id: "first", prompt: "First.", deadline: future() });
-      const second = agent.run({ id: "second", prompt: "Do not dispatch.", deadline: future() });
+      const first = agent.run({ prompt: "First.", timeout: "60s" });
+      const second = agent.run({ prompt: "Do not dispatch.", timeout: "60s" });
       return outcomesOf([first, second]);
     });
 
@@ -2204,7 +2198,7 @@ describe("runWorkflow", () => {
             state: "timed-out" as const,
             detail: "native deadline",
             resultEvidence: { kind: "unavailable" as const },
-            chargesUsd: [],
+            reportedCostsUsd: [],
           }),
           release: async () => ({
             kind: "quarantined" as const,
@@ -2215,8 +2209,8 @@ describe("runWorkflow", () => {
     }));
     const workflow = workflowOf("accepted-native-timeout", async (context) => {
       const agent = await openReviewer(context, "terminal");
-      const first = agent.run({ id: "first", prompt: "First.", deadline: future() });
-      const second = agent.run({ id: "second", prompt: "Do not dispatch.", deadline: future() });
+      const first = agent.run({ prompt: "First.", timeout: "60s" });
+      const second = agent.run({ prompt: "Do not dispatch.", timeout: "60s" });
       return outcomesOf([first, second]);
     });
 
@@ -2273,9 +2267,8 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("retry-close", async (context) => {
       const agent = await openReviewer(context, "retry-close");
       const result = await agent.run({
-        id: "wait",
         prompt: "Wait.",
-        deadline: { unixMilliseconds: Date.now() + 20 },
+        timeout: "0.02s",
       });
       return result.outcome.kind;
     });
@@ -2329,9 +2322,9 @@ describe("runWorkflow", () => {
           [null],
           async () => {
             const agent = await openReviewer(context, "cancel-order");
-            await agent.run({ id: "wait", prompt: "Wait.", deadline: future() });
+            await agent.run({ prompt: "Wait.", timeout: "60s" });
           },
-          { deadline: { unixMilliseconds: Date.now() + 20 } },
+          { timeout: "0.02s" },
         );
       } catch {
         return cancellationObserved;
@@ -2364,8 +2357,8 @@ describe("runWorkflow", () => {
     });
     const workflow = workflowOf("queued-shutdown", async (context) => {
       const agent = await openReviewer(context, "queued");
-      void agent.run({ id: "first", prompt: "Wait.", deadline: future() });
-      void agent.run({ id: "second", prompt: "Never dispatch.", deadline: future() });
+      void agent.run({ prompt: "Wait.", timeout: "60s" });
+      void agent.run({ prompt: "Never dispatch.", timeout: "60s" });
       await started;
       return null;
     });
@@ -2401,7 +2394,7 @@ describe("runWorkflow", () => {
     };
     const workflow = workflowOf("activation-failure", async (context) => {
       const good = await openReviewer(context, "good");
-      await good.run({ id: "good", prompt: "Finish.", deadline: future() });
+      await good.run({ prompt: "Finish.", timeout: "60s" });
       await openReviewer(context, "broken");
       return null;
     });
@@ -2456,7 +2449,7 @@ describe("agent.close()", () => {
     });
     const workflow = workflowOf("stop", async (context) => {
       const agent = await openReviewer(context);
-      await agent.run({ id: "review", prompt: "Review.", schema: ANSWER_SCHEMA });
+      await agent.run({ prompt: "Review.", schema: ANSWER_SCHEMA });
       const stopped = await agent.close("answered");
       const socketClosed = await connect(endpoint).then(
         () => false,
@@ -2464,17 +2457,15 @@ describe("agent.close()", () => {
       );
       const closedAtStop = [...adapter.closed];
       const again = await agent.close();
-      // Deprecated: by key, which also answers for a key never opened.
-      const unknown = await context.agents.stop("nobody");
       const reopened = await openReviewer(context).then(
         () => "opened",
         (error: Error) => error.message,
       );
-      const ran = await agent.run({ id: "after", prompt: "More." }).then(
+      const ran = await agent.run({ prompt: "More." }).then(
         () => "ran",
         (error: Error) => error.message,
       );
-      return { stopped, socketClosed, closedAtStop, again, unknown, reopened, ran };
+      return { stopped, socketClosed, closedAtStop, again, reopened, ran };
     });
 
     const result = await runNew(workflow, null, {
@@ -2488,7 +2479,6 @@ describe("agent.close()", () => {
       socketClosed: true,
       closedAtStop: ["reviewer"],
       again: false,
-      unknown: false,
       reopened: "agent reviewer was stopped (answered); its key is not opened again",
       ran: "logical agent is closed",
     });
@@ -2518,18 +2508,14 @@ describe("agent.close()", () => {
         },
       }));
       const workflow = workflowOf("stop-busy", async (context) => {
-        const agent = await context.agents.open({
-          key: "lens",
-          runtime: "review",
-          keepPane,
-        });
-        const turn = agent.run({ id: "wait", prompt: "Wait." });
+        const agent = await context.agents.open({ key: "lens", runtime: "review" });
+        const turn = agent.run({ prompt: "Wait." });
         await started;
         await agent.close("no longer needed");
         return (await turn).outcome.kind;
       });
 
-      const result = await runNew(workflow, null, {
+      const result = await runKeeping(workflow, keepPane, {
         runRoot: tempRunDir(),
         deadline: future(),
         runtime: runtime(adapter),
@@ -2555,19 +2541,15 @@ describe("agent.close()", () => {
         return session.close(reason, options);
       },
     }));
-    await runNew(
+    await runKeeping(
       workflowOf("stop-answered", async (context) => {
-        const agent = await context.agents.open({
-          key: "lens",
-          runtime: "review",
-          keepPane: "on-failure",
-        });
+        const agent = await context.agents.open({ key: "lens", runtime: "review" });
         await agent.run({ prompt: "Answer.", schema: ANSWER_SCHEMA });
         await agent.close();
         expect(keeps).toEqual([false]);
         return null;
       }),
-      null,
+      "on-failure",
       { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
     );
   });
@@ -2802,7 +2784,7 @@ describe("agent.close()", () => {
               async () => {
                 await reviewer.close();
               },
-              { deadline: future(20) },
+              { timeout: "0.02s" },
             ),
           ).rejects.toBeInstanceOf(DeadlineExceededError);
         } finally {
@@ -2884,7 +2866,7 @@ describe("agent.close()", () => {
         await context.agents.open({
           key: "next",
           runtime: "review",
-          layout: { beside: "lead", side: "right" },
+          pane: { beside: "lead", side: "right" },
         });
         expect(
           adapter.activations.find((activation) => activation.key === "next")!.layoutFallback,
@@ -2896,23 +2878,104 @@ describe("agent.close()", () => {
     );
   });
 
-  test("a failed open stays failed after stop returns false; a closed context refuses stop", async () => {
+  test("a failed open stays failed; a closed context refuses an open", async () => {
     const fake = createFakeAdapter({ script: () => ({}), refuse: () => "cannot open" });
     let saved!: WorkflowContext;
     const result = await runNew(
       workflowOf("stop-failed-open", async (context) => {
         saved = context;
         await expect(openReviewer(context)).rejects.toThrow("cannot open");
-        expect(await context.agents.stop("reviewer")).toBe(false);
         await expect(openReviewer(context)).rejects.toThrow("cannot open");
-        expect(await context.agents.stop("reviewer")).toBe(false);
         return null;
       }),
       null,
       { runRoot: tempRunDir(), deadline: future(), runtime: runtime(fake) },
     );
     expect(result.value).toBeNull();
-    await expect(saved.agents.stop("reviewer")).rejects.toThrow("workflow context is closed");
+    await expect(openReviewer(saved)).rejects.toThrow("workflow context is closed");
+  });
+});
+
+describe("keys and routes refused", () => {
+  test("a key with a colon is refused for an agent, a fork, the caller and a participant, naming the - key", async () => {
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, { answer: "done" });
+        },
+      }),
+    });
+    const config = runtime(adapter);
+    config.host = { ...config.host, caller: { harness: "fake", cwd: process.cwd() } };
+    const message = (call: () => Promise<unknown>) =>
+      call().then(
+        () => "taken",
+        (error: Error) => error.message,
+      );
+    const result = await runNew(
+      workflowOf("colon-keys", async (context) => {
+        const reviewer = await openReviewer(context);
+        await reviewer.run({ prompt: "Review.", schema: ANSWER_SCHEMA });
+        return [
+          await message(() => openReviewer(context, "reviewer:security")),
+          await message(() => reviewer.fork({ key: "reviewer:copy" })),
+          await message(() => context.agents.caller({ key: "me:here" })),
+          await message(() => context.participants.connect({ key: "lead:x" })),
+        ];
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: config },
+    );
+    expect(result.value).toEqual([
+      expect.stringContaining("such as reviewer-security"),
+      expect.stringContaining("such as reviewer-copy"),
+      expect.stringContaining("such as me-here"),
+      expect.stringContaining("such as lead-x"),
+    ]);
+    for (const refusal of result.value as string[])
+      expect(refusal).toContain("a colon, kept for awf's own event names");
+  });
+
+  test("a fork's flat placement, metered or effort is refused, naming its runtime", async () => {
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, { answer: "done" });
+        },
+      }),
+    });
+    const result = await runNew(
+      workflowOf("flat-fork", async (context) => {
+        const reviewer = await openReviewer(context);
+        await reviewer.run({ prompt: "Review.", schema: ANSWER_SCHEMA });
+        return reviewer.fork({ key: "copy", placement: "headless", metered: true } as never).then(
+          () => "taken",
+          (error: Error) => error.message,
+        );
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+    expect(result.value).toContain(
+      "a fork's placement, metered go in its runtime: fork({ key, runtime: { placement, metered } })",
+    );
+  });
+
+  test('a participant connected with to: "code" is refused, naming its declared {key}:reply', async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const result = await runNew(
+      workflowOf("to-code", async (context) =>
+        context.participants.connect({ key: "thread", to: "code" } as { key: string }).then(
+          () => "connected",
+          (error: Error) => error.message,
+        ),
+      ),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+    expect(result.value).toBe(
+      'participant thread is connected without to: its messages reach the code when the workflow declares "thread:reply": ParticipantReply in events',
+    );
   });
 });
 
@@ -2922,10 +2985,10 @@ describe("pane records", () => {
       pane: () => ({ session: "awf", workspace: "run" as const, tab: "lens", kept: true as const }),
     }));
     const workflow = workflowOf("panes-failed", async (context) => {
-      await context.agents.open({ key: "lens", runtime: "review", keepPane: "always" });
+      await context.agents.open({ key: "lens", runtime: "review" });
       throw new Error("the workflow gave up");
     });
-    const failed = await runNew(workflow, null, {
+    const failed = await runKeeping(workflow, "always", {
       runRoot: tempRunDir(),
       runtime: runtime(adapter),
       deadline: future(),
@@ -2935,7 +2998,6 @@ describe("pane records", () => {
       {
         callPath: [],
         agent: "lens",
-        keepPane: "always",
         placed: { session: "awf", workspace: "run", tab: "lens", kept: true },
       },
     ]);
@@ -2991,7 +3053,7 @@ describe("pane records", () => {
     expect(logged.find((line) => line.kind === "agent-stopped")).toMatchObject({ kept: true });
   });
 
-  test("the run records where each TUI agent's pane went, with its layout as written", async () => {
+  test("the run records where each TUI agent's pane went, with its pane as written", async () => {
     let notKept: string | undefined;
     const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
       pane: () => ({
@@ -3006,15 +3068,14 @@ describe("pane records", () => {
       await context.agents.open({
         key: "lens",
         runtime: "review",
-        layout: { beside: "lead", side: "right" },
-        keepPane: "on-failure",
+        pane: { beside: "lead", side: "right" },
       });
       // Decided as it closes.
       notKept = "its harness did not settle";
       return null;
     });
     const runRoot = tempRunDir();
-    const result = await runNew(workflow, null, {
+    const result = await runKeeping(workflow, "on-failure", {
       runRoot,
       runtime: runtime(adapter),
       deadline: future(),
@@ -3023,8 +3084,7 @@ describe("pane records", () => {
       {
         callPath: [],
         agent: "lens",
-        layout: { beside: "lead", side: "right" },
-        keepPane: "on-failure",
+        pane: { beside: "lead", side: "right" },
         placed: {
           session: "awf",
           workspace: "run",
@@ -3057,13 +3117,19 @@ function emptyRuntime(): AgentRuntimeConfig {
   };
 }
 
-/** The control plane's directories live under `CONTROL_PLANE_ROOT`, not the run directory. */
-async function controlDirectories(): Promise<Set<string>> {
-  return new Set((await readdir(CONTROL_PLANE_ROOT)).filter((name) => name.startsWith("awf-")));
-}
-
-async function controlDirectoriesSince(before: Set<string>): Promise<string[]> {
-  return [...(await controlDirectories())].filter((name) => !before.has(name));
+/**
+ * A socket root of the test's own, which `check` finds empty once the run has closed its endpoint:
+ * the shared one holds other runs' directories, which come and go. Short and under /tmp, as a
+ * socket path past `sun_path` won't bind.
+ */
+async function withSocketRoot(check: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp("/tmp/cp-");
+  try {
+    await check(root);
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 function connect(endpoint: string): Promise<void> {
@@ -3129,7 +3195,7 @@ function workflowOf<Result extends JsonValue>(
 }
 
 function openReviewer(context: WorkflowContext, key = "reviewer") {
-  return context.agents.open({ key, deadline: future(), runtime: "review" });
+  return context.agents.open({ key, timeout: "60s", runtime: "review" });
 }
 
 /** What each run said, with a rejection standing in for its outcome kind. */
@@ -3173,8 +3239,8 @@ test("parallel rejection waits for native stop completion before workflow contin
   const workflow = workflowOf("scope-stop-proof", async (context) => {
     const agent = await openReviewer(context);
     await context
-      .parallel([null], () => agent.run({ prompt: "wait", deadline: future(), nudge: false }), {
-        deadline: future(30),
+      .parallel([null], () => agent.run({ prompt: "wait", timeout: "60s", nudge: false }), {
+        timeout: "0.03s",
       })
       .catch(() => {
         events.push("parallel rejected");
@@ -3265,7 +3331,7 @@ test("slot opening failure records the reserved operation and closes its logical
 test("an unexpected supervisor release throw fails the run instead of claiming cleanup", async () => {
   const fake = createFakeAdapter({
     script: (context) => ({
-      chargesUsd: [0.75],
+      reportedCostsUsd: [0.75],
       act: async () => {
         await submit(context.binding!, "saved");
       },
@@ -3308,7 +3374,7 @@ test("an unexpected supervisor release throw fails the run instead of claiming c
     runNew(workflow, null, { runRoot, deadline: future(), runtime: configured }),
   );
   expect(error.usage).toHaveLength(1);
-  expect(error.usage[0]?.charged).toEqual({ amount: 0.75, currency: "USD" });
+  expect(error.usage[0]?.reportedCost).toEqual({ amount: 0.75, currency: "USD" });
   expect(error.usage[0]?.deliveredAt).toBeDefined();
   expect((await readTurns(join(runRoot, workflow.meta.name, error.runId)))[0]?.outcome).toBe(
     "failed",
@@ -3336,7 +3402,7 @@ test("a late scope canceller is invoked synchronously and its throw is contained
               questions: {},
             });
           },
-          { deadline: future() },
+          { timeout: "60s" },
         )
         .catch(() => undefined);
       const remove = add!(() => {

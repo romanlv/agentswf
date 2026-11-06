@@ -44,9 +44,8 @@ agent behind it.
 `wf.decisions.decide` takes one state and any number of questions about it, and returns an answer
 for each:
 
-- **`key`** names the call in the run's record. The part before the first `:` groups its usage when
-  the run has no stages, so `triage:1`, `triage:2` and so on count together. Keys need not be
-  unique.
+- **`key`** names the call in the run's record, and its usage when the run has no stages. A key is
+  a name, as an agent's is, with no colon. Keys need not be unique.
 - **`model`** is the alias of a decision model: `jev`, the built-in one, while `OPENROUTER_API_KEY`
   is set.
 - **`state`** is what every question is about: a string, an object or an array. The model reads it

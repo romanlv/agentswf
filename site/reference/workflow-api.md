@@ -106,8 +106,6 @@ A workflow's tests use [`agentswf/testing`](/reference/testing-api).
 | [`typed`](#typed) | a TypeBox schema carrying its type, from `agentswf/typebox` |
 | [Types](#types) | the types and constants `agentswf/workflow` exports |
 
-[Deprecated](#deprecated) lists the old forms that still work, and what replaces each.
-
 ## A workflow file
 
 ```ts
@@ -179,7 +177,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 
 | Field | |
 | --- | --- |
-| `key` | Required. The agent's name in this run, such as `review-security`: lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit, as an event's or a stage's name is, since it names the agent's [operations](/reference/data#ops). Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved, and so is a key a decision in the run already has. A key with a colon is [deprecated](#deprecated): a colon is kept for awf's own event names. |
+| `key` | Required. The agent's name in this run, such as `review-security`: lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit, as an event's or a stage's name is, since it names the agent's [operations](/reference/data#ops). Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved, and so is a key a decision in the run already has. A key with a colon is refused: a colon is kept for awf's own event names, `{key}:ended` and `{key}:reply`. |
 | `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
@@ -526,7 +524,7 @@ ask all your questions together. The guide: [Decisions](/guide/decisions).
 
 | Field | |
 | --- | --- |
-| `key` | Required. Names the call in its record; not unique. A name, as an agent's key is, and never one an agent in the run has. |
+| `key` | Required. Names the call in its record; not unique. A name without a colon, as an agent's key is, and never one an agent in the run has. |
 | `model` | Required. A decision model alias: `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter, which needs `OPENROUTER_API_KEY` in the environment or a `.env` where you run `awf`. |
 | `state` | Required. What every question is about: a string, a JSON object or an array. |
 | `questions` | Required, at least one. Each is answered on its own. |
@@ -745,9 +743,8 @@ Each event has:
 the turn is launched, at the run's root scope only. Its end arrives at a wait as `{key}:ended`,
 which the workflow declares, `"investigator:ended": AgentEnded`, from the agent's key, with
 `turn`, the `outcome`, checked against `schema` as `run`'s is, and `meta` (`null` when absent).
-`start()` for an agent whose end isn't declared is [deprecated](#deprecated): its end arrives as
-`agent:ended`, logged; in a workflow that declares other agents' ends, it throws. A turn started before a park is started
-again by the wake's rerun.
+`start()` for an agent whose end isn't declared throws, naming the declaration. A turn started
+before a park is started again by the wake's rerun.
 
 ### agent.turn {#agent-turn}
 
@@ -1008,45 +1005,22 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: [`typed`](#typed) gives a TypeBox schema this type, and `run`, `stage` and `events` take it. A declaration that needs only the type writes it, `declare const X: OutputSchema<{ id: string }>`. |
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
 | `Workflow<Args, Result, Events>` | What `defineWorkflow` returns. |
-| `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. |
-| `Duration`, `Timeout` | A [duration](#waiting-on-time); and a call's [bound](#deadlines), `Duration \| Date \| false`. |
+| `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. `DeadlineExceededError`'s `deadline` is the `Date` that passed. |
+| `Duration`, `Timeout`, `When` | A [duration](#waiting-on-time); a call's [bound](#deadlines), `Duration \| Date \| false`; and when a timer is due, `Duration \| Date`. |
+| `WorkflowMeta`, `WorkflowInvocation` | What `meta` is; and what `prepare` is given, `argv` and `cwd`. |
+| `StageSummary` | One stage an attempt entered, as `report` is given it: `stage`, `source` (`ran` or `reused`) and its outcome. |
+| `RuntimeSelection` | What `runtime` takes: an alias's name, an alias with constraints, or an `ExecutionConfig`. |
+| `ExecutionConfig`, `AgentPlacement`, `Effort` | A complete runtime: `harness`, `model`, `effort?`, `placement?` (`tui` or `headless`) and `metered?`. |
+| `AgentExecution` | What `agent.execution` is: its `ExecutionConfig`, and the `alias` it was opened through. |
+| `AgentOpenSpec` | What [`open`](#agents-open) takes, for a helper that builds one. |
+| `RunResult<T>` | What `run` resolves to: `{ outcome }`. |
+| `SkillRef` | An item of `skills`. |
+| `ToolSpec<I>`, `ToolCall` | What [`tool`](#tool) returns; and a handler's second argument: the call's `id`, its `agent` and its `signal`. |
+| `SandboxRef` | A sandbox the run opened, to pass where an agent opens. |
+| `PeerRef` | What [`allow`](#messages-allow) takes: an agent, the calling session or a participant. |
+| `Question` | One of the questions `choice`, `score` and `yesNo` make. |
+| `WorkflowEvent`, `ReceivedEvent<Events>` | An event a wait returns: `id`, `name`, `data`; and any event a workflow's waits can return, its own or a timer's. |
 | `WaitOptions` | The options of `receive`, `race` and `select`: `label?`, a string or a function. |
 | `TOOL_LIMITS` | The tool limits: `name` (a pattern), `tools` 16, `descriptionBytes` 1024, `schemaBytes` 8192, `defaultTimeoutMs` 30000, `inputBytes` and `resultBytes` 65536. |
-
-## Deprecated
-
-These still compile and work until 0.1.0. Each attempt that uses one logs it once, as a warning
-naming what replaces it. An old bound given with its replacement, `timeoutMs` or `deadline` with
-`timeout`, or `keepAlive`'s `timeoutMs` with `window`, is refused rather than merged.
-
-| Old form | Instead |
-| --- | --- |
-| `labels` on `open`, `fork` and `forkCaller` | Drop it: nothing reads an agent's labels. A participant's `labels` stay. |
-| `meta.whenToUse` | Drop it: nothing reads it. |
-| `id` on `run`, `start`, `compact` and `set` | Drop it: a later attempt doesn't know it, and a [stage](#stage) keeps a call from running twice. |
-| A started turn as a wait's branch, `{ done: turn }` | Name the agent, `{ done: agent }`, and cancel with `agent.turn?.cancel()`. |
-| `turn.is(e)` | `agent.is(e)`. |
-| `wf.stage(name, () => wf.receive())` | [`wf.race(name, …)`](#race), which is recorded under its name, outside a stage. |
-| `isAnswered(outcome)` | `outcome.answered`, which narrows the same way. |
-| `defineExecutableWorkflow({ definition: { meta, run }, prepare })` | `defineWorkflow({ meta, run, prepare })`. |
-| An agent's or participant's key with a colon, `review:security` | `-` in its place, `review-security`: a colon is kept for awf's own event names. The warning names each such key, and the key to use. |
-| `wf.agents.stop(key, reason?)` | [`agent.close(reason?)`](#agent-close) on the agent's ref. |
-| `layout` on `open`, `fork` and `forkCaller` | `pane: { tab }` or `pane: { beside, side, share? }`, with `front` to bring it forward. Its `workspace` is `awf run --workspace` and its `session` the run session, `AWF_HERDR_SESSION`. Given, the flag wins over the layout. `pane` beside `layout` is refused. |
-| `keepPane` on `open`, `fork` and `forkCaller` | `awf run --keep-panes`, which wins over it when given. |
-| `placement`, `metered` and `effort` beside a fork's or `forkCaller`'s `key` | The same in its `runtime`: `fork({ key, runtime: { placement: "headless", metered: true } })`. Given beside `runtime`, they are refused. |
-| `timeoutMs` on `run`, `start`, `compact`, `set`, a [tool](#tool) or a [route](#messages-allow) | `timeout`, a [duration](#waiting-on-time): `timeout: "10m"`. |
-| `deadline: { unixMilliseconds }` on `open`, `run`, `start`, `compact`, `set`, `parallel` or `decide` | `timeout`, a `Date`: `timeout: new Date(ms)`. |
-| `nudge: { deadline }` | Drop it: the turn's `timeout` bounds its nudges too. |
-| `keepAlive: { timeoutMs }` | `keepAlive: { window }`, a duration such as `"90s"`. |
-| `wf.deadline.unixMilliseconds` | `wf.deadline.getTime()`. `wf.deadline` is now a `Date`, the one change here to a value rather than a field: its `unixMilliseconds` still reads the same time, and logs once. |
-| `EventWorkflowContext<Events>`, `EventAgentRef`, `EventAgentOpenSpec`, `EventAgentDirectory` | `WorkflowContext<Events>`, `AgentRef`, `AgentOpenSpec`, `AgentDirectory`: every workflow has one of each. Types log nothing. |
-| `wf.participants.connect({ key, to: "code" })` | Declare `"{key}:reply": ParticipantReply` in `events` and connect it without `to`: [its messages](#participant-to-code) arrive as `{key}:reply`. Until then they arrive as `participant:reply` from its key. In a workflow that declares any `{key}:reply`, `to: "code"` for a key it doesn't declare throws. |
-| `participant.is(e)`, and a participant routed with `to: "code"` as a wait's branch | `e.name === "{key}:reply"`, and `wf.signal("{key}:reply")` as the branch, which hands back the whole event. |
-| `agent.start()` for an agent whose `{key}:ended` isn't declared | Declare `"{key}:ended": AgentEnded` in `events`: its end arrives as `{key}:ended`. Until then it arrives as `agent:ended`, logged once per key; in a workflow that declares any `{key}:ended`, it throws. |
-| `participant:reply`, `agent:ended` as names, and the type `ParticipantReplyEvent` | The declared `{key}:reply` and `{key}:ended`. |
-| `CodeParticipantSpec`, `CodeParticipantRef`, `CodeParticipantDirectory` | `ParticipantSpec`, `ParticipantRef` (`post`, `release`), `ParticipantDirectory`. Types log nothing. |
-
-A test's old forms, such as `reply.silent()` and `run.stopped`, are on
-[the testing API page](/reference/testing-api#deprecated).
 
 What's next is in [`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md).

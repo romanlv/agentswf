@@ -8,7 +8,6 @@ import type {
   CompactionId,
   Effort,
   HarnessKind,
-  JsonObject,
   JsonValue,
   KeepPane,
   NudgeOptions,
@@ -116,14 +115,14 @@ export type HarnessOperationBinding = {
   operationId: string;
 };
 
-export type HarnessResultEvidence = { kind: "transcript"; text: string } | { kind: "unavailable" };
+type HarnessResultEvidence = { kind: "transcript"; text: string } | { kind: "unavailable" };
 
 export type HarnessTurnOutcome = {
   state: "completed" | "blocked" | "timed-out" | "failed" | "cancelled";
   detail?: string;
   resultEvidence: HarnessResultEvidence;
   /** The dollars the harness printed for each native turn behind this outcome. */
-  chargesUsd: readonly number[];
+  reportedCostsUsd: readonly number[];
   /**
    * Set only on a compaction the harness confirmed: its summary as the harness wrote it, or `""`
    * where it keeps it opaque, as codex does.
@@ -184,7 +183,7 @@ export interface HarnessTurn {
   ): Promise<HarnessReleaseDisposition>;
 }
 
-export type HarnessReleaseOptions = {
+type HarnessReleaseOptions = {
   /** Await natural completion within the release deadline, without an observer-only stop. */
   awaitCompletion?: true;
   /**
@@ -279,7 +278,6 @@ export interface HarnessActivation {
   deadline: AbsoluteDeadline;
   cwd: string;
   instructions?: string;
-  labels?: JsonObject;
   execution: AgentExecution;
   /**
    * The agent's place in a sandbox: every process it runs goes through `occupant.launch`. An
@@ -305,7 +303,7 @@ export interface HarnessActivation {
   home?: string;
   /**
    * Where a TUI agent's pane goes: the workflow's tab or neighbour, in the workspace the operator
-   * or a deprecated layout names. A host with no panes ignores it.
+   * names. A host with no panes ignores it.
    */
   layout?: PaneLayout;
   /**
@@ -324,8 +322,8 @@ export interface HarnessActivation {
    */
   layoutFallback?: string;
   /**
-   * The operator's `--keep-panes`, else a deprecated `keepPane`, for a host that records it; never
-   * decided on: the engine decides at close.
+   * The operator's `--keep-panes`, for a host that records it; never decided on: the engine
+   * decides at close.
    */
   keepPane?: KeepPane;
   /**
@@ -357,7 +355,7 @@ export interface AgentSessionAdapter {
   readonly outside?: OutsideSessionControl;
 }
 
-export type HarnessRunSpec = {
+type HarnessRunSpec = {
   runId: string;
   /** How the run is named to a person, such as its Herdr workspace's label; its id when absent. */
   label?: string;

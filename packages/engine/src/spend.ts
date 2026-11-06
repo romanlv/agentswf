@@ -1,13 +1,14 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  Billing,
-  ClaimedAttempt,
-  DecisionArtifact,
-  OpRecord,
-  RunLine,
-  SettledOperation,
-  SpendRecord,
+import {
+  type Billing,
+  type ClaimedAttempt,
+  type DecisionArtifact,
+  OP_FILE_VERSIONS,
+  type OpRecord,
+  type RunLine,
+  type SettledOperation,
+  type SpendRecord,
 } from "@agentswf/contract/records";
 import type { AgentExecution } from "@agentswf/contract/workflow";
 import type { SessionAccounting, UsageRecord } from "@agentswf/harness";
@@ -17,7 +18,7 @@ import { spendOf } from "./accounting/tokens";
 import { runUntilStopped } from "./deadlines";
 import { messageOf } from "./errors";
 import { isCode, linkNew } from "./files";
-import { opFile, spendFile } from "./ops";
+import { opFile, readOpFile, spendFile } from "./ops";
 import { unfenced } from "./run-policy/waits";
 import { ACCOUNTING_GRACE_MILLISECONDS, STATUS_SLACK_MILLISECONDS } from "./run-usage";
 
@@ -29,6 +30,9 @@ import { ACCOUNTING_GRACE_MILLISECONDS, STATUS_SLACK_MILLISECONDS } from "./run-
 
 type AgentOpRecord = Extract<OpRecord, { agent: string }>;
 
+/** A `spend.json` as its writer gives it: its version is added as it is written. */
+type SpendFields = Omit<SpendRecord, "version">;
+
 /** A settling past its deadline, or stopped. */
 const STOPPED: unique symbol = Symbol("stopped");
 
@@ -36,9 +40,9 @@ const STOPPED: unique symbol = Symbol("stopped");
 export async function writeSpend(
   runDir: string,
   op: string,
-  record: SpendRecord,
+  record: SpendFields,
 ): Promise<boolean> {
-  return linkNew(spendFile(runDir, op), record);
+  return linkNew(spendFile(runDir, op), { version: OP_FILE_VERSIONS.spend, ...record });
 }
 
 /**
@@ -65,7 +69,7 @@ export async function keepSpend(
       if (op.kind === "decision" || op.attempt !== attempt || spend) return [];
       const record = settled.get(op.id);
       if (record && record.spend === undefined && options.reads(record.execution)) return [];
-      const spent: SpendRecord = record
+      const spent: SpendFields = record
         ? recordOf(record)
         : {
             billing: usage.find((each) => each.agent === op.agent)?.billing ?? "unknown",
@@ -81,11 +85,11 @@ export async function keepSpend(
   return failed;
 }
 
-function recordOf(record: SettledOperation): SpendRecord {
+function recordOf(record: SettledOperation): SpendFields {
   return {
     billing: record.billing,
     ...(record.spend === undefined ? {} : { spend: record.spend }),
-    ...(record.charged === undefined ? {} : { charged: record.charged }),
+    ...(record.reportedCost === undefined ? {} : { reportedCost: record.reportedCost }),
     ...(record.deliveredAt === undefined ? {} : { deliveredAt: record.deliveredAt }),
     ...(record.settledAt === undefined ? {} : { settledAt: record.settledAt }),
   };
@@ -95,11 +99,14 @@ function recordOf(record: SettledOperation): SpendRecord {
  * Every operation in `ops/` whose `op.json` reads, with its `spend.json` and a decision's record.
  * A folder whose `op.json` is lost is passed over: its operation failed as it was drawn.
  * `decisions: false` leaves out what decisions used, which an agents' estimate doesn't count.
+ * `refuse` throws on an `op.json` or `decision.json` of a version this awf doesn't know, whose
+ * operation would otherwise go uncounted; an unreadable `spend.json` is usage unknown either way.
  */
 export async function readOps(
   runDir: string,
-  options: { decisions?: boolean } = {},
+  options: { decisions?: boolean; refuse?: boolean } = {},
 ): Promise<RecordedOp[]> {
+  const refuse = { refuse: options.refuse === true };
   let names: string[];
   try {
     names = await readdir(join(runDir, "ops"));
@@ -109,29 +116,35 @@ export async function readOps(
   }
   const read = await Promise.all(
     names.map(async (name): Promise<RecordedOp | undefined> => {
-      const op = await readJsonFile<OpRecord>(opFile(runDir, name));
+      const op = await readOpFile<OpRecord>(opFile(runDir, name), "op", refuse);
       if (!op) return undefined;
       if (op.kind === "decision") {
         if (options.decisions === false) return { op };
-        const artifact = await readJsonFile<DecisionArtifact>(
+        const artifact = await readOpFile<DecisionArtifact>(
           join(runDir, "ops", name, "decision.json"),
+          "decision",
+          refuse,
         );
         return artifact ? { op, decision: artifact.record } : { op };
       }
-      const spend = await readJsonFile<SpendRecord>(spendFile(runDir, name));
+      const spend = await readOpFile<SpendRecord>(spendFile(runDir, name), "spend");
       return spend ? { op, spend } : { op };
     }),
   );
   return read.filter((each) => each !== undefined);
 }
 
-/** Each claimed attempt's accounting from its operations, priced with today's table. */
+/**
+ * Each claimed attempt's accounting from its operations, priced with today's table. Rejects when an
+ * operation's file is of a version this awf doesn't know: its callers show the cost as unknown.
+ */
 export async function readSpent(
   runDir: string,
   attempts: readonly ClaimedAttempt[],
   options: { decisions?: boolean } = {},
 ): Promise<AttemptSpent[]> {
-  return attemptsSpent(await readOps(runDir, options), attempts, PUBLISHED_PRICES);
+  const ops = await readOps(runDir, { ...options, refuse: true });
+  return attemptsSpent(ops, attempts, PUBLISHED_PRICES);
 }
 
 /**
@@ -184,7 +197,7 @@ export async function settleEarlier(
   const lines = unfenced(options.lines).filter(
     (line): line is SessionLine => line.kind === "session",
   );
-  const write = async (op: AgentOpRecord, record: SpendRecord) => {
+  const write = async (op: AgentOpRecord, record: SpendFields) => {
     await writeSpend(runDir, op.id, { ...record, settledBy: options.attempt }).then(
       (wrote) => {
         if (wrote) settled += 1;
@@ -317,12 +330,4 @@ function share(
     shares.set(owner, [...(shares.get(owner) ?? []), record]);
   }
   return shares;
-}
-
-async function readJsonFile<T>(path: string): Promise<T | undefined> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as T;
-  } catch {
-    return undefined;
-  }
 }

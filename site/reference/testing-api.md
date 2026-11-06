@@ -24,14 +24,13 @@ has the types, with every field documented.
   [`compactions`](#compactions), [`messages`](#messages), [`participants`](#participants),
   [`decisions`](#decisions), [`allowance`](#allowance), [`runtimes`](#runtimes),
   [`caller`](#caller), [`timeout`](#time), [`stall`](#time), [`maxTimers`](#time),
-  [`maxTurns`](#time), [`files`](#files), [`cwd`](#files),
+  [`maxTurns`](#time), [`files`](#files), [`cwd`](#files), [`panes`](#panes),
   [`earlier`, `fromStage`, `values`](#continuing-an-earlier-attempt); with events,
   [`event`, `events`](#a-workflow-with-events). [Options](#options) has them in one table, with
   defaults.
 - **Read the result:** [`run.value`, `run.ending`, `run.turnsOf(key)`, `run.agentOf(key)`,
   `run.messagesOf(key)` and the rest](#what-the-run-did).
 - **Know what fails:** [what fails the test, not the workflow](#what-fails-the-test-not-the-workflow).
-- **Old forms:** [Deprecated](#deprecated) lists the ones that still work, and what replaces each.
 
 ## `testWorkflow` {#testworkflow}
 
@@ -77,6 +76,9 @@ test("a reader that never answers is nudged once, then the summary says why", as
 
 ## Options
 
+Their type is `TestOptions<Args, Events>`. Bare, `TestOptions` is what any test may share, with no
+args or events: a helper spreads it into each test's own.
+
 | Option | Default | What it gives |
 | --- | --- | --- |
 | [`args`](#testworkflow) | what `prepare` makes of no argv; required where the workflow takes args | the args `run` is given |
@@ -95,6 +97,7 @@ test("a reader that never answers is nudged once, then the summary says why", as
 | [`maxTurns`](#time) | 20 | turns started before the test fails |
 | [`files`](#files) | none | files laid out under the run's directory first |
 | [`cwd`](#files) | a temporary directory, removed after | where the agents work |
+| [`panes`](#panes) | the run's workspace, no pane kept | `awf run --workspace` and `--keep-panes` |
 | [`earlier`](#continuing-an-earlier-attempt) | none | the `stages`, `events` and `run` lines an earlier attempt left |
 | [`fromStage`, `values`](#continuing-an-earlier-attempt) | none | where the attempt starts, and the values before it |
 
@@ -104,7 +107,8 @@ A [workflow with events](#a-workflow-with-events) takes these too, but not `valu
 ## Scripts
 
 `agents` maps an agent's key, or a pattern such as `"verifier-*"`, to its script. An exact key
-wins over a pattern; two patterns matching one key fail the test.
+wins over a pattern; two patterns matching one key fail the test. A script built apart from the
+test is typed `Script`.
 
 A script is one entry, which meets every turn of that agent, or a list, one entry per turn. A list
 is strict: a turn past its end, or an entry never reached, fails the test. So a test can spread a
@@ -154,7 +158,7 @@ A `noAnswer` ends a turn without an answer, so it takes no schema. The turn's `o
 
 ### The turn {#the-turn}
 
-A function entry gets the turn as the workflow asked it:
+A function entry gets the turn as the workflow asked it, a `Turn`:
 
 - **`agent`**, **`n`** (1-based in the session; a nudge keeps its turn's number), **`nudge`**,
   **`prompt`**, **`schema`** (absent for text), **`label`**, **`stage`**, **`cwd`**, and
@@ -258,13 +262,13 @@ failure would; one the function throws fails the test.
 ```ts
 // examples/triage/workflow.test.ts
 decisions: {
-  "triage:1": {
+  "triage-1": {
     team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
     bug: 0.97,
     urgency: [0.1, 0.3, 0.6],
   },
-  "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
-  "triage:3": {
+  "triage-2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
+  "triage-3": {
     team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
     bug: 0.6,
     urgency: [0.05, 0.9, 0.05],
@@ -326,7 +330,17 @@ Without it, both answer `null`.
 Sandboxes in a test are fakes that confine nothing, so a test checks what each agent was given;
 the sandbox evals check what a real provider enforces.
 
+## Panes {#panes}
+
+- **`panes`** gives a run what [`awf run --workspace` and `--keep-panes`](/reference/awf#run)
+  give one, as `run.json` keeps them: `{ workspace?: "run" | "origin" | { name }, keep?: "never"
+  | "on-failure" | "always" }`. A test has no screen, so
+  [`run.agentOf(key)`](#what-the-run-did) shows what each TUI agent's host was asked, and
+  `keptPane` when its pane was kept.
+
 ## What the run did
+
+`testWorkflow` resolves to a `TestRun`, the type for a helper that checks one.
 
 - **`run.value`** is what the workflow returned. If it threw, reading `value` throws, with the
   workflow's error as the cause: `expect(() => run.value).toThrow("lens ids must be unique")`.
@@ -346,12 +360,10 @@ the sandbox evals check what a real provider enforces.
 - **`run.compactionsOf(key)`** and **`run.setsOf(key)`** are its compactions and model or effort
   switches; **`run.compactions`** and **`run.sets`** have everyone's.
 - **`run.agentOf(key)`** is what an agent was opened with: `key`, `execution`, `instructions`,
-  `labels` (deprecated), `skills`, `sandbox`, `pane` (`tab` or `beside`, and `front`, read back
-  from what the host was given, so a deprecated `layout`'s `tab` shows there too), `layout` and
-  `keepPane` as the host was given them (the deprecated options' values included),
-  `layoutFallback` when its pane couldn't go where it asked, `keptPane` when its pane was kept, and
-  `forkedFrom` for a fork. A test has no operator: `--workspace` and `--keep-panes` don't apply.
-  It throws for a key never opened. **`run.agents`** lists them all.
+  `skills`, `sandbox`, `pane` (`tab` or `beside`, and `front`, read back from what the host was
+  given), `panes` as the host was asked to apply [`panes`](#panes) to it (the `workspace` its tab
+  opens in, and `keep`), `paneFallback` when its pane couldn't go where it asked, `keptPane` when
+  its pane was kept, and `forkedFrom` for a fork. It throws for a key never opened. **`run.agents`** lists them all.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
   with a `reason`.
@@ -506,38 +518,3 @@ awf test summarize.test.ts -t nudged   # one file, the tests whose names match
 `awf test` serves `agentswf/workflow`, `agentswf/client`, `agentswf/testing` and `typebox` itself,
 so a folder that declares none of them needs nothing installed, and takes paths, `-t`, `--watch` and `--timeout` (5 s a test by default). Its help is
 on [the `awf` reference](/reference/awf#test).
-
-## Deprecated
-
-These still compile and work until 0.1.0. Each test that uses one logs it once, in `run.logs`,
-as a warning naming what replaces it; `run.stopped` and `run.parked` log when they are read. An
-old option given with its replacement, `timeoutMs` with `timeout`, `stallMs` with `stall`,
-or `recorded` with `earlier.stages`, is refused.
-
-| Old form | Instead |
-| --- | --- |
-| `testWorkflow(workflow, args, options)`, and `testWorkflow(workflow, args)` with args that aren't an object | `testWorkflow(workflow, { args, … })`. Three arguments are always the old form; with two, an object second is the options. The old form still takes a workflow's `meta` and `run` alone; the one form takes what `defineWorkflow` made. |
-| `recorded` | `earlier: { stages }`. |
-| The `EventTestOptions<Events, Args>` type | `TestOptions<Args, Events>`, the one options type. |
-| `reply.silent()`, `reply.failed()` and the rest | `noAnswer.silent()`, `noAnswer.failed()`: the same calls. A reply answers. |
-| `message.silent()` in a message script | Return nothing. |
-| `message.fail(reason)` in a message script | Return `noAnswer.failed(reason)`. |
-| `run.stopped` | [`run.ending`](#what-the-run-did), whose `kind` is `stopped`. |
-| `run.parked` | `run.ending`, whose `kind` is `parked`. |
-| `id` on `event` and on each of `events` | `eventId`. |
-| `timeoutMs` | `timeout`, a duration: `timeout: "5s"`. |
-| `stallMs` | `stall`, a duration: `stall: "2s"`. |
-| `timeoutMs` on a script's `turn.send` or `turn.reply` | `timeout`, a duration. |
-| `{ during, name: "participant:reply", from, data }` among `events`, for a participant connected `to: "code"` | `{ during, name: "{key}:reply", data }`, declared. The old form's `author` defaults to `engineer`. |
-
-A turn's `outcome` changed without a deprecation: it is the one the engine recorded, where it was
-the script's word. A turn its script left silent is `unanswered`, where it was `silent`;
-`needsLogin()` is `failed`, `interrupted()` is `cancelled`, `hang()` is `timed-out` or
-`cancelled`, and a silent compaction is `failed`. A test that
-compares an outcome with the old word fails, and `tsc --noEmit` flags the comparison.
-
-`testWorkflow(workflow, args)` with object args and no options changed without a deprecation
-too: an object given second is the options, so those args are refused, named by their first key,
-and `tsc --noEmit` flags the call. Give them as `{ args }`. And `maxTurns`, 20 by default, now
-counts the turns of a workflow without events too: a test whose run starts more, such as a
-`wf.parallel` over 25 agents, fails until it gives a larger `maxTurns`.

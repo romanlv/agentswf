@@ -1,4 +1,3 @@
-import { reportDeprecated } from "./deprecated";
 import type { AgentEnded, AgentEndOf } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerRef } from "./participants";
@@ -9,7 +8,8 @@ import type { Duration, EventLike, Source, Taken, Timeout } from "./waits";
 /**
  * An agent's key in its run: a name, as events and stages are (lowercase letters, digits, `.`,
  * `_`, `@` and `-`, starting with a letter or digit), since it names its operations' folders,
- * `ops/{key}.{n}/`. Agents and decisions share the names. A colon is still accepted, deprecated.
+ * `ops/{key}.{n}/`. Agents and decisions share the names, which have no colon: awf's own event
+ * names, `{key}:ended`, split at it.
  */
 export type AgentKey = string;
 /**
@@ -35,7 +35,6 @@ export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
-export type SettingsId = string;
 /** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
 export type Effort = string;
 
@@ -113,8 +112,6 @@ export interface AgentOpenSpec {
   key: AgentKey;
   /** Bounds opening it, within the stage, `parallel` and run around it. */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
-  deadline?: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
   instructions?: string;
@@ -126,8 +123,6 @@ export interface AgentOpenSpec {
    * what it would have without awf: the operator's on the host, none in a sandbox.
    */
   skills?: readonly SkillRef[];
-  /** @deprecated Drop it: nothing reads an agent's labels. */
-  labels?: JsonObject;
   /**
    * The sandbox this agent runs in: one this run opened, shared with its other agents, or a spec
    * for a private one. Absent, the agent runs unsandboxed.
@@ -139,13 +134,6 @@ export interface AgentOpenSpec {
    * `awf run --workspace` and `--keep-panes`. TUI agents only.
    */
   pane?: PaneSpec;
-  /**
-   * @deprecated Give `pane: { tab }` or `pane: { beside, side }`; the workspace is the operator's,
-   * `awf run --workspace`, and the session `AWF_HERDR_SESSION`.
-   */
-  layout?: PaneLayout;
-  /** @deprecated Keeping panes is the operator's: `awf run --keep-panes`. */
-  keepPane?: KeepPane;
   /**
    * What the agent can ask the workflow's code to do mid-turn, by name: holding a tool is what lets
    * it call one. Taught in every operation's prompt. On a reopen, tools match by name, description
@@ -164,8 +152,6 @@ export interface AgentOpenSpec {
   keepAlive?: {
     /** How long the run stays live after this agent's last turn ends; absent, an hour. */
     window?: Duration;
-    /** @deprecated Give `window`, a `Duration` such as `"90s"`. */
-    timeoutMs?: number;
     /**
      * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
      * take and nothing working, which awaits it in its own scope: to compact the agent while its
@@ -208,8 +194,6 @@ export interface ToolSpec<I extends JsonObject = JsonObject> {
    * background, or on codex handed back for the agent to poll, past 10 s by default (M2).
    */
   timeout?: Duration | false;
-  /** @deprecated Give `timeout`, a `Duration` such as `"30s"`, or `false`. */
-  timeoutMs?: number | false;
 }
 
 /** One call of a tool, as its handler is given it. */
@@ -287,14 +271,12 @@ export type PaneSpec =
     };
 
 /**
- * A pane's place as the deprecated `layout` gives it, and as the engine asks a harness for it: the
- * workflow's `pane`, in the workspace the operator's `--workspace` or the layout names.
+ * A pane's place as the engine asks a harness for it: the workflow's `pane`, in the workspace the
+ * operator's `--workspace` names.
  */
 export type PaneLayout =
   | {
-      /** The terminal session; absent, the run's. One awf does not start is used only if running. */
-      session?: string;
-      /** Where the new tab opens in it; absent, `"run"`. */
+      /** Where the new tab opens in the run's session; absent, `"run"`. */
       workspace?: PaneWorkspace;
       /** The new tab's label; absent, the agent's key. Every `tab` is a new tab. */
       tab?: string;
@@ -309,7 +291,6 @@ export type PaneLayout =
       side: "right" | "below";
       /** The new pane's part of the space it splits, 0.2 to 0.8; absent, 0.5. */
       share?: number;
-      session?: never;
       workspace?: never;
       tab?: never;
     };
@@ -356,13 +337,6 @@ export interface NudgeOptions {
 }
 
 interface AgentRunBase {
-  /**
-   * Idempotency key scoped to this agent within one attempt: `run()` with an id it already ran
-   * returns that turn's result, and `start()` refuses it. Generated when omitted.
-   *
-   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
-   */
-  id?: TurnId;
   prompt: string;
   /**
    * Bounds the turn and its automatic check-ins, fixed when it is called, within the stage,
@@ -370,18 +344,12 @@ interface AgentRunBase {
    * wait's length, within those.
    */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
-  deadline?: AbsoluteDeadline;
-  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
-  timeoutMs?: number;
   label?: string;
-  /** Enables automatic recovery, with repeated check-ins where delivery is confirmed. `false` disables it. */
-  nudge?:
-    | false
-    | (Omit<NudgeOptions, "deadline"> & {
-        /** @deprecated Drop it: `timeout` bounds the turn and its check-ins. */
-        deadline?: AbsoluteDeadline;
-      });
+  /**
+   * Enables automatic recovery, with repeated check-ins where delivery is confirmed, within the
+   * turn's `timeout`. `false` disables it.
+   */
+  nudge?: false | Omit<NudgeOptions, "deadline">;
 }
 
 export interface AgentRunTextSpec extends AgentRunBase {
@@ -461,37 +429,22 @@ export type TurnOutcome<T extends JsonValue> = (
   usage: OperationRecord;
 };
 
-/** @deprecated Check `outcome.answered`, which narrows the same way. */
-export function isAnswered<T extends JsonValue>(
-  outcome: TurnOutcome<T>,
-): outcome is Extract<TurnOutcome<T>, { kind: "answered" }> {
-  reportDeprecated(outcome, "isAnswered");
-  return outcome.kind === "answered";
-}
-
 export type RunResult<T extends JsonValue> = {
   /** The whole operation outcome, including automatic check-ins and bounded native release. */
   outcome: TurnOutcome<T>;
 };
 
-/** `run()`'s spec, and what the turn's end carries back in `agent:ended`, `null` when absent. */
+/** `run()`'s spec, and what the turn's end carries back in `{key}:ended`, `null` when absent. */
 export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>) & {
   meta?: JsonValue;
 };
 
 /**
- * A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`, which a
- * wait takes by naming the agent. A turn given to a wait as its source is deprecated: name the
- * agent, `{ done: agent }`, which has at most one started turn.
+ * A turn `start()` began, until a wait takes its end. Its result comes as `{key}:ended`, which a
+ * wait takes by naming the agent, `{ done: agent }`: an agent has at most one started turn.
  */
-export interface StartedTurn extends Source<Taken<AgentEnded>> {
+export interface StartedTurn {
   readonly id: TurnId;
-  /** @deprecated Use `agent.is(e)`: an agent has at most one started turn. */
-  is<
-    Meta extends JsonValue = JsonValue,
-    T extends JsonValue = JsonValue,
-    E extends EventLike = EventLike,
-  >(event: E): event is E & AgentEndOf<E, Meta, T>;
   /**
    * Stops the turn; resolves once its `cancelled` end is recorded, or at once, `false`, when
    * it had ended already.
@@ -500,20 +453,10 @@ export interface StartedTurn extends Source<Taken<AgentEnded>> {
 }
 
 export interface CompactSpec {
-  /**
-   * Idempotency key scoped to this agent. Generated when omitted.
-   *
-   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
-   */
-  id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
   /** Bounds this operation, within the stage, `parallel` and run around it. */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
-  deadline?: AbsoluteDeadline;
-  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
-  timeoutMs?: number;
 }
 
 /**
@@ -533,25 +476,10 @@ export interface CallerForkSpec {
   timeout?: Timeout;
   /** Given with its first turn; it already knows what this agent was told. */
   instructions?: string;
-  /** @deprecated Drop it: nothing reads an agent's labels. */
-  labels?: JsonObject;
-  /** Absent, its parent's placement and effort. Refused beside any of the flat fields below. */
+  /** Absent, its parent's placement and effort. */
   runtime?: ForkRuntime;
-  /** @deprecated Give it in `runtime`: `runtime: { placement }`. */
-  placement?: AgentPlacement;
-  /** @deprecated Give it in `runtime`: `runtime: { metered: true }`. */
-  metered?: true;
-  /** @deprecated Give it in `runtime`: `runtime: { effort }`. */
-  effort?: Effort;
   /** Never its parent's: absent, a tab of its own. */
   pane?: PaneSpec;
-  /**
-   * @deprecated Give `pane: { tab }` or `pane: { beside, side }`; the workspace is the operator's,
-   * `awf run --workspace`, and the session `AWF_HERDR_SESSION`.
-   */
-  layout?: PaneLayout;
-  /** @deprecated Keeping panes is the operator's: `awf run --keep-panes`. */
-  keepPane?: KeepPane;
 }
 
 export interface AgentForkSpec extends CallerForkSpec {
@@ -563,21 +491,11 @@ export interface AgentForkSpec extends CallerForkSpec {
 }
 
 export interface SettingsSpec {
-  /**
-   * Idempotency key scoped to this agent. Generated when omitted.
-   *
-   * @deprecated Drop it: a later attempt doesn't know it, and a stage keeps a call from running twice.
-   */
-  id?: SettingsId;
   /** Another model of the same harness. */
   model?: string;
   effort?: Effort;
   /** Bounds this operation, within the stage, `parallel` and run around it. */
   timeout?: Timeout;
-  /** @deprecated Give `timeout`: a `Date`, or a `Duration` such as `"10m"`. */
-  deadline?: AbsoluteDeadline;
-  /** @deprecated Give `timeout`, a `Duration` such as `"10m"`. */
-  timeoutMs?: number;
 }
 
 /**
@@ -593,8 +511,7 @@ export interface CallerRef extends PeerRef, Source<Taken<AgentEnded>> {
    */
   readonly execution: AgentExecution;
   /**
-   * Runs and awaits. Supplied ids cover the complete spec; conflicting reuse rejects. Cancellation
-   * by another ref or workflow shutdown resolves as `cancelled`.
+   * Runs and awaits. Cancellation by another ref or workflow shutdown resolves as `cancelled`.
    */
   run(spec: AgentRunTextSpec): Promise<RunResult<string>>;
   run<T extends JsonValue>(spec: AgentRunStructuredSpec<T>): Promise<RunResult<T>>;
@@ -616,25 +533,25 @@ export interface CallerRef extends PeerRef, Source<Taken<AgentEnded>> {
   readonly turn: StartedTurn | null;
   /**
    * Begins the turn `run()` would, and returns once it is recorded and launched. Its end arrives at
-   * the run's wait as `agent:ended` from this agent's key, with the outcome, checked against
-   * `schema` as `run()`'s is, and `meta`. At the run's root scope only, and in a run of a workflow
-   * with `events`: its end arrives as an event, so a run without them refuses it.
+   * the run's wait as `{key}:ended`, with the outcome, checked against `schema` as `run()`'s is,
+   * and `meta`. At the run's root scope only, and only where the workflow declares
+   * `{key}:ended: AgentEnded` in `events`: without it, it throws.
    */
   start(spec: AgentStartSpec): Promise<StartedTurn>;
   /**
-   * True for this agent's end, `{key}:ended` or `agent:ended`, narrowing its data to the `meta` the code started the
-   * turn with and the outcome its `schema` gives.
+   * True for this agent's end, `{key}:ended`, narrowing its data to the `meta` the code started
+   * the turn with and the outcome its `schema` gives.
    */
   is<
     Meta extends JsonValue = JsonValue,
     T extends JsonValue = JsonValue,
     E extends EventLike = EventLike,
-  >(event: E): event is E & AgentEndOf<E, Meta, T>;
+  >(event: E): event is E & AgentEndOf<Meta, T>;
   /**
    * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
-   * where `keepPane` says, kept and released (ADR 0008); the calling session is handed back to the
-   * operator. Its key is not opened again. Resolves false once an earlier `close()` or
-   * `wf.agents.stop` has ended it, and true otherwise, for an agent a failed turn closed too.
+   * where `awf run --keep-panes` says, kept and released (ADR 0008); the calling session is handed
+   * back to the operator. Its key is not opened again. Resolves false once an earlier `close()`
+   * has ended it, and true otherwise, for an agent a failed turn closed too.
    */
   close(reason?: string): Promise<boolean>;
 }
@@ -642,14 +559,14 @@ export interface CallerRef extends PeerRef, Source<Taken<AgentEnded>> {
 /** An agent the run opened or forked. */
 export interface AgentRef extends CallerRef {
   /**
-   * Runs the harness's own compaction after earlier operations, idempotent by compaction id. An
-   * answer means it compacted, and is its summary where the harness exposes one, else `""`; any
-   * other outcome leaves the prior context available.
+   * Runs the harness's own compaction after earlier operations. An answer means it compacted, and
+   * is its summary where the harness exposes one, else `""`; any other outcome leaves the prior
+   * context available.
    */
   compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
   /**
-   * Switches this session's model or effort for every operation after the earlier ones, idempotent
-   * by id; its context is kept. Answered once the switch is in force, with the settings then in
+   * Switches this session's model or effort for every operation after the earlier ones; its context
+   * is kept. Answered once the switch is in force, with the settings then in
    * force as the outcome's `usage.execution`. Refused before it runs where the harness can't switch,
    * with why, and for an effort the harness doesn't list. One that fails or times out in a pane
    * closes the agent, whose settings nobody then knows.
@@ -673,12 +590,6 @@ export interface AgentDirectory {
    */
   open(spec: AgentOpenSpec): Promise<AgentRef>;
   /**
-   * As `close()` on the agent's ref, and false too when the agent was never opened or did not open.
-   *
-   * @deprecated Call `close(reason?)` on the agent's ref.
-   */
-  stop(key: AgentKey, reason?: string): Promise<boolean>;
-  /**
    * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the
    * run has none (ADR 0010). The same key returns the same ref and another key rejects. It is the
    * operator's session, so it differs from an opened agent: it has no `compact` or `set`; a turn
@@ -697,12 +608,3 @@ export interface AgentDirectory {
    */
   forkCaller(spec: CallerForkSpec): Promise<AgentRef | null>;
 }
-
-/** @deprecated Use `AgentRef`: every agent is one. */
-export type EventAgentRef = AgentRef;
-
-/** @deprecated Use `AgentOpenSpec`, which holds `keepAlive`. */
-export type EventAgentOpenSpec = AgentOpenSpec;
-
-/** @deprecated Use `AgentDirectory`: every workflow's agents are one. */
-export type EventAgentDirectory = AgentDirectory;

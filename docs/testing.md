@@ -21,8 +21,9 @@ fake Herdr CLI, and fake session files stand in for the harnesses' usage logs.
 A workflow's own logic is tested beside it, in `workflow.test.ts`, against `agentswf/testing`: each
 agent scripted, the real engine between them, milliseconds a test ([the testing
 API](../site/reference/testing-api.md) says how). Every example has one but `quick-check`,
-`keep-alive` and `sandbox-probe`, which exist to watch real agents; `bun test examples` runs just
-those.
+`keep-alive` and `sandbox-probe`, which exist to watch real agents, `log-color-check.workflow.ts`,
+which only logs, and the event sketches' ticks, `mr-tick.ts` and `dd-tick.ts`; the sketches' own
+tests are placeholders until they run. `bun test examples` runs just those.
 Write one when a workflow gains a branch, a loop or a new outcome to handle, and change the
 workflow's tests with the workflow. The tests in `tests/` check what the engine and `awf run` do
 for a workflow, and `tests/workflow-api-samples.test.ts` runs the API pages' samples with `awf
@@ -139,8 +140,8 @@ What they cover between them:
   under a cent.
 - `decisions` — `examples/triage` through `awf run` and the operator runtime it installs, on Jev
   through OpenRouter (story 006): four synthetic tickets, one decision each with a choice, a yes-no
-  and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its charge
-  under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
+  and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its reported
+  cost under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
   `OPENROUTER_API_KEY` is not set, and the runner shows it as skipped, not passed. awf reads the
   key from the environment, else that one name from `.env` in the working directory; Bun loads no
   `.env` itself (`bunfig.toml`). Copy `.env` into a worktree.

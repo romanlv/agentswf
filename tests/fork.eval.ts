@@ -1,10 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ForkResult, keyOf } from "../examples/fork/workflow";
 import type { OutputRecord, SettledOperation } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Forks on every harness and placement, with and without compaction, live (story 016): a worker
@@ -86,48 +83,18 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const workDir = await mkdtemp(join(tmpdir(), "awf-fork-"));
-  const output: string[] = [];
   const cases = process.argv.slice(2);
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "20m",
-      "--json",
-      FORK,
-      "--",
-      ...(cases.length > 0 ? cases : CASES),
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = problems(exitCode, record);
+  const { exitCode, record } = await runLive("fork", FORK, cases.length > 0 ? cases : CASES, {
+    timeout: "20m",
+  });
   const succeeded = record?.outcome === "completed" ? (record.value as ForkResult).checks : [];
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        checks: succeeded.map((check) => ({
-          ...check,
-          cached: cachedShare(
-            record?.usage.find((usage) => usage.agent === `fork-${keyOf(check.name)}`),
-          ),
-        })),
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  report(problems(exitCode, record), {
+    checks: succeeded.map((check) => ({
+      ...check,
+      cached: cachedShare(
+        record?.usage.find((usage) => usage.agent === `fork-${keyOf(check.name)}`),
+      ),
+    })),
+    ...recorded(record),
+  });
 }

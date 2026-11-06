@@ -14,7 +14,7 @@ import type { ScorerSettings, VariantSettings } from "../../format/variant";
 import { runAgainst } from "../against";
 import { type CaseInfo, type Lab, newRunId, type Subject, statesOf } from "../execute";
 import { currentTrials } from "../plan";
-import type { ReportComparison } from "../report";
+import { type ReportComparison, usd } from "../report";
 import { summaryOf } from "../runner";
 import { keyOf } from "../version";
 import { writeBundle } from "./bundle";
@@ -169,10 +169,10 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
     if (proposal) {
       ({ hypothesis, spend: proposer } = proposal);
       lab.log(
-        `try ${n}: resumed against ${incumbent.label}, $${left.toFixed(2)} left; what it ran before the cut is not in its spend`,
+        `try ${n}: resumed against ${incumbent.label}, ${usd(left)} left; what it ran before the cut is not in its spend`,
       );
     } else {
-      lab.log(`try ${n}: proposing against ${incumbent.label}, $${left.toFixed(2)} left`);
+      lab.log(`try ${n}: proposing against ${incumbent.label}, ${usd(left)} left`);
       const spec = join(tryDir, "sandbox.json");
       writeFileSync(spec, JSON.stringify({ srt: {}, write: [candidateDir] }));
       const proposed = await lab.runner({
@@ -190,7 +190,7 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
         priced ??
         (proposers.length > 0 ? proposers.reduce((a, b) => a + b, 0) / proposers.length : 0);
       if (priced === undefined)
-        lab.log(`try ${n}: the proposer's run is unpriced; counted as $${proposer.toFixed(2)}`);
+        lab.log(`try ${n}: the proposer's run is unpriced; counted as ${usd(proposer)}`);
       if (priced !== undefined && priced > 0) proposers.push(priced);
       const { record } = proposed;
       const value = record?.outcome === "completed" ? record.value : undefined;

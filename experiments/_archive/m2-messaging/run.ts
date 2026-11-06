@@ -4,9 +4,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OutputRecord, RunLogLine } from "../../packages/contract/src/records";
-import { canAwaitReply } from "../../packages/engine/src/messaging/limits";
-import { runOperatorCli } from "../../packages/engine/src/operator-cli";
+import type { OutputRecord, RunLogLine } from "../../../packages/contract/src/records";
+import { canAwaitReply } from "../../../packages/engine/src/messaging/limits";
+import { runOperatorCli } from "../../../packages/engine/src/operator-cli";
 import { PAYMENTS, RUNTIMES } from "./workflow";
 
 const [runtime = "codex", pairsArg = "5", runsArg = "1"] = process.argv.slice(2);

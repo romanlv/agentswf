@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,12 +59,17 @@ describe("a pane's secrets", () => {
   });
 });
 
+// zsh, where an srt pane runs, if this machine has it; sh, which every launcher line meets.
+const shells = [["/bin/sh", "-c"], ...(existsSync("/bin/zsh") ? [["/bin/zsh", "-fc"]] : [])];
+
 describe("shellQuote", () => {
   test.each(["plain", "", "it's", "=cmd", "a b", "$HOME", "`x`", "-c", "%#"])(
     "passes %p to a shell as one word, unchanged",
     (value) => {
-      const echoed = Bun.spawnSync(["/bin/zsh", "-fc", `printf '%s\\0' ${shellQuote(value)}`]);
-      expect(echoed.stdout.toString()).toBe(`${value}\0`);
+      for (const shell of shells) {
+        const echoed = Bun.spawnSync([...shell, `printf '%s\\0' ${shellQuote(value)}`]);
+        expect(echoed.stdout.toString()).toBe(`${value}\0`);
+      }
     },
   );
 });

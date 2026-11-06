@@ -17,6 +17,7 @@ import type {
   HarnessTurn,
   HarnessTurnHooks,
 } from "./adapter";
+import { reasonOf } from "./session-core";
 import type { SessionAccounting } from "./usage/accounting";
 
 /**
@@ -58,7 +59,7 @@ export function createSingleSessionHostFactory(
             } catch (error) {
               setSnapshot(snapshots, request.key, request.execution, {
                 state: "missing",
-                detail: error instanceof Error ? error.message : String(error),
+                detail: reasonOf(error),
               });
               throw error;
             }

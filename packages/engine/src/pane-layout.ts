@@ -11,77 +11,59 @@ import type {
 export const SESSION_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const SHARE = { min: 0.2, max: 0.8 };
-const NEW_TAB_FIELDS = new Set(["session", "workspace", "tab"]);
 const BESIDE_FIELDS = new Set(["beside", "side", "share"]);
 export const KEEP_PANES: readonly KeepPane[] = ["never", "on-failure", "always"];
 
-type WrittenPane = { pane?: unknown; layout?: unknown; keepPane?: unknown };
-
 /**
- * Refuses, before anything is placed, what the agent's own spec fixes about its pane: what a
- * workflow, untyped at run time, could get wrong in `pane`, `layout` or `keepPane`, and any of them
- * on an agent with no pane of awf's to place (docs/design/pane-layout.md, "Refused at open").
+ * Refuses, before anything is placed, what a workflow, untyped at run time, could get wrong in an
+ * agent's `pane`, and a `pane` on an agent with no pane of awf's to place
+ * (docs/design/pane-layout.md, "Refused at open").
  */
 export function checkPaneOptions(
   key: string,
-  spec: WrittenPane,
+  spec: { pane?: unknown },
   agent: { headless: boolean; sandboxed: boolean },
 ): void {
   const refuse = (why: string): never => {
     throw new Error(`agent ${key}: ${why}`);
   };
-  if (spec.pane === undefined && spec.layout === undefined && spec.keepPane === undefined) return;
-  const old = spec.pane === undefined;
-  if (agent.headless) {
+  // Removed in 0.1.0-beta.6; refused, as they would place or keep a pane otherwise than written.
+  const given = spec as { layout?: unknown; keepPane?: unknown };
+  if (given.layout !== undefined)
     refuse(
-      `${old ? "layout and keepPane place" : "pane places"} a pane, and a headless agent has none`,
+      "layout was removed: give pane: { tab } or pane: { beside, side }; the workspace is awf run --workspace",
     );
-  }
+  if (given.keepPane !== undefined)
+    refuse("keepPane was removed: keeping panes is the operator's, awf run --keep-panes");
+  const { pane } = spec;
+  if (pane === undefined) return;
+  if (agent.headless) refuse("pane places a pane, and a headless agent has none");
   if (agent.sandboxed) {
-    refuse(
-      `${old ? "layout and keepPane are" : "pane is"} not yet for an agent in a sandbox, whose pane is in its own Herdr`,
-    );
+    refuse("pane is not yet for an agent in a sandbox, whose pane is in its own Herdr");
   }
-  if (spec.pane !== undefined && spec.layout !== undefined) {
-    refuse("give pane, not layout beside it: layout is deprecated");
+  if (typeof pane !== "object" || pane === null || Array.isArray(pane)) {
+    refuse(`a pane is an object, not ${JSON.stringify(pane)}`);
   }
-  if (spec.keepPane !== undefined && !KEEP_PANES.includes(spec.keepPane as KeepPane)) {
-    refuse(`keepPane is never, on-failure or always, not ${JSON.stringify(spec.keepPane)}`);
-  }
-  if (spec.pane !== undefined) checkShape(key, "pane", spec.pane, refuse);
-  if (spec.layout !== undefined) checkShape(key, "layout", spec.layout, refuse);
-}
-
-function checkShape(
-  key: string,
-  named: "pane" | "layout",
-  given: unknown,
-  refuse: (why: string) => never,
-): void {
-  const a = named === "pane" ? "a pane" : "a layout";
-  if (typeof given !== "object" || given === null || Array.isArray(given)) {
-    refuse(`${a} is an object, not ${JSON.stringify(given)}`);
-  }
-  const layout = given as Record<string, unknown>;
-  const fields = Object.keys(layout).filter(
-    (field) => layout[field] !== undefined && !(named === "pane" && field === "front"),
+  const shape = pane as Record<string, unknown>;
+  const fields = Object.keys(shape).filter(
+    (field) => shape[field] !== undefined && field !== "front",
   );
-  if (named === "pane" && layout.front !== undefined && typeof layout.front !== "boolean") {
-    refuse(`front is true or false, not ${JSON.stringify(layout.front)}`);
+  if (shape.front !== undefined && typeof shape.front !== "boolean") {
+    refuse(`front is true or false, not ${JSON.stringify(shape.front)}`);
   }
-  if (layout.beside !== undefined) {
+  if (shape.beside !== undefined) {
     const others = fields.filter((field) => !BESIDE_FIELDS.has(field));
     if (others.length > 0) {
-      refuse(`${a} beside another pane takes side and share, not ${others.join(", ")}`);
+      refuse(`a pane beside another pane takes side and share, not ${others.join(", ")}`);
     }
-    if (typeof layout.beside !== "string" || layout.beside === "") {
-      refuse(`beside names an agent's key, not ${JSON.stringify(layout.beside)}`);
+    if (typeof shape.beside !== "string" || shape.beside === "") {
+      refuse(`beside names an agent's key, not ${JSON.stringify(shape.beside)}`);
     }
-    if (layout.beside === key) refuse("a pane cannot be placed beside itself");
-    if (layout.side !== "right" && layout.side !== "below") {
-      refuse(`side is right or below, not ${JSON.stringify(layout.side)}`);
+    if (shape.beside === key) refuse("a pane cannot be placed beside itself");
+    if (shape.side !== "right" && shape.side !== "below") {
+      refuse(`side is right or below, not ${JSON.stringify(shape.side)}`);
     }
-    const share = layout.share;
+    const share = shape.share;
     if (
       share !== undefined &&
       (typeof share !== "number" || !(share >= SHARE.min && share <= SHARE.max))
@@ -90,53 +72,29 @@ function checkShape(
     }
     return;
   }
-  const allowed = named === "pane" ? new Set(["tab"]) : NEW_TAB_FIELDS;
-  const others = fields.filter((field) => !allowed.has(field));
+  const others = fields.filter((field) => field !== "tab");
   if (others.length > 0) {
     refuse(
-      named === "pane"
-        ? `a pane takes tab, or beside and side, and front; not ${others.join(", ")}${others.some((field) => field === "workspace" || field === "session") ? ": the workspace is the operator's, awf run --workspace" : ""}`
-        : `a layout takes session, workspace and tab, or beside and side; not ${others.join(", ")}`,
+      `a pane takes tab, or beside and side, and front; not ${others.join(", ")}${others.some((field) => field === "workspace" || field === "session") ? ": the workspace is the operator's, awf run --workspace" : ""}`,
     );
   }
-  const { session, workspace, tab } = layout;
-  if (session !== undefined && (typeof session !== "string" || !SESSION_NAME.test(session))) {
-    refuse(
-      `session ${JSON.stringify(session)} is not a session name: lowercase letters, digits and -, up to 32, not starting with -`,
-    );
+  if (shape.tab !== undefined && !nonEmpty(shape.tab)) {
+    refuse(`tab is a label, not ${JSON.stringify(shape.tab)}`);
   }
-  if (session !== undefined && workspace === "origin") {
-    refuse('"origin" is a workspace in its own session, so it takes no session');
-  }
-  if (
-    workspace !== undefined &&
-    workspace !== "run" &&
-    workspace !== "origin" &&
-    !(
-      typeof workspace === "object" &&
-      workspace !== null &&
-      !Array.isArray(workspace) &&
-      Object.keys(workspace).join() === "name" &&
-      nonEmpty((workspace as { name?: unknown }).name)
-    )
-  ) {
-    refuse(`workspace is "run", "origin" or { name }, not ${JSON.stringify(workspace)}`);
-  }
-  if (tab !== undefined && !nonEmpty(tab)) refuse(`tab is a label, not ${JSON.stringify(tab)}`);
 }
 
 /**
- * A checked `pane` or `layout` as it is kept and compared: fields given as `undefined` dropped, and
+ * A checked `pane` as it is kept and compared: fields given as `undefined` dropped, and
  * `front: false`, which is its absence, so a reopen that leaves one out matches.
  */
-export function storedLayout<T extends PaneLayout | PaneSpec>(layout: T): T {
+export function storedPane(pane: PaneSpec): PaneSpec {
   // Not an object, it is left for `checkPaneOptions` to refuse by name.
-  if (typeof layout !== "object" || layout === null || Array.isArray(layout)) return layout;
+  if (typeof pane !== "object" || pane === null || Array.isArray(pane)) return pane;
   return Object.fromEntries(
-    Object.entries(structuredClone(layout)).filter(
+    Object.entries(structuredClone(pane)).filter(
       ([field, value]) => value !== undefined && !(field === "front" && value === false),
     ),
-  ) as T;
+  ) as PaneSpec;
 }
 
 function nonEmpty(value: unknown): value is string {
@@ -159,22 +117,21 @@ export type PaneAsked = {
 
 /**
  * What the host is asked for an agent's pane: the workflow's tab or neighbour and `front`, in the
- * operator's workspace and kept as the operator says. The operator's flags win over a deprecated
- * `layout`'s session and workspace and a deprecated `keepPane`; absent, those apply as before. An
- * agent with no pane of awf's, headless or in a sandbox, is asked nothing.
+ * operator's workspace and kept as the operator says. An agent with no pane of awf's, headless or
+ * in a sandbox, is asked nothing.
  */
 export function paneAsked(
-  written: { pane?: PaneSpec; layout?: PaneLayout; keepPane?: KeepPane },
+  pane: PaneSpec | undefined,
   run: RunPanes | undefined,
   hasPane: boolean,
 ): PaneAsked {
   if (!hasPane) return {};
-  const keepPane = run?.keep ?? written.keepPane;
+  const keepPane = run?.keep;
   const workspace = run?.workspace;
-  const layout = placedLayout(written, workspace);
+  const layout = placedLayout(pane, workspace);
   return {
     ...(layout === undefined ? {} : { layout }),
-    ...(written.pane?.front ? { front: true as const } : {}),
+    ...(pane?.front ? { front: true as const } : {}),
     ...(keepPane === undefined ? {} : { keepPane }),
     ...(besideOf(layout) !== undefined && workspace !== undefined
       ? { fallbackWorkspace: workspace }
@@ -183,19 +140,15 @@ export function paneAsked(
 }
 
 function placedLayout(
-  { pane, layout }: { pane?: PaneSpec; layout?: PaneLayout },
+  pane: PaneSpec | undefined,
   workspace: PaneWorkspace | undefined,
 ): PaneLayout | undefined {
-  const written = pane ?? layout;
-  if (written?.beside !== undefined) {
-    const { beside, side, share } = written;
+  if (pane?.beside !== undefined) {
+    const { beside, side, share } = pane;
     return { beside, side, ...(share === undefined ? {} : { share }) };
   }
-  const tab = written?.tab;
-  if (workspace !== undefined) {
-    return { workspace, ...(tab === undefined ? {} : { tab }) };
-  }
-  if (layout !== undefined) return layout;
+  const tab = pane?.tab;
+  if (workspace !== undefined) return { workspace, ...(tab === undefined ? {} : { tab }) };
   return tab === undefined ? undefined : { tab };
 }
 

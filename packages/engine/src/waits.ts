@@ -67,11 +67,8 @@ export class RunParked extends Error {
 
 /** How a run parks at a wait: whether it may, and the ending it writes when it does. */
 export type Parking = {
-  /**
-   * Nothing of the run works but this wait, in `stage` if it is in one: so nothing but a new event
-   * can change what the code would do.
-   */
-  idle(stage?: string): boolean;
+  /** Nothing of the run works but this wait, so only a new event can change what the code does. */
+  idle(): boolean;
   /**
    * With the run idle and nothing to take: calls one agent's due `onTimeout` and resolves true once
    * it returns, or false with none due. The signal stops waiting on it.
@@ -220,13 +217,6 @@ export class RunWaits {
     for (const wake of this.#wakes) wake();
   }
 
-  /** The events of the batch a wait in `stage` took; undefined when none did. */
-  async batchOf(stage: string): Promise<WorkflowEvent<string, JsonValue>[] | undefined> {
-    const state = await this.#state();
-    const ids = state.batches.get(stage);
-    return ids && this.#events(state, ids);
-  }
-
   /**
    * The run's timers as set, for `setTimer` and `cancelTimer` to answer at once; whether one fired
    * is the lines' to say.
@@ -314,34 +304,21 @@ export class RunWaits {
 
   /**
    * Acknowledges what the last call returned, then takes the events not yet acknowledged, waiting
-   * for one when there is none. The attempt's first call, outside a stage, returns a batch an earlier
-   * attempt took and never acknowledged, alone, and writes nothing. In a stage that has taken its
-   * batch, as one that failed or died before its line did has, it returns that batch and writes
-   * nothing.
+   * for one when there is none. The attempt's first call returns a batch an earlier attempt took
+   * and never acknowledged, alone, and writes nothing.
    */
   async receive(
     label: string | undefined,
-    stage?: string,
     /** Rejects the wait: the run ended, or the scope it waits in was cancelled. */
     signal?: AbortSignal,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    if (stage !== undefined) {
-      const batch = await this.batchOf(stage);
-      if (batch) return batch;
-    } else if (this.#first) {
+    if (this.#first) {
       this.#first = false;
       const state = await this.#state();
       const held = firstReceive(state);
       if (held) return this.#events(state, held);
     }
-    return this.#wait(
-      {
-        ...(label === undefined ? {} : { label }),
-        take: "all",
-        ...(stage === undefined ? {} : { stage }),
-      },
-      signal,
-    );
+    return this.#wait({ ...(label === undefined ? {} : { label }), take: "all" }, signal);
   }
 
   /**
@@ -419,7 +396,6 @@ export class RunWaits {
       /** Reads the takes again at each pass: a select's times read from state. */
       read?: () => readonly WaitTake[];
       returns?: boolean;
-      stage?: string;
       race?: {
         name: string;
         branches: readonly (readonly [string, WaitTake])[];
@@ -428,12 +404,12 @@ export class RunWaits {
     },
     signal: AbortSignal | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    const { label, take, read, returns, stage, race } = spec;
+    const { label, take, read, returns, race } = spec;
     let { takes } = spec;
     const { runDir } = this.options;
     await this.flush();
-    // Outside a stage and a race, the wait acknowledges the held batch, unless it hands it back.
-    const loop = stage === undefined && race === undefined;
+    // Outside a race, the wait acknowledges the held batch, unless it hands it back.
+    const loop = race === undefined;
     /** The wait's line: the first carries what it acknowledges, or `returns`; one rewritten neither. */
     const waitLine = (first: { acks?: string[] } | undefined): RunLine => ({
       kind: "wait",
@@ -441,7 +417,6 @@ export class RunWaits {
       at: this.#at(),
       ...(label === undefined ? {} : { label }),
       ...(takes === undefined ? {} : { takes }),
-      ...(stage === undefined ? {} : { stage }),
       ...(race === undefined ? {} : { race: race.name }),
       ...(first?.acks ? { acks: first.acks } : {}),
       ...(first && returns ? { returns: true as const } : {}),
@@ -463,7 +438,7 @@ export class RunWaits {
         if (ready.length === 0) return undefined;
         const ids = take === "oldest" ? ready.slice(0, 1) : ready;
         const events = ids.map((id) => state.events.get(id) as WaitEvent);
-        await this.#took(events, stage, race);
+        await this.#took(events, race);
         return events;
       });
     for (;;) {
@@ -501,7 +476,7 @@ export class RunWaits {
         const next = nextTimer(state, takes);
         if (next !== undefined && next <= this.#now()) continue;
         const { parking } = this.options;
-        const idle = parking?.idle(stage) ?? false;
+        const idle = parking?.idle() ?? false;
         // Before the handlers, on the same clock: a window that passes between the two is due by the
         // time `timeout` looks, never parked past.
         const live = parking && idle ? parking.liveUntil() : undefined;
@@ -561,10 +536,9 @@ export class RunWaits {
     return done;
   }
 
-  /** Writes what a wait took: a `took`, in its stage if it is in one, or a race's win and its cancels. */
+  /** Writes what a wait took: a `took`, or a race's win and its cancels. */
   async #took(
     events: readonly WaitEvent[],
-    stage: string | undefined,
     race:
       | {
           name: string;
@@ -581,7 +555,6 @@ export class RunWaits {
         attempt: this.#attempt,
         at,
         took: entries,
-        ...(stage === undefined ? {} : { stage }),
       });
       return;
     }
@@ -628,7 +601,7 @@ export class RunWaits {
         at: time.due,
         origin: "time",
       };
-      await this.#took([event], undefined, undefined);
+      await this.#took([event], undefined);
       return event;
     });
   }

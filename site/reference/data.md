@@ -232,15 +232,15 @@ an earlier attempt adds after it is ignored.
 | --- | --- |
 | `session` | an agent's native session, as soon as it is known: `agent`, `harness`, `session`, the `operation` it was seen in, `home`, the agent's own harness home when it has one, `sandbox`, the sandbox it ran in, and `skills`, the skills its harness was given, as `awf open` reopens them |
 | `turn-started` | a turn `start()` began: `agent`, `turn`, `meta` and `execution` |
-| `turn-ended` | its end, which a wait takes as `agent:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
+| `turn-ended` | its end, recorded in `in.jsonl` as `agent:ended` and taken by the workflow as `{key}:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
 
 **Timers and waits**
 
 | Kind | Fields |
 | --- | --- |
 | `timer` | a timer as first set: `name`, `due`, and `when` as the code gave it; when cancelled, the same line again with `cancelled` |
-| `wait` | a wait as it starts: its `label`, what it `takes`, its `stage` or `race`, and outside those the event ids it `acks`, or `returns` when an attempt's first wait hands back what an earlier one took |
-| `took` | what a wait returned, by id, with a `stage` when it was in one; held until a later wait acknowledges it |
+| `wait` | a wait as it starts: its `label`, what it `takes`, its `race`, and outside a race the event ids it `acks`, or `returns` when an attempt's first `select` doesn't take what an earlier attempt took, which stays unacknowledged. Older runs may carry a `stage`, a wait inside one |
+| `took` | what a wait returned, by id; held until a later wait acknowledges it. Older runs may carry a `stage`, a wait inside one |
 | `race` | a race's winning `branch`, and what it `took` |
 
 A timer that comes due is never written as an event: the wait or race that takes it names it by
@@ -310,7 +310,7 @@ can't take an agent's key, nor an agent a decision's.
 | `answers.jsonl` | every `wfa result` the agent sent, accepted or not, with the error that refused it |
 | `result.json` | the one accepted answer |
 | `decision.json` | a [decision](/guide/decisions)'s record (model, outcome, tokens), the state and questions sent, and the answers, so a threshold can be fitted again later without asking the model. The record's `artifact` names this file |
-| `spend.json` | what an agent's operation used, read from its sessions: its `billing`, its tokens by model (`spend`, absent when they couldn't be read), what was billed per token when the harness reports it, and its times, `deliveredAt` and `settledAt` |
+| `spend.json` | what an agent's operation used, read from its sessions: its `billing`, its tokens by model (`spend`, absent when they couldn't be read), `reportedCost`, the cost a metered agent's harness printed, not a bill, and its times, `deliveredAt` and `settledAt` |
 | `live.jsonl` | diagnostics of the operation's delivery and nudges, which nothing decides on |
 | `screen.txt` | what a TUI agent's pane showed when the turn or compaction ended without an answer, or its agent failed to start: escape codes stripped, at most its last 64 KiB. `awf logs` names it on the turn's line |
 
@@ -335,7 +335,7 @@ the attempt ran with. A run that failed or was cancelled once its agents started
 
 | Field | Meaning |
 | --- | --- |
-| `version` | `5` |
+| `version` | `6` |
 | `ref` | the run's ref, `{workflow}/{runId}`, as the other run documents have it |
 | `runId`, `attempt` | the run's id, and the attempt that wrote this |
 | `workflow` | `name` and `file` |
@@ -350,7 +350,7 @@ the attempt ran with. A run that failed or was cancelled once its agents started
 | `artifacts` | the run's folder |
 | `sandboxes` | each sandbox the run opened, with its spec, provider and the agents in it |
 | `skills` | the skills each agent was given, with their source, commit and digest |
-| `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it (or a deprecated `layout` and `keepPane`), and in `placed` where it landed and whether it was kept |
+| `panes` | where each TUI agent's pane went in Herdr: its `pane` as the workflow wrote it, and in `placed` where it landed and whether it was kept |
 | `decisions` | every decision asked |
 
 ### report.md
@@ -388,9 +388,13 @@ earlier awf made it, or has another one, or is format 1 but lacks a field it req
 `unreadable` by `awf runs`, and nothing else of it is read: continuing it, sending it an event or
 reading its log is refused, and `awf tick` counts it in one line and leaves it be.
 
-`out.json` has a `version`, as does each line of `log.jsonl`; an operation's files have none. A
-newer awf may add fields and kinds of line. A reader of `log.jsonl` skips a kind it doesn't know,
-but a reader of `run.jsonl` refuses one, since a continue acts on every line.
+`out.json` has a `version`, as does each line of `log.jsonl`, and each JSON file of an
+operation, `op.json`, `result.json`, `spend.json` and `decision.json`, its own, now `1`. A newer
+awf may add fields and kinds of line. A reader of `log.jsonl` skips a kind it doesn't know, but a
+reader of `run.jsonl` refuses one, since a continue acts on every line. An operation's file with no
+`version`, or one this awf doesn't know, is not read: a `spend.json` is then usage unknown, not
+zero, as one not yet written is, and with an `op.json` or `decision.json` the run's cost isn't
+added up: `awf runs` shows none, and `awf run`'s total counts earlier attempts as of unknown cost.
 
 The JSON files are replaced whole, never edited in place, so a crash leaves the old file or the
 new one. The `.jsonl` files are only appended to. Temporary files and folders (`.tmp-*`,
@@ -417,7 +421,7 @@ holds `~/.awf/sandboxes` is refused.
 
 - **The skills cache**, `~/.cache/awf/skills` (`$XDG_CACHE_HOME/awf/skills` when that is set): the
   repositories skills were fetched from, kept so the next run fetches less.
-- **Each agent's socket and `wfa` launcher**, in a folder of its own under `/tmp/awf-*`, which the
+- **Each agent's socket and `wfa` launcher**, in a folder of its own under `/tmp/awf-doors-*`, which the
   run removes when it closes.
 - **The agents' own sessions**: a harness on the host keeps its session files in its own home, such
   as `~/.claude/projects` or `~/.codex/sessions`. awf doesn't copy them; `awf logs` and each
@@ -444,7 +448,7 @@ lose is the run itself:
   you are done with a run you sandboxed.
 - **The skills cache**, while no run is running: a run fetches a skill whenever an agent given
   one opens. The next run fetches again.
-- **Temporary files** (`.tmp-*`, `.new-*`) and a `/tmp/awf-*` folder whose run has ended: awf
+- **Temporary files** (`.tmp-*`, `.new-*`) and a `/tmp/awf-doors-*` folder whose run has ended: awf
   removes them itself; deleting them sooner does no harm once their run is gone.
 
 Keep `~/.awf/projects` while you have runs with events you want `awf tick --all` to wake: a

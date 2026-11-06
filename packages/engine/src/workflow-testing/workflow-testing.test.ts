@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   type AgentRef,
   choice,
+  type Duration,
   defineWorkflow,
   type HarnessAllowance,
   type JsonValue,
@@ -67,7 +68,7 @@ const solo = (options: { schema?: boolean; runtime?: RuntimeSelection } = {}) =>
 /** A review per lens, in parallel; a lens without an answer fails the whole review. */
 const lenses = workflowOf<{ lenses: string[] }, JsonValue[]>(async (workflow, args) =>
   workflow.parallel(args.lenses, async (lens) => {
-    const agent = await workflow.agents.open({ key: `review:${lens}`, runtime: "codex" });
+    const agent = await workflow.agents.open({ key: `review-${lens}`, runtime: "codex" });
     const { outcome } = await agent.run({ prompt: `Review for ${lens}.`, schema: VERDICT });
     if (outcome.kind !== "answered") throw new Error(`${lens}: ${outcome.kind}`);
     return outcome.value;
@@ -200,11 +201,11 @@ describe("testWorkflow", () => {
       const run = await runTest(lenses, {
         args: { lenses: ["fast", "slow"] },
         agents: {
-          "review:fast": answer(VERDICT, async () => {
+          "review-fast": answer(VERDICT, async () => {
             await slowStarted;
             return noAnswer.failed();
           }),
-          "review:slow": answer(VERDICT, (turn) => {
+          "review-slow": answer(VERDICT, (turn) => {
             turn.signal.addEventListener("abort", () => cancelled.push(turn.agent));
             started();
             return noAnswer.hang();
@@ -212,7 +213,7 @@ describe("testWorkflow", () => {
         },
       });
       expect(() => run.value).toThrow("fast: failed");
-      expect(cancelled).toEqual(["review:slow"]);
+      expect(cancelled).toEqual(["review-slow"]);
     });
   });
 
@@ -221,18 +222,18 @@ describe("testWorkflow", () => {
     const run = await runTest(lenses, {
       args: { lenses: ["fast", "slow"] },
       agents: {
-        "review:fast": answer(VERDICT, async () => {
+        "review-fast": answer(VERDICT, async () => {
           await slowStarted;
           return noAnswer.failed();
         }),
-        "review:slow": answer(VERDICT, () => {
+        "review-slow": answer(VERDICT, () => {
           started();
           return new Promise(() => undefined);
         }),
       },
     });
     expect(() => run.value).toThrow("fast: failed");
-    expect(run.turnsOf("review:slow").map((turn) => turn.outcome)).toEqual(["cancelled"]);
+    expect(run.turnsOf("review-slow").map((turn) => turn.outcome)).toEqual(["cancelled"]);
   });
 
   test("runtimes adds aliases beside awf run's, and one of the same name replaces it", async () => {
@@ -255,11 +256,11 @@ describe("testWorkflow", () => {
     expect(replaced.value).toEqual(["opus", "mini"]);
   });
 
-  test("timeoutMs is the run's deadline", async () => {
+  test("timeout is the run's deadline", async () => {
     const remaining = workflowOf<null, number>(
-      async (workflow) => (workflow.deadline?.unixMilliseconds ?? Number.NaN) - Date.now(),
+      async (workflow) => (workflow.deadline?.getTime() ?? Number.NaN) - Date.now(),
     );
-    const run = await runTest(remaining, { timeoutMs: 60_000 });
+    const run = await runTest(remaining, { timeout: "1m" });
     expect(run.value).toBeGreaterThan(55_000);
     expect(run.value).toBeLessThanOrEqual(60_000);
   });
@@ -284,7 +285,6 @@ describe("testWorkflow", () => {
           key: "noter",
           runtime: "claude",
           instructions: "Take notes.",
-          labels: { role: "noter" },
           skills: [{ path: skill }],
         });
         return workflow.cwd;
@@ -297,7 +297,6 @@ describe("testWorkflow", () => {
           key: "noter",
           execution: { harness: "claude", model: "sonnet", alias: "claude" },
           instructions: "Take notes.",
-          labels: { role: "noter" },
           skills: ["notes"],
         },
       ]);
@@ -348,10 +347,10 @@ describe("testWorkflow", () => {
       expect(() => run.value).toThrow("not ready");
     });
 
-    test("timed out at the test's timeoutMs", async () => {
+    test("timed out at the test's timeout", async () => {
       const run = await runTest(shipping, {
         agents: { solo: noAnswer.hang() },
-        timeoutMs: 50,
+        timeout: "0.05s",
       });
       expect(run.ending).toMatchObject({ kind: "timed-out", stage: "plan" });
       expect(run.turns.map((turn) => turn.outcome)).toEqual(["timed-out"]);
@@ -359,18 +358,18 @@ describe("testWorkflow", () => {
   });
 
   describe("a turn's outcome is the one the engine recorded for its operation", () => {
-    const hanging = (timeoutMs?: number) =>
+    const hanging = (timeout?: Duration) =>
       workflowOf<null, string>(async (workflow) => {
         const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
         const { outcome } = await agent.run({
           prompt: "Review.",
-          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          ...(timeout === undefined ? {} : { timeout }),
         });
         return outcome.kind;
       });
 
     test("a hang past its turn's deadline is timed-out", async () => {
-      const run = await runTest(hanging(50), { agents: { solo: noAnswer.hang() } });
+      const run = await runTest(hanging("0.05s"), { agents: { solo: noAnswer.hang() } });
       expect(run.value).toBe("timed-out");
       expect(run.turns.map((turn) => turn.outcome)).toEqual(["timed-out"]);
     });
@@ -428,8 +427,8 @@ describe("testWorkflow", () => {
       const run = await runTest(lenses, {
         args: { lenses: ["a", "b"] },
         agents: {
-          "review:*": answer(VERDICT, ok),
-          "review:b": answer(VERDICT, { ready: false, notes: ["b"] }),
+          "review-*": answer(VERDICT, ok),
+          "review-b": answer(VERDICT, { ready: false, notes: ["b"] }),
         },
       });
       expect(run.value).toEqual([ok, { ready: false, notes: ["b"] }]);
@@ -439,12 +438,12 @@ describe("testWorkflow", () => {
       const run = await runTest(lenses, {
         args: { lenses: ["a", "b"] },
         agents: {
-          "review:*": [answer(VERDICT, (turn) => ({ ready: true, notes: [turn.agent] }))],
+          "review-*": [answer(VERDICT, (turn) => ({ ready: true, notes: [turn.agent] }))],
         },
       });
       expect(run.value).toEqual([
-        { ready: true, notes: ["review:a"] },
-        { ready: true, notes: ["review:b"] },
+        { ready: true, notes: ["review-a"] },
+        { ready: true, notes: ["review-b"] },
       ]);
     });
 
@@ -452,9 +451,9 @@ describe("testWorkflow", () => {
       await expect(
         runTest(lenses, {
           args: { lenses: ["a"] },
-          agents: { "review:*": answer(VERDICT, ok), "*:a": answer(VERDICT, ok) },
+          agents: { "review-*": answer(VERDICT, ok), "*-a": answer(VERDICT, ok) },
         }),
-      ).rejects.toThrow(/agent "review:a" turn 1: it matches "review:\*" and "\*:a"/);
+      ).rejects.toThrow(/agent "review-a" turn 1: it matches "review-\*" and "\*-a"/);
     });
 
     test("an agent with no script fails the test, naming what is scripted", async () => {
@@ -630,6 +629,63 @@ describe("testWorkflow", () => {
     );
   });
 
+  test("an agent needs no harness on PATH and no login, in a sandbox or in a home of its own", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "awf-test-cwd-"));
+    const skill = join(cwd, "skills", "notes");
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), "---\nname: notes\ndescription: Take notes.\n---\n");
+    // Outside the sandbox's cwd, where harness state may not lie.
+    const missing = join(mkdtempSync(join(tmpdir(), "awf-test-homes-")), "no-logins");
+    const names = ["PATH", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CURSOR_CONFIG_DIR"];
+    const tokens = ["CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY"];
+    const saved = Object.fromEntries(
+      [...names, ...tokens].map((name) => [name, process.env[name]]),
+    );
+    Object.assign(process.env, {
+      PATH: "/usr/bin:/bin",
+      CODEX_HOME: missing,
+      PI_CODING_AGENT_DIR: missing,
+      CURSOR_CONFIG_DIR: missing,
+    });
+    for (const name of tokens) delete process.env[name];
+    try {
+      const harnesses = [
+        { harness: "codex", model: "m" },
+        { harness: "pi", model: "openai-codex/m" },
+        { harness: "claude", model: "m", metered: true },
+        { harness: "cursor", model: "m" },
+      ] as const;
+      const boxed = workflowOf<null, string>(async (workflow) => {
+        const host = await workflow.agents.open({
+          key: "host",
+          runtime: { harness: "codex", model: "m", placement: "headless" },
+          skills: [{ path: skill }],
+        });
+        await host.run({ prompt: "Hi." });
+        for (const runtime of harnesses) {
+          const agent = await workflow.agents.open({
+            key: runtime.harness,
+            runtime: { ...runtime, placement: "headless" },
+            sandbox: { srt: {} },
+          });
+          await agent.run({ prompt: "Hi." });
+        }
+        return "done";
+      });
+      const run = await runTest(boxed, { cwd, agents: { "*": answer("hello") } });
+      expect(run.value).toBe("done");
+      expect(run.agentOf("codex").sandbox!.domains).toContain("chatgpt.com");
+      expect(run.agentOf("claude").sandbox!.domains).toContain("api.anthropic.com");
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(dirname(missing), { recursive: true, force: true });
+    }
+  });
+
   describe("the hosts refuse what the real ones refuse", () => {
     test("headless claude without metered", async () => {
       const runtime = { harness: "claude", model: "m", placement: "headless" } as const;
@@ -642,7 +698,7 @@ describe("testWorkflow", () => {
     test("a script that never settles", async () => {
       await expect(
         runTest(solo(), {
-          stallMs: 100,
+          stall: "0.1s",
           agents: { solo: answer(() => new Promise<string>(() => undefined)) },
         }),
       ).rejects.toThrow(
@@ -652,7 +708,7 @@ describe("testWorkflow", () => {
 
     test("a hang nothing cancels", async () => {
       await expect(
-        runTest(solo(), { stallMs: 100, agents: { solo: noAnswer.hang() } }),
+        runTest(solo(), { stall: "0.1s", agents: { solo: noAnswer.hang() } }),
       ).rejects.toThrow(/the run stalled.*in flight: "solo" turn 1$/);
     });
   });
@@ -707,7 +763,7 @@ describe("testWorkflow", () => {
   describe("decisions", () => {
     const triage = workflowOf<{ ticket: string }, JsonValue>(async (workflow, { ticket }) => {
       const { answers } = await workflow.decisions.decide({
-        key: "triage:1",
+        key: "triage-1",
         model: "jev",
         state: { ticket },
         questions: {
@@ -726,17 +782,17 @@ describe("testWorkflow", () => {
     test("are answered in the author's terms, by key or pattern", async () => {
       const run = await runTest(triage, {
         args: { ticket: "Pay twice" },
-        decisions: { "triage:*": { team: "payments", bug: true, urgency: 1 } },
+        decisions: { "triage-*": { team: "payments", bug: true, urgency: 1 } },
       });
       expect(run.value).toEqual({ team: "payments", bug: 1, urgency: 1 });
-      expect(run.decisions).toMatchObject([{ key: "triage:1", state: { ticket: "Pay twice" } }]);
+      expect(run.decisions).toMatchObject([{ key: "triage-1", state: { ticket: "Pay twice" } }]);
     });
 
     test("a function of the request, with probabilities", async () => {
       const run = await runTest(triage, {
         args: { ticket: "Pay twice" },
         decisions: {
-          "triage:1": (request) => ({
+          "triage-1": (request) => ({
             team: { payments: 0.3, frontend: 0.7 },
             bug: JSON.stringify(request.state).includes("twice") ? 0.8 : 0.1,
             urgency: [0.9, 0.1],
@@ -749,7 +805,7 @@ describe("testWorkflow", () => {
     test("an Error makes decide reject, as a provider failure does", async () => {
       const run = await runTest(triage, {
         args: { ticket: "t" },
-        decisions: { "triage:1": new Error("provider down") },
+        decisions: { "triage-1": new Error("provider down") },
       });
       expect(() => run.value).toThrow("provider down");
     });
@@ -759,12 +815,12 @@ describe("testWorkflow", () => {
         runTest(triage, {
           args: { ticket: "t" },
           decisions: {
-            "triage:1": () => {
+            "triage-1": () => {
               throw new Error("oops");
             },
           },
         }),
-      ).rejects.toThrow(/decision "triage:1": its script threw: oops/);
+      ).rejects.toThrow(/decision "triage-1": its script threw: oops/);
     });
 
     test("probabilities that are not a distribution fail the test", async () => {
@@ -776,14 +832,14 @@ describe("testWorkflow", () => {
         await expect(
           runTest(triage, {
             args: { ticket: "t" },
-            decisions: { "triage:1": { team, bug: 0.5, urgency: 0 } },
+            decisions: { "triage-1": { team, bug: 0.5, urgency: 0 } },
           }),
-        ).rejects.toThrow(/decision "triage:1": its script's answer is refused: question team: /);
+        ).rejects.toThrow(/decision "triage-1": its script's answer is refused: question team: /);
       }
       await expect(
         runTest(triage, {
           args: { ticket: "t" },
-          decisions: { "triage:1": { team: "payments", bug: 3, urgency: 0 } },
+          decisions: { "triage-1": { team: "payments", bug: 3, urgency: 0 } },
         }),
       ).rejects.toThrow(/question bug: no probability of yes/);
     });
@@ -792,7 +848,7 @@ describe("testWorkflow", () => {
       const run = await runTest(triage, {
         args: { ticket: "t" },
         decisions: {
-          "triage:1": {
+          "triage-1": {
             team: { payments: 0.5, frontend: 0.49 },
             bug: 1,
             urgency: 0,
@@ -804,7 +860,7 @@ describe("testWorkflow", () => {
 
     test("an unscripted decision fails the test", async () => {
       await expect(runTest(triage, { args: { ticket: "t" } })).rejects.toThrow(
-        /decision "triage:1": no decision is scripted/,
+        /decision "triage-1": no decision is scripted/,
       );
     });
 
@@ -812,7 +868,7 @@ describe("testWorkflow", () => {
       await expect(
         runTest(triage, {
           args: { ticket: "t" },
-          decisions: { "triage:1": { team: "legal", bug: true, urgency: 1 } },
+          decisions: { "triage-1": { team: "legal", bug: true, urgency: 1 } },
         }),
       ).rejects.toThrow(/"team" is a choice question; its script answers "legal"/);
     });
@@ -826,9 +882,8 @@ const compacting = workflowOf<{ compactions: number }, JsonValue>(async (workflo
   const outcomes: JsonValue[] = [];
   for (let n = 1; n <= args.compactions; n++) {
     const outcome = await agent.compact({
-      id: `after-plan-${n}`,
       prompt: `Keep the plan's decisions, round ${n}.`,
-      deadline: { unixMilliseconds: Date.now() + 60_000 },
+      timeout: "1m",
     });
     outcomes.push(
       outcome.kind === "answered"
@@ -857,7 +912,7 @@ describe("testWorkflow compactions", () => {
       {
         agent: "builder",
         n: 1,
-        id: "after-plan-1",
+        id: expect.any(String),
         focus: "Keep the plan's decisions, round 1.",
         outcome: "answered",
       },
@@ -897,7 +952,7 @@ describe("testWorkflow compactions", () => {
     const hanging = workflowOf<null, JsonValue>(async (workflow) => {
       const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
       await agent.run({ prompt: "Plan it.", schema: STATUS });
-      const compacted = await agent.compact({ prompt: "Keep everything.", timeoutMs: 50 });
+      const compacted = await agent.compact({ prompt: "Keep everything.", timeout: "0.05s" });
       const built = await agent.run({ prompt: "Build it.", schema: STATUS });
       return { compacted: compacted.kind, built: built.outcome.kind };
     });
@@ -909,39 +964,13 @@ describe("testWorkflow compactions", () => {
     expect(run.compactionsOf("builder").map((c) => c.outcome)).toEqual(["timed-out"]);
   });
 
-  test("a compaction id reused with another focus rejects; the same spec returns the same outcome", async () => {
-    const reused = workflowOf<null, JsonValue>(async (workflow) => {
-      const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
-      const deadline = { unixMilliseconds: Date.now() + 60_000 };
-      const first = agent.compact({ id: "c", prompt: "Keep A.", deadline });
-      const again = agent.compact({ id: "c", prompt: "Keep A.", deadline });
-      const other = agent.compact({ id: "c", prompt: "Keep B.", deadline }).then(
-        () => "accepted",
-        (error: Error) => error.message,
-      );
-      return { same: (await first) === (await again), other: await other };
-    });
-    const run = await runTest(reused);
-    expect(run.value).toEqual({
-      same: true,
-      other: "compaction id c was reused with a different specification",
-    });
-    expect(run.compactionsOf("builder")).toHaveLength(1);
-  });
-
-  test("a compaction without an id or a bound gets its own id and the workflow's deadline", async () => {
+  test("each compaction gets its own id, bounded by the workflow's deadline", async () => {
     const defaults = workflowOf<null, JsonValue>(async (workflow) => {
       const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
       await agent.run({ prompt: "Plan it.", schema: STATUS });
       const kinds = [];
       for (let n = 0; n < 2; n++) kinds.push((await agent.compact({ prompt: "Keep it." })).kind);
-      const both = await agent
-        .compact({ prompt: "Keep it.", timeoutMs: 1_000, deadline: { unixMilliseconds: 1 } })
-        .then(
-          () => "accepted",
-          (error: Error) => error.message,
-        );
-      return { kinds, both };
+      return { kinds };
     });
     const run = await runTest(defaults, {
       agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
@@ -949,7 +978,6 @@ describe("testWorkflow compactions", () => {
     });
     expect(run.value).toEqual({
       kinds: ["answered", "answered"],
-      both: "an operation cannot specify both deadline and timeoutMs",
     });
     const [first, second] = run.compactionsOf("builder");
     expect(first?.id).not.toEqual(second?.id);
@@ -1061,7 +1089,7 @@ describe("testWorkflow with effort and set", () => {
 });
 
 /** Each step of a short procedure in the calling session, and how each ended. */
-const steps = (prompts: string[], options: { timeoutMs?: number } = {}) =>
+const steps = (prompts: string[], options: { timeout?: Duration } = {}) =>
   workflowOf<null, JsonValue>(async (workflow): Promise<JsonValue> => {
     const caller = await workflow.agents.caller({ key: "author" });
     if (!caller) return "no caller";
@@ -1069,7 +1097,7 @@ const steps = (prompts: string[], options: { timeoutMs?: number } = {}) =>
     for (const prompt of prompts) {
       const { outcome } = await caller.run({
         prompt,
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
       });
       ended.push(outcome.kind === "answered" ? outcome.value : outcome.kind);
     }
@@ -1104,7 +1132,7 @@ describe("testWorkflow with a calling session", () => {
 
   test("a turn that times out leaves the session usable", async () => {
     let first = true;
-    const run = await runTest(steps(["Plan.", "Fix."], { timeoutMs: 200 }), {
+    const run = await runTest(steps(["Plan.", "Fix."], { timeout: "0.2s" }), {
       caller: { harness: "codex" },
       agents: {
         author: answer(() => {
@@ -1150,11 +1178,7 @@ describe("testWorkflow with a calling session", () => {
 
   /** Forks the session the run was started from, and runs the fork once. */
   const fixing = workflowOf<null, JsonValue>(async (workflow) => {
-    const fixer = await workflow.agents.forkCaller({
-      key: "fixer",
-      layout: { workspace: "origin" },
-      keepPane: "always",
-    });
+    const fixer = await workflow.agents.forkCaller({ key: "fixer" });
     if (!fixer) return "no session";
     const { outcome } = await fixer.run({ prompt: "Fix the findings." });
     return outcome.kind === "answered" ? outcome.value : outcome.kind;
@@ -1164,12 +1188,13 @@ describe("testWorkflow with a calling session", () => {
     const run = await runTest(fixing, {
       caller: { harness: "claude", model: "claude-opus-5-5", here: false },
       agents: { fixer: answer("fixed") },
+      panes: { workspace: "origin", keep: "always" },
     });
     expect(run.value).toBe("fixed");
     expect(run.agentOf("fixer")).toMatchObject({
       execution: { harness: "claude", model: "claude-opus-5-5" },
       forkedFrom: { caller: true, turns: 0 },
-      layout: { workspace: "origin" },
+      panes: { workspace: "origin", keep: "always" },
       keptPane: true,
     });
     expect(run.agentOf("fixer").execution).not.toHaveProperty("caller");
@@ -1254,9 +1279,8 @@ describe("testWorkflow with a calling session", () => {
           .catch((error) => error.message);
         await caller!.run({ prompt: "Plan." });
         const compacted = await (caller as unknown as AgentRef).compact({
-          id: "c1",
           prompt: "keep the plan",
-          deadline: { unixMilliseconds: Date.now() + 60_000 },
+          timeout: "1m",
         });
         return {
           same: caller === again,
@@ -1290,7 +1314,7 @@ const forking = workflowOf<{ placement?: "tui" }, JsonValue>(async (workflow, ar
   });
   await worker.run({ prompt: "Plan a cache.", schema: PLAN });
   const tests = await worker
-    .fork({ key: "tests", instructions: "You write the tests.", ...args })
+    .fork({ key: "tests", instructions: "You write the tests.", runtime: args })
     .catch((error: Error) => error.message);
   if (typeof tests === "string") return tests;
   const status = await tests.run({ prompt: "Test the plan.", schema: STATUS });
@@ -1354,45 +1378,7 @@ describe("testWorkflow forks", () => {
   });
 });
 
-describe("testWorkflow layouts", () => {
-  test("each agent's layout and keepPane are recorded as written; a fork inherits neither", async () => {
-    const review = workflowOf<null, null>(async (workflow) => {
-      const lead = await workflow.agents.open({
-        key: "lead",
-        runtime: "claude",
-        layout: { workspace: "origin", tab: "review" },
-        keepPane: "on-failure",
-      });
-      await lead.run({ prompt: "Plan the review.", schema: PLAN });
-      await lead.fork({
-        key: "security",
-        layout: { beside: "lead", side: "right" },
-      });
-      await lead.fork({
-        key: "style",
-        layout: { beside: "security", side: "below", share: 0.4 },
-        keepPane: "always",
-      });
-      await lead.fork({ key: "plain" });
-      return null;
-    });
-    const run = await runTest(review, {
-      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
-    });
-    expect(run.agentOf("lead")).toMatchObject({
-      layout: { workspace: "origin", tab: "review" },
-      keepPane: "on-failure",
-    });
-    expect(run.agentOf("security").layout).toEqual({ beside: "lead", side: "right" });
-    expect(run.agentOf("security")).not.toHaveProperty("keepPane");
-    expect(run.agentOf("security")).not.toHaveProperty("layoutFallback");
-    expect(run.agentOf("style")).toMatchObject({
-      layout: { beside: "security", side: "below", share: 0.4 },
-      keepPane: "always",
-    });
-    expect(run.agentOf("plain")).not.toHaveProperty("layout");
-  });
-
+describe("testWorkflow panes", () => {
   test("each agent's pane is recorded as written, front included; a fork doesn't inherit it, and a reopen compares it", async () => {
     const review = workflowOf<null, string>(async (workflow) => {
       const lead = await workflow.agents.open({
@@ -1413,40 +1399,38 @@ describe("testWorkflow layouts", () => {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.value).toBe("agent lead is already open with different pane");
-    expect(run.agentOf("lead")).toMatchObject({
-      pane: { tab: "review", front: true },
-      layout: { tab: "review" },
-    });
+    expect(run.agentOf("lead")).toMatchObject({ pane: { tab: "review", front: true } });
+    expect(run.agentOf("lead")).not.toHaveProperty("panes");
     expect(run.agentOf("security").pane).toEqual({ beside: "lead", side: "right" });
     expect(run.agentOf("plain")).not.toHaveProperty("pane");
   });
 
-  test("a reopen compares them as written: omitted they don't constrain, different rejects", async () => {
-    const reopening = workflowOf<null, string[]>(async (workflow) => {
-      const open = (extra: object) =>
-        workflow.agents
-          .open({ key: "lead", runtime: "claude", ...extra })
-          .then(() => "ok")
-          .catch((error: Error) => error.message);
-      return [
-        await open({ layout: { tab: "review" }, keepPane: "always" }),
-        await open({}),
-        await open({ layout: { tab: "review" } }),
-        await open({ layout: { tab: "other" } }),
-        await open({ keepPane: "never" }),
-      ];
+  test("panes, as awf run --workspace and --keep-panes give them, reach each agent's host", async () => {
+    const review = workflowOf<null, null>(async (workflow) => {
+      const lead = await workflow.agents.open({
+        key: "lead",
+        runtime: "claude",
+        pane: { tab: "review" },
+      });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await lead.fork({ key: "security", pane: { beside: "lead", side: "right" } });
+      return null;
     });
-    const run = await runTest(reopening, { agents: {} });
-    expect(run.value).toEqual([
-      "ok",
-      "ok",
-      "ok",
-      "agent lead is already open with different layout",
-      "agent lead is already open with different keepPane",
-    ]);
+    const run = await runTest(review, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+      panes: { workspace: { name: "review" }, keep: "on-failure" },
+    });
+    expect(run.agentOf("lead")).toMatchObject({
+      pane: { tab: "review" },
+      panes: { workspace: { name: "review" }, keep: "on-failure" },
+    });
+    expect(run.agentOf("security")).toMatchObject({
+      pane: { beside: "lead", side: "right" },
+      panes: { keep: "on-failure" },
+    });
   });
 
-  test("refused at open: a layout on a headless agent, or beside itself", async () => {
+  test("refused at open: a pane on a headless agent, or beside itself", async () => {
     const refused = workflowOf<null, string[]>(async (workflow) => {
       const open = (spec: Parameters<typeof workflow.agents.open>[0]) =>
         workflow.agents
@@ -1457,14 +1441,14 @@ describe("testWorkflow layouts", () => {
         await open({
           key: "a",
           runtime: { alias: "codex", placement: "headless" },
-          keepPane: "always",
+          pane: { tab: "a" },
         }),
-        await open({ key: "b", runtime: "claude", layout: { beside: "b", side: "right" } }),
+        await open({ key: "b", runtime: "claude", pane: { beside: "b", side: "right" } }),
       ];
     });
     const run = await runTest(refused, { agents: {} });
     expect(run.value).toEqual([
-      "agent a: layout and keepPane place a pane, and a headless agent has none",
+      "agent a: pane places a pane, and a headless agent has none",
       "agent b: a pane cannot be placed beside itself",
     ]);
     expect(run.agents).toEqual([]);
@@ -1479,18 +1463,18 @@ describe("testWorkflow layouts", () => {
       await workflow.agents.open({
         key: "a",
         runtime: "claude",
-        layout: { beside: "quiet", side: "right" },
+        pane: { beside: "quiet", side: "right" },
       });
       await workflow.agents.open({
         key: "b",
         runtime: "claude",
-        layout: { beside: "later", side: "below" },
+        pane: { beside: "later", side: "below" },
       });
       return null;
     });
     const run = await runTest(besides, { agents: {} });
-    expect(run.agentOf("a").layoutFallback).toBe("quiet is headless");
-    expect(run.agentOf("b").layoutFallback).toBe("later is not open");
+    expect(run.agentOf("a").paneFallback).toBe("quiet is headless");
+    expect(run.agentOf("b").paneFallback).toBe("later is not open");
   });
 
   test("beside a sibling opening in the same parallel waits for it, if it began first", async () => {
@@ -1500,12 +1484,12 @@ describe("testWorkflow layouts", () => {
         workflow.agents.open({
           key: "b",
           runtime: "claude",
-          layout: { beside: "a", side: "right" },
+          pane: { beside: "a", side: "right" },
         }),
         workflow.agents.open({
           key: "c",
           runtime: "claude",
-          layout: { beside: "d", side: "right" },
+          pane: { beside: "d", side: "right" },
         }),
         workflow.agents.open({ key: "d", runtime: "claude" }),
       ]);
@@ -1515,8 +1499,8 @@ describe("testWorkflow layouts", () => {
     expect(run.agents.map((agent) => agent.key).indexOf("b")).toBeGreaterThan(
       run.agents.map((agent) => agent.key).indexOf("a"),
     );
-    expect(run.agentOf("b")).not.toHaveProperty("layoutFallback");
-    expect(run.agentOf("c").layoutFallback).toBe("d is not open");
+    expect(run.agentOf("b")).not.toHaveProperty("paneFallback");
+    expect(run.agentOf("c").paneFallback).toBe("d is not open");
   });
 
   test("two forks beside each other: the first, whose target was not yet open, falls back", async () => {
@@ -1524,40 +1508,40 @@ describe("testWorkflow layouts", () => {
       const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
       await lead.run({ prompt: "Plan the review.", schema: PLAN });
       await Promise.all([
-        lead.fork({ key: "x", layout: { beside: "y", side: "right" } }),
-        lead.fork({ key: "y", layout: { beside: "x", side: "below" } }),
+        lead.fork({ key: "x", pane: { beside: "y", side: "right" } }),
+        lead.fork({ key: "y", pane: { beside: "x", side: "below" } }),
       ]);
       return null;
     });
     const run = await runTest(crossed, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
-    expect(run.agentOf("x").layoutFallback).toBe("y is not open");
-    expect(run.agentOf("y")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("x").paneFallback).toBe("y is not open");
+    expect(run.agentOf("y")).not.toHaveProperty("paneFallback");
   });
 
-  test("a layout given with an undefined field reopens as one without it", async () => {
+  test("a pane given with an undefined field reopens as one without it", async () => {
     const reopening = workflowOf<null, string>(async (workflow) => {
       const share: number | undefined = undefined;
       await workflow.agents.open({ key: "a", runtime: "claude" });
       await workflow.agents.open({
         key: "b",
         runtime: "claude",
-        layout: { beside: "a", side: "right", share },
+        pane: { beside: "a", side: "right", share },
       });
       await workflow.agents.open({
         key: "b",
         runtime: "claude",
-        layout: { beside: "a", side: "right" },
+        pane: { beside: "a", side: "right" },
       });
       return "ok";
     });
     const run = await runTest(reopening, { agents: {} });
     expect(run.value).toBe("ok");
-    expect(run.agentOf("b").layout).toEqual({ beside: "a", side: "right" });
+    expect(run.agentOf("b").pane).toEqual({ beside: "a", side: "right" });
   });
 
-  test("a fork made headless, or an agent in a sandbox, is refused a layout", async () => {
+  test("a fork made headless, or an agent in a sandbox, is refused a pane", async () => {
     const refused = workflowOf<null, string[]>(async (workflow) => {
       const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
       await lead.run({ prompt: "Plan.", schema: PLAN });
@@ -1567,9 +1551,8 @@ describe("testWorkflow layouts", () => {
         await message(
           lead.fork({
             key: "quiet",
-            placement: "headless",
-            metered: true,
-            layout: { tab: "q" },
+            runtime: { placement: "headless", metered: true },
+            pane: { tab: "q" },
           }),
         ),
         await message(
@@ -1577,7 +1560,7 @@ describe("testWorkflow layouts", () => {
             key: "boxed",
             runtime: "codex",
             sandbox: { srt: {} },
-            keepPane: "always",
+            pane: { tab: "b" },
           }),
         ),
       ];
@@ -1586,35 +1569,30 @@ describe("testWorkflow layouts", () => {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.value).toEqual([
-      "agent quiet: layout and keepPane place a pane, and a headless agent has none",
-      "agent boxed: layout and keepPane are not yet for an agent in a sandbox, whose pane is in its own Herdr",
+      "agent quiet: pane places a pane, and a headless agent has none",
+      "agent boxed: pane is not yet for an agent in a sandbox, whose pane is in its own Herdr",
     ]);
   });
 
-  test("a fork re-attached with another layout or keepPane conflicts", async () => {
+  test("a fork re-attached with another pane conflicts", async () => {
     const twice = workflowOf<null, string[]>(async (workflow) => {
       const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
       await lead.run({ prompt: "Plan.", schema: PLAN });
-      await lead.fork({ key: "x", layout: { beside: "lead", side: "right" } });
+      await lead.fork({ key: "x", pane: { beside: "lead", side: "right" } });
       const again = (spec: Parameters<typeof lead.fork>[0]) =>
         lead
           .fork(spec)
           .then(() => "ok")
           .catch((error: Error) => error.message);
       return [
-        await again({ key: "x", layout: { beside: "lead", side: "right", share: undefined } }),
-        await again({ key: "x", layout: { beside: "lead", side: "below" } }),
-        await again({ key: "x", layout: { beside: "lead", side: "right" }, keepPane: "always" }),
+        await again({ key: "x", pane: { beside: "lead", side: "right", share: undefined } }),
+        await again({ key: "x", pane: { beside: "lead", side: "below" } }),
       ];
     });
     const run = await runTest(twice, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
-    expect(run.value).toEqual([
-      "ok",
-      "agent x is already open, not as this fork of lead",
-      "agent x is already open, not as this fork of lead",
-    ]);
+    expect(run.value).toEqual(["ok", "agent x is already open, not as this fork of lead"]);
   });
 
   test("beside the calling session, or an agent in a sandbox, falls back", async () => {
@@ -1624,64 +1602,52 @@ describe("testWorkflow layouts", () => {
       await workflow.agents.open({
         key: "a",
         runtime: "claude",
-        layout: { beside: "author", side: "right" },
+        pane: { beside: "author", side: "right" },
       });
       await workflow.agents.open({
         key: "b",
         runtime: "claude",
-        layout: { beside: "boxed", side: "right" },
+        pane: { beside: "boxed", side: "right" },
       });
       return null;
     });
     const run = await runTest(besides, { agents: {}, caller: { harness: "claude" } });
-    expect(run.agentOf("a").layoutFallback).toBe(
+    expect(run.agentOf("a").paneFallback).toBe(
       "author is the calling session, whose pane is the operator's",
     );
-    expect(run.agentOf("b").layoutFallback).toBe(
+    expect(run.agentOf("b").paneFallback).toBe(
       "boxed runs in a sandbox, whose panes are in its own Herdr",
     );
   });
 
-  test("a pane is kept as keepPane says, by how the agent's last operation ended", async () => {
+  test("a pane is kept as panes.keep says, by how the agent's last operation ended", async () => {
     const keeping = workflowOf<null, null>(async (workflow) => {
       const agents = await Promise.all(
-        (
-          [
-            ["kept-failed", "on-failure"],
-            ["closed-answered", "on-failure"],
-            ["kept-always", "always"],
-            ["closed-never", "never"],
-            ["closed-default", undefined],
-          ] as const
-        ).map(([key, keepPane]) =>
-          workflow.agents.open({ key, runtime: "claude", ...(keepPane ? { keepPane } : {}) }),
-        ),
+        ["failed", "answered"].map((key) => workflow.agents.open({ key, runtime: "claude" })),
       );
       for (const agent of agents) await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
       return null;
     });
-    const run = await runTest(keeping, {
-      agents: {
-        "kept-failed": [noAnswer.failed()],
-        "closed-answered": [answer(PLAN, { steps: [] })],
-        "kept-always": [answer(PLAN, { steps: [] })],
-        "closed-never": [noAnswer.failed()],
-        "closed-default": [noAnswer.failed()],
-      },
-    });
-    expect(run.agents.filter((agent) => agent.keptPane).map((agent) => agent.key)).toEqual([
-      "kept-failed",
-      "kept-always",
-    ]);
+    const scripts = {
+      failed: [noAnswer.failed()],
+      answered: [answer(PLAN, { steps: [] })],
+    };
+    const kept = async (keep?: "never" | "on-failure" | "always") => {
+      const run = await runTest(keeping, {
+        agents: scripts,
+        ...(keep === undefined ? {} : { panes: { keep } }),
+      });
+      return run.agents.filter((agent) => agent.keptPane).map((agent) => agent.key);
+    };
+    expect(await kept("on-failure")).toEqual(["failed"]);
+    expect(await kept("always")).toEqual(["failed", "answered"]);
+    expect(await kept("never")).toEqual([]);
+    expect(await kept()).toEqual([]);
   });
 
   test("an operation the run's end cancels counts as a failure: on-failure keeps the pane", async () => {
     const leaving = workflowOf<null, null>(async (workflow) => {
-      const agent = await workflow.agents.open({
-        key: "left",
-        runtime: "claude",
-        keepPane: "on-failure",
-      });
+      const agent = await workflow.agents.open({ key: "left", runtime: "claude" });
       await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
       void agent.run({ prompt: "Go on.", nudge: false }).catch(() => undefined);
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1689,6 +1655,7 @@ describe("testWorkflow layouts", () => {
     });
     const run = await runTest(leaving, {
       agents: { left: [answer(PLAN, { steps: [] }), noAnswer.hang()] },
+      panes: { keep: "on-failure" },
     });
     expect(run.agentOf("left").keptPane).toBe(true);
   });

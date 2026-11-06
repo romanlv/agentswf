@@ -2,13 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/format";
 import type { ReviewFinding, ScorerResult } from "../packages/lab/src/review/format/scoring";
 import { checkScorerResult } from "../packages/lab/src/review/judge/check";
 import { categoryOf } from "../packages/lab/src/review/judge/panel";
 import { agreement } from "../packages/lab/src/review/metrics/metrics";
-import { assertLiveOptIn } from "./live";
+import { git } from "./lab-workspace";
+import { assertLiveOptIn, report, runLive } from "./live";
 
 /**
  * The panel judge live (story 008, Task 3), on cheap models: a synthetic fixture, a two-file
@@ -50,12 +50,6 @@ export function serverPort(env: Record<string, string | undefined>): number {
   return parsePort(env.PORT ?? "8080");
 }
 `;
-
-function git(cwd: string, ...args: string[]): string {
-  const run = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (run.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${run.stderr.toString()}`);
-  return run.stdout.toString().trim();
-}
 
 async function repository(root: string): Promise<{ repo: string; base: string; head: string }> {
   const repo = join(root, "repo");
@@ -186,31 +180,12 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
     const findings = join(root, "findings.json");
     await Bun.write(findings, JSON.stringify(FINDINGS));
 
-    const output: string[] = [];
-    const exitCode = await runOperatorCli(
-      [
-        "run",
-        "--json",
-        "--timeout",
-        "15m",
-        "--run-root",
-        join(root, "runs"),
-        "--cwd",
-        repo,
-        WORKFLOW,
-        "--",
-        "--panel",
-        PANEL,
-        "--tiebreak",
-        TIEBREAK,
-        "--fixture",
-        fixture,
-        "--findings",
-        findings,
-      ],
-      { stdout: (text) => output.push(text) },
+    const { exitCode, record } = await runLive(
+      "judge-eval",
+      WORKFLOW,
+      ["--panel", PANEL, "--tiebreak", TIEBREAK, "--fixture", fixture, "--findings", findings],
+      { workDir: root, timeout: "15m", flags: ["--cwd", repo] },
     );
-    const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
     if (exitCode !== 0 || record?.outcome !== "completed") {
       return {
         failed: [`run did not succeed: exit ${exitCode}, ${record?.outcome ?? "no record"}`],
@@ -243,17 +218,8 @@ if (import.meta.main) {
   assertLiveOptIn();
   const { failed, record } = await evaluate();
   for (const line of failed) console.error(line);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        estimateUsd: record?.accounting.totals.estimate,
-        ...(record && "value" in record ? { value: record.value } : {}),
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  report(failed, {
+    estimateUsd: record?.accounting.totals.estimate,
+    ...(record && "value" in record ? { value: record.value } : {}),
+  });
 }

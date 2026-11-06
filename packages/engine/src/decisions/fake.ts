@@ -36,7 +36,7 @@ export function confidentResponse(request: ProviderRequest): ProviderResponse {
     snapshot: `${request.model}-20260926`,
     answers,
     tokens: { input: 1_000, output: 10 },
-    charged: { amount: 0.000042, currency: "USD" },
+    reportedCost: { amount: 0.000042, currency: "USD" },
     requestId: `request-${Object.keys(request.questions).join("-")}`,
   };
 }

@@ -226,7 +226,7 @@ describe("workflow.stage", () => {
         await workflow.stage("qa", { result: DOC }, () => ask(workflow, "Check."));
         return null;
       }),
-      { agents: { worker: noAnswer.hang() }, timeoutMs: 300, stallMs: 5_000 },
+      { agents: { worker: noAnswer.hang() }, timeout: "0.3s", stall: "5s" },
     );
     expect(() => run.value).toThrow();
     expect(run.stages).toEqual([

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   decodeHolderRequest,
@@ -9,7 +9,8 @@ import {
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
-import { realPath } from "./files";
+import { messageOf } from "./errors";
+import { isInside, realPath } from "./files";
 import type { MessagingEventBody } from "./messaging/messaging";
 import type { RunStatus } from "./run-state";
 
@@ -56,9 +57,8 @@ export async function prepareCoordinatorDir(
       return parent === path ? path : join(await real(parent), basename(path));
     }
   };
-  const inside = relative(await real(workflowDir), await real(dir));
-  const within =
-    inside === "" || !(inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside));
+  const [root, realDir] = [await real(workflowDir), await real(dir)];
+  const within = realDir === root || isInside(root, realDir);
   if (moved && within)
     throw new Error(
       `AWF_COORDINATOR_DIR ${dir} is inside the workflow's directory, where its agents work; move it out`,
@@ -198,10 +198,7 @@ export function coordinatorSocket(options: {
       .then((result) => socket.end(result ? `${JSON.stringify(result)}\n` : undefined));
   };
 
-  if (options.nudged)
-    opening = open().catch((error: unknown) =>
-      options.failed(error instanceof Error ? error.message : String(error)),
-    );
+  if (options.nudged) opening = open().catch((error: unknown) => options.failed(messageOf(error)));
   return {
     path,
     attach(given) {
@@ -209,9 +206,7 @@ export function coordinatorSocket(options: {
     },
     recorded(event: MessagingEventBody) {
       if (event.kind === "participant-connected" && !opening) {
-        opening = open().catch((error: unknown) =>
-          options.failed(error instanceof Error ? error.message : String(error)),
-        );
+        opening = open().catch((error: unknown) => options.failed(messageOf(error)));
       }
     },
     async close() {

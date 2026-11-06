@@ -63,6 +63,7 @@ describe("operation ids", () => {
       "worker.6",
     ]);
     expect(await opOf(runDir, "worker.2")).toEqual({
+      version: 1,
       id: "worker.2",
       kind: "compact",
       attempt: 1,
@@ -82,6 +83,7 @@ describe("operation ids", () => {
       question: "First.",
     });
     expect(await opOf(runDir, "triage.2")).toEqual({
+      version: 1,
       id: "triage.2",
       kind: "decision",
       attempt: 2,
@@ -94,6 +96,7 @@ describe("operation ids", () => {
       const artifact: DecisionArtifact = JSON.parse(
         await readFile(join(runDir, "ops", `triage.${n}`, "decision.json"), "utf8"),
       );
+      expect(artifact.version).toBe(1);
       expect(artifact.record.artifact).toBe(`ops/triage.${n}/decision.json`);
       expect(artifact.answers).toBeDefined();
       expect((await opOf(runDir, `triage.${n}`)).attempt).toBe(attempt);
@@ -257,17 +260,29 @@ describe("operation ids", () => {
     expect(String(decision)).toContain("reviewer is an agent's key: agents and decisions share");
   });
 
-  test("a key with a colon is still opened, and its folder holds it", async () => {
-    const runRoot = runDirs.tempRunDir();
-    await runAttempt(
-      workflowOf(async (wf) => {
-        const agent = await wf.agents.open({ key: "triage:42", runtime: "codex" });
-        await agent.run({ prompt: "Look.", schema: DOC });
+  test("a key with a colon is refused, for a decision and an agent, naming the key to take", async () => {
+    const refused = (work: Parameters<typeof workflowOf>[0]) =>
+      runAttempt(workflowOf(work), {
+        runRoot: runDirs.tempRunDir(),
+        decisions: DECISIONS,
+      }).catch((error: unknown) => String(error));
+    expect(
+      await refused(async (wf) => {
+        await wf.decisions.decide({
+          key: "triage:42",
+          model: "jev",
+          state: "s",
+          questions: { bug: yesNo("A bug?") },
+        });
         return null;
       }),
-      { runRoot },
-    );
-    expect(await readdir(join(runRoot, "staged", "r1", "ops"))).toEqual(["triage:42.1"]);
+    ).toContain("take another key, such as triage-42");
+    expect(
+      await refused(async (wf) => {
+        await wf.agents.open({ key: "triage:43", runtime: "codex" });
+        return null;
+      }),
+    ).toContain("an agent takes another key, such as triage-43");
   });
 });
 
@@ -275,9 +290,10 @@ describe("listOps", () => {
   test("takes each key's last n from the digits after its folder's last dot, and whose it is from op.json", async () => {
     const runDir = runDirs.tempRunDir();
     expect(await listOps(runDir)).toEqual(new Map());
-    const op = async (id: string, kind?: OpRecord["kind"]) => {
+    const op = async (id: string, kind?: OpRecord["kind"], version: number | null = 1) => {
       await mkdir(join(runDir, "ops", id), { recursive: true });
-      if (kind) await writeFile(join(runDir, "ops", id, "op.json"), JSON.stringify({ id, kind }));
+      const record = version === null ? { id, kind } : { version, id, kind };
+      if (kind) await writeFile(join(runDir, "ops", id, "op.json"), JSON.stringify(record));
     };
     await op("worker.1", "turn");
     await op("worker.10", "compact");
@@ -286,20 +302,24 @@ describe("listOps", () => {
     await op("crashed.4");
     await op("judge.1", "decision");
     await op("judge.2");
+    // An op.json of no version, or one this awf doesn't know, is read as none.
+    await op("judge.3", "turn", 2);
+    await op("judge.4", "turn", null);
     await op("not-an-op");
     expect(await listOps(runDir)).toEqual(
       new Map<string, { last: number; of?: "agent" | "decision" }>([
         ["worker", { last: 10, of: "agent" }],
         ["v1.2", { last: 3, of: "decision" }],
         ["crashed", { last: 4 }],
-        // Its last folder has no op.json: the one below it says whose it is.
-        ["judge", { last: 2, of: "decision" }],
+        // Its last folders have no op.json it can read: the one below them says whose it is.
+        ["judge", { last: 4, of: "decision" }],
       ]),
     );
     const ids = new OpIds(runDir, 2, await listOps(runDir));
     const where = { agent: "worker", execution: { harness: "codex", model: "m" }, cwd: "/w" };
     expect(ids.draw("worker", { kind: "compact", ...where })).toEqual({ id: "worker.11" });
     expect(await opOf(runDir, "worker.11")).toEqual({
+      version: 1,
       id: "worker.11",
       attempt: 2,
       at: expect.any(String),

@@ -1,9 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 
-import { defineWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow, ParticipantReply } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
-import { caseRun, createTempRunDirs, runNew, startCase } from "./testing";
+import { caseEvents, caseRun, createTempRunDirs, runNew, startCase } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
@@ -12,22 +12,30 @@ const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
 /** Story 037's case 1: a reminder every two days, an approval, or an expiry at fourteen. */
-const approval = caseRun(async (workflow) => {
-  const approvals = await workflow.participants.connect({ key: "approvals", to: "code" });
-  const approver = await workflow.agents.open({ key: "approver", runtime: "claude" });
-  const expiry = workflow.timer("doc-expires", "14d");
-  const started = workflow.now().getTime();
-  for (let round = 1; ; round++) {
-    const next = await workflow.race(
-      `approval-${round}`,
-      { reply: approvals, remind: "2d", expiry },
-      { label: "awaiting approval" },
-    );
-    const day = Math.round((workflow.now().getTime() - started) / DAY);
-    if (next.expiry) return { ended: "expired", day, round };
-    if (next.reply?.text === "approved") return { ended: "approved", day, round };
-    if (next.remind) await approver.run({ prompt: `Reminder ${round}: the doc awaits approval.` });
-  }
+const approval = defineWorkflow({
+  meta: { name: "dd-case", description: "A case." },
+  file: import.meta.path,
+  events: { ...caseEvents, "approvals:reply": ParticipantReply },
+  starts: ["dd.changes"],
+  run: async (workflow) => {
+    await workflow.participants.connect({ key: "approvals" });
+    const approvals = workflow.signal("approvals:reply");
+    const approver = await workflow.agents.open({ key: "approver", runtime: "claude" });
+    const expiry = workflow.timer("doc-expires", "14d");
+    const started = workflow.now().getTime();
+    for (let round = 1; ; round++) {
+      const next = await workflow.race(
+        `approval-${round}`,
+        { reply: approvals, remind: "2d", expiry },
+        { label: "awaiting approval" },
+      );
+      const day = Math.round((workflow.now().getTime() - started) / DAY);
+      if (next.expiry) return { ended: "expired", day, round };
+      if (next.reply?.data.text === "approved") return { ended: "approved", day, round };
+      if (next.remind)
+        await approver.run({ prompt: `Reminder ${round}: the doc awaits approval.` });
+    }
+  },
 });
 
 test("a two-day reminder and a fourteen-day expiry run in no time on the test's clock", async () => {
@@ -54,8 +62,7 @@ test("an approval after two reminders ends the wait at its round", async () => {
     events: [
       {
         during: "approver#2",
-        name: "participant:reply",
-        from: "approvals",
+        name: "approvals:reply",
         data: { text: "approved" },
       },
     ],

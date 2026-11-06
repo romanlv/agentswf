@@ -2,14 +2,14 @@ import type { EventLine, RunLine, Taken, WaitTake } from "@agentswf/contract/rec
 import { type AgentEnded, awfEventOf, type JsonValue } from "@agentswf/contract/workflow";
 
 type LineOf<K extends RunLine["kind"]> = Extract<RunLine, { kind: K }>;
-export type WaitLine = LineOf<"wait">;
+type WaitLine = LineOf<"wait">;
 export type TurnStartedLine = LineOf<"turn-started">;
 
 /**
  * Where an event a wait can take comes from, which orders those at one time: a timer due, then a
  * turn's end, then a sender's event; a time read from state comes after every ready event.
  */
-export type Origin = "timer" | "end" | "event" | "time";
+type Origin = "timer" | "end" | "event" | "time";
 const RANK: Record<Origin, number> = { timer: 0, end: 1, event: 2, time: 3 };
 
 /** An event a wait can take, as it would be handed to the code, and where it came from. */
@@ -59,8 +59,6 @@ export type WaitState = {
   heldTakes?: WaitTake[];
   /** The last wait called, and whether it is still waiting: nothing taken after it. */
   lastWait?: WaitLine & { waiting: boolean };
-  /** Each stage's batch, as a wait in it took it. */
-  batches: ReadonlyMap<string, string[]>;
   /** Every turn `start()` began, in order. */
   turns: readonly TurnStartedLine[];
   /** Every timer by name, as first set. */
@@ -121,7 +119,6 @@ export function foldWaits(given: {
       ...(line.source === undefined ? {} : { source: line.source }),
     });
   const acknowledged = new Set<string>();
-  const batches = new Map<string, string[]>();
   const races = new Map<string, { branch: string; ids: string[] }>();
   const timers = new Map<string, TimerState>();
   const turns: TurnStartedLine[] = [];
@@ -171,10 +168,9 @@ export function foldWaits(given: {
       case "took": {
         const taken = took(line.took, line.at);
         if (lastWait) lastWait.waiting = false;
-        if (line.stage !== undefined) {
-          for (const id of taken) acknowledged.add(id);
-          batches.set(line.stage, taken);
-        } else {
+        // A wait in a stage, before 0.1.0-beta.6, held its batch as acknowledged.
+        if (line.stage !== undefined) for (const id of taken) acknowledged.add(id);
+        else {
           held = taken.length > 0 ? taken : undefined;
           heldTakes = lastWait?.takes;
         }
@@ -227,7 +223,6 @@ export function foldWaits(given: {
     ...(held ? { held } : {}),
     ...(held && heldTakes ? { heldTakes } : {}),
     ...(lastWait ? { lastWait } : {}),
-    batches,
     turns,
     timers,
     races,
@@ -441,7 +436,7 @@ export function matches(
 }
 
 /** Whether a wait taking `wanted`, or everything when it names nothing, takes `event`. */
-export function wouldTake(
+function wouldTake(
   event: { name: string; from: string; data?: unknown },
   wanted: readonly WaitTake[] | undefined,
 ): boolean {

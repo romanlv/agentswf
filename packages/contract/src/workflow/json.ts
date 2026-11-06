@@ -1,5 +1,3 @@
-import { REPORT_DEPRECATED } from "./deprecated";
-
 export type JsonPrimitive = string | number | boolean | null;
 
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -34,8 +32,6 @@ function isJsonValueAt(value: unknown, ancestors: Set<object>): value is JsonVal
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
     return Reflect.ownKeys(value).every((key) => {
-      // The engine's hook on an outcome it hands a run, which JSON never carries.
-      if (key === REPORT_DEPRECATED) return true;
       if (typeof key !== "string") return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       return (

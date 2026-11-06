@@ -38,7 +38,7 @@ import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
-import { findOrigin, namedSession, workspaceLock } from "./herdr-placement";
+import { findOrigin, workspaceLock } from "./herdr-placement";
 import {
   ensureRunSession,
   parseSessions,
@@ -131,7 +131,6 @@ export async function installOperatorRuntime(
           const config: HerdrConfig = {
             ...runConfig(name),
             onRunWorkspace: mark.bind,
-            sessionFor: (named) => namedSession(named, { run, environment, home }),
             origin: () =>
               findOrigin({
                 run,

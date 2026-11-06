@@ -1,7 +1,6 @@
 export * from "./agents";
 export * from "./allowance";
 export * from "./decisions";
-export * from "./deprecated";
 export * from "./events";
 export * from "./executable";
 export * from "./json";

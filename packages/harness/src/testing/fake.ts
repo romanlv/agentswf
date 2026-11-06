@@ -11,7 +11,9 @@ import type {
   SessionCopy,
   SessionSettings,
 } from "../adapter";
-import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
+import { activeOperation, createSessionAdapter, type SessionAdapterOptions } from "../session-core";
+
+export { SCRIPTED_HOMES } from "../sandbox-needs";
 
 export type ManualClock = { now(): number; advance(ms: number): void };
 
@@ -46,7 +48,7 @@ export type FakeAdapterTurn = {
   detail?: string;
   transcript?: string;
   sessionRef?: string;
-  chargesUsd?: readonly number[];
+  reportedCostsUsd?: readonly number[];
   /** A compaction's summary: set, the harness confirmed it compacted. */
   summary?: string;
   /** On a failed turn: its harness showed it cannot sign in. */
@@ -120,8 +122,7 @@ export function createFakeAdapter(
       activations.push(activation);
       let turn = 0;
       let isClosed = false;
-      let activeController: AbortController | undefined;
-      let activeCompletion: Promise<void> | undefined;
+      const active = activeOperation();
       let firstPrompt: number | undefined;
       let shown: string | undefined;
       // A copied session is forked in the new agent's home as it is activated.
@@ -168,20 +169,16 @@ export function createFakeAdapter(
           ? {
               async set(next: SessionSettings) {
                 if (isClosed) throw new Error("fake session is closed");
-                const controller = new AbortController();
-                activeController = controller;
-                try {
+                await active.run(async (signal) => {
                   const refused = await options.onSet?.({
                     activation,
                     previous: settings,
                     settings: next,
-                    signal: controller.signal,
+                    signal,
                   });
                   if (refused) throw new Error(refused);
                   settings = next;
-                } finally {
-                  if (activeController === controller) activeController = undefined;
-                }
+                });
               },
             }
           : {}),
@@ -190,36 +187,34 @@ export function createFakeAdapter(
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
           if (operation.deliverySignal?.aborted) {
-            return { state: "cancelled", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+            return {
+              state: "cancelled",
+              resultEvidence: { kind: "unavailable" },
+              reportedCostsUsd: [],
+            };
           }
           operation.onDispatched?.();
           operation.onAccepted?.();
           firstPrompt ??= options.clock?.now() ?? Date.now();
-          const controller = new AbortController();
-          activeController = controller;
-          let finish!: () => void;
-          activeCompletion = new Promise<void>((resolve) => {
-            finish = resolve;
-          });
-          turn += 1;
-          shown = undefined;
-          const context: FakeAdapterTurnContext = {
-            activation,
-            id: operation.id,
-            prompt: operation.prompt,
-            kind: operation.kind,
-            ...(operation.authored ? { authored: operation.authored } : {}),
-            ...(operation.binding ? { binding: operation.binding } : {}),
-            ...(operation.previousSessionRef
-              ? { previousSessionRef: operation.previousSessionRef }
-              : {}),
-            turn,
-            settings,
-            signal: controller.signal,
-            nameSession: (sessionRef) => operation.onSession?.(sessionRef),
-          };
-          turns.push(context);
-          try {
+          return active.run(async (signal) => {
+            turn += 1;
+            shown = undefined;
+            const context: FakeAdapterTurnContext = {
+              activation,
+              id: operation.id,
+              prompt: operation.prompt,
+              kind: operation.kind,
+              ...(operation.authored ? { authored: operation.authored } : {}),
+              ...(operation.binding ? { binding: operation.binding } : {}),
+              ...(operation.previousSessionRef
+                ? { previousSessionRef: operation.previousSessionRef }
+                : {}),
+              turn,
+              settings,
+              signal,
+              nameSession: (sessionRef) => operation.onSession?.(sessionRef),
+            };
+            turns.push(context);
             const scripted = await options.script(context);
             await scripted.act?.(context);
             shown = scripted.screen;
@@ -227,8 +222,8 @@ export function createFakeAdapter(
             operation.onReceived?.();
             options.clock?.advance(scripted.durationMs ?? 0);
             return {
-              state: controller.signal.aborted ? "cancelled" : (scripted.state ?? "completed"),
-              ...(controller.signal.aborted
+              state: signal.aborted ? "cancelled" : (scripted.state ?? "completed"),
+              ...(signal.aborted
                 ? { detail: "fake operation cancelled" }
                 : scripted.detail
                   ? { detail: scripted.detail }
@@ -238,28 +233,19 @@ export function createFakeAdapter(
                 : ({ kind: "unavailable" } as const),
               // Every turn names its session, as a real harness's output does.
               sessionRef: scripted.sessionRef ?? sessionId,
-              chargesUsd: scripted.chargesUsd ?? [],
-              ...(scripted.summary === undefined || controller.signal.aborted
+              reportedCostsUsd: scripted.reportedCostsUsd ?? [],
+              ...(scripted.summary === undefined || signal.aborted
                 ? {}
                 : { summary: scripted.summary }),
-              ...(scripted.login && !controller.signal.aborted ? { login: scripted.login } : {}),
+              ...(scripted.login && !signal.aborted ? { login: scripted.login } : {}),
               ...(scripted.observed ? { observed: true as const } : {}),
             };
-          } finally {
-            if (activeController === controller) activeController = undefined;
-            finish();
-          }
+          });
         },
-        async cancel() {
-          if (!activeController) return false;
-          activeController.abort();
-          await activeCompletion;
-          return true;
-        },
+        cancel: () => active.stop(),
         async close() {
           if (isClosed) return;
-          activeController?.abort();
-          await activeCompletion;
+          await active.stop();
           isClosed = true;
           closed.push(activation.key);
         },

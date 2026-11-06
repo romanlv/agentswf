@@ -1,4 +1,5 @@
 import type { RunLine } from "./records";
+import { isRecord } from "./schema";
 import type { AgentKey } from "./workflow/agents";
 import type { JsonValue } from "./workflow/json";
 import type { StageOutcome } from "./workflow/workflow";
@@ -95,7 +96,7 @@ function checked(value: unknown, n: number): RunLine {
   const refuse = (why: string): never => {
     throw new Error(`run.jsonl line ${n}: ${why}`);
   };
-  if (!isObject(value)) return refuse("not an object");
+  if (!isRecord(value)) return refuse("not an object");
   const line = value;
   if (typeof line.kind !== "string") refuse("no kind");
   const kind = line.kind as string;
@@ -123,19 +124,15 @@ function checked(value: unknown, n: number): RunLine {
   if (line.state !== undefined) {
     const state = line.state;
     const entry = (item: unknown) =>
-      isObject(item) && typeof item.name === "string" && Object.hasOwn(item, "value");
+      isRecord(item) && typeof item.name === "string" && Object.hasOwn(item, "value");
     if (!Array.isArray(state) || !state.every(entry)) refuse(`${kind} with malformed state`);
   }
   return line as RunLine;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** A string `id`; a timer's names its `timer`, a time read from state's its `branch` and `due`. */
 function isTaken(item: unknown): boolean {
-  if (!isObject(item) || typeof item.id !== "string") return false;
+  if (!isRecord(item) || typeof item.id !== "string") return false;
   const optional = ["timer", "branch", "due"].every(
     (field) => item[field] === undefined || typeof item[field] === "string",
   );

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import type {
@@ -15,8 +15,8 @@ import {
   forkRecordedSession,
   HARNESSES,
   type Harness,
-  hostHome,
   launchSettings,
+  OPERATOR_HOMES,
   type RunProcess,
   runAttached,
   runProcess,
@@ -26,12 +26,13 @@ import {
 } from "@agentswf/harness";
 import type { SandboxProviders } from "@agentswf/sandbox";
 import { installSandboxedDoor } from "./agent-launcher";
+import { type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { messageOf } from "./errors";
 import help from "./help/open.txt" with { type: "text" };
 import { coordinatorDir } from "./machine";
-import { listOps, opFile } from "./ops";
+import { listOps, opFile, readOpFile } from "./ops";
 import { asksJson, printRefusal } from "./refusals";
-import { failed, type Out, parsePlace, type ReadPlace, shellLine } from "./run-commands";
+import { failed } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import {
   type ClaimHolder,
@@ -117,6 +118,9 @@ class OpenRefused extends Error {
 /** How long one question asked with `-p` may take. */
 const PRINT_TIMEOUT_MS = 60 * 60_000;
 
+/** `awf open -p --json`'s `"v"`, which its refusals carry too. */
+export const OPEN_V = 1 satisfies OpenResultJson["v"];
+
 export async function openCommand(
   argv: readonly string[],
   shellCwd: string,
@@ -138,11 +142,11 @@ export async function openCommand(
     if (json && options.print === undefined)
       throw new Error("a TUI has no JSON: --json goes with -p");
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", openUsage);
+    printRefusal(out, { json: asksJson(argv), v: OPEN_V }, error, "usage", openUsage);
     return 2;
   }
   const refuse = (error: OpenRefused) => {
-    printRefusal(out, { json, v: 1 }, error, error.code);
+    printRefusal(out, { json, v: OPEN_V }, error, error.code);
     return error.code === "usage" ? 2 : error.code === "unreachable" ? 3 : 1;
   };
   const home = context.home ?? homedir();
@@ -158,7 +162,7 @@ export async function openCommand(
       status = await findRunByRef(options.ref, place, home);
     } catch (error) {
       if (error instanceof RunNotFound)
-        return failed(error, place, out, error.message, { json, v: 1 });
+        return failed(error, place, out, error.message, { json, v: OPEN_V });
       throw error;
     }
     const where = await agentPlace(status, options);
@@ -169,7 +173,9 @@ export async function openCommand(
       : undefined;
     // On the host, a home of its own is pointed at here; in a sandbox, by the provider.
     const env: Record<string, string> = {
-      ...(where.home && !where.sandbox ? hostHome(where.harness, where.home, environment).env : {}),
+      ...(where.home && !where.sandbox
+        ? OPERATOR_HOMES.host(where.harness, where.home, environment).env
+        : {}),
       ...skills?.env,
     };
     const webSearch = where.sandbox?.spec.webSearch === true;
@@ -256,7 +262,7 @@ export async function openCommand(
       )
         ownHome = await refreshHome(
           where.home,
-          hostHome(where.harness, where.home, environment),
+          OPERATOR_HOMES.host(where.harness, where.home, environment),
           new Map(),
         ).catch((error: unknown) => {
           throw new OpenRefused(messageOf(error), "unreachable");
@@ -376,7 +382,7 @@ export async function openCommand(
         out.stdout(
           json
             ? JSON.stringify({
-                v: 1,
+                v: OPEN_V,
                 session,
                 ...(forkedFrom ? { forkedFrom } : {}),
                 reply,
@@ -445,7 +451,7 @@ export async function openCommand(
     }
   } catch (error) {
     if (error instanceof OpenRefused) return refuse(error);
-    return failed(error, place, out, messageOf(error), { json, v: 1 });
+    return failed(error, place, out, messageOf(error), { json, v: OPEN_V });
   }
 }
 
@@ -668,8 +674,8 @@ async function agentOp(runDir: string, agent: string, line: SessionLine): Promis
   let failure: unknown;
   for (const op of ops) {
     try {
-      const record = JSON.parse(await readFile(opFile(runDir, op), "utf8")) as OpRecord;
-      if (record.kind !== "decision" && typeof record.cwd === "string") return record;
+      const record = await readOpFile<OpRecord>(opFile(runDir, op), "op", { refuse: true });
+      if (record && record.kind !== "decision" && typeof record.cwd === "string") return record;
     } catch (error) {
       failure = error;
     }

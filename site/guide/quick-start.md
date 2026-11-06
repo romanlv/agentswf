@@ -135,7 +135,7 @@ as JSON, the same as its `out.json`. Trimmed:
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "runId": "20261101-1532-a7f3",
   "attempt": 1,
   "workflow": { "name": "hello", "file": "…/my-workflows/hello/workflow.ts" },

@@ -1,12 +1,11 @@
 // Checked by `tsc --noEmit`, never run: what `agentswf/testing` offers a workflow's test, and what
-// it doesn't. Each deprecated name compiles until story 039's last task removes it.
+// it doesn't, the names story 039 deprecated and then removed included.
 
 import type { Client } from "./client";
 import {
   answer,
   fakeClient,
   noAnswer,
-  reply,
   type TestOptions,
   type TestRun,
   type TestTurn,
@@ -20,6 +19,10 @@ type Surface = typeof import("./testing");
 export type Waiting = Surface["waiting"];
 // @ts-expect-error The engine's own tests, which say where an agent may await a reply, call it.
 export type RunTest = Surface["runTest"];
+// @ts-expect-error noAnswer.…, the same calls: a reply answers, these end a turn without one.
+export type Reply = Surface["reply"];
+// @ts-expect-error TestOptions<Args, Events>, the one options type.
+export type EventOptions = import("./testing").EventTestOptions<{ ping: typeof Ping }>;
 
 const plain = defineWorkflow({
   meta: { name: "plain", description: "One agent." },
@@ -59,7 +62,7 @@ export async function argsShapes(): Promise<void> {
   await testWorkflow(listed, { args: ["a"] });
   // @ts-expect-error Array args are required too.
   await testWorkflow(listed, {});
-  // Deprecated: array args given second, with no options.
+  // @ts-expect-error Array args go among the options, not second.
   await testWorkflow(listed, ["a", "b"]);
 }
 
@@ -89,34 +92,42 @@ export async function oneSignature(): Promise<void> {
   await testWorkflow(greet, { ...shared, args: { name: "ada" } });
 }
 
-export async function removed(): Promise<void> {
-  // @ts-expect-error A wait is the harness's check-in, not a script's ending.
-  reply.waiting("for CI");
+export async function removed(run: TestRun<string>): Promise<void> {
   // @ts-expect-error Where an agent may await a reply is the engine's list.
   await testWorkflow(plain, { awaitReply: "anywhere" });
   // @ts-expect-error A message script ends a turn; it answers no call.
   await testWorkflow(plain, { messages: { a: () => answer("done") } });
   // @ts-expect-error What an earlier attempt left is its events and run lines, not a mailbox.
   await testWorkflow(withEvents, { earlier: { mailbox: [] } });
+  // @ts-expect-error Args go among the options: testWorkflow(workflow, { args, … }).
+  await testWorkflow(plain, null, { agents: {} });
+  // @ts-expect-error Nor second, alone.
+  await testWorkflow(plain, null);
+  // @ts-expect-error What an earlier attempt recorded is earlier: { stages }.
+  await testWorkflow(plain, { recorded: { plan: null } });
+  // @ts-expect-error A test's timeout is a Duration.
+  await testWorkflow(plain, { timeoutMs: 1_000 });
+  // @ts-expect-error So is its stall.
+  await testWorkflow(plain, { stallMs: 1_000 });
+  // @ts-expect-error An event's id is eventId.
+  await testWorkflow(withEvents, { event: { name: "ping", data: { n: 1 }, id: "e-1" } });
+  // @ts-expect-error Return nothing, or noAnswer.failed(reason), from a message script.
+  await testWorkflow(plain, { messages: { a: (message) => message.silent() } });
+  // @ts-expect-error noAnswer.failed(reason).
+  await testWorkflow(plain, { messages: { a: (message) => message.fail("crashed") } });
+  // @ts-expect-error run.ending, whose kind is "stopped".
+  void run.stopped;
+  // @ts-expect-error run.ending, whose kind is "parked".
+  void run.parked;
+  // @ts-expect-error A script's send waits for its timeout, a Duration.
+  await testWorkflow(plain, { messages: { a: (m) => m.send("b", "hi", { timeoutMs: 1_000 }) } });
 }
 
-export async function deprecated(run: TestRun<string>): Promise<void> {
-  await testWorkflow(plain, null, {
-    agents: { a: [reply.silent(), reply.blocked(), reply.failed(), reply.timedOut()] },
-    compactions: { a: [reply.hang(), reply.interrupted(), reply.needsLogin()] },
-    messages: { a: [(message) => message.silent(), (message) => message.fail("crashed")] },
-    recorded: { plan: null },
-  });
-  await testWorkflow(greet, { name: "ada" }, undefined);
-  await testWorkflow(plain, null);
-  await testWorkflow(bare, null, {});
-  await testWorkflow(withEvents, {
-    id: "k",
-    event: { name: "ping", data: { n: 1 }, id: "e-1" },
-    events: [{ during: "a#1", name: "ping", data: { n: 2 }, id: "e-2" }],
-  });
-  void run.stopped?.reason;
-  void run.parked?.label;
+export async function panes(): Promise<void> {
+  // As awf run --workspace and --keep-panes give them.
+  await testWorkflow(plain, { panes: { workspace: { name: "review" }, keep: "on-failure" } });
+  // @ts-expect-error keep is never, on-failure or always.
+  await testWorkflow(plain, { panes: { keep: "sometimes" } });
 }
 
 export async function current(): Promise<void> {
@@ -159,7 +170,7 @@ export async function scriptedReplies(): Promise<void> {
   await testWorkflow(declaring, {
     events: [{ during: "a#1", name: "a:ended", data: { turn: "t", meta: null } }],
   });
-  // Deprecated: the old name, from the participant's key.
+  // @ts-expect-error A reply is the declared {key}:reply, not awf's record name.
   await testWorkflow(withEvents, {
     events: [{ during: "a#1", name: "participant:reply", from: "thread", data: { text: "hi" } }],
   });

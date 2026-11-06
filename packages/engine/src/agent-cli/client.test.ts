@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
-import { submitControl, submitResult, submitWaiting } from "./client";
+import { submitControl } from "./client";
 
 const REQUEST = {
   version: WIRE_VERSION,
@@ -28,7 +28,7 @@ test("a peer that never answers settles the submission and closes its socket", a
   });
 
   try {
-    const submission = submitResult(endpoint, REQUEST, 0.2, (path) => {
+    const submission = submitControl(endpoint, REQUEST, 0.2, (path) => {
       client = createConnection(path);
       return client;
     });
@@ -63,7 +63,7 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 
   try {
     const started = performance.now();
-    await expect(submitResult(endpoint, REQUEST, 0.03)).rejects.toThrow("timed out");
+    await expect(submitControl(endpoint, REQUEST, 0.03)).rejects.toThrow("timed out");
     expect(performance.now() - started).toBeLessThan(200);
   } finally {
     for (const peer of peers) peer.destroy();
@@ -75,7 +75,7 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 
 test("validates the complete response across fragmented data", async () => {
   await withServerResponse(['{"version":6,"kind":', '"accepted"}\n'], async (endpoint) => {
-    await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
+    await expect(submitControl(endpoint, REQUEST)).resolves.toEqual({
       version: WIRE_VERSION,
       kind: "accepted",
     });
@@ -85,7 +85,7 @@ test("validates the complete response across fragmented data", async () => {
 test("an engine of an older wire version is refused naming both versions", async () => {
   const old = '{"version":5,"kind":"rejected","code":"unsupported-version","error":"x"}\n';
   await withServerResponse([old], async (endpoint) => {
-    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow(
+    await expect(submitControl(endpoint, REQUEST)).rejects.toThrow(
       `the engine answered in wire version 5 and this client speaks ${WIRE_VERSION}`,
     );
   });
@@ -98,14 +98,14 @@ test("rejects malformed, extra-line, and oversized responses", async () => {
     ["x".repeat(256 * 1024 + 1)],
   ]) {
     await withServerResponse(chunks, async (endpoint) => {
-      await expect(submitResult(endpoint, REQUEST)).rejects.toThrow();
+      await expect(submitControl(endpoint, REQUEST)).rejects.toThrow();
     });
   }
 });
 
 test("reports connection failure without hanging", async () => {
   await expect(
-    submitResult(`/tmp/wf-missing-${crypto.randomUUID()}.sock`, REQUEST),
+    submitControl(`/tmp/wf-missing-${crypto.randomUUID()}.sock`, REQUEST),
   ).rejects.toThrow();
 });
 
@@ -149,16 +149,16 @@ test("waiting acknowledgement may arrive in fragments, but cannot acknowledge a 
     JSON.stringify({ version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 }) +
     "\n";
   await withServerResponse([frame.slice(0, 19), frame.slice(19)], async (endpoint) => {
-    await expect(submitWaiting(endpoint, WAITING)).resolves.toMatchObject({
+    await expect(submitControl(endpoint, WAITING)).resolves.toMatchObject({
       kind: "waiting",
       waitUntil: 1000,
     });
-    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow("different command");
+    await expect(submitControl(endpoint, REQUEST)).rejects.toThrow("different command");
   });
   await withServerResponse(
     [`${JSON.stringify({ version: WIRE_VERSION, kind: "accepted" })}\n`],
     async (endpoint) => {
-      await expect(submitWaiting(endpoint, WAITING)).rejects.toThrow("different command");
+      await expect(submitControl(endpoint, WAITING)).rejects.toThrow("different command");
     },
   );
 });
@@ -167,7 +167,7 @@ test("lost waiting acknowledgements are never retried", async () => {
   let connections = 0;
   await withServerResponse([], async (endpoint) => {
     await expect(
-      submitWaiting(endpoint, WAITING, 0.2, (path) => {
+      submitControl(endpoint, WAITING, 0.2, (path) => {
         connections++;
         return createConnection(path);
       }),
@@ -185,7 +185,7 @@ test("each command takes only its own acknowledgements and refusal codes", async
     notice: "you already await architect's reply.",
   } as const;
   await withServerResponse([`${JSON.stringify(awaiting)}\n`], async (endpoint) => {
-    await expect(submitWaiting(endpoint, WAITING)).resolves.toEqual(awaiting);
+    await expect(submitControl(endpoint, WAITING)).resolves.toEqual(awaiting);
   });
   const sent = {
     version: WIRE_VERSION,
@@ -194,7 +194,7 @@ test("each command takes only its own acknowledgements and refusal codes", async
     notice: "sent to fixer.",
   } as const;
   await withServerResponse([`${JSON.stringify(sent)}\n`], async (endpoint) => {
-    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow("different command");
+    await expect(submitControl(endpoint, REQUEST)).rejects.toThrow("different command");
     await expect(
       submitControl(endpoint, {
         version: WIRE_VERSION,
@@ -208,7 +208,7 @@ test("each command takes only its own acknowledgements and refusal codes", async
   const refusal = (code: string) =>
     `${JSON.stringify({ version: WIRE_VERSION, kind: "rejected", code, error: code })}\n`;
   await withServerResponse([refusal("no-route")], async (endpoint) => {
-    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow("different command");
+    await expect(submitControl(endpoint, REQUEST)).rejects.toThrow("different command");
   });
   await withServerResponse([refusal("owes-reply")], async (endpoint) => {
     await expect(

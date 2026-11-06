@@ -54,8 +54,6 @@ export type ResolvedSandbox<E> = {
   environment: E;
 };
 
-export type { Gitdir };
-
 export type SandboxContext = {
   /** Every run's directory. Denied inside, and in the spec's `hidden` when an allowed path holds it. */
   runRoot: string;

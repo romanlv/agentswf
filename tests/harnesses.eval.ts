@@ -1,10 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { QuickCheckResult } from "../examples/quick-check/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Every harness awf runs, live, on its cheapest model: codex, pi and cursor headless, and claude, pi
@@ -49,42 +46,8 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const workDir = await mkdtemp(join(tmpdir(), "awf-harnesses-"));
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "5m",
-      "--json",
-      QUICK_CHECK,
-      "--",
-      ...HARNESSES,
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = problems(exitCode, record);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  const { exitCode, record } = await runLive("harnesses", QUICK_CHECK, HARNESSES, {
+    timeout: "5m",
+  });
+  report(problems(exitCode, record), recorded(record));
 }
-
-/** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */

@@ -7,7 +7,7 @@ claude 2.1.309 (`claude-sonnet-5-5`, `claude -p --resume`) and codex-cli 0.164.0
 (about 25k tokens of context once read), ended by asking a question, was resumed at once (warm),
 and resumed again 2 h 05 m later with the answer, asked to recall what it had found without reading
 a file again. The probe and what each session wrote are in
-[`experiments/m1-resume/`](../../experiments/m1-resume/).
+[`experiments/_archive/m1-resume`](../../experiments/_archive/m1-resume/).
 
 | | question | verdict |
 |---|---|---|

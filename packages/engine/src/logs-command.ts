@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
+import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
@@ -8,18 +9,12 @@ import help from "./help/logs.txt" with { type: "text" };
 import { screenFile } from "./ops";
 import { asksJson, printRefusal, refusalLine } from "./refusals";
 import {
-  clockTime,
-  command,
   continueOf,
   currentStage,
   failed,
-  masked,
+  MAX_WAIT_SECONDS,
   nextLogs,
-  type Out,
-  parsePlace,
-  type ReadPlace,
-  said,
-  shellLine,
+  POLL_MS,
   span,
   stateWord,
 } from "./run-commands";
@@ -37,7 +32,11 @@ import {
   timeOf,
 } from "./run-read";
 import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-state";
+import { clockTime, masked, said } from "./run-text";
 import { describeActivity } from "./run-view";
+
+/** `awf logs --json`'s `"v"`, which its refusals carry too. */
+export const LOGS_V = 1 satisfies LogsJson["v"];
 
 export const logsUsage = help.trimEnd();
 
@@ -47,10 +46,8 @@ const DEFAULT_LIMIT = 40;
  * result or a message whole, short of a dumped file. `@{handle}` gives it whole.
  */
 const PAGE_TEXT = 50_000;
-const MAX_WAIT_SECONDS = 300;
 /** After a first new event, how long to wait for the rest of its burst. */
 const SETTLE_MS = 1_000;
-const POLL_MS = 1_000;
 
 type LogsOptions = {
   ref?: string;
@@ -89,10 +86,10 @@ export async function logsCommand(
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseLogs(parsed.rest, (line) => out.stderr(line));
+    options = parseLogs(parsed.rest);
     if (options.follow && json) throw new Error("--follow is for reading; --json takes --wait");
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", logsUsage);
+    printRefusal(out, { json: asksJson(argv), v: LOGS_V }, error, "usage", logsUsage);
     return 2;
   }
   try {
@@ -126,15 +123,15 @@ export async function logsCommand(
     return await page(read, alsoRunning, options, place, json, out, clock);
   } catch (error) {
     if (error instanceof DoesNotFit) {
-      if (json) out.stdout(refusalLine(1, "cursor", error.message));
+      if (json) out.stdout(refusalLine(LOGS_V, "cursor", error.message));
       out.stderr(error.message);
       return 1;
     }
-    return failed(error, place, out, messageOf(error), { json, v: 1 });
+    return failed(error, place, out, messageOf(error), { json, v: LOGS_V });
   }
 }
 
-function parseLogs(rest: readonly string[], deprecated: (line: string) => void): LogsOptions {
+function parseLogs(rest: readonly string[]): LogsOptions {
   const options: LogsOptions = {
     limit: DEFAULT_LIMIT,
     waitSeconds: 0,
@@ -159,7 +156,7 @@ function parseLogs(rest: readonly string[], deprecated: (line: string) => void):
         throw new Error("--limit needs a whole number");
       options.limit = limit;
     } else if (arg === "--wait") {
-      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS, deprecated);
+      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS);
       waitGiven = true;
     } else if (arg === "--follow") options.follow = true;
     else if (arg === "--full") options.full = true;
@@ -395,7 +392,7 @@ async function page(
   if (json) {
     const { started, ended } = span(status, clock.now());
     const document: LogsJson = {
-      v: 1,
+      v: LOGS_V,
       run: {
         ref: status.ref,
         state: status.state,
@@ -512,7 +509,7 @@ async function oneEvent(
   const screens = await keptScreens(status.run.dir, [event]);
   if (json) {
     const document: LogsJson = {
-      v: 1,
+      v: LOGS_V,
       run: { ref: status.ref, state: status.state, checked: status.checked },
       events: [publish(event, stages, screens)],
     };

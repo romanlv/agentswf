@@ -22,10 +22,14 @@
   },
   "files": [
     "src",
+    "docker",
     "!src/**/*.test.ts",
     "!src/**/*.eval.ts",
+    "!src/**/*.typecheck.ts",
+    "!src/**/*.fixture.ts",
     "!src/**/fixtures",
-    "docker"
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@agentswf/contract": "workspace:*"

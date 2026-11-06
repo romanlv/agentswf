@@ -45,7 +45,7 @@ const runs = client();
 | `environment` | what a launched attempt inherits, as `awf emit`'s environment does | the program's environment |
 
 A client holds no connection and no state; make one and pass it to whatever needs it, so a test
-can pass a fake instead.
+can pass a fake instead. Its type, for a function that takes one, is `Client`.
 
 ## `emit` {#emit}
 
@@ -146,7 +146,7 @@ reply event the workflow declares, `{key}:reply`, goes through [`emit`](#emit).
 A run's handle, read from its files whenever asked: `id`, `ref` (`{workflow}/{id}`, as `awf runs`
 and `awf logs` take it), and two calls.
 
-`status()` resolves to the run as it is now:
+`status()` resolves to the run as it is now, a `RunStatus<Result>`:
 
 | Field | What it is |
 | --- | --- |
@@ -173,8 +173,8 @@ never becomes final. A wait also rejects when the run's files can't be read.
 
 <<< @/../examples/site/reference/client-api.driver.ts#errors
 
-A call the program got wrong throws a `ClientError`, with a `code` and, when it was about a run,
-its `ref`. Anything the run decided (a refused event, a failed launch) is in the result instead.
+A call the program got wrong throws a `ClientError`, with a `code`, a `ClientErrorCode`, and, when it
+was about a run, its `ref`. Anything the run decided (a refused event, a failed launch) is in the result instead.
 
 | `code` | Thrown when |
 | --- | --- |

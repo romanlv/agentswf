@@ -287,12 +287,9 @@ describe("awf logs", () => {
       /^nothing new in 90s · running, stage fix · next: awf logs review\/r1 --after c2\.\S+ --wait 90s$/,
     );
     expect(quiet.stderr).toBe("");
-    // A bare number is still seconds until 0.1.0, said once.
     const bare = await awfLogs(f, ["--after", cursor, "--wait", "90"]);
-    expect(bare.stdout).toBe(quiet.stdout);
-    expect(bare.stderr).toBe(
-      "awf: a bare number for --wait, 90, is deprecated; give a duration, --wait 90s",
-    );
+    expect(bare.exitCode).toBe(2);
+    expect(bare.stderr).toContain("--wait takes a duration up to 300s: give --wait 90s");
     expect((await awfLogs(f, ["--after", cursor, "--wait", "1.5m"])).stdout).toContain(
       "nothing new in 90s",
     );

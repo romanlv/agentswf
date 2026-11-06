@@ -107,21 +107,21 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — `awf allowance` reads each subscription harness's plan windows from its own
   usage command as an `awf.allowance/1` record, and the lab's runs wait for a full window's reset.
 - [`023` — Say when an agent's harness needs a login, and let the workflow stop on it](023-harness-login.md) —
-  `awaiting-human-review` — a turn whose harness has no login or had it refused ends `failed` with `login`,
+  `done` — a turn whose harness has no login or had it refused ends `failed` with `login`,
   headless and in a pane, for every harness; it is never nudged, and the workflow decides to stop.
 - [`024` — A run's agents open in a Herdr session of their own](024-herdr-run-session.md) —
-  `awaiting-human-review` — pane agents open in a headless session awf starts and owns, `awf`, not
+  `done` — pane agents open in a headless session awf starts and owns, `awf`, not
   the operator's, so they set off no notifications there; `awf run` says where they are and which
   is blocked; the session is restarted on a Herdr update and dead runs' workspaces closed.
 - [`026` — A workflow says where each pane agent appears, and which panes stay](026-pane-layout.md) —
-  `awaiting-human-review` — `layout` places a pane in a tab (the run's workspace, a named one, a
+  `done` — `layout` places a pane in a tab (the run's workspace, a named one, a
   named session, or where `awf run` was typed) or beside another agent's; `keepPane` keeps it
   after the agent is done; marks let a later run close what a killed run left in any session.
 - [`027` — A run forks the session that started it](027-caller-fork.md) —
-  `awaiting-human-review` — `agents.forkCaller` opens an agent on a copy of the session `awf run` was started from,
+  `done` — `agents.forkCaller` opens an agent on a copy of the session `awf run` was started from,
   waiting on it or handed over with `--here`, on the model its files show; `null` when there is none.
 - [`028` — An agent sees what a run is doing, from the command line](028-run-logs-and-telemetry.md) —
-  `awaiting-human-review` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
+  `done` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
   an agent can watch another agent's run: its event log merged with each agent's own session
   files; the run's events are span-shaped.
 - [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
@@ -132,7 +132,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — each attempt sends its part of the event log as OTLP JSON spans when an endpoint is
   set, never failing the run; proven by unit tests.
 - [`031` — `awf init` sets up a folder for writing workflows](031-awf-init.md) —
-  `awaiting-human-review` — a hello workflow, its test and the config files, never overwriting, so
+  `done` — a hello workflow, its test and the config files, never overwriting, so
   `awf test` passes at once.
 - [`032` — A coordinator outside the run talks with its agents](032-run-coordinator.md) —
   `in-progress` (M2 and M3 open) — a workflow connects a coordinator, and the agents it grants a route tell it things
@@ -142,11 +142,11 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — `awf -h` lists every command from one table that also feeds the dispatch, with
   `awf help {command}`, `awf help reference` and a suggestion for a mistyped command.
 - [`034` — An event starts a run, and wakes it while it runs](034-event-driven-runs.md) —
-  `ready` — a workflow declares the events it takes and their key; `awf emit` starts that key's
+  `done` — a workflow declares the events it takes and their key; `awf emit` starts that key's
   run or lands in its mailbox, and the code takes events at a wait and starts turns it doesn't
   await.
 - [`035` — An agent calls a tool the workflow's code handles](035-workflow-tools.md) —
-  `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wfa tool`
+  `done` — a workflow gives an agent named, typed tools; the agent calls one with `wfa tool`
   mid-turn, and the handler's return value is the tool's result.
 - [`036` — An agent stays live after its turn, and compacts before the run parks](036-agent-keep-alive.md) —
   `done` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
@@ -161,9 +161,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   standalone `site/`, each page also served as plain Markdown with an llms.txt, so an agent reads
   it as easily as a person.
 - [`039` — An author learns one way to do each thing](039-one-way-author-api.md) —
-  `in-progress` (tasks 1–9 done; task 10 waits a beta) — one context type for every workflow, participants routed to the code declared in
+  `awaiting-human-review` (tasks 1–10 done; live checks not run) — one context type for every workflow, participants routed to the code declared in
   `events`, one duration grammar, one `testWorkflow` signature, one word per state, and what is
-  unbuilt or unused removed, each deprecated for one beta before 0.1.0.
+  unbuilt or unused removed, each deprecated in 0.1.0-beta.5 and removed after it.
 - [`040` — A program drives a workflow's runs, typed from the workflow](040-workflows-from-code.md) —
   `done` — an ordinary Bun program imports a workflow and emits events to it, starts runs and
   waits on them in-process, typed from the workflow, on the engine the project depends on.

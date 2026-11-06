@@ -19,12 +19,12 @@ const investigate = defineWorkflow<null, string>({
     await wf.messages.allow({
       between: [investigator, coordinator],
       purpose: "report findings that hold up; ask when the logs can't settle it",
-      timeoutMs: 2 * 60 * 60_000,
+      timeout: "2h",
     });
     const { outcome } = await investigator.run({ prompt: "Check the checkout-api logs." });
     await coordinator.release("investigation done");
     // A run has no deadline unless `awf run --timeout` gives it one.
-    const left = wf.deadline ? wf.deadline.unixMilliseconds - Date.now() : undefined;
+    const left = wf.deadline ? wf.deadline.getTime() - Date.now() : undefined;
     return outcome.answered ? `${outcome.value} (${left ?? "no"} ms left)` : outcome.kind;
   },
 });

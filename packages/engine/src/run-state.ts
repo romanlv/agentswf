@@ -307,7 +307,7 @@ export async function checkRunEngine(
  * The project a run belongs to: the folder holding the `.awf/runs` it is kept in, else, under a
  * `--run-root` of the operator's, the directory it works in.
  */
-export function runProject(run: Pick<Run, "root" | "record">): string {
+function runProject(run: Pick<Run, "root" | "record">): string {
   return rootProject(run.root, run.record.cwd);
 }
 

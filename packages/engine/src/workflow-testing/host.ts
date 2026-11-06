@@ -16,8 +16,8 @@ import {
   type Effort,
   type JsonObject,
   type KeepPane,
-  type PaneLayout,
   type PaneSpec,
+  type PaneWorkspace,
   placementOf,
   positiveDurationMilliseconds,
 } from "@agentswf/contract/workflow";
@@ -39,14 +39,11 @@ import {
   type FakeFork,
   type FakeSet,
 } from "@agentswf/harness/testing";
-import { submitControl, submitResult, submitWaiting } from "../agent-cli/client";
-import type { Deprecated } from "../deprecations";
+import { submitControl } from "../agent-cli/client";
 import {
-  deprecatedAs,
   type Message,
   type MessageOutcome,
   type MessageScripts,
-  noAnswer,
   outcomeOf,
   type ReceivedMessage,
   type Scripts,
@@ -92,7 +89,6 @@ export type OpenedAgent = {
   key: string;
   execution: AgentExecution;
   instructions?: string;
-  labels?: JsonObject;
   /** The skills it was given by name; absent when the workflow named none. */
   skills?: readonly string[];
   /** The sandbox it ran in; absent on the host. */
@@ -107,19 +103,21 @@ export type OpenedAgent = {
    * host has no screen, so nothing says where a pane landed or whether a `beside` fell back.
    */
   pane?: PaneSpec;
-  /** What the host was asked, a deprecated `layout`'s session and workspace included. */
-  layout?: PaneLayout;
-  /** Why the engine already knew `layout` could not be used: a `beside` an agent with no pane. */
-  layoutFallback?: string;
-  keepPane?: KeepPane;
-  /** Its pane was kept when it was done: `keepPane` asked, and how its last operation ended let it. */
+  /**
+   * The run's `panes` as the host was asked to apply them to this pane: the `workspace` its tab
+   * opens in, which a `beside` takes from the pane it splits, and whether it is `keep`.
+   */
+  panes?: { workspace?: PaneWorkspace; keep?: KeepPane };
+  /** Why the engine already knew `pane` could not be used: a `beside` an agent with no pane. */
+  paneFallback?: string;
+  /** Its pane was kept when it was done: `panes.keep` asked, and its last operation's end let it. */
   keptPane?: true;
 };
 
 /** The sandbox an agent ran in, as the run's record keeps it. */
 export type AgentSandbox = Pick<SandboxRecord, "key" | "provider" | "spec" | "domains">;
 
-export type ScriptedHost = {
+type ScriptedHost = {
   factory: AgentRunHostFactory;
   turns: TestTurn[];
   compactions: CompactionRecord[];
@@ -149,8 +147,6 @@ export function createScriptedHost(
     onActivity(): void;
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
-    /** A script ended a turn through a deprecated name, for the run to log. */
-    onDeprecated(name: Deprecated, subject?: string): void;
     /** A turn began, before its script answers: what a test sends during it goes now. */
     onTurnStarted?(turn: TestTurn): Promise<void>;
   },
@@ -222,13 +218,10 @@ export function createScriptedHost(
       failTest(why);
       throw new Error(why);
     }
-    if (options.timeout != null && options.timeoutMs != null)
-      throw new Error(`a ${command}'s timeout is given alone: timeoutMs is its deprecated form`);
     const timeoutMs =
       options.timeout == null
-        ? (options.timeoutMs ?? undefined)
+        ? undefined
         : positiveDurationMilliseconds(options.timeout, `a ${command}'s timeout`);
-    if (options.timeoutMs != null) events.onDeprecated("timeout-ms", `on a script's ${command}`);
     const call = submitControl(operation.binding.endpoint, {
       version: WIRE_VERSION,
       command,
@@ -361,8 +354,6 @@ export function createScriptedHost(
           reply: (text, options) => turn.reply(woke!.from, text, options),
           send: turn.send,
           tool: turn.tool,
-          silent: deprecatedAs("message-silent", noAnswer.silent),
-          fail: deprecatedAs("message-fail", noAnswer.failed),
         } satisfies ReceivedMessage,
         operation.message!,
       );
@@ -441,7 +432,7 @@ export function createScriptedHost(
             // As an agent's `wfa send` returns before it can run `wfa result`.
             if (invocation) await Promise.allSettled([...invocation.calls]);
             const { endpoint, operationId } = context.binding!;
-            const response = await submitResult(endpoint, {
+            const response = await submitControl(endpoint, {
               version: WIRE_VERSION,
               command: "result",
               operationId,
@@ -468,12 +459,11 @@ export function createScriptedHost(
       };
     }
     const { ending } = step;
-    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") {
       return {
         act: async () => {
           const { endpoint, operationId } = context.binding!;
-          const response = await submitWaiting(endpoint, {
+          const response = await submitControl(endpoint, {
             version: WIRE_VERSION,
             command: "waiting",
             operationId,
@@ -568,7 +558,6 @@ export function createScriptedHost(
       return { summary: step.value };
     }
     const { ending } = step;
-    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") return failTest("compaction cannot report waiting");
     if (ending.kind === "hang") {
       return {
@@ -761,15 +750,13 @@ export function createScriptedHost(
               key: request.key,
               execution: request.execution,
               ...(request.instructions ? { instructions: request.instructions } : {}),
-              ...(request.labels ? { labels: request.labels } : {}),
               ...(request.skills ? { skills: request.skills.names } : {}),
               ...(request.continues && forks.has(request.continues.sessionRef)
                 ? { forkedFrom: forks.get(request.continues.sessionRef)! }
                 : {}),
               ...paneOf(request),
-              ...(request.layout ? { layout: request.layout } : {}),
-              ...(request.layoutFallback ? { layoutFallback: request.layoutFallback } : {}),
-              ...(request.keepPane ? { keepPane: request.keepPane } : {}),
+              ...panesOf(request),
+              ...(request.layoutFallback ? { paneFallback: request.layoutFallback } : {}),
             };
             agents.push(opened);
             return {
@@ -883,6 +870,18 @@ function paneOf({ layout, front }: HarnessActivation): { pane?: PaneSpec } {
   const tab = layout?.tab;
   if (tab === undefined && !front) return {};
   return { pane: { ...(tab === undefined ? {} : { tab }), ...(front ? { front } : {}) } };
+}
+
+/** The run's `panes` as the host was asked to apply them to this pane. */
+function panesOf({ layout, keepPane }: HarnessActivation): Pick<OpenedAgent, "panes"> {
+  const workspace = layout?.beside === undefined ? layout?.workspace : undefined;
+  if (workspace === undefined && keepPane === undefined) return {};
+  return {
+    panes: {
+      ...(workspace === undefined ? {} : { workspace }),
+      ...(keepPane === undefined ? {} : { keep: keepPane }),
+    },
+  };
 }
 
 /** What the pane host refuses before it opens a pane. */

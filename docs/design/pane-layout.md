@@ -13,8 +13,8 @@ workspace the tabs open in and whether panes stay, per run, with `awf run --work
 `--keep-panes` ([[039-one-way-author-api|story 039]] task 9).
 
 > **Since story 039.** This design was written with both halves on the workflow: `layout`, whose
-> `session` and `workspace` are now the operator's, and `keepPane`. Both still work, deprecated,
-> until 0.1.0; where the operator gives a flag, it wins. Read `layout: { workspace, tab }` below as
+> `session` and `workspace` are now the operator's, and `keepPane`. Both were removed in
+> 0.1.0-beta.6, and a `session` per agent with them. Read `layout: { workspace, tab }` below as
 > `pane: { tab }` with `--workspace`, and `keepPane` as `--keep-panes`. The rules (placement,
 > fallbacks, a pane's life, keeping, sessions and workspaces, marks) are unchanged.
 

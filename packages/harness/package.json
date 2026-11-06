@@ -22,7 +22,11 @@
     "src",
     "!src/**/*.test.ts",
     "!src/**/*.eval.ts",
-    "!src/**/fixtures"
+    "!src/**/*.typecheck.ts",
+    "!src/**/*.fixture.ts",
+    "!src/**/fixtures",
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@agentswf/contract": "workspace:*",

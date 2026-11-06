@@ -70,6 +70,7 @@ function session(run: Run, line: Record<string, unknown>): void {
 async function op(run: Run, id: string, cwd: string, execution: Record<string, unknown>) {
   mkdirSync(join(run.dir, "ops", id), { recursive: true });
   await writeJson(join(run.dir, "ops", id, "op.json"), {
+    version: 1,
     id,
     attempt: 1,
     at: AT,
@@ -524,6 +525,8 @@ function boxed(f: Fixture) {
         PATH: `${bin}:/usr/bin:/bin`,
         CLAUDE_CODE_OAUTH_TOKEN: "tok",
         TERM: "xterm-test",
+        // The fixture's awf home is the run's cwd; its sockets must be outside the sandbox.
+        AWF_COORDINATOR_DIR: runDirs.tempRunDir(),
       },
       providers: { installed: { srt: fake.provider } } as SandboxProviders,
     },

@@ -5,10 +5,9 @@ import { join } from "node:path";
 import type { ProbeName, ProbePlan, ProbeResult } from "../examples/sandbox-probe/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
 import type { SandboxEnvironmentKey } from "../packages/contract/src/workflow";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { installSandboxes } from "../packages/engine/src/operator-runtime";
 import { findDocker, imageBuildCommand } from "../packages/sandbox/src/docker";
-import { assertLiveOptIn, interruption, loadFromDotEnv } from "./live";
+import { assertLiveOptIn, loadFromDotEnv, recorded, report, runLive } from "./live";
 
 /**
  * The sandbox probe, run for real under one provider (story 004, Task 4): codex and claude share
@@ -389,8 +388,8 @@ export async function runProbe(
   const unready = await unreadyReason(environment);
   if (unready) {
     console.error(unready);
-    console.log(JSON.stringify({ ok: false, failed: [environment], reason: unready }, null, 2));
-    process.exit(1);
+    report([environment], { reason: unready });
+    process.exit();
   }
   // claude runs on a setup token in a sandbox.
   await loadFromDotEnv("CLAUDE_CODE_OAUTH_TOKEN");
@@ -416,27 +415,14 @@ export async function runProbe(
   try {
     planted = await plant(environment, repo, runs, listener.port ?? 0, panes);
     const before = await snapshot(repo);
-    const output: string[] = [];
-    const exitCode = await runOperatorCli(
-      [
-        "run",
-        "--run-root",
-        runs,
-        "--timeout",
-        "20m",
-        "--json",
-        PROBE,
-        "--",
-        JSON.stringify(planted.plan),
-      ],
-      {
-        cwd: repo,
-        signal: interruption(),
-        stdout: (text) => output.push(text),
-        stderr: (text) => console.error(text),
-      },
-    );
-    record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
+    const ran = await runLive(`sandbox-${environment}`, PROBE, [JSON.stringify(planted.plan)], {
+      workDir: work,
+      runRoot: runs,
+      timeout: "20m",
+      cwd: repo,
+    });
+    const { exitCode } = ran;
+    record = ran.record;
     const proxyLogs = await Promise.all(
       (record?.sandboxes ?? []).map((sandbox) =>
         readFile(join(sandbox.directory, "proxy.log"), "utf8").catch(() => ""),
@@ -461,19 +447,5 @@ export async function runProbe(
   }
   // Its homes hold copies of the operator's credentials; a failure keeps them as evidence.
   if (failed.length === 0) await rm(work, { recursive: true, force: true });
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  report(failed, recorded(record));
 }
-
-/** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */

@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { link, mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RunProcess } from "@agentswf/harness";
 import { messageOf } from "./errors";
+import { linkNewText } from "./files";
 import {
   liveness,
   type MarkedPane,
@@ -53,7 +53,7 @@ const READY_POLL_MS = 200;
 const READY_WITHIN_MS = 10_000;
 
 /** Starts a server that outlives this process; settles once it has started, or could not. */
-export type StartServer = (
+type StartServer = (
   argv: readonly string[],
   options: { cwd: string; env: Record<string, string> },
 ) => Promise<void>;
@@ -87,7 +87,7 @@ export type RunSession = {
   kept?: KeptPane[];
 };
 
-export type KeptPane = { run: string; session: string; paneId: string };
+type KeptPane = { run: string; session: string; paneId: string };
 
 /** `AWF_HERDR_SESSION`, else `awf`; refused when Herdr could not use it as a session name. */
 export function runSessionName(environment: Readonly<Record<string, string | undefined>>): string {
@@ -431,15 +431,7 @@ export function serverEnvironment(
 async function quietConfig(home: string): Promise<string> {
   const file = join(machinePaths(home).herdr, "config.toml");
   await mkdir(dirname(file), { recursive: true });
-  const temporary = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  try {
-    await writeFile(temporary, QUIET_CONFIG, { flag: "wx" });
-    await link(temporary, file);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  } finally {
-    await unlink(temporary).catch(() => undefined);
-  }
+  await linkNewText(file, QUIET_CONFIG);
   return file;
 }
 

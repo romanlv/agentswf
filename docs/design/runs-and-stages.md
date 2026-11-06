@@ -233,7 +233,8 @@ why it is shaped this way. Sandboxes live outside the project, in
   unique within its workflow, which is where a person names them.
 - **One `format` for the record.** `run.json`'s `format` versions it with `run.jsonl`, `in.jsonl`
   and the attempt files. A run without it, or with another, is listed `unreadable` and not read;
-  nothing migrates it. `out.json` and each line of `log.jsonl` keep their own `version`.
+  nothing migrates it. `out.json`, each line of `log.jsonl` and each JSON file of an operation
+  keep their own `version`.
 - **Mode 0600.** Records hold prompts' values and paths; secrets come from the environment, never
   argv or stage values.
 

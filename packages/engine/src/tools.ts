@@ -25,7 +25,7 @@ import {
 } from "./simple-input";
 
 /** How long a handler that ignores its aborted signal is waited for before its call is settled. */
-export const TOOL_SETTLE_MS = 5_000;
+const TOOL_SETTLE_MS = 5_000;
 
 /**
  * The agents whose handlers the current code runs in, innermost last: one of them can't be given
@@ -59,8 +59,6 @@ export type ToolHost<Scope> = {
   /** Runs `fn` in the operation's scope, or in none. */
   runIn<T>(scope: Scope | undefined, fn: () => T): T;
   now?(): number;
-  /** A tool given its deprecated `timeoutMs`. */
-  deprecated?(name: "timeout-ms", call: string): void;
 };
 
 /** An operation as tool calls bind to it. */
@@ -125,7 +123,7 @@ export class ToolCalls<Scope> {
 
   /** An agent opened or forked with these tools; checked against the limits first. */
   give(agent: AgentKey, tools: AgentTools): void {
-    this.#held.set(agent, held(agent, tools, this.#host.deprecated));
+    this.#held.set(agent, held(agent, tools));
   }
 
   /**
@@ -134,7 +132,7 @@ export class ToolCalls<Scope> {
    */
   reopen(agent: AgentKey, tools: AgentTools | undefined): void {
     if (tools === undefined) return;
-    const next = held(agent, tools, this.#host.deprecated);
+    const next = held(agent, tools);
     const existing = this.#held.get(agent);
     if (!existing || !sameTools(existing, next)) {
       throw new Error(`agent ${agent} is already open with different tools`);
@@ -573,11 +571,7 @@ export function toolsLesson(
   ].join("\n");
 }
 
-function held(
-  agent: AgentKey,
-  tools: AgentTools,
-  deprecated: ToolHost<unknown>["deprecated"],
-): Held {
+function held(agent: AgentKey, tools: AgentTools): Held {
   if (typeof tools !== "object" || tools === null || Array.isArray(tools)) {
     throw new Error(`agent ${agent}'s tools are an object of tools by name`);
   }
@@ -600,7 +594,7 @@ function held(
     if (Buffer.byteLength(spec.description) > TOOL_LIMITS.descriptionBytes) {
       throw new Error(`${where}: its description is over ${TOOL_LIMITS.descriptionBytes} bytes`);
     }
-    budgets.set(name, budgetOf(where, spec, deprecated));
+    budgets.set(name, budgetOf(where, spec));
     if (spec.input === undefined) {
       schemas.set(name, undefined);
       continue;
@@ -629,25 +623,12 @@ function held(
   return { specs: { ...tools }, schemas, budgets };
 }
 
-/** A tool's `timeout`, or its deprecated `timeoutMs`, checked; absent, the default. */
-function budgetOf(
-  where: string,
-  spec: ToolSpec,
-  deprecated: ToolHost<unknown>["deprecated"],
-): Budget {
-  const { timeout, timeoutMs } = spec;
-  if (timeout != null) {
-    if (timeoutMs != null)
-      throw new Error(`${where}: give timeout alone: timeoutMs is its deprecated form`);
-    if (timeout === false) return false;
-    return positiveDurationMilliseconds(timeout, `${where}: its timeout`);
-  }
-  if (timeoutMs == null) return TOOL_LIMITS.defaultTimeoutMs;
-  if (timeoutMs !== false && !(Number.isSafeInteger(timeoutMs) && timeoutMs > 0)) {
-    throw new Error(`${where}: timeoutMs is a positive integer, or false for none`);
-  }
-  deprecated?.("timeout-ms", "on a tool");
-  return timeoutMs;
+/** A tool's `timeout`, checked; absent, the default. */
+function budgetOf(where: string, spec: ToolSpec): Budget {
+  const { timeout } = spec;
+  if (timeout == null) return TOOL_LIMITS.defaultTimeoutMs;
+  if (timeout === false) return false;
+  return positiveDurationMilliseconds(timeout, `${where}: its timeout`);
 }
 
 function sameTools(a: Held, b: Held): boolean {

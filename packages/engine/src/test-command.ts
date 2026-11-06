@@ -2,17 +2,18 @@ import { existsSync, statSync } from "node:fs";
 import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Out } from "./command-line";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/test.txt" with { type: "text" };
 import { checkProjectEngine } from "./project-engine";
-import type { Out } from "./run-commands";
+import { NO_JSON, printRefusal } from "./refusals";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
 
 export const testUsage = help.trimEnd();
 
-export type TestCommand = { paths: string[]; bunArgs: string[] };
+type TestCommand = { paths: string[]; bunArgs: string[] };
 
 /**
  * `awf test`: the workflow tests under the given paths, with Bun's test runner. Their output goes
@@ -25,9 +26,9 @@ export async function testCommand(
 ): Promise<number> {
   let tests: TestCommand | "help";
   try {
-    tests = parseTestCommand(argv, cwd, (line) => io.stderr(line));
+    tests = parseTestCommand(argv, cwd);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
+    printRefusal(io, NO_JSON, error, "usage", testUsage);
     return 2;
   }
   if (tests === "help") {
@@ -58,11 +59,7 @@ export async function testCommand(
  * Only these flags pass through, so the published command is awf's, not the whole of `bun test`'s,
  * and a later runner can take its place. A path must exist; Bun would take it as a filter.
  */
-export function parseTestCommand(
-  argv: readonly string[],
-  cwd: string,
-  deprecated: (line: string) => void = () => {},
-): TestCommand | "help" {
+function parseTestCommand(argv: readonly string[], cwd: string): TestCommand | "help" {
   const paths: string[] = [];
   const bunArgs: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -77,7 +74,7 @@ export function parseTestCommand(
       index += 1;
     } else if (option === "--timeout") {
       if (value === undefined) throw new Error("--timeout needs a duration such as 10s");
-      bunArgs.push("--timeout", String(parseDuration(value, "--timeout", deprecated)));
+      bunArgs.push("--timeout", String(parseDuration(value, "--timeout")));
       index += 1;
     } else if (option.startsWith("-")) {
       throw new Error(`unknown option: ${option}`);
@@ -94,12 +91,12 @@ export function parseTestCommand(
  * Runs `bun test` in `cwd` with the author surface preloaded, and resolves to its exit code. When
  * `signal` aborts, as on Ctrl-C to awf alone, the tests are stopped with the same signal.
  */
-export async function runWorkflowTests(
+async function runWorkflowTests(
   command: TestCommand,
   cwd: string,
   options: {
     signal?: AbortSignal;
-    output?: { stdout(text: string): void; stderr(text: string): void };
+    output?: Out;
   } = {},
 ): Promise<number> {
   const { signal, output } = options;

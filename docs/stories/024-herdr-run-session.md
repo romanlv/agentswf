@@ -3,7 +3,7 @@ id: "024"
 title: A run's agents open in a Herdr session of their own
 summary: "Pane agents open in a headless Herdr session awf starts and owns (`awf` by default), not the operator's, so they set off no notifications there; `awf run` says where they are and when one is stuck, and the session starts from a minimal environment, is restarted when Herdr updates, and drops workspaces no live run owns."
 type: story
-status: awaiting-human-review
+status: done
 priority: P2
 epic: observability
 discovered_in: "Herdr notifications from runs, 2026-10-05"
@@ -527,8 +527,8 @@ closing block; say once that the session exists; stale server after an update; o
   workspace and the next run closed it; an unmarked `awf …` workspace named and kept;
   `AWF_HERDR_SESSION=awf-review` started with its line, `journal` refused with its command. Not
   run: the restart after `herdr update`, which Herdr refuses inside one of its sessions; M1 by ear.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - `bun test`: 1555 pass, 0 fail after the review fixes; `bun run check` clean.
 
 ### Task 3, 2026-10-06
@@ -555,3 +555,5 @@ closing block; say once that the session exists; stale server after an update; o
 - Live: during a quick-check run its mark held `workspaceId` `w5`; after, it was gone. Right twice,
   14 s, ~$0.13 at list prices.
 - `bun test`: 1572 pass, 0 fail; `bun run check` clean.
+
+Human review: signed off by the operator 2026-11-06.

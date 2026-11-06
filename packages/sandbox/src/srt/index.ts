@@ -19,7 +19,7 @@ import { protectedPaths } from "../git";
 import { LaunchedGroups } from "../groups";
 import { onceUnlessFailed } from "../once";
 import { panePrelude } from "../pane";
-import { contains, repositoryOf } from "../resolve";
+import { contains, DOORS_PREFIX, repositoryOf } from "../resolve";
 import type {
   OpenedSandbox,
   PaneTerminal,
@@ -49,12 +49,14 @@ export type SrtOptions = SrtHost & {
 
 /** How long `srt --version` may take before srt is taken to be missing. */
 const VERSION_MS = 10_000;
+/** The longest a `setTimeout` waits: above it, the timer fires at once. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 /** The system's own directories, last on every agent's `PATH`; srt needs `bash` there (H6). */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
 /** Where an agent's short directory is made: `/tmp` by its real path, which srt matches. */
-const SHORT_ROOT = "/private/tmp";
+const SHORT_ROOT = process.platform === "darwin" ? "/private/tmp" : "/tmp";
 
 /**
  * Anthropic's sandbox-runtime on this machine. A sandbox is a base profile; each admitted agent
@@ -118,7 +120,7 @@ function openSandbox(
       }
       // `mkdtemp` makes it 0700, by a name no co-tenant can guess ahead.
       const short = agent.harness.shortDirectory
-        ? await mkdtemp(join(SHORT_ROOT, "awf-"))
+        ? await mkdtemp(join(SHORT_ROOT, DOORS_PREFIX))
         : undefined;
       if (short) shorts.push(short);
       for (const shared of agent.harness.sharedWrites ?? []) await sharedDirectory(shared);
@@ -304,8 +306,7 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
           // It ended meanwhile.
         }
       },
-      // A timer overflows past 2^31 - 1 ms, and would fire at once.
-      Math.min(Math.max(0, context.deadline.unixMilliseconds - Date.now()), 2_147_483_647),
+      Math.min(Math.max(0, context.deadline.unixMilliseconds - Date.now()), MAX_TIMER_MS),
     );
     const [output, stderr] = await Promise.all([
       new Response(child.stdout).text(),

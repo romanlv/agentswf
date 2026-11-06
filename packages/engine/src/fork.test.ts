@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type {
-  AgentRef,
-  JsonValue,
-  OutputSchema,
-  WorkflowContext,
+import {
+  type AgentRef,
+  defineWorkflow,
+  type JsonValue,
+  type OutputSchema,
+  type WorkflowContext,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig, HarnessOperationBinding } from "@agentswf/harness/adapter";
@@ -14,6 +15,7 @@ import {
 } from "@agentswf/harness/testing";
 import { createTempRunDirs, future, runNew, submit } from "./testing";
 import type { RunnableWorkflow } from "./workflow-runner";
+import { answer, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -297,7 +299,7 @@ describe("fork", () => {
       await ask(plain, "Plan.");
       const noFork = await message(plain.fork({ key: "b" }));
       const doomed = await open(context, "doomed");
-      await doomed.run({ prompt: "Fail.", nudge: false, timeoutMs: 50 });
+      await doomed.run({ prompt: "Fail.", nudge: false, timeout: "0.05s" });
       const closed = await message(doomed.fork({ key: "c" }));
       return [beforeTurn, afterTurn, noFork, closed];
     });
@@ -309,4 +311,41 @@ describe("fork", () => {
       "logical agent is closed",
     ]);
   });
+});
+
+test("a fork's runtime: an empty one is none, a model is refused, and what it leaves out is its parent's", async () => {
+  const run = await testWorkflow(
+    defineWorkflow({
+      meta: { name: "fork-runtime", description: "Forks with runtimes." },
+      run: async (wf) => {
+        const agent = await wf.agents.open({
+          key: "a",
+          runtime: { alias: "claude", effort: "high" },
+        });
+        await agent.run({ prompt: "One." });
+        await agent.fork({ key: "headless", runtime: { placement: "headless", metered: true } });
+        const bare = await agent.fork({ key: "bare" });
+        const empty = await agent.fork({ key: "bare", runtime: {} });
+        await agent.fork({ key: "tui", runtime: { metered: true } });
+        const model = await agent
+          .fork({ key: "other", runtime: { model: "gpt-6-luna" } as never })
+          .then(
+            () => "forked",
+            (error: Error) => error.message,
+          );
+        return [bare === empty, model];
+      },
+    }),
+    { agents: { a: answer("yes") } },
+  );
+  expect(run.value).toEqual([true, expect.stringContaining("not model")]);
+  expect(run.agentOf("headless").execution).toMatchObject({
+    placement: "headless",
+    metered: true,
+    effort: "high",
+  });
+  expect(run.agentOf("bare").execution).toMatchObject({ effort: "high" });
+  expect(run.agentOf("bare").execution).not.toHaveProperty("placement");
+  // A TUI fork drops metered, where it means nothing.
+  expect(run.agentOf("tui").execution).not.toHaveProperty("metered");
 });

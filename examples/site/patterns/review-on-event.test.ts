@@ -70,19 +70,33 @@ describe("review on event", () => {
     expect(run.stages).toEqual([]);
   });
 
-  test("a failed review is logged, and the next push goes to a new reviewer", async () => {
+  test("a failed review is logged, and the run parks until the next push reopens the reviewer", async () => {
     const run = await testWorkflow(reviewOnEvent, {
       id: "42",
       event: opened,
-      agents: { reviewer: noAnswer.failed(), "reviewer-2": approved },
+      agents: { reviewer: noAnswer.failed() },
       events: [{ during: "reviewer#1", ...pushed }],
     });
-    // A key the code makes, reviewer-2, has no {key}:ended to declare: its start() is deprecated.
-    expect(
-      run.logs.map((log) => log.message).filter((m) => !m.startsWith("awf:")),
-    ).toEqual(["review failed"]);
-    expect(run.turnsOf("reviewer-2")[0]?.prompt).toContain("bbb2222");
-    expect(run.stages.map(({ name }) => name)).toEqual(["review-bbb2222"]);
+    expect(run.logs.map((log) => log.message)).toEqual(["review failed"]);
+    expect(run.turnsOf("reviewer")).toHaveLength(1);
+    expect(run.stages).toEqual([]);
+    expect(run.ending).toMatchObject({
+      kind: "parked",
+      label: "waiting for a push",
+    });
+
+    const woken = await testWorkflow(reviewOnEvent, {
+      id: "42",
+      earlier: { events: run.events, run: run.run },
+      event: {
+        ...pushed,
+        data: { ...pushed.data, head: "ccc3333" },
+        eventId: "push-ccc3333",
+      },
+      agents: { reviewer: approved },
+    });
+    expect(woken.turnsOf("reviewer")[0]?.prompt).toContain("ccc3333");
+    expect(woken.stages.map(({ name }) => name)).toEqual(["review-ccc3333"]);
   });
 
   test("a head that isn't a commit hash is logged and not reviewed", async () => {

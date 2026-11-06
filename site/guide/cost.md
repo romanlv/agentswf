@@ -34,8 +34,9 @@ The closing line gives, in order:
 - **Tokens**: every token the agents' usage reports, input, cache reads and writes, and output,
   their own subagents' included.
 - **The estimate**, `~$1.09 at list prices`, and `<$0.01` for a cost under a cent.
-- **`{amount} charged`**, only where something reported a cost: a metered claude or pi agent's
-  harness, or OpenRouter for decisions. It is what they reported as the cost, not your bill.
+- **`{amount} reported`**, only where something reported a cost: a metered claude or pi agent's
+  harness, or OpenRouter for decisions. It is their own figure, kept in the record as
+  `reportedCost`, not your bill.
 - **Billing**: `subscription`, `metered` or `unknown`, in the words
   [Harnesses](/guide/harnesses#subscription-and-metered) defines; `mixed` when agents whose
   billing is known disagree.
@@ -54,9 +55,8 @@ Where the time and tokens went:
 
 - **A run with stages** keeps each stage's row in its stage list, with what that stage's agents
   used: `2 agents · 180k tokens · ~$0.40`.
-- **A run without stages** whose agents fall in more than one group prints a row per group under
-  the closing line. The group is the part of an agent's key before the first `:`, which a key
-  [no longer takes](/reference/workflow-api#deprecated): a key with `-` is a group of its own.
+- **A run without stages** prints a row per agent and per [decision](/guide/decisions) key under
+  the closing line, when there is more than one.
 - **[Decisions](/guide/decisions)** get a line of their own, since a decision is not an agent:
   `4 decisions · 3k tokens · <$0.01 at list prices`.
 - **A continued run** adds the whole run after its attempt's figures:
@@ -153,8 +153,8 @@ A runtime for a small job:
 
 ## Catches
 
-- **The estimate is not a bill**, and neither is `charged` or `metered`. What you pay is whatever
-  your provider bills for the login the agents used.
+- **The estimate is not a bill**, and neither is `reportedCost` or `metered`. What you pay is
+  whatever your provider bills for the login the agents used.
 - **Some usage goes unseen.** A headless turn killed in the middle of a request can leave that
   request out, and an agent whose usage couldn't be read shows as `usage known`, not as zero.
 - **cursor's billing is always `unknown`.** Nothing cursor reports tells usage within its plan

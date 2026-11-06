@@ -189,7 +189,7 @@ export type Delivery = {
  * own. Under the run's lock it finds a duplicate, refuses the event, or appends the event, to a run
  * there or into a new one's `in.jsonl` before the run exists, and wakes the run.
  */
-export async function deliver(
+async function deliver(
   delivery: Delivery,
   context: Omit<WakeContext, "file">,
 ): Promise<EmitResultJson> {

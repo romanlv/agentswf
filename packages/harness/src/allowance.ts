@@ -2,6 +2,7 @@ import type { HarnessAllowance } from "@agentswf/contract/records";
 import type { HerdrConfig } from "./adapters/herdr";
 import { readPaneAllowance } from "./adapters/herdr-allowance";
 import type { RunProcess } from "./command";
+import { reasonOf } from "./session-core";
 import { absence, harnessSpec } from "./spec";
 import type { Harness } from "./types";
 
@@ -43,7 +44,7 @@ export async function readAllowance(
     return {
       harness,
       read: "none",
-      reason: error instanceof Error ? error.message : String(error),
+      reason: reasonOf(error),
     };
   }
   return { harness, read: "none", reason: absence(harness, "readAllowance") };

@@ -19,7 +19,7 @@ const CONFIDENT = 0.9;
 /** The call, as a function other workflows could import: one state, three questions about it. */
 export function triageTicket(id: string, ticket: string) {
   return {
-    key: `triage:${id}`,
+    key: `triage-${id}`,
     model: "jev",
     state: { ticket },
     questions: {

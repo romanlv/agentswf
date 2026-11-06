@@ -1,10 +1,8 @@
 import { mkdir, mkdtemp, readFile, unlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { readOperationEvents } from "../packages/engine/src/testing/operation-events";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, interruption, type LiveRun, report, runLive } from "./live";
 import { type Evidence, MODES, type Mode, problems } from "./turn-liveness-evidence";
 
 // One Claude pane, 1–3 minutes and <$1 list price per scenario; subscription placement.
@@ -17,7 +15,6 @@ if (import.meta.main) {
   await mkdir(cwd);
   const runRoot = join(directory, "runs");
   await mkdir(runRoot);
-  const output: string[] = [];
   const cancel = new AbortController();
   let injected = false;
   let injectionError: string | undefined;
@@ -78,34 +75,25 @@ if (import.meta.main) {
     injectionError = String(error);
     cancel.abort("fault injection failed");
   });
-  let code = 1;
+  let ran: LiveRun | undefined;
   try {
-    code = await runOperatorCli(
-      [
-        "run",
-        "--run-root",
-        runRoot,
-        "--timeout",
-        "5m",
-        "--json",
-        join(import.meta.dir, "fixtures/turn-liveness.workflow.ts"),
-        "--",
-        mode,
-      ],
+    ran = await runLive(
+      "liveness",
+      join(import.meta.dir, "fixtures/turn-liveness.workflow.ts"),
+      [mode],
       {
+        workDir: directory,
+        runRoot,
+        timeout: "5m",
         cwd,
         signal: AbortSignal.any([interruption(), cancel.signal]),
-        stdout: (text) => output.push(text),
-        stderr: (text) => console.error(text),
       },
     );
   } finally {
     finished = true;
     await faults;
   }
-  const record: OutputRecord | undefined = output.length
-    ? JSON.parse(output.join("\n"))
-    : undefined;
+  const { exitCode: code, record } = ran;
   const evidence: Evidence = [];
   if (record)
     for await (const path of new Bun.Glob("ops/*/live.jsonl").scan({
@@ -125,20 +113,11 @@ if (import.meta.main) {
   const errors = problems(mode, code, record, evidence, route);
   if (injectionError) errors.push(injectionError);
   if (mode === "cancel" && !injected) errors.push("cancellation was not injected after dispatch");
-  console.log(
-    JSON.stringify(
-      {
-        ok: errors.length === 0,
-        mode,
-        exitCode: code,
-        estimateUsd: record?.accounting.totals.estimate,
-        directory,
-        problems: errors,
-        record,
-      },
-      null,
-      2,
-    ),
-  );
-  process.exitCode = errors.length ? 1 : 0;
+  report(errors, {
+    mode,
+    exitCode: code,
+    estimateUsd: record?.accounting.totals.estimate,
+    directory,
+    record,
+  });
 }

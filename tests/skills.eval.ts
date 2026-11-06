@@ -10,8 +10,7 @@ import {
   type SkillsReport,
 } from "../examples/skills-probe/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption, loadFromDotEnv } from "./live";
+import { assertLiveOptIn, loadFromDotEnv, recorded, report, runLive } from "./live";
 
 /**
  * Agents given skills, and using them, live (story 007): codex, pi and a claude pane on the host,
@@ -187,17 +186,12 @@ if (import.meta.main) {
   const repo = join(workDir, "work");
   await mkdir(repo);
   const runs = join(workDir, "runs");
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    ["run", "--run-root", runs, "--timeout", "10m", "--json", PROBE, "--", JSON.stringify(plan)],
-    {
-      cwd: repo,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
+  const { exitCode, record } = await runLive("skills", PROBE, [JSON.stringify(plan)], {
+    workDir,
+    runRoot: runs,
+    timeout: "10m",
+    cwd: repo,
+  });
   // A sandboxed agent's home, and its skills with it, is under ~/.awf/sandboxes, not the run root.
   const roots = [
     { root: runs, label: "runs" },
@@ -215,19 +209,10 @@ if (import.meta.main) {
     const inSource = await readdir(join(probe.directory, "scripts"));
     if (inSource.includes("receipts")) failed.push(`${probe.name}'s source was run`);
   }
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        reports: (record?.outcome === "completed" ? record.value : undefined) ?? null,
-        receipts: receipts.map((receipt) => ({ ...receipt, path: receipt.path.slice(1) })),
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  process.exit(failed.length === 0 ? 0 : 1);
+  report(failed, {
+    reports: (record?.outcome === "completed" ? record.value : undefined) ?? null,
+    receipts: receipts.map((receipt) => ({ ...receipt, path: receipt.path.slice(1) })),
+    ...recorded(record),
+  });
+  process.exit();
 }

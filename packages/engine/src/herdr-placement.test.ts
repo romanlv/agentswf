@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HERDR_VERSION, type RunProcess } from "@agentswf/harness";
-import { findOrigin, namedSession, workspaceLock } from "./herdr-placement";
+import { findOrigin, workspaceLock } from "./herdr-placement";
 import { machinePaths } from "./machine";
 
 const DRIVEN = HERDR_VERSION.replace(/^herdr /, "");
@@ -52,20 +52,6 @@ function herdr(
   };
   return { run, calls };
 }
-
-describe("namedSession", () => {
-  const deps = (run: RunProcess) => ({ run, environment: {}, home: "/nowhere" });
-
-  test("a session awf does not start is used only if running, on the driven Herdr", async () => {
-    expect(await namedSession("default", deps(herdr().run))).toBeUndefined();
-    expect(await namedSession("work", deps(herdr().run))).toBe(
-      "it is not running, and awf starts only sessions named awf-…",
-    );
-    expect(await namedSession("default", deps(herdr({ version: "0.8.0" }).run))).toBe(
-      `it runs Herdr 0.8.0, not ${DRIVEN}`,
-    );
-  });
-});
 
 describe("findOrigin", () => {
   const environment = { HERDR_SOCKET_PATH: "/sock/default", HERDR_PANE_ID: "w7:p2" };

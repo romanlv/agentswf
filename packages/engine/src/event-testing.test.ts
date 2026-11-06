@@ -11,15 +11,30 @@ import {
 import { caseEvents, caseRun, startCase } from "./testing";
 import { answer, testWorkflow } from "./workflow-testing";
 
+const declared = {
+  ...caseEvents,
+  "thread:reply": ParticipantReply,
+  "investigator:ended": AgentEnded,
+};
+/** A case run that declares its thread's replies and its investigator's end. */
+const declaring = (run: (wf: WorkflowContext<typeof declared>) => Promise<JsonValue>) =>
+  defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events: declared,
+    starts: ["dd.changes"],
+    run,
+  });
+
 /** The sketch's shape, cut down: replies are pending until a turn is given them. */
-const replying = caseRun(async (workflow) => {
-  const thread = await workflow.participants.connect({ key: "thread", to: "code" });
+const replying = declaring(async (workflow) => {
+  await workflow.participants.connect({ key: "thread" });
   const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
   const pending: string[] = [];
   let first = true;
   for (;;) {
     for (const e of await workflow.receive({ label: investigator.turn ? "investigating" : "idle" }))
-      if (thread.is(e)) pending.push(`${e.data.author}: ${e.data.text}`);
+      if (e.name === "thread:reply") pending.push(`${e.data.author}: ${e.data.text}`);
     if (!investigator.turn && (first || pending.length > 0)) {
       first = false;
       await investigator.start({ prompt: `Look. Replies: ${pending.splice(0).join("; ")}` });
@@ -34,9 +49,8 @@ test("a reply scripted during a turn is taken at the next wait and given to the 
     events: [
       {
         during: "investigator#1",
-        name: "participant:reply",
-        from: "thread",
-        data: { text: "is it the unique index?" },
+        name: "thread:reply",
+        data: { text: "is it the unique index?", author: "engineer" },
       },
     ],
   });
@@ -105,8 +119,8 @@ test("a scripted own event is checked against its schema", async () => {
 
 test("events due at one turn arrive in the order given, an own event from the operator", async () => {
   const run = await testWorkflow(
-    caseRun(async (workflow) => {
-      await workflow.participants.connect({ key: "thread", to: "code" });
+    declaring(async (workflow) => {
+      await workflow.participants.connect({ key: "thread" });
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       await workflow.receive();
       await agent.start({ prompt: "look" });
@@ -122,38 +136,18 @@ test("events due at one turn arrive in the order given, an own event from the op
       agents: { investigator: answer("done") },
       events: [
         { during: "investigator#1", name: "dd.changes", data: { case: "k" }, eventId: "c2" },
-        {
-          during: "investigator#1",
-          name: "participant:reply",
-          from: "thread",
-          data: { text: "hi" },
-        },
+        { during: "investigator#1", name: "thread:reply", data: { text: "hi" } },
       ],
     },
   );
   expect(run.value).toEqual([
     "dd.changes from operator",
-    "participant:reply from thread",
-    "agent:ended from investigator",
+    "thread:reply from thread",
+    "investigator:ended from investigator",
   ]);
 });
 
-/** A case run that declares its thread's replies and its investigator's end. */
-const declaring = (run: (wf: WorkflowContext<typeof declared>) => Promise<JsonValue>) =>
-  defineWorkflow({
-    meta: { name: "dd-case", description: "A case." },
-    file: import.meta.path,
-    events: declared,
-    starts: ["dd.changes"],
-    run,
-  });
-const declared = {
-  ...caseEvents,
-  "thread:reply": ParticipantReply,
-  "investigator:ended": AgentEnded,
-};
-
-test("declared, a reply and an end arrive under their names, and log nothing", async () => {
+test("declared, a reply and an end arrive under their names", async () => {
   const run = await testWorkflow(
     declaring(async (workflow) => {
       const thread = await workflow.participants.connect({ key: "thread" });
@@ -182,7 +176,6 @@ test("declared, a reply and an end arrive under their names, and log nothing", a
     "investigator:ended from investigator",
     'meta {"n":1}',
   ]);
-  expect(run.logs.filter((log) => log.message.includes("deprecated"))).toEqual([]);
 });
 
 test("declared, a reply is a signal a race takes whole", async () => {
@@ -275,38 +268,41 @@ test("a workflow that declares a reply refuses wf.signal of an agent's end", asy
   expect(run.value).toContain("naming the agent, { done: investigator }");
 });
 
-test("start() for a key with a colon says to rename the key, not to declare it", async () => {
-  const run = await testWorkflow(
-    declaring(async (workflow) => {
-      const agent = await workflow.agents.open({ key: "fix:er", runtime: "claude" });
-      return agent.start({ prompt: "fix" }).then(
-        () => "started",
-        (error: Error) => error.message,
-      );
-    }),
-    { ...startCase },
-  );
-  expect(run.value).toContain('rename it fix-er and declare "fix-er:ended": AgentEnded');
-});
-
-test("a workflow that declares an end refuses start() for an agent whose end it doesn't", async () => {
-  const run = await testWorkflow(
-    declaring(async (workflow) => {
-      const other = await workflow.agents.open({ key: "fixer", runtime: "claude" });
-      return other.start({ prompt: "fix" }).then(
-        () => "started",
-        (error: Error) => error.message,
-      );
-    }),
-    { ...startCase },
-  );
-  expect(run.value).toContain('"fixer:ended": AgentEnded');
-});
-
-test('a workflow that declares a reply refuses to: "code" for a participant it doesn\'t', async () => {
+test("a key with a colon is refused at open, naming the key to use", async () => {
   const run = await testWorkflow(
     declaring(async (workflow) =>
-      workflow.participants.connect({ key: "lead", to: "code" }).then(
+      workflow.agents.open({ key: "fix:er", runtime: "claude" }).then(
+        () => "opened",
+        (error: Error) => error.message,
+      ),
+    ),
+    { ...startCase },
+  );
+  expect(run.value).toBe(
+    "fix:er has a colon, kept for awf's own event names, {key}:ended and {key}:reply; an agent takes another key, such as fix-er",
+  );
+});
+
+test("start() for an agent whose end isn't declared throws, naming the declaration", async () => {
+  const body = async (workflow: WorkflowContext) => {
+    const other = await workflow.agents.open({ key: "fixer", runtime: "claude" });
+    return other.start({ prompt: "fix" }).then(
+      () => "started",
+      (error: Error) => error.message,
+    );
+  };
+  const refusal =
+    'agent fixer: start()\'s end arrives as fixer:ended, which the workflow declares in events, "fixer:ended": AgentEnded';
+  // A workflow that declares no end at all, and one that declares another agent's.
+  expect((await testWorkflow(caseRun(body), { ...startCase })).value).toBe(refusal);
+  expect((await testWorkflow(declaring(body), { ...startCase })).value).toBe(refusal);
+});
+
+test('to: "code" is refused, naming the reply to declare', async () => {
+  const run = await testWorkflow(
+    declaring(async (workflow) =>
+      // biome-ignore lint/suspicious/noExplicitAny: an option tsc refuses, as a plain caller could give.
+      workflow.participants.connect({ key: "lead", to: "code" } as any).then(
         () => "connected",
         (error: Error) => error.message,
       ),

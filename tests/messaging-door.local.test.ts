@@ -19,7 +19,7 @@ const provider = found && createSrtProvider(found);
 
 /** `wfa`'s messaging commands from inside an srt sandbox, through the agent's door. */
 describe.skipIf(!provider)("messaging through the srt door", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-door-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "awf-door-")));
   const runRoot = join(root, "runs");
   const repo = join(root, "repo");
   const directory = join(runRoot, "run", "door");

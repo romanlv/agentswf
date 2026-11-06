@@ -1,6 +1,5 @@
 import type { AgentKey, TurnId, TurnOutcome } from "./agents";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
-import type { PeerKey } from "./participants";
 import type { TimerDueEvent } from "./waits";
 
 /**
@@ -169,52 +168,12 @@ export const AgentEnded = {
 declare const MATCHED: unique symbol;
 export type Matched = { readonly [MATCHED]: true };
 
-/**
- * An agent's turn's end where the workflow doesn't declare its `{key}:ended`, the agent's key in
- * `from`. A declared end is one of the workflow's own events.
- *
- * @deprecated Declare `{key}:ended: AgentEnded` in `events`, and read `e.name === "{key}:ended"`.
- */
-export type AgentEndedEvent<
-  Meta extends JsonValue = JsonValue,
-  T extends JsonValue = JsonValue,
-> = WorkflowEvent<"agent:ended", AgentEnded<Meta, T>> & { readonly from: AgentKey };
-
-/** Whether an event of type `E` may be any name: one read loosely, not one of a run's events. */
-type Loose<E> = string extends (E extends { readonly name: infer N } ? N : string) ? true : false;
-
-/**
- * What `agent.is(e)` narrows `e` to, intersected with its type. One of a run's events narrows to
- * the agent's end under either name, a declared `{key}:ended` or `agent:ended`; one typed loosely,
- * or given explicit type arguments, to `AgentEndedEvent` as before.
- */
-export type AgentEndOf<E, Meta extends JsonValue, T extends JsonValue> = (Loose<E> extends true
-  ? AgentEndedEvent<Meta, T>
-  : {
-      readonly name: "agent:ended" | `${string}:ended`;
-      readonly data: AgentEnded<Meta, T>;
-      readonly from: AgentKey;
-    }) &
-  Matched;
-
-/** As `AgentEndOf`, for a participant's message: a declared `{key}:reply` or `participant:reply`. */
-export type ParticipantReplyOf<E> = (Loose<E> extends true
-  ? ParticipantReplyEvent
-  : {
-      readonly name: "participant:reply" | `${string}:reply`;
-      readonly data: ParticipantReply;
-      readonly from: PeerKey;
-    }) &
-  Matched;
-/**
- * A message on a participant connected with the deprecated `to: "code"` and no `{key}:reply`
- * declared, its key in `from`.
- *
- * @deprecated Declare `{key}:reply: ParticipantReply` in `events`, and read `e.name === "{key}:reply"`.
- */
-export type ParticipantReplyEvent = WorkflowEvent<"participant:reply", ParticipantReply> & {
-  readonly from: PeerKey;
-};
+/** What `agent.is(e)` narrows `e` to, intersected with its type: the agent's `{key}:ended`. */
+export type AgentEndOf<Meta extends JsonValue, T extends JsonValue> = {
+  readonly name: `${string}:ended`;
+  readonly data: AgentEnded<Meta, T>;
+  readonly from: AgentKey;
+} & Matched;
 
 /**
  * A workflow without events, `{}`: it declares no name, so `signal` takes none. Not `never`, under
@@ -233,12 +192,11 @@ export type OwnEventOf<
   Name extends keyof Events & string,
 > = WorkflowEvent<Name, OutputOf<Events[Name]>>;
 
-/** Any event a run's wait takes: its own, an agent's end, a participant's reply, a timer's. */
-export type ReceivedEvent<Events extends EventSchemas> =
-  | OwnEvent<Events>
-  | AgentEndedEvent
-  | ParticipantReplyEvent
-  | TimerDueEvent;
+/**
+ * Any event a run's wait takes: one it declares, its own or an agent's end or a participant's
+ * reply, or a timer's.
+ */
+export type ReceivedEvent<Events extends EventSchemas> = OwnEvent<Events> | TimerDueEvent;
 
 export type EmitOptions = {
   /**

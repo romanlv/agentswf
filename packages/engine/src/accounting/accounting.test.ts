@@ -174,7 +174,7 @@ describe("summarizeRun", () => {
   test("bills each model at its own rate, and separates what subagents spent", () => {
     const summary = summarizeRun(
       [
-        record("lens:a", [
+        record("lens-a", [
           spent("claude-opus-5", { output: 1_000_000 }),
           spent("claude-haiku-4-5", { output: 1_000_000 }, true),
         ]),
@@ -194,7 +194,7 @@ describe("summarizeRun", () => {
   test("an unpriced model's tokens are counted and named, never priced at zero", () => {
     const empty: PriceTable = { basis: "none", rate: () => undefined };
     const summary = summarizeRun(
-      [record("lens:a", [spent("claude-next", { output: 500 })])],
+      [record("lens-a", [spent("claude-next", { output: 500 })])],
       empty,
       TIMES,
       [],
@@ -208,9 +208,12 @@ describe("summarizeRun", () => {
   test("a partial run says how much is known, and prices only that", () => {
     const summary = summarizeRun(
       [
-        record("lens:a", [spent("gpt-5.6-terra", { input: 1_000_000 })]),
-        record("lens:b", undefined),
-        record("verifier:a", [], { billing: "metered", charged: { amount: 0.5, currency: "USD" } }),
+        record("lens-a", [spent("gpt-5.6-terra", { input: 1_000_000 })]),
+        record("lens-b", undefined),
+        record("verifier-a", [], {
+          billing: "metered",
+          reportedCost: { amount: 0.5, currency: "USD" },
+        }),
       ],
       PUBLISHED_PRICES,
       TIMES,
@@ -218,42 +221,49 @@ describe("summarizeRun", () => {
     );
     expect(summary.totals).toMatchObject({ agents: 3, known: 2, priced: 2, estimate: 2 });
     expect(summary.billing).toBe("mixed");
-    // The verifier is known to have spent nothing, which is a zero; lens:b is unknown, which is not.
+    // The verifier is known to have spent nothing, which is a zero; lens-b is unknown, which is not.
     expect(summary.byStage).toEqual([
-      expect.objectContaining({ stage: "lens", agents: 2, known: 1, estimate: 2 }),
+      expect.objectContaining({ stage: "lens-a", agents: 1, known: 1, estimate: 2 }),
+      expect.objectContaining({ stage: "lens-b", agents: 1, known: 0 }),
       expect.objectContaining({
-        stage: "verifier",
+        stage: "verifier-a",
         agents: 1,
         known: 1,
         estimate: 0,
-        charged: 0.5,
+        reportedCost: 0.5,
       }),
     ]);
-    const unknown = summarizeRun([record("lens:b", undefined)], PUBLISHED_PRICES, TIMES, []);
+    const unknown = summarizeRun([record("lens-b", undefined)], PUBLISHED_PRICES, TIMES, []);
     expect(unknown.totals).not.toHaveProperty("estimate");
     expect(describeAccounting(unknown)[0]).toBe(
       "1 agent · 14m 05s · no usage known · subscription",
     );
   });
 
-  test("a charge in another currency is an unknown charge, not a missing one", () => {
+  test("a reported cost in another currency is an unknown one, not a missing one", () => {
     const summary = summarizeRun(
       [
-        record("verifier:a", [], { billing: "metered", charged: { amount: 0.5, currency: "USD" } }),
-        record("verifier:b", [], { billing: "metered", charged: { amount: 3, currency: "EUR" } }),
+        record("verifier-a", [], {
+          billing: "metered",
+          reportedCost: { amount: 0.5, currency: "USD" },
+        }),
+        record("verifier-b", [], {
+          billing: "metered",
+          reportedCost: { amount: 3, currency: "EUR" },
+        }),
       ],
       PUBLISHED_PRICES,
       TIMES,
       [],
     );
-    expect(summary.totals).toMatchObject({ agents: 2, charged: 0.5, billed: 1 });
+    expect(summary.totals).toMatchObject({ agents: 2, reportedCost: 0.5, billed: 1 });
   });
 
   test("times: the run's wall clock, each agent's working time, and each stage's span", () => {
     const summary = summarizeRun(
       [
-        record("lens:a", []),
-        record("lens:b", [], {
+        record("lens-a", []),
+        record("lens-b", [], {
           deliveredAt: "2026-09-23T10:00:31.000Z",
           settledAt: "2026-09-23T10:02:01.000Z",
         }),
@@ -264,35 +274,35 @@ describe("summarizeRun", () => {
     );
     expect(summary.wallMs).toBe(845_000);
     expect(summary.totals.agentMs).toBe(60_000 + 90_000);
-    expect(summary.byStage[0]!.spanMs).toBe(120_000);
+    expect(summary.byStage.map(({ spanMs }) => spanMs)).toEqual([60_000, 90_000]);
     expect(summary.byAgent.map(({ agent, agentMs }) => [agent, agentMs])).toEqual([
-      ["lens:a", 60_000],
-      ["lens:b", 90_000],
+      ["lens-a", 60_000],
+      ["lens-b", 90_000],
     ]);
   });
 
-  test("a nested call's stage is its call path and the agent key's prefix", () => {
+  test("a nested call's row is its call path and the agent's key", () => {
     const summary = summarizeRun(
-      [record("reviewer:x", [], { callPath: ["review", "round-2"] })],
+      [record("reviewer-x", [], { callPath: ["review", "round-2"] })],
       PUBLISHED_PRICES,
       TIMES,
       [],
     );
-    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["review/round-2/reviewer"]);
+    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["review/round-2/reviewer-x"]);
   });
 });
 
 describe("byModel", () => {
-  test("a model's share has tokens and an estimate, never a charge or time it cannot split", () => {
+  test("a model's share has tokens and an estimate, never a reported cost or time it cannot split", () => {
     const summary = summarizeRun(
       [
         record(
-          "lens:a",
+          "lens-a",
           [
             spent("claude-opus-5", { output: 1_000_000 }),
             spent("claude-haiku-4-5", { output: 1_000_000 }, true),
           ],
-          { billing: "metered", charged: { amount: 7, currency: "USD" } },
+          { billing: "metered", reportedCost: { amount: 7, currency: "USD" } },
         ),
       ],
       PUBLISHED_PRICES,
@@ -315,7 +325,7 @@ describe("byModel", () => {
         estimate: 25,
       },
     ]);
-    expect(summary.totals.charged).toBe(7);
+    expect(summary.totals.reportedCost).toBe(7);
   });
 });
 
@@ -323,9 +333,9 @@ describe("describeAccounting", () => {
   test("one line for the run and one per stage when there are several, naming every gap", () => {
     const summary = summarizeRun(
       [
-        record("lens:a", [spent("gpt-5.6-terra", { input: 400_000, cacheRead: 2_910_000 })]),
-        record("lens:b", undefined),
-        record("verifier:a", [spent("codex-auto-review", { output: 1_000 })]),
+        record("lens-a", [spent("gpt-5.6-terra", { input: 400_000, cacheRead: 2_910_000 })]),
+        record("lens-b", undefined),
+        record("verifier-a", [spent("codex-auto-review", { output: 1_000 })]),
       ],
       PUBLISHED_PRICES,
       TIMES,
@@ -333,8 +343,9 @@ describe("describeAccounting", () => {
     );
     expect(describeAccounting(summary)).toEqual([
       "3 agents · 14m 05s · 3.31M tokens · ~$1.38 at list prices · subscription · usage known 2/3 · fully priced 1/3 · unpriced: codex-auto-review",
-      "  lens      2 agents · 1m 00s · ~$1.38 · usage known 1/2",
-      "  verifier  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
+      "  lens-a      1 agent · 1m 00s · ~$1.38",
+      "  lens-b      1 agent · 1m 00s · no usage known",
+      "  verifier-a  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
     ]);
     // A run without stages keeps its groups where a view shows the stages.
     expect(describeAccounting(summary, { stages: false })).toEqual(describeAccounting(summary));
@@ -345,7 +356,7 @@ describe("describeAccounting", () => {
     const none = summarizeRun([], PUBLISHED_PRICES, TIMES, []);
     expect(describeAccounting(none)).toEqual(["14m 05s"]);
     const one = summarizeRun(
-      [record("lens:a", [spent("claude-opus-5", { output: 100_000 })])],
+      [record("lens-a", [spent("claude-opus-5", { output: 100_000 })])],
       PUBLISHED_PRICES,
       TIMES,
       [],
@@ -365,7 +376,7 @@ describe("describeAccounting", () => {
 describe("describeAccounting gaps", () => {
   test("an agent whose billing is unknown is counted, not folded into the others", () => {
     const summary = summarizeRun(
-      [record("lens:a", []), record("lens:b", [], { billing: "unknown" })],
+      [record("lens-a", []), record("lens-b", [], { billing: "unknown" })],
       PUBLISHED_PRICES,
       TIMES,
       [],
@@ -379,7 +390,7 @@ describe("describeAccounting gaps", () => {
 
   test("a real cost under a cent is not shown as nothing, one token is one, and a lone stage is not repeated", () => {
     const summary = summarizeRun(
-      [record("lens:a", [spent("gpt-5.6-luna", { input: 1 })])],
+      [record("lens-a", [spent("gpt-5.6-luna", { input: 1 })])],
       PUBLISHED_PRICES,
       TIMES,
       [],
@@ -478,20 +489,39 @@ describe("byStage, from the workflow's stages", () => {
     expect(describeAccounting(summary, { stages: false })).toHaveLength(1);
   });
 
-  test("a run with no stages keeps the key prefix", () => {
+  test("a run with no stages has a row per agent", () => {
     const summary = summarizeRun(
-      [record("lens:a", OPUS_SPEND(1)), record("verifier:0", OPUS_SPEND(1))],
+      [record("lens-a", OPUS_SPEND(1)), record("verifier-0", OPUS_SPEND(1))],
       PUBLISHED_PRICES,
       TIMES,
       [],
     );
-    expect(summary.grouping).toBe("prefix");
-    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["lens", "verifier"]);
+    expect(summary.grouping).toBe("agents");
+    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["lens-a", "verifier-0"]);
+  });
+
+  test("an older attempt grouped by prefix sums with one grouped by agent, row by row", () => {
+    const older = {
+      ...summarizeRun([record("lens", OPUS_SPEND(100_000))], PUBLISHED_PRICES, TIMES, []),
+      grouping: "prefix" as const,
+    };
+    const newer = summarizeRun(
+      [record("lens", OPUS_SPEND(100_000)), record("verifier-0", OPUS_SPEND(100_000))],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    const run = sumAttempts([older, newer]);
+    expect(run.grouping).toBe("agents");
+    expect(run.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual([
+      ["lens", 2, 5],
+      ["verifier-0", 1, 2.5],
+    ]);
   });
 
   test("an attempt that failed before its first stage is summed as running between stages", () => {
     const before = summarizeRun(
-      [record("lens:a", OPUS_SPEND(100_000))],
+      [record("lens-a", OPUS_SPEND(100_000))],
       PUBLISHED_PRICES,
       TIMES,
       [],

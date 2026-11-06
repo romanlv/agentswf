@@ -135,7 +135,7 @@ const open = (context: WorkflowContext, key: string, instructions?: string) =>
     key,
     runtime: "fake",
     ...(instructions ? { instructions } : {}),
-    deadline: future(30_000),
+    timeout: "30s",
   });
 
 describe("messaging through the runner", () => {
@@ -858,7 +858,7 @@ describe("messaging through the runner", () => {
           .then(() => "stage succeeded")
           .catch((error: Error) => error.message);
         stoppedAfter = await slow
-          .run({ prompt: "Again.", timeoutMs: 1_000 })
+          .run({ prompt: "Again.", timeout: "1s" })
           .then((r) => r.outcome.kind)
           .catch((error: Error) => error.message);
         return failed;

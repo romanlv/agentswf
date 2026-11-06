@@ -130,7 +130,7 @@ function levelsOf(question: Question, probabilities: Record<string, unknown>): n
 }
 
 /** What a body says was spent, as far as it says: tokens only when both counts are reported. */
-function spendOf(body: unknown): Pick<ProviderResponse, "tokens" | "charged" | "requestId"> {
+function spendOf(body: unknown): Pick<ProviderResponse, "tokens" | "reportedCost" | "requestId"> {
   if (!isRecord(body)) return {};
   const usage = isRecord(body.usage) ? body.usage : {};
   const counted = typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number";
@@ -138,7 +138,9 @@ function spendOf(body: unknown): Pick<ProviderResponse, "tokens" | "charged" | "
     ...(counted
       ? { tokens: { input: usage.input_tokens as number, output: usage.output_tokens as number } }
       : {}),
-    ...(typeof usage.cost === "number" ? { charged: { amount: usage.cost, currency: "USD" } } : {}),
+    ...(typeof usage.cost === "number"
+      ? { reportedCost: { amount: usage.cost, currency: "USD" } }
+      : {}),
     ...(typeof body.id === "string" ? { requestId: body.id } : {}),
   };
 }

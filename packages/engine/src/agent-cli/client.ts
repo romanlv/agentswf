@@ -1,36 +1,10 @@
 import { createConnection, type Socket } from "node:net";
-import {
-  type ControlRequest,
-  decodeResponseFor,
-  type ResponseFor,
-  type ResultSubmitRequest,
-  type ResultSubmitResponse,
-  type WaitingRequest,
-  type WaitingResponse,
-} from "@agentswf/contract/wire";
+import { type ControlRequest, decodeResponseFor, type ResponseFor } from "@agentswf/contract/wire";
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
 /** The connection never opened: nothing was written, so nothing reached the engine. */
 export class NotSentError extends Error {}
-
-export function submitResult(
-  endpoint: string,
-  request: ResultSubmitRequest,
-  timeoutSeconds = 30,
-  connect: (endpoint: string) => Socket = createConnection,
-): Promise<ResultSubmitResponse> {
-  return submitControl(endpoint, request, timeoutSeconds, connect);
-}
-
-export function submitWaiting(
-  endpoint: string,
-  request: WaitingRequest,
-  timeoutSeconds = 30,
-  connect: (endpoint: string) => Socket = createConnection,
-): Promise<WaitingResponse> {
-  return submitControl(endpoint, request, timeoutSeconds, connect);
-}
 
 /** Sends one request and resolves with a response that answers its command. */
 export function submitControl<R extends ControlRequest>(

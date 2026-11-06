@@ -1,7 +1,7 @@
 # M1 — does a headless session resume after hours, and what does it cost?
 
-Run 2026-10-23 for task 3 of [story 032](../../docs/stories/032-run-coordinator.md); the verdict is
-in [`docs/findings/resume-after-hours.md`](../../docs/findings/resume-after-hours.md).
+Run 2026-10-23 for task 3 of [story 032](../../../docs/stories/032-run-coordinator.md); the verdict is
+in [`docs/findings/resume-after-hours.md`](../../../docs/findings/resume-after-hours.md).
 
 `run.ts start` gives each headless session (claude `claude-sonnet-5-5`, codex `gpt-6-luna`) a small
 investigation over `work/logs` (a checkout-api log whose 5xx begin at 09:12, two minutes after a

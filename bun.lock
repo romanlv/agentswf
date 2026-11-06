@@ -21,11 +21,6 @@
     "experiments/e4-concurrency": {
       "name": "@agentswf/e4-concurrency",
       "version": "0.0.0",
-      "dependencies": {
-        "@agentswf/contract": "workspace:*",
-        "@agentswf/engine": "workspace:*",
-        "@agentswf/harness": "workspace:*",
-      },
     },
     "packages/agentswf": {
       "name": "agentswf",

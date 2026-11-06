@@ -22,7 +22,7 @@ const turn = {
 const localOutcome = {
   state: "completed",
   resultEvidence: { kind: "unavailable" },
-  chargesUsd: [],
+  reportedCostsUsd: [],
 } satisfies HarnessTurnOutcome;
 
 async function boundStart(): Promise<void> {
@@ -47,7 +47,7 @@ async function boundStart(): Promise<void> {
   const engineOutcome: HarnessTurnOutcome = {
     state: "completed",
     resultEvidence: { kind: "unavailable" },
-    chargesUsd: [],
+    reportedCostsUsd: [],
     // @ts-expect-error Harness-local outcomes do not carry engine-owned logical identity.
     agent: "reviewer",
   };

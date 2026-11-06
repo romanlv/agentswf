@@ -473,6 +473,8 @@ test("unread candidates survive the per-pass byte budget without later file even
       join(directory, "zz-ours.jsonl"),
       `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
     );
+    // Three passes read it all at the budget, whatever order the directory lists it in.
+    let passes = 0;
     let received = false;
     await receipt.watch(
       controller.signal,
@@ -482,7 +484,7 @@ test("unread candidates survive the per-pass byte budget without later file even
           received = true;
         },
       },
-      async () => false,
+      async () => ++passes < 4,
     );
     expect(received).toBe(true);
   } finally {

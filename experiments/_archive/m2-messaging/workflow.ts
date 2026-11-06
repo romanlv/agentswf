@@ -2,7 +2,7 @@ import {
   defineWorkflow,
   type ExecutionConfig,
   type OutputSchema,
-} from "../../packages/contract/src/workflow";
+} from "../../../packages/contract/src/workflow";
 
 /**
  * M2's trial: a planner must plan retries whose home is the architect's call, with a route to ask
@@ -50,13 +50,13 @@ export default defineWorkflow<{ runtime: Runtime; n: number }, Trial[]>({
       Array.from({ length: n }, (_, index) => index + 1),
       async (index) => {
         const architect = await workflow.agents.open({
-          key: `architect:${index}`,
+          key: `architect-${index}`,
           runtime: execution,
           instructions:
             "You are the architect. Retries live in the queue: the client is shared with the batch path, which must not retry. Answer questions about the design with that.",
         });
         const planner = await workflow.agents.open({
-          key: `planner:${index}`,
+          key: `planner-${index}`,
           runtime: execution,
         });
         await workflow.messages.allow({
@@ -68,7 +68,7 @@ export default defineWorkflow<{ runtime: Runtime; n: number }, Trial[]>({
           prompt:
             "Write a short plan for adding retries to charge() in src/payments.ts. Whether retries live in the client or in the queue is the architect's decision, not yours: do not choose it yourself.",
           schema: PLAN,
-          timeoutMs: 6 * 60_000,
+          timeout: "6m",
         });
         return outcome.answered
           ? { key: planner.key, outcome: outcome.kind, decision: outcome.value.decision }

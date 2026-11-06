@@ -19,16 +19,11 @@ export type {
   CallerSpec,
   CompactSpec,
   Effort,
-  EventAgentDirectory,
-  EventAgentOpenSpec,
-  EventAgentRef,
   ExecutionConfig,
   HarnessKind,
   KeepPane,
   NoInput,
-  NudgeOptions,
   OperationRecord,
-  PaneLayout,
   PaneSpec,
   PaneWorkspace,
   PlacementChoice,
@@ -43,7 +38,7 @@ export type {
   TurnId,
   TurnOutcome,
 } from "./agents";
-export { isAnswered, TOOL_LIMITS, tool } from "./agents";
+export { TOOL_LIMITS, tool } from "./agents";
 export type { AllowanceWindow, HarnessAllowance } from "./allowance";
 export type {
   Answer,
@@ -61,7 +56,6 @@ export type {
 } from "./decisions";
 export { choice, DecisionError, score, yesNo } from "./decisions";
 export type {
-  AgentEndedEvent,
   AgentEndOf,
   EmitOptions,
   EmitOutcome,
@@ -70,8 +64,6 @@ export type {
   OutputOf,
   OwnEvent,
   OwnEventOf,
-  ParticipantReplyEvent,
-  ParticipantReplyOf,
   ReceivedEvent,
   WorkflowEvent,
 } from "./events";
@@ -86,13 +78,10 @@ export type {
   Workflow,
   WorkflowInvocation,
 } from "./executable";
-export { defineExecutableWorkflow, defineWorkflow } from "./executable";
+export { defineWorkflow } from "./executable";
 export type { JsonObject, JsonPrimitive, JsonValue, OutputSchema } from "./json";
 export type { MessageAccess, Messaging } from "./messaging";
 export type {
-  CodeParticipantDirectory,
-  CodeParticipantRef,
-  CodeParticipantSpec,
   ParticipantDirectory,
   ParticipantRef,
   ParticipantSpec,
@@ -100,7 +89,6 @@ export type {
   PeerRef,
 } from "./participants";
 export type {
-  Gitdir,
   InlineSandboxSpec,
   SandboxDirectory,
   SandboxEnvironment,
@@ -109,7 +97,6 @@ export type {
   SandboxRef,
   SandboxSpec,
 } from "./sandboxes";
-export type { AbsoluteDeadline } from "./timing";
 export { DeadlineExceededError } from "./timing";
 export type {
   Duration,
@@ -126,7 +113,6 @@ export type {
 } from "./waits";
 export { duration } from "./waits";
 export type {
-  EventWorkflowContext,
   ParallelOptions,
   StageOptions,
   StageOutcome,

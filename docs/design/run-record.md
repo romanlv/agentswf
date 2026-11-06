@@ -89,8 +89,10 @@ type RunRecord = {
 ```
 
 `format` versions `run.json`, `run.jsonl`, `in.jsonl` and the attempt files
-together: a reader that doesn't know it refuses the run. The log and the operation files keep a
-`version` per kind or file where they had one, since they are read only to present.
+together: a reader that doesn't know it refuses the run. The log keeps a `version` per kind, since
+it is read only to present, and each JSON file of an operation, `op.json`, `result.json`,
+`spend.json` and `decision.json`, a `version` of its own, `OP_FILE_VERSIONS` in `contract`
+(added before 0.1.0, at 1).
 
 ## run.jsonl: what the run settled
 
@@ -212,16 +214,20 @@ never parks short of the redo stage (`FromStageUnreached`).
 
 | Wait | Takes | Acknowledges | Writes |
 | --- | --- | --- | --- |
-| `receive`, `select` outside a stage | the held batch if it is its attempt's first wait, else what is new | the held batch, as it asks for the next | `wait` with `acks` and changed `state`, then `took` |
-| a wait inside a stage | the stage's own batch on a rerun, else what is new | its `took`, at once: the stage holds it | `wait` with `stage`, `took` with `stage` |
+| `receive`, `select` | the held batch if it is its attempt's first wait, else what is new | the held batch, as it asks for the next | `wait` with `acks` and changed `state`, then `took`; nothing when a first wait returns what is held |
+| a wait inside a stage, in runs before 0.1.0-beta.6 only: both are refused there now | the stage's own batch on a rerun, else what is new | its `took`, at once: the stage holds it | `wait` with `stage`, `took` with `stage` |
 | `race`, `sleep` | its recorded winner, else the first ready source | its winner only | `wait` with `race`, `race` |
 
 - **Held** is the one run-wide batch a `took` outside a stage returned and no wait has acknowledged.
-  An attempt's first wait (no `wait` from it since its `claimed`) gets it back; if that wait doesn't
-  take it, it writes `returns` and the batch goes back unacknowledged. A held time read from state
-  whose state has since moved is acknowledged, not returned (037).
+  An attempt's first wait is its first `receive` or `select` call; a `race` or `sleep` before it
+  writes a `wait` line and doesn't end it. A first `receive` returns the held batch, alone, and
+  writes nothing, except a held time read from state, which is a select's: the receive
+  acknowledges it and waits. A first `select` returns the held event when it is the select's own
+  and its takes still take it. Otherwise it waits, and its `wait` carries `returns`: the batch goes
+  back unacknowledged. A held time read from state whose state has since moved is the exception:
+  that `wait` acknowledges it (037).
 - **State and the acks that changed it are one line**, the acknowledging `wait`: [[workflow-state]]'s
-  promise, both or neither after a crash. A wait inside a stage or a race carries neither, and a wait
+  promise, both or neither after a crash. A race's wait carries neither, nor did a stage's, and a wait
   rewritten because a time read from state moved doesn't repeat them.
 - **State saved elsewhere** goes on a `stage` line, and only when nothing is held: inside a handler,
   or beside one, nothing is saved until the next acknowledging wait. In straight-line code with
@@ -382,7 +388,7 @@ run, or `{decision}.{n}`, the `n`th asking of the decision keyed `{decision}`. S
 | `op.json` | what it is: `id`, `kind`, `at`, `attempt`, `stage`; an agent's operation's `agent`, `execution` and `cwd`, what its spend is read with; a turn's question and `schema` (before 041, `call.json`) |
 | `answers.jsonl`, `result.json` | each answer offered, refused ones with why, and the one accepted (before 041, `candidates.jsonl`) |
 | `decision.json` | a decision's request and answers, a `DecisionArtifact` |
-| `spend.json` | an agent operation's settled usage: billing, spend per model, charge, its delivery and settle times, and `settledBy` when the next attempt read it; a decision's is its `decision.json` record |
+| `spend.json` | an agent operation's settled usage: billing, spend per model, the cost its harness reported (`reportedCost`), its delivery and settle times, and `settledBy` when the next attempt read it; a decision's is its `decision.json` record |
 | `live.jsonl` | delivery and nudge diagnostics (before 041, `liveness.jsonl`) |
 | `screen.txt` | what the pane showed when it ended without an answer or its agent failed to start ([[non-answered-evidence]]) |
 
@@ -401,8 +407,8 @@ operation's own `execution` and `cwd`; what they logged from its first operation
 attempt ended, the next claimed, or now (nothing of the settling attempt has opened yet), is shared
 out by `op.json`'s `at`. A calling session isn't read: nothing on record says where the run's turns
 on it ended, so its spend is written unknown. A metered operation read this way has an unknown
-charge, which the run's figures count as not billed. The read is bounded as a run's end is; what it
-doesn't reach, and an ending attempt's read cut short by a stop or its deadline, is left for a later
+reported cost, which the run's figures count as not billed. The read is bounded as a run's end is;
+what it doesn't reach, and an ending attempt's read cut short by a stop or its deadline, is left for a later
 attempt. A run never continued keeps its unread spend in the agents' session files, and `work/`
 for a codex agent with a home of its own.
 
@@ -428,7 +434,7 @@ activity in `awf logs`, and any of their spend no attempt has read yet.
 
 | Tier | Files | Promise |
 | --- | --- | --- |
-| **Public, stable** | `run.json`, `run.jsonl`, `in.jsonl`, `attempts/`, `out.json`, `ops/*/{op,result,spend,decision}.json` | typed in `contract`, `run.jsonl` with `readRun`; a change is a new `format`, and a reader refuses one it doesn't know |
+| **Public, stable** | `run.json`, `run.jsonl`, `in.jsonl`, `attempts/`, `out.json`, `ops/*/{op,result,spend,decision}.json` | typed in `contract`, `run.jsonl` with `readRun`; a change is a new `format`, or for `out.json` and an operation's file a new `version`, and a reader refuses one it doesn't know: an unknown `spend.json` is usage unknown, an unknown `op.json` or `decision.json` leaves the run's cost unknown (`readSpent` rejects) |
 | **Public, for reading** | `log.jsonl`, `report.md` | typed in `contract`, `version` per kind; a reader skips what it doesn't know |
 | **Diagnostic** | `answers.jsonl`, `live.jsonl`, `screen.txt`, `launches/` | readable; the shape may change without notice |
 | **Private** | `work/`, `.tmp-*`, `.new-*` | awf's own; may vanish |

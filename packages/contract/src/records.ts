@@ -40,12 +40,36 @@ import type {
 import type { StageOutcome } from "./workflow/workflow";
 
 /**
+ * Each JSON file in `ops/{id}/`, its own version, which changes when that file's shape does. A
+ * reader takes a file without it, or with another, for one it can't read.
+ */
+export const OP_FILE_VERSIONS = { op: 1, result: 1, spend: 1, decision: 1 } as const;
+
+/** Which of an operation's JSON files: `op.json`, `result.json`, `spend.json` or `decision.json`. */
+export type OpFile = keyof typeof OP_FILE_VERSIONS;
+
+/** Whether `value` is an operation's `file` at the version this reader knows. */
+export function isKnownOpFile(file: OpFile, value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { version?: unknown }).version === OP_FILE_VERSIONS[file]
+  );
+}
+
+/**
  * `ops/{id}/op.json`: what one operation is. `id` is `{key}.{n}`, the `n`th operation of the agent
  * or decision keyed `{key}` in the run, counted from 1 across its attempts, so it is never reused.
  * `at` is when its id was drawn, as it started. The format only; the engine does the I/O.
  * Tier: public, stable.
  */
-export type OpRecord = { id: string; attempt: number; at: string; stage?: string } & (
+export type OpRecord = {
+  version: typeof OP_FILE_VERSIONS.op;
+  id: string;
+  attempt: number;
+  at: string;
+  stage?: string;
+} & (
   | ({
       /** A workflow's turn: its prompt, which its answers are checked against with `schema`. */
       kind: "turn";
@@ -71,16 +95,29 @@ export type AgentOp = { agent: string; execution: AgentExecution; cwd: string };
  * the next attempt as it starts. Tier: public, stable.
  */
 export type SpendRecord = {
+  version: typeof OP_FILE_VERSIONS.spend;
   billing: Billing;
   /** Absent means unknown: its sessions could not be read. */
   spend?: ModelSpend[];
-  /** Only what was actually billed per token; decided with `billing`. */
-  charged?: Money;
+  /**
+   * The cost its harness printed, kept only where `billing` is `metered`: the harness's own
+   * figure, such as claude's `total_cost_usd`, not a bill.
+   */
+  reportedCost?: Money;
   /** When it reached its agent and when it settled, as the attempt that ran it knew them. */
   deliveredAt?: string;
   settledAt?: string;
   /** The attempt that read it, when not the attempt that ran it. */
   settledBy?: number;
+};
+
+/**
+ * `ops/{id}/result.json`: a turn's one accepted answer, written once. Tier: public, stable.
+ */
+export type ResultRecord = {
+  version: typeof OP_FILE_VERSIONS.result;
+  value: JsonValue;
+  at: string;
 };
 
 /**
@@ -150,8 +187,8 @@ export type SettledOperation = OperationRecord & {
   billing: Billing;
   /** Absent means unknown. */
   spend?: ModelSpend[];
-  /** Only what was actually billed per token; decided with `billing`. */
-  charged?: Money;
+  /** The cost its harness printed, kept only where `billing` is `metered`; not a bill. */
+  reportedCost?: Money;
 };
 
 /**
@@ -159,6 +196,7 @@ export type SettledOperation = OperationRecord & {
  * threshold can be fitted again without calling the model. Tier: public, stable.
  */
 export type DecisionArtifact = {
+  version: typeof OP_FILE_VERSIONS.decision;
   record: SettledDecision;
   request: { state: string | JsonObject | JsonValue[]; questions: Record<string, Question> };
   /** As `decide` returned them; absent when the call did not answer. */
@@ -166,12 +204,12 @@ export type DecisionArtifact = {
 };
 
 /**
- * A decision once the run has ended: what the provider said it charged, beside its record.
+ * A decision once the run has ended: the cost its provider reported, beside its record.
  * Tier: public, stable.
  */
 export type SettledDecision = DecisionRecord & {
   /** As the provider reported it; absent when it reported none. */
-  charged?: Money;
+  reportedCost?: Money;
 };
 
 /**
@@ -186,8 +224,8 @@ export type DecisionFigures = {
   tokens: { input: number; output: number };
   /** USD at list price, over the calls whose tokens are known and priced. */
   estimate?: number;
-  /** USD the provider reported charging. */
-  charged?: number;
+  /** USD the provider reported, over the calls it reported a cost for. */
+  reportedCost?: number;
   /** How many of `calls` have known tokens. */
   known: number;
   /** How many of `calls` were known and priced. */
@@ -207,15 +245,15 @@ export type AccountingFigures = {
    * and priced: a known zero is 0, an unknown is never one.
    */
   estimate?: number;
-  /** USD actually billed per token. */
-  charged?: number;
+  /** USD the harnesses reported for metered agents: their own figures, not a bill. */
+  reportedCost?: number;
   /** How many of `agents` have known usage. */
   known: number;
   /** How many of `agents` had all their usage priced. */
   priced: number;
   /**
-   * How many of `agents` have a known billing and every charge counted in `charged`; the rest may
-   * have been charged unseen.
+   * How many of `agents` have a known billing and every reported cost counted in `reportedCost`;
+   * the rest may have cost what nothing reported.
    */
   billed: number;
   /** Absent when the slice asked no decision model anything. */
@@ -223,7 +261,7 @@ export type AccountingFigures = {
 };
 
 /**
- * One model's share. Time and charges belong to an operation, not a model, so are not split.
+ * One model's share. Time and reported costs belong to an operation, not a model, so are not split.
  * Tier: public, stable.
  */
 export type ModelFigures = {
@@ -248,17 +286,18 @@ export type RunAccounting = {
   finishedAt: string;
   wallMs: number;
   /**
-   * What `byStage` groups by: the workflow's stages, or, for a run without any, the call path and
-   * key prefix.
+   * What `byStage` groups by: the workflow's stages, or, for a run without any, `agents`: the call
+   * path and the agent's or decision's key. `prefix`, a key's part before `:`, is what an attempt
+   * before 0.1.0-beta.6 recorded.
    */
-  grouping: "stages" | "prefix";
+  grouping: "stages" | "agents" | "prefix";
   /** `mixed` when agents whose billing is known disagree; `unknown` when none is known. */
   billing: Billing | "mixed";
   totals: AccountingFigures;
   /**
    * Each workflow stage entered, in order, a reused one at zero, then `(no stage)` for what ran
-   * between stages. A run without stages groups by the call path and the agent or decision key's
-   * prefix before `:`, joined with `/`.
+   * between stages. A run without stages groups by the call path and the agent's or decision's
+   * key, joined with `/`.
    */
   byStage: (AccountingFigures & { stage: string; spanMs: number })[];
   byModel: ModelFigures[];
@@ -330,14 +369,14 @@ export type PanePlacement = {
 };
 
 /**
- * Where a TUI agent's pane went: its `pane`, or deprecated `layout` and `keepPane`, as the workflow
- * wrote them, and where it was placed, the run's `--workspace` and `--keep-panes` applied.
- * Tier: public, stable.
+ * Where a TUI agent's pane went: its `pane` as the workflow wrote it, and where it was placed, the
+ * run's `--workspace` and `--keep-panes` applied. Tier: public, stable.
  */
 export type AgentPaneRecord = {
   callPath: string[];
   agent: string;
   pane?: PaneSpec;
+  /** The workflow's `layout` and `keepPane`, written only before 0.1.0-beta.6. */
   layout?: PaneLayout;
   keepPane?: KeepPane;
   placed: PanePlacement;
@@ -417,8 +456,8 @@ export type RunRecord = {
 
 /**
  * The operator's choices for a run's TUI agents on the host: the workspace their new tabs open in,
- * and whether a pane stays once its agent is done. Each wins over a deprecated `layout` or
- * `keepPane`; absent, those apply, else the run's workspace and `never`. Tier: public, stable.
+ * and whether a pane stays once its agent is done; absent, the run's workspace and `never`.
+ * Tier: public, stable.
  */
 export type RunPanes = { workspace?: PaneWorkspace; keep?: KeepPane };
 
@@ -467,9 +506,15 @@ export type RunLine = {
   | { kind: "race"; name: string; branch: string; took: Taken[] }
   /** A timer as first called; cancelled, the same line again with `cancelled`. */
   | { kind: "timer"; name: string; due: string; when: string; cancelled?: true }
-  /** What a wait returned: held until a later wait acknowledges it, or a stage's own. */
+  /**
+   * What a wait returned, held until a later wait acknowledges it. `stage`, a wait in a stage, is
+   * written only before 0.1.0-beta.6.
+   */
   | { kind: "took"; took: Taken[]; stage?: string }
-  /** A wait: what it waits for and, outside a stage and a race, what it acknowledges and saves. */
+  /**
+   * A wait: what it waits for and, outside a race, what it acknowledges and saves. `stage`, a wait
+   * in a stage, is written only before 0.1.0-beta.6.
+   */
   | {
       kind: "wait";
       label?: string;
@@ -775,7 +820,7 @@ export type MessagingEvent =
   /**
    * An outside participant connected, with the labels the workflow gave it; `to: "code"` when its
    * messages go to the run's code, each recorded in `in.jsonl` as `participant:reply` from its key:
-   * its workflow declares `{key}:reply`, or connected it with the deprecated `to: "code"`.
+   * its workflow declares `{key}:reply`, or, before 0.1.0-beta.6, connected it `to: "code"`.
    */
   | {
       kind: "participant-connected";
@@ -953,10 +998,9 @@ export type Activity =
 /** A line of `log.jsonl`, the run's event log. Tier: public, for reading. */
 export type RunLogLine = TurnRecord | RunEvent;
 
-/**
- * What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
- * kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
- */
+// What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
+// kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
+
 /**
  * `stuck`: a run of a workflow with `events` that failed or crashed three attempts in a row; its
  * events are kept, and only `awf run --continue` goes on.
@@ -964,7 +1008,8 @@ export type RunLogLine = TurnRecord | RunEvent;
 export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
 
 /**
- * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given.
+ * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given,
+ * which only a wait before 0.1.0-beta.6 gave.
  * A timer's `timer:due` is from its name. A select's time read from state is `at:due` from its
  * branch, with `due`, the ISO time read, when the read gave one: a deadline, not part of the match.
  * With no event ready, the wait takes it at once, under id `awf.at.{hash}` of the branch and the
@@ -1035,7 +1080,7 @@ export type AgentStateJson = (typeof AGENT_STATES)[number];
  * A stage's state in `awf runs {ref} --json`: `running`, `interrupted` when the run's process went
  * while it ran, `reused` or `provided` from an earlier attempt or `--values`, or how it ended.
  */
-export const STAGE_STATES = [
+const STAGE_STATES = [
   "running",
   "interrupted",
   "reused",
@@ -1202,8 +1247,7 @@ export type InboxItemJson = {
  * a reply, the question answered, as its `answered` item has it; for a send, the new message), or
  * a refusal, `ambiguous`'s with its `choices`. Version 2 renamed the refusal `stopped` to
  * `peer-stopped`, as `wfa` has it; version 3 took `code: "delivered"` off the success, as only a
- * refusal has a code, and renamed `not-found` to `no-run`. The deprecated `awf send --event-id`
- * prints `EmitResultJson` instead when it worked.
+ * refusal has a code, and renamed `not-found` to `no-run`.
  */
 export type ParticipantResultJson =
   | { v: 3; id: string }
@@ -1229,7 +1273,7 @@ export type WakeWhy =
   /** `awf open --no-fork` holds the run's session: the event waits for its exit (story 042). */
   | "opened";
 
-/** `awf emit --json`, and the deprecated `awf send --event-id --json`. */
+/** `awf emit --json`. */
 export type EmitResultJson = {
   v: 1;
   /**
@@ -1409,7 +1453,7 @@ export function runLogLine(value: object): RunLogLine | undefined {
   return version >= oldest && version <= current ? (value as RunEvent) : undefined;
 }
 
-export const OUTPUT_RECORD_VERSION = 5 as const;
+export const OUTPUT_RECORD_VERSION = 6 as const;
 
 /**
  * An attempt, as the operator CLI keeps it in `out.json` and prints it with `--json`, in the

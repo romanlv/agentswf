@@ -58,9 +58,78 @@ export function localOutcome(state: "failed" | "timed-out" | "cancelled", detail
     state,
     detail,
     resultEvidence: { kind: "unavailable" } as const,
-    chargesUsd: [],
+    reportedCostsUsd: [],
   };
 }
+
+/**
+ * The operation a backend is waiting on, one at a time: stopping it aborts its signal and waits
+ * until it has returned.
+ */
+export type ActiveOperation = {
+  readonly running: boolean;
+  run<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T>;
+  /** False where nothing was running. */
+  stop(): Promise<boolean>;
+  /** Stops the operation running now, and not one started after it. */
+  stopperForNow(): () => Promise<void>;
+};
+
+/** The longest a `setTimeout` waits: above it, the timer fires at once. */
+export const MAX_TIMER_MS = 2_147_483_647;
+
+export function activeOperation(): ActiveOperation {
+  let controller: AbortController | undefined;
+  let completion: Promise<void> | undefined;
+  return {
+    get running() {
+      return controller !== undefined;
+    },
+    async run(work) {
+      const mine = new AbortController();
+      controller = mine;
+      let finish!: () => void;
+      completion = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      try {
+        return await work(mine.signal);
+      } finally {
+        if (controller === mine) controller = undefined;
+        finish();
+      }
+    },
+    async stop() {
+      if (!controller) return false;
+      controller.abort();
+      await completion;
+      return true;
+    },
+    stopperForNow() {
+      const now = controller;
+      const finished = completion;
+      return async () => {
+        now?.abort();
+        await finished;
+      };
+    },
+  };
+}
+
+/**
+ * Puts `instructions` before the first prompt it is given only: a later prompt reaches an agent that
+ * has already read them, and sending them again reads as a new assignment rather than a reminder.
+ */
+export function instructOnce(instructions: string | undefined): (prompt: string) => string {
+  let instructed = false;
+  return (prompt) => {
+    const first = !instructed && instructions;
+    instructed = true;
+    return first ? `${instructions}\n\n${prompt}` : prompt;
+  };
+}
+
+export const deadlineExceeded = () => localOutcome("timed-out", "operation deadline exceeded");
 
 type NativeSessionIdentity = {
   sessionId: string;
@@ -224,7 +293,7 @@ function createSession(
       const ended = await Promise.race([
         pending.settled.then(() => true),
         new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), Math.max(0, Math.min(wait, 2_147_483_647)));
+          timer = setTimeout(() => resolve(false), Math.max(0, Math.min(wait, MAX_TIMER_MS)));
         }),
       ]);
       clearTimeout(timer);
@@ -350,7 +419,7 @@ function createSession(
           state: "failed",
           detail: reasonOf(error),
           resultEvidence: { kind: "unavailable" },
-          chargesUsd: [],
+          reportedCostsUsd: [],
         }),
       )
       .then(
@@ -608,7 +677,7 @@ async function releaseBefore(
   if (remaining <= 0) return { kind: "quarantined", reason: "release deadline exceeded" };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<"expired">((resolve) => {
-    timer = setTimeout(() => resolve("expired"), Math.min(remaining, 2_147_483_647));
+    timer = setTimeout(() => resolve("expired"), Math.min(remaining, MAX_TIMER_MS));
   });
   try {
     const outcome = await Promise.race([releasing, expiry]);
@@ -636,7 +705,7 @@ function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
   }
 }
 
-function reasonOf(error: unknown): string {
+export function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

@@ -291,7 +291,7 @@ export const codex = defineHarness(CODEX, {
   launchModel: "codex names a model as it logs it",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "codex logs each request in its rollouts",
-  readCharge: "codex prints no dollars; its tokens are priced from its rollouts",
+  readCost: "codex prints no dollars; its tokens are priced from its rollouts",
   readCostTotal: "codex prints no dollars; its tokens are priced from its rollouts",
   readCompactSummary: "codex keeps its compaction's summary opaque",
   allowancePane: "its app-server answers what `/status` shows, with no pane",

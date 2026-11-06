@@ -1,7 +1,8 @@
 import { createInterface, type Interface } from "node:readline/promises";
+import { shellLine } from "./command-line";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
+import { messageOf } from "./errors";
 import type { MessagingEventBody } from "./messaging/messaging";
-import { shellLine } from "./run-commands";
 
 /** Where the prompt reads a line: `awf run`'s terminal, or a test's script. */
 export type LineReader = {
@@ -13,7 +14,7 @@ export type LineReader = {
 };
 
 /** What the prompt shows beside the progress view, which holds its block while a prompt is open. */
-export type PromptOutput = {
+type PromptOutput = {
   /** A line in the run's log, above the progress block. */
   log(line: string): void;
   /** The progress block stops redrawing while a prompt waits for a line, and lines go above it. */
@@ -93,7 +94,7 @@ export function promptCoordinator(
       if (!question) return;
       // One that fails is said and passed over; the others are still asked.
       await ask(question).catch((error: unknown) =>
-        output.log(`awf: the prompt failed: ${error instanceof Error ? error.message : error}`),
+        output.log(`awf: the prompt failed: ${messageOf(error)}`),
       );
     }
   };

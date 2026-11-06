@@ -11,8 +11,6 @@ interface RouteLimits {
    * shorten it.
    */
   timeout?: Duration;
-  /** @deprecated Give `timeout`, a `Duration` such as `"30m"`. */
-  timeoutMs?: number;
 }
 
 /**

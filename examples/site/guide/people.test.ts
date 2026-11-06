@@ -3,7 +3,6 @@ import { answer, testWorkflow } from "agentswf/testing";
 import investigate, { FINDINGS } from "./people";
 
 test("the investigator reports, asks, and its next turn has the coordinator's answer", async () => {
-  // #region script
   const run = await testWorkflow(investigate, {
     agents: {
       investigator: answer(FINDINGS, async (turn) => {
@@ -26,7 +25,6 @@ test("the investigator reports, asks, and its next turn has the coordinator's an
           : undefined,
     },
   });
-  // #endregion script
   expect(run.value).toEqual({
     cause: "pool exhaustion",
     incidents: ["Keep two, and link them."],

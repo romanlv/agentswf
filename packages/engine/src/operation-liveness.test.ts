@@ -6,7 +6,7 @@ import { createResultSlotRegistry } from "./result-slots";
 const completed: HarnessTurnOutcome = {
   state: "completed",
   resultEvidence: { kind: "unavailable" },
-  chargesUsd: [],
+  reportedCostsUsd: [],
 };
 const flush = async () => {
   for (let i = 0; i < 50; i++) await Promise.resolve();

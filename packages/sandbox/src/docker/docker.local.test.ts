@@ -145,10 +145,14 @@ describe.skipIf(!provider)("docker on this machine", () => {
   test("network: the proxy's list only, grown at admission, and no way around it", async () => {
     const curl = (url: string, label: string, flags = "") =>
       `curl -s -m 8 ${flags} -o /dev/null ${url} && echo ${label}-reached || echo ${label}-denied;`;
+    // A fresh proxy's first tunnel to the public internet took over 5 s in a loaded full run:
+    // a reachable name is tried until reached, not given one fixed window.
+    const reach = (url: string, label: string) =>
+      `r=${label}-denied; for t in 1 2 3; do curl -s -m 10 -o /dev/null ${url} && { r=${label}-reached; break; }; done; echo $r;`;
     const { stdout } = await sh(
       [
-        curl("https://registry.npmjs.org", "allowed"),
-        curl("https://pypi.org", "grown"),
+        reach("https://registry.npmjs.org", "allowed"),
+        reach("https://pypi.org", "grown"),
         curl("https://www.python.org", "other"),
         curl("https://1.1.1.1", "raw"),
         curl("https://registry.npmjs.org", "bypass", '--noproxy "*"'),
@@ -157,7 +161,7 @@ describe.skipIf(!provider)("docker on this machine", () => {
         // The positive control for raw TCP: the proxy itself is reachable.
         "node -e \"require('net').connect(3128, new URL(process.env.HTTPS_PROXY).hostname).on('connect', () => { console.log('proxy-reached'); process.exit(0) }).on('error', () => { console.log('proxy-denied'); process.exit(0) })\";",
       ].join(" "),
-      60_000,
+      90_000,
     );
     for (const label of ["other", "raw", "bypass", "dns", "tcp"]) {
       expect(stdout).toContain(`${label}-denied`);
@@ -165,7 +169,7 @@ describe.skipIf(!provider)("docker on this machine", () => {
     expect(stdout).toContain("allowed-reached");
     expect(stdout).toContain("grown-reached");
     expect(stdout).toContain("proxy-reached");
-    // The refusal is in the proxy's log.
+    // The proxy's decisions are in its log, whatever the internet behind it did.
     const proxies = await found!.client.run(
       ["ps", "--filter", "label=awf.sandbox", "--filter", "name=-proxy", "--format", "{{.Names}}"],
       { timeoutMs: 10_000 },
@@ -176,8 +180,10 @@ describe.skipIf(!provider)("docker on this machine", () => {
         .split("\n")
         .map((name) => found!.client.run(["logs", name], { timeoutMs: 10_000 })),
     );
-    expect(logs.map((log) => log.stdout).join("")).toContain("deny www.python.org:443");
-  }, 90_000);
+    const decided = logs.map((log) => log.stdout).join("");
+    expect(decided).toContain("allow pypi.org:443");
+    expect(decided).toContain("deny www.python.org:443");
+  }, 120_000);
 
   test("a pane in the box's own Herdr shows its prompt, holds its secret, and ends at release", async () => {
     const home = join(runRoot, "run", "local", "homes", "p1");

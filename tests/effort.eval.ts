@@ -1,11 +1,10 @@
-import { mkdtemp, readFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { EffortCheck, EffortResult } from "../examples/effort/workflow";
 import { RUNTIMES } from "../examples/effort/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Effort and `set` on every harness and placement that switches, live, on cheap models (story
@@ -133,41 +132,11 @@ export async function harnessLog(check: EffortCheck): Promise<Ran[] | undefined>
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const workDir = await mkdtemp(join(tmpdir(), "awf-effort-"));
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "20m",
-      "--json",
-      EFFORT,
-      "--",
-      ...process.argv.slice(2),
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = await problems(exitCode, record);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        checks: record?.outcome === "completed" ? (record.value as EffortResult).checks : undefined,
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  const { exitCode, record } = await runLive("effort", EFFORT, process.argv.slice(2), {
+    timeout: "20m",
+  });
+  report(await problems(exitCode, record), {
+    checks: record?.outcome === "completed" ? (record.value as EffortResult).checks : undefined,
+    ...recorded(record),
+  });
 }

@@ -14,7 +14,11 @@ import {
 const HEADLESS = {
   claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  pi: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017", placement: "headless" },
+  pi: {
+    harness: "pi",
+    model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    placement: "headless",
+  },
   cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
 } satisfies Record<string, ExecutionConfig>;
 const pane = (execution: ExecutionConfig): ExecutionConfig => {
@@ -25,7 +29,10 @@ type Pair = { asker: ExecutionConfig; keeper: ExecutionConfig };
 export const HEADLESS_NAMES = Object.keys(HEADLESS);
 export const RUNTIMES: Record<string, Pair> = {
   ...Object.fromEntries(
-    Object.entries(HEADLESS).map(([name, execution]) => [name, { asker: execution, keeper: execution }]),
+    Object.entries(HEADLESS).map(([name, execution]) => [
+      name,
+      { asker: execution, keeper: execution },
+    ]),
   ),
   "claude-tui": { asker: pane(HEADLESS.claude), keeper: pane(HEADLESS.claude) },
   "codex-tui": { asker: HEADLESS.codex, keeper: pane(HEADLESS.codex) },

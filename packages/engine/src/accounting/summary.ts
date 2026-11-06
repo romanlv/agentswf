@@ -13,8 +13,8 @@ import { addTokens } from "./tokens";
 
 const NONE: TokenUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
-/** An operation as priced: `chargeUnread` when what it was billed per token can't be known. */
-export type PricedOperation = SettledOperation & { chargeUnread?: true };
+/** An operation as priced: `reportedCostUnread` when what its harness reported can't be known. */
+export type PricedOperation = SettledOperation & { reportedCostUnread?: true };
 
 /** What ran between a run's stages, as a row of `byStage`. */
 export const NO_STAGE = "(no stage)";
@@ -23,7 +23,7 @@ export const NO_STAGE = "(no stage)";
  * What a run cost and how long it took, from its usage and decision records alone, so a finished
  * run can be priced again with another table. `entered` are the workflow stages entered, in order:
  * each is a row timed by its own span, a reused one at zero; without them, a row per call path and
- * key prefix, timed by what ran in it.
+ * agent or decision key, timed by what ran in it.
  */
 export function summarizeRun(
   usage: readonly PricedOperation[],
@@ -41,8 +41,8 @@ export function summarizeRun(
     entered.length > 0 ||
     usage.some((record) => record.stage !== undefined) ||
     decisions.some((record) => record.stage !== undefined);
-  const stageOf = staged ? workflowStageOf : prefixStageOf;
-  const decisionStageOf = staged ? workflowStageOf : decisionPrefixStageOf;
+  const stageOf = staged ? workflowStageOf : agentStageOf;
+  const decisionStageOf = staged ? workflowStageOf : decisionKeyStageOf;
   const stages = unique([
     ...entered.map(({ stage }) => stage),
     ...usage.map(stageOf),
@@ -64,7 +64,7 @@ export function summarizeRun(
     startedAt: times.startedAt,
     finishedAt: times.finishedAt,
     wallMs: Date.parse(times.finishedAt) - Date.parse(times.startedAt),
-    grouping: staged ? "stages" : "prefix",
+    grouping: staged ? "stages" : "agents",
     billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
     totals: figures(usage, decisions),
     byStage: stages.map((stage) => {
@@ -98,7 +98,7 @@ export function summarizeRun(
 function figuresOf(records: readonly PricedOperation[], prices: PriceTable): AccountingFigures {
   let tokens = NONE;
   let delegated = NONE;
-  let charged: number | undefined;
+  let reportedCost: number | undefined;
   let agentMs = 0;
   const agents = new Map<
     string,
@@ -116,10 +116,11 @@ function figuresOf(records: readonly PricedOperation[], prices: PriceTable): Acc
     if (record.deliveredAt !== undefined && record.settledAt !== undefined) {
       agentMs += Date.parse(record.settledAt) - Date.parse(record.deliveredAt);
     }
-    // Another currency would need converting first; until then its charge is an unknown one.
-    if (record.charged?.currency === "USD") charged = (charged ?? 0) + record.charged.amount;
-    else if (record.charged) agent.billed = false;
-    if (record.chargeUnread) agent.billed = false;
+    // Another currency would need converting first; until then its reported cost is an unknown one.
+    if (record.reportedCost?.currency === "USD")
+      reportedCost = (reportedCost ?? 0) + record.reportedCost.amount;
+    else if (record.reportedCost) agent.billed = false;
+    if (record.reportedCostUnread) agent.billed = false;
     if (!record.spend) {
       agent.known = false;
       agent.priced = false;
@@ -145,7 +146,7 @@ function figuresOf(records: readonly PricedOperation[], prices: PriceTable): Acc
     tokens,
     delegated,
     ...(estimate === undefined ? {} : { estimate }),
-    ...(charged === undefined ? {} : { charged }),
+    ...(reportedCost === undefined ? {} : { reportedCost }),
     known: counts.filter((agent) => agent.known).length,
     priced: counts.filter((agent) => agent.priced).length,
     billed: counts.filter((agent) => agent.billed).length,
@@ -156,14 +157,15 @@ function decisionFigures(records: readonly SettledDecision[], prices: PriceTable
   let input = 0;
   let output = 0;
   let estimate: number | undefined;
-  let charged: number | undefined;
+  let reportedCost: number | undefined;
   let known = 0;
   let priced = 0;
   let attempts = 0;
   for (const record of records) {
     attempts += record.attempts;
-    // Another currency would need converting first; until then its charge is not counted.
-    if (record.charged?.currency === "USD") charged = (charged ?? 0) + record.charged.amount;
+    // Another currency would need converting first; until then its reported cost is not counted.
+    if (record.reportedCost?.currency === "USD")
+      reportedCost = (reportedCost ?? 0) + record.reportedCost.amount;
     if (!record.tokens) continue;
     known += 1;
     input += record.tokens.input;
@@ -178,7 +180,7 @@ function decisionFigures(records: readonly SettledDecision[], prices: PriceTable
     attempts,
     tokens: { input, output },
     ...(estimate === undefined ? {} : { estimate }),
-    ...(charged === undefined ? {} : { charged }),
+    ...(reportedCost === undefined ? {} : { reportedCost }),
     known,
     priced,
   };
@@ -209,8 +211,8 @@ function decisionModelOf(record: SettledDecision): string {
   return record.snapshot ?? record.model;
 }
 
-function decisionPrefixStageOf(record: SettledDecision): string {
-  return [...record.callPath, prefixOf(record.key)].join("/");
+function decisionKeyStageOf(record: SettledDecision): string {
+  return [...record.callPath, record.key].join("/");
 }
 
 function modelFigures(
@@ -253,13 +255,8 @@ function noStageLast(a: string, b: string): number {
   return Number(a === NO_STAGE) - Number(b === NO_STAGE);
 }
 
-function prefixStageOf(record: SettledOperation): string {
-  return [...record.callPath, prefixOf(record.agent)].join("/");
-}
-
-function prefixOf(key: string): string {
-  const separator = key.indexOf(":");
-  return separator === -1 ? key : key.slice(0, separator);
+function agentStageOf(record: SettledOperation): string {
+  return [...record.callPath, record.agent].join("/");
 }
 
 function spanOf(
@@ -302,15 +299,22 @@ export function attemptAccounting({
 
 /**
  * A run's attempts summed, each estimate as its attempt recorded it, under the last one's basis:
- * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
- * before it entered one, ran between stages.
+ * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages,
+ * what another grouped by agent, having failed before it entered one, ran between stages. An older
+ * attempt's `prefix` rows, by a key's part before `:`, sum with `agents` rows by name: a key
+ * without a colon is both.
  */
 export function sumAttempts(attempts: readonly AttemptAccounting[]): AttemptAccounting {
-  const grouping = attempts.some((attempt) => attempt.grouping === "stages") ? "stages" : "prefix";
+  const grouping = attempts.some((attempt) => attempt.grouping === "stages")
+    ? "stages"
+    : attempts.some((attempt) => attempt.grouping === "agents")
+      ? "agents"
+      : "prefix";
   const byStage = new Map<string, RunAccounting["byStage"][number]>();
   for (const attempt of attempts) {
     for (const row of attempt.byStage) {
-      const stage = grouping === attempt.grouping ? row.stage : NO_STAGE;
+      const stage =
+        (grouping === "stages") === (attempt.grouping === "stages") ? row.stage : NO_STAGE;
       const before = byStage.get(stage);
       byStage.set(
         stage,
@@ -355,7 +359,7 @@ function addFigures(left: AccountingFigures, right: AccountingFigures): Accounti
     tokens: addTokens(left.tokens, right.tokens),
     delegated: addTokens(left.delegated, right.delegated),
     ...addOptional("estimate", left, right),
-    ...addOptional("charged", left, right),
+    ...addOptional("reportedCost", left, right),
     known: left.known + right.known,
     priced: left.priced + right.priced,
     billed: left.billed + right.billed,
@@ -372,14 +376,14 @@ function addDecisions(left: DecisionFigures, right: DecisionFigures): DecisionFi
       output: left.tokens.output + right.tokens.output,
     },
     ...addOptional("estimate", left, right),
-    ...addOptional("charged", left, right),
+    ...addOptional("reportedCost", left, right),
     known: left.known + right.known,
     priced: left.priced + right.priced,
   };
 }
 
 /** A sum of what either side knows; absent only when neither does. */
-function addOptional<K extends "estimate" | "charged">(
+function addOptional<K extends "estimate" | "reportedCost">(
   field: K,
   left: { [P in K]?: number },
   right: { [P in K]?: number },

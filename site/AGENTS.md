@@ -24,7 +24,7 @@ bun run preview    # serves the build
 - Placeholders are `{name}` in prose, and `<name>` only inside CLI usage, in a code block. A bare
   `<name>` in prose is an HTML tag.
 - No claim about spend beyond the records' own words: a headless claude being "metered" is a rule,
-  not a bill. Never "charged" or "spent".
+  not a bill, and `reportedCost` is what a harness or provider printed. Never "charged" or "spent".
 - No private project's name.
 - The pitch (the landing page, the overview, the README opening) says "coding agents" or "the
   agents you already use", never a list of harnesses: more are coming. Harnesses are named where
@@ -93,13 +93,14 @@ stale without a red check. Two sources:
 Show part of a file with a region, and the import picks out the lines between the markers:
 
 ```ts
-// #region open
-const agent = await wf.agents.open({ key: "reviewer", runtime: "claude" });
-// #endregion open
+// #region turns
+const planner = await wf.agents.open({ key: "planner", runtime: "codex" });
+const first = await planner.run({ prompt: "Read ISSUE.md and plan its fix." });
+// #endregion turns
 ```
 
 ```md
-<<< @/../examples/site/guide/agents.ts#open
+<<< @/../examples/site/guide/agents.ts#turns
 ```
 
 `@/` is `site/`, so `@/../` is the repository root, from any page. An example's file imports

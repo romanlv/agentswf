@@ -43,6 +43,19 @@ export function positiveDurationMilliseconds(text: unknown, what: string): numbe
 }
 
 /**
+ * `"0.5s"` for a number of milliseconds longer than none, `"500ms"`: what a command's duration
+ * flag took before the one grammar, which refuses it with this in its place. Undefined otherwise.
+ */
+export function secondsForMilliseconds(text: string): string | undefined {
+  const ms = /^(\d+)ms$/.exec(text);
+  if (!ms) return undefined;
+  const milliseconds = Number(ms[1]);
+  return Number.isSafeInteger(milliseconds) && milliseconds > 0
+    ? `${milliseconds / 1000}s`
+    : undefined;
+}
+
+/**
  * A duration read from data, checked: `duration(event.data.every)`. Throws, saying the grammar, for
  * anything else.
  */

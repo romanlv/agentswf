@@ -48,6 +48,12 @@ exists, the code is right, then this page.
   ends. `awf run` prints it and writes it to `out.json` (story 002), for a run that failed, timed
   out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story
   003). A run its own deadline ended is `timed-out`, apart from `failed` (story 008).
+- The cost a harness or provider printed (claude's `total_cost_usd`, OpenRouter's for a decision)
+  is `reportedCost` in the record, `charged` before 2026-11-06, and `awf run` prints it as
+  `$0.42 reported`, never "charged": claude prints it on a subscription too. `out.json` is
+  version 6, and each JSON file in `ops/{key}.{n}/` carries a `version`, which a reader checks;
+  whether billing was observed or assumed is still
+  [`billing-provenance`](stories/todo/billing-provenance.md).
 - Two workflows have run live:
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
@@ -206,7 +212,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `agent.fork({ key })` opens a new agent on a copy of an agent's session, made with no model
   call: claude, codex and pi in their TUI or headless, into either, in a sandbox too, and cursor
   headless (in its TUI too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
-  key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
+  key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn reports what it added to its
   session's total. A claude TUI agent's prompt of several lines is pasted whole, after a short line
   typed before it: claude shows a paste alone as pasted text, and sonnet declined about one in
   eight such prompts (claude 2.1.296); typed in full, a long prompt lost its start.
@@ -241,27 +247,26 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   turn is released. Host Claude and SRT acceptance runs passed; Cursor-dependent full live
   matrices remain blocked by authentication.
 
-Built and awaiting human review: [028 — an agent sees what a run is doing](stories/028-run-logs-and-telemetry.md)
+Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories/028-run-logs-and-telemetry.md)
 (live on every harness and placement; M2, page sizes on an implement-ticket run, remains),
 [023 — harness login](stories/023-harness-login.md),
 [024 — a Herdr session of the run's own](stories/024-herdr-run-session.md),
 [026 — pane layout](stories/026-pane-layout.md) and
 [027 — a run forks the session that started it](stories/027-caller-fork.md).
 
-- [031 — `awf init`](stories/031-awf-init.md): awaiting human review. `awf init` writes a hello workflow,
+- [031 — `awf init`](stories/031-awf-init.md): done. `awf init` writes a hello workflow,
   its test and the config files; `agentswf/testing` is exported from the npm package.
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
-  tasks 1–8 and 10–12 built, awaiting human review; left is task 9, the Datadog case run live; task 13, every wake
+  done, signed off 2026-11-06 with task 9, the Datadog case run live, not run; task 13, every wake
   source declared in `events` (Q19), moved to story 039. A workflow is one flat
   `defineWorkflow`, `events` optional; one with events takes args, and a run an event starts gets
   what `prepare` makes of none. `awf tick` wakes its own project's runs, `--all`
   every project's. A workflow declares its events; `awf emit --id
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
-- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
-  awaiting human review. Live on every harness, headless and in their TUI, claude in its TUI only.
+- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): done. Live on every harness, headless and in their TUI, claude in its TUI only.
 - [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): done;
   the watcher's case run in Slack is left to the operator.
   `keepAlive: { window?, onTimeout? }` on an agent of a workflow with events keeps the run live
@@ -329,7 +334,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
 - [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
-  way to do each thing in the author API, before more people build on the beta. In progress; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+  way to do each thing in the author API, before more people build on the beta. Awaiting human review, its live checks not run; design in [`design/api-consolidation.md`](design/api-consolidation.md).
   Task 1 built: `wf.steps`, `wf.call`, `receive({ take })`, `wf.timers()`, `WorkflowDefinition`,
   `agents.attach` and `participants.get` are gone; agent `labels`, `meta.whenToUse`, a stage
   around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
@@ -397,6 +402,15 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   brings a tab forward only in the operator's own workspace. A run an event starts takes the
   defaults. An older awf continuing a run with `panes` silently ignores the operator's choices.
   Not yet checked live in Herdr: a pane in a named workspace and tab, and `front`.
+  Task 10 built: what tasks 1–9 deprecated, shipped in 0.1.0-beta.5, is removed, with the one list
+  of deprecations. `tsc` refuses each removed name, a started turn as a wait's branch included. Run
+  time refuses what the operator or a workflow could still give: `awf send --event-id` (naming `awf
+  emit`), a bare `--wait 90`, `ms` for `--timeout` on `awf` and `wfa`, a key with a colon (an
+  agent's, a participant's or a decision's), `to:` on `connect`, a fork's flat runtime fields,
+  `layout`, `keepPane`, `receive()` in a stage, and `start()` for an agent whose `{key}:ended` isn't
+  declared. A run without stages groups its cost as `agents`, a row per agent or decision key; an
+  attempt recorded with `prefix` still reads. `testWorkflow` takes `panes: { workspace?, keep? }`,
+  as `awf run` records them. Named Herdr sessions, which only `layout.session` reached, are gone.
 
 ## Known gaps
 

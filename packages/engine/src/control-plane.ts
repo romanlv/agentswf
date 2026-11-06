@@ -6,6 +6,7 @@ import {
   type GivenInput,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
+import { DOORS_PREFIX } from "@agentswf/sandbox";
 import { isCode } from "./files";
 import type { Messaging } from "./messaging/messaging";
 import { UNRECORDED } from "./messaging/text";
@@ -13,13 +14,10 @@ import type { ResultSlotRegistry } from "./result-slots";
 import type { ToolCalls } from "./tools";
 
 /** What the control plane asks of the run's tools, by the agent whose socket asked. */
-export type ToolHandler = Pick<ToolCalls<unknown>, "call" | "running" | "accepted">;
+type ToolHandler = Pick<ToolCalls<unknown>, "call" | "running" | "accepted">;
 
 /** What the control plane asks of the run's messaging, by the agent whose socket asked. */
-export type MessagingHandler = Pick<
-  Messaging,
-  "checkFinish" | "peers" | "send" | "reply" | "owing"
->;
+type MessagingHandler = Pick<Messaging, "checkFinish" | "peers" | "send" | "reply" | "owing">;
 
 /** `wfa` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
 const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;
@@ -97,7 +95,7 @@ export async function startResultControlPlane(options: {
   );
   const root = options.socketRoot ?? CONTROL_PLANE_ROOT;
   await mkdir(root, { recursive: true });
-  const directory = await mkdtemp(join(root, "awf-"));
+  const directory = await mkdtemp(join(root, DOORS_PREFIX));
   // Traversable but not listable: an agent reaches the one path it was given and cannot read the
   // directory to discover its siblings'. Close puts the read bit back so the tree can be removed.
   await chmod(directory, 0o300);

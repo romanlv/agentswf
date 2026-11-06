@@ -92,10 +92,6 @@ export function earlierDeadline(
   return left.unixMilliseconds <= right.unixMilliseconds ? left : right;
 }
 
-export function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
-  return left.unixMilliseconds >= right.unixMilliseconds ? left : right;
-}
-
 export function deadlineWithin(
   milliseconds: number,
   ceiling: AbsoluteDeadline | undefined,
@@ -106,49 +102,19 @@ export function deadlineWithin(
   return earlierDeadline({ unixMilliseconds: Date.now() + milliseconds }, ceiling);
 }
 
-/** A call's bound as a workflow gives it: `timeout`, or the deprecated `deadline` or `timeoutMs`. */
-export type GivenBound = {
-  timeout?: Timeout;
-  deadline?: AbsoluteDeadline;
-  timeoutMs?: number;
-};
-
 /**
- * The deadline a call's bound sets, never past `ceiling`, the deadlines around it; `ceiling` when it
- * sets none of its own. A deprecated form is checked, then reported under `call`, the call it was
- * given to, and refused beside `timeout`. `null` from an untyped caller is no bound, as it was.
+ * The deadline a call's `timeout` sets, never past `ceiling`, the deadlines around it; `ceiling`
+ * when it sets none of its own. `null` from an untyped caller is no bound.
  */
 export function boundedDeadline(
-  given: GivenBound,
+  timeout: Timeout | null | undefined,
   ceiling: AbsoluteDeadline | undefined,
-  deprecated: (name: "timeout-ms" | "deadline-option", call: string) => void,
-  call: string,
 ): AbsoluteDeadline | undefined {
-  const { timeout, deadline, timeoutMs } = given;
-  if (timeout != null) {
-    if (deadline != null || timeoutMs != null)
-      throw new Error(
-        "give timeout alone: deadline and timeoutMs are its deprecated forms, not limits beside it",
-      );
-    return timeoutDeadline(timeout, ceiling);
-  }
-  if (deadline != null && timeoutMs != null)
-    throw new Error("an operation cannot specify both deadline and timeoutMs");
-  if (timeoutMs != null) {
-    const bounded = deadlineWithin(timeoutMs, ceiling);
-    deprecated("timeout-ms", call);
-    return bounded;
-  }
-  if (deadline == null) return ceiling;
-  // A copy: the object given may be `wf.deadline`, whose `unixMilliseconds` reports each read.
-  const own = { unixMilliseconds: deadline.unixMilliseconds };
-  assertDeadlineValue(own);
-  deprecated("deadline-option", call);
-  return earlierDeadline(own, ceiling);
+  return timeout == null ? ceiling : timeoutDeadline(timeout, ceiling);
 }
 
 /** The deadline `timeout` sets from now, never past `ceiling`; `ceiling` for `false`. */
-export function timeoutDeadline(
+function timeoutDeadline(
   timeout: Timeout,
   ceiling: AbsoluteDeadline | undefined,
 ): AbsoluteDeadline | undefined {
@@ -176,7 +142,7 @@ export function assertDeadline(deadline: AbsoluteDeadline | undefined): void {
   }
 }
 
-export function assertDeadlineValue(deadline: AbsoluteDeadline): void {
+function assertDeadlineValue(deadline: AbsoluteDeadline): void {
   if (!Number.isSafeInteger(deadline.unixMilliseconds) || deadline.unixMilliseconds < 0) {
     throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
   }

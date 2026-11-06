@@ -3,7 +3,7 @@ id: "035"
 title: "An agent calls a tool the workflow's code handles"
 summary: "A workflow gives an agent named, typed tools; the agent calls one with wf tool mid-turn, the workflow's handler runs, and its return value is the tool's result."
 type: story
-status: in-progress
+status: done
 depends_on: []
 ---
 
@@ -1006,3 +1006,5 @@ Done when:
   `call.id` changes when a turn is run again after a crash, and the case's own id would drop a
   close after the case reopens, so a repeated close is the case's to absorb, as its test "a closed
   case is written up once" says; `bunx tsc --noEmit` passes.
+
+Human review: signed off by the operator 2026-11-06.

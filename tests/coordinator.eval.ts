@@ -1,15 +1,13 @@
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { OutputRecord, RunLogLine } from "../packages/contract/src/records";
 import type { CoordinatorHolder } from "../packages/engine/src/coordinator-port";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import {
   CODEWORD,
   type CoordinatorSmokeResult,
   HEADLESS_NAMES,
 } from "./fixtures/coordinator-smoke";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Story 032's coordinator smoke on live agents: each investigator reports to the coordinator and
@@ -74,28 +72,14 @@ if (import.meta.main) {
   const late = process.argv.includes("--late");
   const given = process.argv.slice(2).filter((arg) => arg !== "--late");
   const names = given.length ? given : HEADLESS_NAMES;
-  const workDir = await mkdtemp(join(tmpdir(), "awf-coordinator-"));
-  const output: string[] = [];
   let holder: CoordinatorHolder | undefined;
   const asked: string[] = [];
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "8m",
-      "--json",
-      SMOKE,
-      "--",
-      ...names,
-      ...(late ? ["--timeout-ms", "60000"] : []),
-    ],
+  const { exitCode, record } = await runLive(
+    "coordinator",
+    SMOKE,
+    [...names, ...(late ? ["--timeout-ms", "60000"] : [])],
     {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
+      timeout: "8m",
       // An app's part: answer each question as it is recorded.
       coordinators: [
         {
@@ -124,7 +108,6 @@ if (import.meta.main) {
       ],
     },
   );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
   const text = record
     ? await readFile(join(record.artifacts, "log.jsonl"), "utf8").catch(() => "")
     : "";
@@ -132,20 +115,10 @@ if (import.meta.main) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as RunLogLine);
-  const failed = problems(exitCode, record, names, lines);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        asked,
-        results: record?.outcome === "completed" ? record.value : undefined,
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  process.exit(failed.length === 0 ? 0 : 1);
+  report(problems(exitCode, record, names, lines), {
+    asked,
+    results: record?.outcome === "completed" ? record.value : undefined,
+    ...recorded(record),
+  });
+  process.exit();
 }

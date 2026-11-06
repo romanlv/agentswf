@@ -20,7 +20,10 @@ const REPORT = {
         type: "object",
         properties: {
           command: { type: "string" },
-          output: { type: "string", description: "stdout and stderr, verbatim, at most 400 characters" },
+          output: {
+            type: "string",
+            description: "stdout and stderr, verbatim, at most 400 characters",
+          },
           exitCode: { type: "integer" },
         },
         required: ["command", "output", "exitCode"],

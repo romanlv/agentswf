@@ -117,9 +117,9 @@ const PI = {
     const said = content.map((part) => text(record(part)?.text) ?? "").join("");
     return said || stdout;
   },
-  // pi's own list-price estimate, even on a subscription; a charge only when billed per token.
-  // pi ends a "turn" after each request, so a prompt's charge is every one of them.
-  readCharge: (stdout) => {
+  // pi's own list-price estimate, even on a subscription; kept as a reported cost only when billed
+  // per token. pi ends a "turn" after each request, so a prompt's cost is every one of them.
+  readCost: (stdout) => {
     const costs = jsonLines(stdout)
       .filter((row) => row.type === "turn_end")
       .flatMap((row) => reported(record(record(record(row.message)?.usage)?.cost)?.total) ?? []);
@@ -183,7 +183,7 @@ export const pi = defineHarness(PI, {
   turnRecord: "Herdr's pi state is pi's own extension reporting its turns, not its screen",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "pi logs each request in its session files",
-  readCostTotal: "pi prints each request's cost, which readCharge reads",
+  readCostTotal: "pi prints each request's cost, which readCost reads",
   findSession: "Herdr names a pi pane's session by its file (story 017)",
   promptLead: "pi acts on a prompt Herdr pastes, with no words of the operator's beside it",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",

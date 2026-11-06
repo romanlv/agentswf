@@ -1,9 +1,6 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { assertLiveOptIn } from "./live";
+import { assertLiveOptIn, report, runLive } from "./live";
 
 /**
  * Story 003 against a live harness: a run that crashes, and one cancelled mid-turn, each after one
@@ -24,25 +21,18 @@ type Observed = {
 };
 
 async function scenario(mode: Observed["mode"]): Promise<Observed> {
-  const workDir = await mkdtemp(join(tmpdir(), `awf-failed-run-${mode}-`));
   const controller = new AbortController();
-  const output: string[] = [];
-  const exitCode = await runOperatorCli(
-    ["run", "--run-root", join(workDir, "runs"), "--timeout", "5m", "--json", FIXTURE, "--", mode],
-    {
-      cwd: workDir,
-      signal: AbortSignal.any([controller.signal, operator.signal]),
-      stdout: (text) => output.push(text),
-      stderr: (text) => {
-        console.error(text);
-        if (mode === "cancel" && text === "answered") {
-          setTimeout(() => controller.abort("SIGINT"), CANCEL_AFTER_ANSWER_MILLISECONDS);
-        }
-      },
+  const { exitCode, record: printed } = await runLive(`failed-run-${mode}`, FIXTURE, [mode], {
+    timeout: "5m",
+    signal: AbortSignal.any([controller.signal, operator.signal]),
+    stderr: (text) => {
+      console.error(text);
+      if (mode === "cancel" && text === "answered") {
+        setTimeout(() => controller.abort("SIGINT"), CANCEL_AFTER_ANSWER_MILLISECONDS);
+      }
     },
-  );
-  if (output.length === 0) return { mode, exitCode };
-  const printed = JSON.parse(output.join("\n")) as OutputRecord;
+  });
+  if (!printed) return { mode, exitCode };
   // The file, not the printed copy: `--json` prints the record even when saving it failed.
   const record = JSON.parse(
     await Bun.file(join(printed.artifacts, "out.json")).text(),
@@ -84,8 +74,5 @@ if (import.meta.main) {
   const estimate = observed.every((run) => run.estimate !== undefined)
     ? observed.reduce((sum, run) => sum + (run.estimate ?? 0), 0)
     : undefined;
-  console.log(
-    JSON.stringify({ ok: failed.length === 0, failed, estimateUsd: estimate, observed }, null, 2),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  report(failed, { estimateUsd: estimate, observed });
 }

@@ -138,7 +138,7 @@ describe("usage read when the run ends", () => {
 
     const result = await run(adapter, files.accounting(), async (context) => {
       const agent = await open(context, "slow");
-      return (await agent.run({ prompt: "Wait.", timeoutMs: 30, nudge: false })).outcome.kind;
+      return (await agent.run({ prompt: "Wait.", timeout: "0.03s", nudge: false })).outcome.kind;
     });
 
     expect(result.value).toBe("timed-out");
@@ -193,7 +193,7 @@ describe("usage read when the run ends", () => {
         await (await open(context, key)).run({ prompt: "Go.", schema: ANSWER });
       }
       const logged = await open(context, "logged");
-      await logged.run({ prompt: "Late.", deadline: { unixMilliseconds: Date.now() - 1 } });
+      await logged.run({ prompt: "Late.", timeout: new Date(Date.now() - 1) });
       return null;
     });
 
@@ -607,12 +607,12 @@ describe("usage read when the run ends", () => {
     ]);
   });
 
-  test("a harness's own dollar figure is a charge only when billing is per token", async () => {
+  test("a harness's own dollar figure is kept as its reported cost only when billing is per token", async () => {
     const outcomes = async (billing: "metered" | "subscription") => {
       const files = sessionFiles();
       const adapter = createFakeAdapter({
         script: (context) => ({
-          chargesUsd: [0.25],
+          reportedCostsUsd: [0.25],
           act: () => submit(context.binding!, { answer: "ok" }).then(() => undefined),
         }),
       });
@@ -627,8 +627,8 @@ describe("usage read when the run ends", () => {
       return result.usage[0]!;
     };
 
-    expect((await outcomes("metered")).charged).toEqual({ amount: 0.25, currency: "USD" });
-    expect(await outcomes("subscription")).not.toHaveProperty("charged");
+    expect((await outcomes("metered")).reportedCost).toEqual({ amount: 0.25, currency: "USD" });
+    expect(await outcomes("subscription")).not.toHaveProperty("reportedCost");
   });
 
   test("the run's finish is taken before its spend is read, so waiting on files is not its time", async () => {

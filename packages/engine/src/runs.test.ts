@@ -418,6 +418,18 @@ describe("an operation's accepted result", () => {
     expect(await writeAcceptedExclusive(runDir, "c1", { n: 1 })).toBe(true);
     expect(await writeAcceptedExclusive(runDir, "c1", { n: 2 })).toBe(false);
     expect(await readAccepted(runDir, "c1")).toEqual({ value: { n: 1 } });
+    const file = join(runDir, "ops", "c1", "result.json");
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 1 });
+  });
+
+  test("a result.json of no version, or one this awf doesn't know, is refused", async () => {
+    const runDir = runDirs.tempRunDir();
+    await mkdir(join(runDir, "ops", "c1"), { recursive: true });
+    const file = join(runDir, "ops", "c1", "result.json");
+    await writeFile(file, JSON.stringify({ value: 1, at: "2026-11-06T00:00:00.000Z" }));
+    await expect(readAccepted(runDir, "c1")).rejects.toThrow("is not version 1");
+    await writeFile(file, JSON.stringify({ version: 2, value: 1, at: "2026-11-06T00:00:00.000Z" }));
+    await expect(readAccepted(runDir, "c1")).rejects.toThrow("is not version 1");
   });
 
   test("concurrent writers expose exactly one complete result", async () => {

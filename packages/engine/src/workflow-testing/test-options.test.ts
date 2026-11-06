@@ -40,6 +40,18 @@ describe("testWorkflow(workflow, options?)", () => {
     ).rejects.toThrow('earlier has no "stage"');
   });
 
+  test("panes are refused as awf run refuses its flags", async () => {
+    const refused = (panes: unknown) => testWorkflow(turns(1), { panes } as never);
+    await expect(refused({ keep: "sometimes" })).rejects.toThrow(
+      'panes.keep is never, on-failure, always, not "sometimes"',
+    );
+    await expect(refused({ workspace: "review" })).rejects.toThrow(
+      'panes.workspace is "run", "origin" or { name }',
+    );
+    await expect(refused({ workspace: { name: " " } })).rejects.toThrow("panes.workspace");
+    await expect(refused({ session: "work" })).rejects.toThrow('panes has no "session"');
+  });
+
   test("a workflow's object args given second are options, and refused by their first key", async () => {
     await expect(testWorkflow(greet, { name: "ada" } as never)).rejects.toThrow(
       'testWorkflow has no option "name"',
@@ -52,12 +64,27 @@ describe("testWorkflow(workflow, options?)", () => {
     ).rejects.toThrow("event is an option for a workflow with events, and turns declares none");
   });
 
-  test("a workflow with events given args second is refused: that form was never its own", async () => {
-    const withEvents = caseRun(async () => null);
-    for (const args of [null, "x"])
-      await expect(testWorkflow(withEvents, args as never)).rejects.toThrow(
-        "a workflow with events is tested as testWorkflow(workflow, { id, event? })",
-      );
+  test("args given second, or options third, are refused, naming { args }", async () => {
+    const listed = defineWorkflow<string[], number>({
+      meta: { name: "listed", description: "Counts." },
+      prepare: ({ argv }) => [...argv],
+      run: async (_wf, names) => names.length,
+    });
+    await expect(testWorkflow(listed, ["a"] as never)).rejects.toThrow(
+      "testWorkflow(workflow, { args, … })",
+    );
+    await expect(
+      testWorkflow(
+        caseRun(async () => null),
+        "x" as never,
+      ),
+    ).rejects.toThrow("testWorkflow(workflow, { args, … })");
+    await expect(testWorkflow(listed, null as never)).rejects.toThrow(
+      "not null: testWorkflow(workflow, { args, … })",
+    );
+    await expect(
+      (testWorkflow as (...given: unknown[]) => Promise<unknown>)(greet, { name: "ada" }, {}),
+    ).rejects.toThrow("give args among the options, testWorkflow(workflow, { args, … })");
   });
 
   test("meta and run alone are refused: the one form tests what defineWorkflow made", async () => {
@@ -115,13 +142,10 @@ describe("earlier", () => {
     );
   });
 
-  test("an earlier form given with its deprecated one is refused", async () => {
+  test("an option it doesn't take is refused, earlier's own included", async () => {
     await expect(
-      testWorkflow(planned([]), {
-        earlier: { stages: { plan: { path: "old.md" } } },
-        recorded: { plan: { path: "old.md" } },
-      }),
-    ).rejects.toThrow("give earlier.stages alone");
+      testWorkflow(planned([]), { recorded: { plan: { path: "old.md" } } } as never),
+    ).rejects.toThrow('testWorkflow has no option "recorded"');
     await expect(testWorkflow(planned([]), { earlier: { mailbox: [] } } as never)).rejects.toThrow(
       'earlier has no "mailbox": it gives stages, events, run',
     );

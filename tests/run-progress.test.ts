@@ -757,7 +757,7 @@ test("the runner records a deliberate stop while the workflow is still running",
       });
       const turn = lens.run({ prompt: "Wait." });
       await started;
-      await context.agents.stop("lens", "no longer needed");
+      await lens.close("no longer needed");
       await turn;
       paused();
       await finished;

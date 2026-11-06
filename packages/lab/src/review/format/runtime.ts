@@ -36,10 +36,10 @@ export function runtimeName(runtime: { harness: string; model: string; effort?: 
 }
 
 /**
- * `name`, a runtime's or a voter's, as an agent key: awf's keys are names, lowercase, without `/`
- * or `#`. A colon is still accepted, deprecated, until awf refuses it. Two names that differ only
- * in case or in those characters map to one key, whose second open with another runtime throws.
+ * `name`, a runtime's or a voter's, as an agent key: awf's keys are names, lowercase, without `/`,
+ * `#` or `:`. Two names that differ only in case or in those characters map to one key, whose
+ * second open with another runtime throws.
  */
 export function agentKeyOf(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9._@:-]/g, "-");
+  return name.toLowerCase().replace(/[^a-z0-9._@-]/g, "-");
 }

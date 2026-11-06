@@ -138,10 +138,10 @@ export type HarnessSpec = {
    * instead where it prints the session's. Tokens are read from its session files, by
    * `readSessionUsage`.
    */
-  readCharge?(stdout: string): number | undefined;
+  readCost?(stdout: string): number | undefined;
   /**
    * The dollars the harness printed for its whole session so far, where it prints a running total
-   * rather than the turn's (F9). A turn charges what the total grew by.
+   * rather than the turn's (F9). A turn reports what the total grew by.
    */
   readCostTotal?(stdout: string): number | undefined;
   /**
@@ -201,7 +201,10 @@ export type HarnessSpec = {
     steps: readonly PaneStep[];
     read(screen: string, now: number): AllowanceRead;
   };
-  /** Whether this agent's tokens are charged, which is not always what its login says. */
+  /**
+   * Whether this agent's tokens draw on a subscription or are metered per token, which is not
+   * always what its login says.
+   */
   billing?(context: BillingContext): Promise<Billing>;
   /**
    * Its own compaction of a headless session, with `focus` as what to keep and drop (ADR 0007).

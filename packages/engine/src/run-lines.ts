@@ -1,7 +1,9 @@
 import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type RunLine, type RunView, readRun } from "@agentswf/contract/records";
+import { messageOf } from "./errors";
 import { isCode, syncDir } from "./files";
+import { queued } from "./jsonl";
 import { unendedTurns } from "./run-policy/waits";
 import { RunUnreachable } from "./run-unreachable";
 import { crashedEnd } from "./turn-ends";
@@ -16,8 +18,6 @@ export type RunLines = {
   readonly attempt: number;
   append(line: RunLine): Promise<void>;
 };
-
-const queues = new Map<string, Promise<void>>();
 
 /** Attempt `attempt`'s writer: made only by its claim, so nothing appends before the fence. */
 function runLines(runDir: string, attempt: number): RunLines {
@@ -81,19 +81,9 @@ export async function readRunLines(runDir: string): Promise<{ lines: RunLine[]; 
     view = readRun(parsed);
   } catch (error) {
     // A line of no kind this awf knows: the run's record can't be read, as a line not JSON.
-    throw new RunUnreachable(error instanceof Error ? error.message : String(error));
+    throw new RunUnreachable(messageOf(error));
   }
   return { lines: parsed as RunLine[], view };
-}
-
-async function queued(path: string, work: () => Promise<void>): Promise<void> {
-  const current = (queues.get(path) ?? Promise.resolve()).catch(() => undefined).then(work);
-  queues.set(path, current);
-  try {
-    await current;
-  } finally {
-    if (queues.get(path) === current) queues.delete(path);
-  }
 }
 
 /**

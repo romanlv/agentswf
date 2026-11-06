@@ -44,8 +44,7 @@ usage: wfa result <call-id> --<name> '<value>' ...
   standard error. `result` and `tool` pass their flags to the run, which reads them by the schema:
   an unknown flag is refused `invalid-result` or `invalid-input`.
 - **A duration** is a positive decimal and `s`, `m`, `h` or `d`: `90s`, `1.5m`, `10m`, as in a
-  workflow. A whole number of `ms` still works until 0.1.0, with a line on standard error naming
-  its replacement.
+  workflow.
 - **`wfa` never sends a request twice.** When the answer to a request is lost, it says so, and
   says whether the request may have taken effect.
 - **While the agent owes a peer a reply or awaits one**, an answer leads with a line saying so,

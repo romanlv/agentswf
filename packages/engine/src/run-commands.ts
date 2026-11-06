@@ -1,99 +1,22 @@
+// What the commands that read runs say of one: its state, span and cost, and the commands that go
+// on from it.
 import { resolve } from "node:path";
 import type { RunLogLine } from "@agentswf/contract/records";
-import { maskCredentials } from "@agentswf/harness";
 import { runEstimate, unknownOps } from "./accounting/spent";
-import { continueCommand, shellWord } from "./attempt-view";
-
+import { continueCommand } from "./attempt-view";
+import { command, type Out, placeFlags, type ReadPlace, shellLine } from "./command-line";
 import { NO_JSON, readFailureCode, refusalLine } from "./refusals";
 import type { RunCommand } from "./run-command";
 import { type Cursor, encodeCursor } from "./run-read";
 import { RunNotFound, type RunStatus } from "./run-state";
+import { clockTime } from "./run-text";
 import { runRootOf } from "./runs";
 import { readSpent } from "./spend";
 
-/** What `awf runs` and `awf logs` share: where they look, and how they say a run. */
-
-/** Where the commands that read runs look, and the options their suggested commands repeat. */
-export type ReadPlace = { shellCwd: string; runRoot: string; repeat: string[] };
-
-export type Out = { stdout(text: string): void; stderr(text: string): void };
-
-/** `--cwd`, `--run-root` and `--json`, taken out of `argv`; the rest is left for the command. */
-export function parsePlace(
-  argv: readonly string[],
-  shellCwd: string,
-): { place: ReadPlace; json: boolean; rest: string[] } {
-  let cwd = shellCwd;
-  let runRoot: string | undefined;
-  let json = false;
-  const repeat: string[] = [];
-  const rest: string[] = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    // What follows is the command's own, a message's text included.
-    if (arg === "--") {
-      rest.push(...argv.slice(index));
-      break;
-    }
-    if (arg === "--json") json = true;
-    else if (arg === "--cwd" || arg === "--run-root") {
-      const value = argv[index + 1];
-      if (!value || value.startsWith("--")) throw new Error(`${arg} needs a directory`);
-      index += 1;
-      if (arg === "--cwd") cwd = resolve(shellCwd, value);
-      else runRoot = resolve(shellCwd, value);
-      repeat.push(arg, value);
-    } else rest.push(arg);
-  }
-  return { place: { shellCwd, runRoot: runRoot ?? runRootOf(cwd), repeat }, json, rest };
-}
-
-/** A suggested command, with the place repeated. */
-export function command(place: ReadPlace, ...words: string[]): string[] {
-  const [first, second, ...rest] = words;
-  return [first!, second!, ...rest.slice(0, 1), ...place.repeat, ...rest.slice(1)];
-}
-
-/** A field whose name says it holds a credential, whatever its value looks like. */
-const SECRET_NAME =
-  /password|passwd|passphrase|passcode|secret|token|credential|cookie|bearer|authorization|(?:api|access|private|session|ssh|signing|encryption)[_-]?key|^(?:pwd|pass|pin|auth)$/i;
-
-/**
- * Every string in `value` masked, and everything under a credential's name hidden: a run's text,
- * errors and fields are its workflow's, its agents' and its tools'. Past `limit`, a string is cut.
- */
-export function masked(value: unknown, limit = Number.POSITIVE_INFINITY, hidden = false): unknown {
-  if (typeof value === "string") {
-    if (hidden) return "***";
-    const shown = maskCredentials(value);
-    return shown.length > limit ? `${shown.slice(0, limit - 1)}…` : shown;
-  }
-  if (hidden && value !== null && typeof value !== "object") return "***";
-  if (Array.isArray(value)) return value.map((each) => masked(each, limit, hidden));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, each]) => [
-        key,
-        masked(each, limit, hidden || SECRET_NAME.test(key)),
-      ]),
-    );
-  }
-  return value;
-}
-
-/**
- * Text a run wrote, as one masked line of about `limit` characters, so it can never pass for a
- * line of its own or fill a page. `@{handle} --full` prints it whole.
- */
-export function said(text: string, limit = 120): string {
-  const line = maskCredentials(text).replace(/\s*[\r\n]+\s*/g, " ⏎ ");
-  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
-}
-
-/** A suggested command as text to paste into a shell. */
-export function shellLine(words: readonly string[]): string {
-  return words.map(shellWord).join(" ");
-}
+/** The longest `--wait` the commands that read runs take. */
+export const MAX_WAIT_SECONDS = 300;
+/** How often they read a run while they wait. */
+export const POLL_MS = 1_000;
 
 /** Says a run that is not there, and exits 1; anything else is the run's files, exit 3. */
 export function failed(
@@ -125,16 +48,6 @@ export function startedLine(
 ): string {
   const ref = `${workflow}/${id}`;
   return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...placeFlags(run)])}`;
-}
-
-/** The flags that find this run again from another command: the folder or run root given. */
-export function placeFlags(
-  run: Pick<RunCommand, "cwd" | "cwdGiven" | "runRoot" | "runRootGiven">,
-): string[] {
-  return [
-    ...(run.cwdGiven ? ["--cwd", run.cwd] : []),
-    ...(run.runRootGiven ? ["--run-root", run.runRoot] : []),
-  ];
 }
 
 /** `awf logs` from `cursor`: with `--wait` unless the page stopped short of the newest. */
@@ -238,20 +151,4 @@ export async function estimateOf(
       spent.map((each) => (each.attempt === live ? { ...each, unsettled: 0 } : each)),
     ),
   };
-}
-
-/**
- * `$6.10`; `<$0.01` for less, and nothing for none; `?` after a figure when some cost is unknown,
- * which makes it a floor.
- */
-export function money(estimate: number | undefined, unknown = 0): string[] {
-  if (!estimate) return [];
-  const shown = estimate < 0.005 ? "<$0.01" : `$${estimate.toFixed(2)}`;
-  return [unknown > 0 ? `${shown}?` : shown];
-}
-
-export function clockTime(at: number | string): string {
-  const date = new Date(at);
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
 }

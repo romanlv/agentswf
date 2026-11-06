@@ -1,16 +1,20 @@
 import { open, readFile } from "node:fs/promises";
 import { isCode } from "./files";
 
-const appendQueues = new Map<string, Promise<void>>();
+const queues = new Map<string, Promise<void>>();
 
-export async function appendLine(path: string, line: string): Promise<void> {
-  const previous = appendQueues.get(path) ?? Promise.resolve();
-  const current = previous.catch(() => undefined).then(() => appendCompleteLine(path, line));
-  appendQueues.set(path, current);
+export function appendLine(path: string, line: string): Promise<void> {
+  return queued(path, () => appendCompleteLine(path, line));
+}
+
+/** Runs `work` once every earlier write queued on `path` has settled, failed or not. */
+export async function queued(path: string, work: () => Promise<void>): Promise<void> {
+  const current = (queues.get(path) ?? Promise.resolve()).catch(() => undefined).then(work);
+  queues.set(path, current);
   try {
     await current;
   } finally {
-    if (appendQueues.get(path) === current) appendQueues.delete(path);
+    if (queues.get(path) === current) queues.delete(path);
   }
 }
 

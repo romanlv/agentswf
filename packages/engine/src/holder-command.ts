@@ -1,46 +1,40 @@
-import { homedir } from "node:os";
 import type { ParticipantResultJson, RefusalCode } from "@agentswf/contract/records";
 import { type HolderWireAnswer, type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
+import { type Out, parsePlace, type ReadPlace } from "./command-line";
 import { liveCoordinatorSocket } from "./coordinator-socket";
-import { deprecationLine } from "./deprecations";
-import { deliverReply, emitToRun, eventIdProblem } from "./emit";
-import { printEmit } from "./emit-command";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
 import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
-import { asksJson, printRefusal } from "./refusals";
-import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
+import { asksJson, printRefusal, refusalLine } from "./refusals";
+import { failed } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { RunUnreachable } from "./run-unreachable";
-import { RunRefused, readAttempts, readEvents, readNumberedEvents } from "./runs";
+import { readAttempts, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
+
+/** `awf reply --json`'s and `awf send --json`'s `"v"`, which their refusals carry too. */
+export const HOLDER_V = 3 satisfies ParticipantResultJson["v"];
 
 export const replyUsage = help.trimEnd();
 
 type Options = {
   command: "reply" | "send";
   ref: string;
-  author?: string;
   to?: string;
   text?: string;
-} & (
-  | { agent: string; as?: string; id?: undefined }
-  /**
-   * `--event-id`: the message's own id, which a participant routed to the code takes as its event's. It
-   * goes to no agent.
-   */
-  | { id: string; as: string; agent?: undefined }
-);
+  agent: string;
+  as?: string;
+};
 
-export type HolderIo = Out & {
+type HolderIo = Out & {
   /** Stdin, when no text is given as an argument. */
   stdin(): Promise<string>;
   /** Then there is nothing piped in to read: refused rather than waited on. */
   stdinIsTerminal?: boolean;
-  environment?: Readonly<Record<string, string | undefined>>;
-  home?: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  home: string;
 };
 
 /** A refusal of `reply` or `send`: its document with `--json`, its sentence on stderr, exit 1. */
@@ -65,41 +59,32 @@ export async function holderCommand(
     json = parsed.json;
     options = parseHolder(argv[0] as "reply" | "send", parsed.rest);
   } catch (error) {
-    printRefusal(io, { json: asksJson(argv), v: 3 }, error, "usage", replyUsage);
+    printRefusal(io, { json: asksJson(argv), v: HOLDER_V }, error, "usage", replyUsage);
     return 2;
   }
   const delivered = (id: string, line: string): number => {
-    io.stdout(json ? JSON.stringify({ v: 3, id } satisfies ParticipantResultJson) : line);
+    io.stdout(json ? JSON.stringify({ v: HOLDER_V, id } satisfies ParticipantResultJson) : line);
     return 0;
   };
   const refused: Refuse = (code, error, choices) => {
-    if (json)
-      io.stdout(
-        JSON.stringify({
-          v: 3,
-          code,
-          error,
-          ...(choices ? { choices } : {}),
-        } satisfies ParticipantResultJson),
-      );
+    if (json) io.stdout(refusalLine(HOLDER_V, code, error, choices));
     io.stderr(
       `awf: ${options.command} refused (${code}): ${error}${choices ? ` Choose: ${choices.join(", ")}` : ""}`,
     );
     return 1;
   };
   const usage = (problem: string) => {
-    printRefusal(io, { json, v: 3 }, problem, "usage", replyUsage);
+    printRefusal(io, { json, v: HOLDER_V }, problem, "usage", replyUsage);
     return 2;
   };
   if (options.text !== undefined && options.text.trim() === "")
     return usage("nothing to say: the text is blank");
   if (options.text === undefined && io.stdinIsTerminal)
     return usage("nothing to say: give the text as an argument, or pipe it in");
-  if (options.id !== undefined) return toTheCode(options, place, json, io, { refused, usage });
   try {
     let status: RunStatus;
     try {
-      status = await findRunByRef(options.ref, place, io.home ?? homedir());
+      status = await findRunByRef(options.ref, place, io.home);
     } catch (error) {
       if (error instanceof RunNotFound) return refused(error.code, error.message);
       throw error;
@@ -114,7 +99,7 @@ export async function holderCommand(
         "no-participant",
         `${status.ref} has no participant${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
       );
-    const dir = coordinatorDir(io.home ?? homedir(), io.environment ?? process.env);
+    const dir = coordinatorDir(io.home, io.environment);
     // Live with no socket: its attempt has not connected one yet, or is opening it.
     const socket = await liveCoordinatorSocket(dir, status);
     if (!socket) return unreachable();
@@ -151,7 +136,7 @@ export async function holderCommand(
       `delivered as ${result.id}${awaited ? `; ${options.agent} still awaits the reply to ${awaited}` : ""}`,
     );
   } catch (error) {
-    return failed(error, place, io, messageOf(error), { json, v: 3 });
+    return failed(error, place, io, messageOf(error), { json, v: HOLDER_V });
   }
 }
 
@@ -159,8 +144,6 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
   const words: string[] = [];
   let to: string | undefined;
   let as: string | undefined;
-  let id: string | undefined;
-  let author: string | undefined;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
     const value = () => {
@@ -171,34 +154,19 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     };
     if (arg === "--to" && command === "reply") to = value();
     else if (arg === "--as") as = value();
-    else if (arg === "--event-id" && command === "send") id = value();
-    else if (arg === "--author" && command === "send") author = value();
+    else if ((arg === "--event-id" || arg === "--author") && command === "send")
+      throw new Error(
+        `send ${arg} was removed: a message on a participant to the run's code is awf emit {run} {participant}:reply '{"text":…,"author":…}' --event-id {id}, with {participant}:reply declared in the workflow's events`,
+      );
     else if (arg === "--") {
       words.push(...rest.slice(index + 1));
       break;
     } else if (arg.startsWith("--")) throw new Error(`unknown option: ${arg}`);
     else words.push(arg);
   }
-  // With --event-id, the participant's reply goes to the run's code: there is no agent to name.
-  let target: { agent: string; as?: string } | { id: string; as: string };
-  let ref: string | undefined;
-  let text: string | undefined;
-  let extra: string[];
-  if (id !== undefined) {
-    [ref, text, ...extra] = words;
-    if (!ref) throw new Error("send needs a run, <workflow>/<id> or <id>");
-    if (!as) throw new Error("--event-id sends as a participant routed to the code: --as names it");
-    const problem = eventIdProblem(id);
-    if (problem) throw new RunRefused(`--event-id ${id}: ${problem}`, "id");
-    target = { id, as };
-  } else {
-    let agent: string | undefined;
-    [ref, agent, text, ...extra] = words;
-    if (author !== undefined) throw new Error("--author goes with --event-id");
-    if (!ref || !agent?.trim())
-      throw new Error(`${command} needs a run, <workflow>/<id> or <id>, and an agent`);
-    target = { agent, ...(as === undefined ? {} : { as }) };
-  }
+  const [ref, agent, text, ...extra] = words;
+  if (!ref || !agent?.trim())
+    throw new Error(`${command} needs a run, <workflow>/<id> or <id>, and an agent`);
   if (extra.length > 0) throw new Error("the text is one argument: quote it, or pipe it in");
   if (as !== undefined && as.trim() === "") throw new Error("--as needs a participant's key");
   if (to !== undefined && !/^\d+\.\d+$/.test(to))
@@ -206,10 +174,10 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
   return {
     command,
     ref,
-    ...target,
+    agent,
+    ...(as === undefined ? {} : { as }),
     ...(to === undefined ? {} : { to }),
     ...(text === undefined ? {} : { text }),
-    ...(author === undefined ? {} : { author }),
   };
 }
 
@@ -236,71 +204,4 @@ async function awaitedBy(
       : [],
   );
   return open.at(-1);
-}
-
-/**
- * `awf send {ref} --as {participant} --event-id {message id} {text}`, deprecated: `awf emit {ref}
- * {participant}:reply`. It keeps its own refusals and exit codes for the beta: a participant the
- * run never connected is refused; one the run recorded as routed to the code, declared or by the
- * deprecated `to: "code"`, gets the reply as before, the workflow's file not loaded; any other is
- * `awf emit`'s to check against the definition.
- */
-async function toTheCode(
-  options: Extract<Options, { id: string }>,
-  place: ReadPlace,
-  json: boolean,
-  io: HolderIo,
-  say: { refused: Refuse; usage(problem: string): number },
-): Promise<number> {
-  const home = io.home ?? homedir();
-  const environment = io.environment ?? process.env;
-  const { id, as } = options;
-  const { refused } = say;
-  io.stderr(deprecationLine("send-event-id"));
-  let found: RunStatus;
-  try {
-    found = await findRunByRef(options.ref, place, home);
-  } catch (error) {
-    if (error instanceof RunNotFound) return refused(error.code, error.message);
-    return failed(error, place, io, messageOf(error), { json, v: 3 });
-  }
-  let lines: Awaited<ReturnType<typeof readEvents>>;
-  try {
-    lines = await readEvents(found.run.dir);
-  } catch (error) {
-    return failed(error, place, io, messageOf(error), { json, v: 3 });
-  }
-  const connected = lines.filter(
-    (line) => line.kind === "participant-connected" && line.participant === as,
-  );
-  // As it always did: only a participant the run has connected; `awf emit` doesn't ask.
-  if (!found.run.record.events || connected.length === 0)
-    return refused(
-      "no-participant",
-      `${found.ref} has no participant ${as} connected to its code; --event-id is for one`,
-    );
-  const text = options.text ?? (await io.stdin());
-  if (text.trim() === "") return say.usage("nothing to say: stdin was empty");
-  const data = { text, ...(options.author === undefined ? {} : { author: options.author }) };
-  const context = { home, environment };
-  // Recorded as routed to the code, by either form: delivered as before, the file not loaded.
-  if (connected.some((line) => line.kind === "participant-connected" && line.to)) {
-    try {
-      return printEmit(await deliverReply(found, as, { data, id }, context), json, io);
-    } catch (error) {
-      return failed(error, place, io, messageOf(error), { json, v: 3 });
-    }
-  }
-  // Connected to agents only, which send has always refused: whatever stops `awf emit`, a file
-  // that won't load included, is that refusal, with its reason.
-  let result: Awaited<ReturnType<typeof emitToRun>>;
-  try {
-    result = await emitToRun(found, { name: `${as}:reply`, data, id }, context);
-  } catch (error) {
-    return refused(
-      "no-participant",
-      `${found.ref} has no participant ${as} whose messages go to its code: ${messageOf(error)}`,
-    );
-  }
-  return printEmit(result, json, io);
 }

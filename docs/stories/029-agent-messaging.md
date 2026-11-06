@@ -780,7 +780,7 @@ Work:
 
 - **M2** on the E8 setup: 20 or more trials per harness, placement and model, counting what
   [[messaging#To measure]] lists, judged by [[#The M2 gate]]. Cheap models, on codex where claude
-  is not the subject. E9's scenarios and scorer (`experiments/e9-messaging-protocol`) are the
+  is not the subject. E9's scenarios and scorer (`experiments/_archive/e9-messaging-protocol`) are the
   starting point, run against the built `wf`.
 - **Revisions:** prompts and wrappers revised from the counts.
 - **The example:** `reviewLoop` in `examples/feature-delivery` rewritten as review until agreement,
@@ -1099,7 +1099,7 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
 
 ### Task 9
 
-- M2 ran on the built engine, `experiments/m2-messaging`, a real workflow per trial: a planner must
+- M2 ran on the built engine, `experiments/_archive/m2-messaging`, a real workflow per trial: a planner must
   plan retries whose home is its architect's call, with a route to ask it. Findings R1–R7 in
   `docs/findings/messaging-m2.md`. The gate passed 80/80, 20 each on claude headless and in a
   pane, codex and pi: every asker sent with `--await-reply`, ended its turn with no sleep or poll,
