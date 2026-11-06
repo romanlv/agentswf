@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { RunLogLine } from "@agentswf/contract/records";
 import { maskCredentials } from "@agentswf/harness";
+import { usd } from "./accounting/format";
 import { runEstimate, unknownOps } from "./accounting/spent";
 import { continueCommand, shellWord } from "./attempt-view";
 
@@ -240,14 +241,10 @@ export async function estimateOf(
   };
 }
 
-/**
- * `$6.10`; `<$0.01` for less, and nothing for none; `?` after a figure when some cost is unknown,
- * which makes it a floor.
- */
+/** As `usd` says it, and nothing for none; `?` after it when some cost is unknown, which makes it a floor. */
 export function money(estimate: number | undefined, unknown = 0): string[] {
   if (!estimate) return [];
-  const shown = estimate < 0.005 ? "<$0.01" : `$${estimate.toFixed(2)}`;
-  return [unknown > 0 ? `${shown}?` : shown];
+  return [`${usd(estimate)}${unknown > 0 ? "?" : ""}`];
 }
 
 export function clockTime(at: number | string): string {
