@@ -62,6 +62,57 @@ export function localOutcome(state: "failed" | "timed-out" | "cancelled", detail
   };
 }
 
+/**
+ * The operation a backend is waiting on, one at a time: stopping it aborts its signal and waits
+ * until it has returned.
+ */
+export type ActiveOperation = {
+  readonly running: boolean;
+  run<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T>;
+  /** False where nothing was running. */
+  stop(): Promise<boolean>;
+  /** Stops the operation running now, and not one started after it. */
+  stopperForNow(): () => Promise<void>;
+};
+
+export function activeOperation(): ActiveOperation {
+  let controller: AbortController | undefined;
+  let completion: Promise<void> | undefined;
+  return {
+    get running() {
+      return controller !== undefined;
+    },
+    async run(work) {
+      const mine = new AbortController();
+      controller = mine;
+      let finish!: () => void;
+      completion = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      try {
+        return await work(mine.signal);
+      } finally {
+        if (controller === mine) controller = undefined;
+        finish();
+      }
+    },
+    async stop() {
+      if (!controller) return false;
+      controller.abort();
+      await completion;
+      return true;
+    },
+    stopperForNow() {
+      const now = controller;
+      const finished = completion;
+      return async () => {
+        now?.abort();
+        await finished;
+      };
+    },
+  };
+}
+
 type NativeSessionIdentity = {
   sessionId: string;
   cwd: string;

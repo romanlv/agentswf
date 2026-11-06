@@ -5,7 +5,12 @@ import { type RunProcess, runProcess, withholding } from "../command";
 import { failedOnLogin, thisTurn } from "../harnesses/login";
 import { record, text } from "../json";
 import { readable } from "../screen";
-import { createSessionAdapter, localOutcome, type NativeTurnOutcome } from "../session-core";
+import {
+  activeOperation,
+  createSessionAdapter,
+  localOutcome,
+  type NativeTurnOutcome,
+} from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { findHarness, HARNESS_NAMES, harnessSpec } from "../spec";
 import type { Harness } from "../types";
@@ -170,8 +175,7 @@ export function createCallerHostFactory(
       const spec = harnessSpec(caller.harness);
       const pane = caller.paneId;
       let closed = false;
-      let activeController: AbortController | undefined;
-      let activeCompletion: Promise<void> | undefined;
+      const active = activeOperation();
       const releaseObservers = new Set<AbortController>();
       /**
        * The prompt of the run's turn whose answer is still awaited, by number: the one turn the
@@ -182,12 +186,7 @@ export function createCallerHostFactory(
       /** When this host first prompted the session: where the run's share of its spend begins. */
       let firstPrompt: number | undefined;
 
-      const stopWaiting = async (): Promise<boolean> => {
-        if (!activeController) return false;
-        activeController.abort();
-        await activeCompletion;
-        return true;
-      };
+      const stopWaiting = () => active.stop();
       /**
        * Stops the run's own turn, once, and only while the pane is working on it: a turn that ended
        * while its status was read may already have given the pane back to the operator.
@@ -215,8 +214,7 @@ export function createCallerHostFactory(
         // so the host stops waiting on it and never interrupts it.
         finishesAnswered: true,
         async finishAnswered(deadline) {
-          const originalController = activeController;
-          const originalCompletion = activeCompletion;
+          const stopOriginal = active.stopperForNow();
           const remaining = deadline.unixMilliseconds - Date.now();
           if (remaining <= 0) return localOutcome("timed-out", "release deadline exceeded");
           const controller = new AbortController();
@@ -234,8 +232,7 @@ export function createCallerHostFactory(
             if (controller.signal.aborted || outcome.state !== "completed") {
               return localOutcome("failed", "caller native release was not confirmed");
             }
-            originalController?.abort();
-            await originalCompletion;
+            await stopOriginal();
             const sessionRef = spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined;
             return {
               ...outcome,
@@ -262,36 +259,72 @@ export function createCallerHostFactory(
             );
           }
           const deadline = operation.deadline.unixMilliseconds;
-          const controller = new AbortController();
-          activeController = controller;
-          let finish!: () => void;
-          activeCompletion = new Promise<void>((resolve) => {
-            finish = resolve;
-          });
-          try {
-            // Herdr's prompt wait does not track turns, so the session settles first (E8): the
-            // turn that replied with the code, the operator's own, or the last operation's.
-            const busy = await settleAgent(herdr, pane, deadline, controller.signal);
-            if (busy) return busy;
-            const waitMs = deadline - Date.now();
-            if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-            outstanding = ++prompts;
-            firstPrompt ??= Date.now();
-            const sent = await submitPrompt(
-              herdr,
-              pane,
-              pane,
-              operation.prompt,
-              spec.promptLead,
-              waitMs,
-              controller.signal,
-            );
-            if (!sent.ok) {
-              if (sent.cancelled || controller.signal.aborted) {
-                return localOutcome("cancelled", "pane operation cancelled");
+          return active.run(async (signal) => {
+            try {
+              // Herdr's prompt wait does not track turns, so the session settles first (E8): the
+              // turn that replied with the code, the operator's own, or the last operation's.
+              const busy = await settleAgent(herdr, pane, deadline, signal);
+              if (busy) return busy;
+              const waitMs = deadline - Date.now();
+              if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+              outstanding = ++prompts;
+              firstPrompt ??= Date.now();
+              const sent = await submitPrompt(
+                herdr,
+                pane,
+                pane,
+                operation.prompt,
+                spec.promptLead,
+                waitMs,
+                signal,
+              );
+              if (!sent.ok) {
+                if (sent.cancelled || signal.aborted) {
+                  return localOutcome("cancelled", "pane operation cancelled");
+                }
+                // A harness that cannot sign in ends the turn before Herdr sees it working.
+                const shown = await herdr(
+                  [
+                    "agent",
+                    "read",
+                    pane,
+                    "--source",
+                    "recent-unwrapped",
+                    "--lines",
+                    String(TURN_LINES),
+                  ],
+                  Math.max(1, deadline - Date.now()),
+                  signal,
+                );
+                if (signal.aborted) {
+                  return localOutcome("cancelled", "pane operation cancelled");
+                }
+                const login =
+                  shown.ok &&
+                  failedOnLogin(caller.harness, spec.login, (check) =>
+                    check.screen(thisTurn(readable(shown.stdout), operation.binding?.operationId)),
+                  );
+                if (login)
+                  return {
+                    ...login,
+                    resultEvidence: { kind: "unavailable" },
+                    reportedCostsUsd: [],
+                  };
+                if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                  // Submitted, so the turn may be running: wait for its answer, not for a resend.
+                  if (!(await abortableDelay(Math.max(0, deadline - Date.now()), signal))) {
+                    return localOutcome("cancelled", "pane operation cancelled");
+                  }
+                  await interrupt();
+                  return localOutcome(
+                    "timed-out",
+                    "operation deadline exceeded after a stalled prompt observation",
+                  );
+                }
+                return herdrFailure(sent, deadline - Date.now());
               }
-              // A harness that cannot sign in ends the turn before Herdr sees it working.
-              const shown = await herdr(
+              outstanding = undefined;
+              const read = await herdr(
                 [
                   "agent",
                   "read",
@@ -302,60 +335,20 @@ export function createCallerHostFactory(
                   String(TURN_LINES),
                 ],
                 Math.max(1, deadline - Date.now()),
-                controller.signal,
+                signal,
               );
-              if (controller.signal.aborted) {
+              if (!read.ok && read.cancelled) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
-              const login =
-                shown.ok &&
-                failedOnLogin(caller.harness, spec.login, (check) =>
-                  check.screen(thisTurn(readable(shown.stdout), operation.binding?.operationId)),
-                );
-              if (login)
-                return { ...login, resultEvidence: { kind: "unavailable" }, reportedCostsUsd: [] };
-              if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
-                // Submitted, so the turn may be running: wait for its answer, not for a resend.
-                if (
-                  !(await abortableDelay(Math.max(0, deadline - Date.now()), controller.signal))
-                ) {
-                  return localOutcome("cancelled", "pane operation cancelled");
-                }
-                await interrupt();
-                return localOutcome(
-                  "timed-out",
-                  "operation deadline exceeded after a stalled prompt observation",
-                );
-              }
-              return herdrFailure(sent, deadline - Date.now());
+              return callerOutcome(caller.harness, spec.interrupted, sent, read, operation);
+            } finally {
+              outstanding = undefined;
             }
-            outstanding = undefined;
-            const read = await herdr(
-              [
-                "agent",
-                "read",
-                pane,
-                "--source",
-                "recent-unwrapped",
-                "--lines",
-                String(TURN_LINES),
-              ],
-              Math.max(1, deadline - Date.now()),
-              controller.signal,
-            );
-            if (!read.ok && read.cancelled) {
-              return localOutcome("cancelled", "pane operation cancelled");
-            }
-            return callerOutcome(caller.harness, spec.interrupted, sent, read, operation);
-          } finally {
-            outstanding = undefined;
-            if (activeController === controller) activeController = undefined;
-            finish();
-          }
+          });
         },
         async cancel() {
           for (const observer of releaseObservers) observer.abort();
-          if (!activeController) return false;
+          if (!active.running) return false;
           await interrupt();
           await stopWaiting();
           return true;

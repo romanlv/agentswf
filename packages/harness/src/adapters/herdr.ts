@@ -18,6 +18,7 @@ import { launchArgs } from "../sandbox-needs";
 import { readable } from "../screen";
 import {
   type ActivatedSessionBackend,
+  activeOperation,
   createSessionAdapter,
   localOutcome,
   type NativeTurnOutcome,
@@ -1080,8 +1081,7 @@ export function createHerdrRunHostFactory(
           let launchedAt = Date.now();
           /** The workflow's instructions go with the first prompt the pane's agent is sent. */
           let instructed = false;
-          let activeController: AbortController | undefined;
-          let activeCompletion: Promise<void> | undefined;
+          const active = activeOperation();
           // A run-local sandbox pane preserves the host cwd and seeded harness home.
           const readsRecord =
             !request.occupant || (terminal?.herdr === "run" && request.home !== undefined);
@@ -1703,49 +1703,35 @@ export function createHerdrRunHostFactory(
                 "its harness never named its session, so its pane cannot relaunch on it",
               );
             }
-            const controller = new AbortController();
-            activeController = controller;
-            let finish!: () => void;
-            activeCompletion = new Promise<void>((resolve) => {
-              finish = resolve;
-            });
-            try {
-              const busy = await settle(current.agentName, deadline, controller.signal);
+            return active.run(async (signal) => {
+              const busy = await settle(current!.agentName, deadline, signal);
               if (busy)
                 throw new Error(`the agent did not settle before its switch: ${busy.detail}`);
               // Its harness is stopped with its pane: the session's last turn must be in it first.
-              if (!(await untilWritten(sessionRef, deadline, controller.signal))) {
+              if (!(await untilWritten(sessionRef, deadline, signal))) {
                 throw new Error("the switch was cancelled");
               }
-              const { operationId } = current;
+              const { operationId } = current!;
               const old = pane!;
               current = undefined;
               pane = undefined;
               dropTurn();
               // In the old pane's place, which closes with the harness in it.
               try {
-                pane = await placing.replace(old, paneRequest(deadline, controller.signal));
+                pane = await placing.replace(old, paneRequest(deadline, signal));
               } catch (error) {
                 // One whose old pane would not close keeps it, for close to try again.
                 pane = placing.paneOf(request.key);
                 throw error;
               }
               settings = launchSettings(next);
-              const failed = await launchPane(sessionRef, operationId, deadline, controller.signal);
+              const failed = await launchPane(sessionRef, operationId, deadline, signal);
               if (failed) throw new Error(failed.detail ?? "its harness did not start again");
-            } finally {
-              if (activeController === controller) activeController = undefined;
-              finish();
-            }
+            });
           };
 
           /** Ends the active wait on the agent, leaving the agent, and its pane, as they are. */
-          const stopWaiting = async (): Promise<boolean> => {
-            if (!activeController) return false;
-            activeController.abort();
-            await activeCompletion;
-            return true;
-          };
+          const stopWaiting = () => active.stop();
 
           /**
            * The harness's own fork of the session the pane's harness named, run beside the pane
@@ -1766,16 +1752,10 @@ export function createHerdrRunHostFactory(
               );
             }
             refuseSandboxedFork(request.occupant !== undefined, into);
-            const controller = new AbortController();
-            activeController = controller;
-            let finish!: () => void;
-            activeCompletion = new Promise<void>((resolve) => {
-              finish = resolve;
-            });
-            try {
-              const busy = await settle(current.agentName, deadline, controller.signal);
+            return active.run(async (signal) => {
+              const busy = await settle(current!.agentName, deadline, signal);
               if (busy) throw new Error(`the agent did not settle before its fork: ${busy.detail}`);
-              if (!(await untilWritten(sessionRef, deadline, controller.signal))) {
+              if (!(await untilWritten(sessionRef, deadline, signal))) {
                 throw new Error("the fork was cancelled");
               }
               return await forkOrCopy(
@@ -1786,12 +1766,9 @@ export function createHerdrRunHostFactory(
                   cwd: request.cwd,
                 },
                 into,
-                () => runFork(sessionRef, deadline, controller.signal),
+                () => runFork(sessionRef, deadline, signal),
               );
-            } finally {
-              if (activeController === controller) activeController = undefined;
-              finish();
-            }
+            });
           };
 
           const backend: ActivatedSessionBackend = {
@@ -1802,8 +1779,7 @@ export function createHerdrRunHostFactory(
                     unixMilliseconds: number;
                   }): Promise<NativeTurnOutcome> {
                     const placement = current;
-                    const originalController = activeController;
-                    const originalCompletion = activeCompletion;
+                    const stopOriginal = active.stopperForNow();
                     const remaining = deadline.unixMilliseconds - Date.now();
                     if (!placement || remaining <= 0)
                       return localOutcome("timed-out", "release deadline exceeded");
@@ -1854,8 +1830,7 @@ export function createHerdrRunHostFactory(
                       ) {
                         return localOutcome("failed", "native release was not confirmed");
                       }
-                      originalController?.abort();
-                      await originalCompletion;
+                      await stopOriginal();
                       const sessionRef =
                         named ??
                         (await spec.findSession?.(
@@ -1908,13 +1883,7 @@ export function createHerdrRunHostFactory(
               if (closed) throw new Error("Herdr run session is closed");
               released = false;
               closedScreen = undefined;
-              const controller = new AbortController();
-              activeController = controller;
-              let finish!: () => void;
-              activeCompletion = new Promise<void>((resolve) => {
-                finish = resolve;
-              });
-              try {
+              return active.run(async (signal) => {
                 const operationId =
                   operation.binding?.operationId ?? `internal:${request.key}:${operation.id}`;
                 if (operation.kind === "compact") {
@@ -1947,7 +1916,7 @@ export function createHerdrRunHostFactory(
                     continued,
                     operationId,
                     operation.deadline,
-                    controller.signal,
+                    signal,
                     operation.onSession,
                   );
                   if (failed) return failed;
@@ -1960,8 +1929,8 @@ export function createHerdrRunHostFactory(
                     current.agentName,
                     operation.deadline,
                     operation.deliverySignal
-                      ? AbortSignal.any([controller.signal, operation.deliverySignal])
-                      : controller.signal,
+                      ? AbortSignal.any([signal, operation.deliverySignal])
+                      : signal,
                   );
                   if (idle) return idle;
                 }
@@ -1969,7 +1938,7 @@ export function createHerdrRunHostFactory(
                 const placement = current!;
                 // A prompt its last operation gave up on, still in its input, would be sent with
                 // what is typed now: none is typed while it is there.
-                if (await stillHeld(placement.agentName, turn, controller.signal)) {
+                if (await stillHeld(placement.agentName, turn, signal)) {
                   return localOutcome("failed", "its last prompt is still unsent in its input");
                 }
                 if (operation.kind === "compact") {
@@ -1980,10 +1949,10 @@ export function createHerdrRunHostFactory(
                   const shown = await herdrCaughtUp(
                     placement.agentName,
                     operation.deadline.unixMilliseconds,
-                    controller.signal,
+                    signal,
                   );
                   if (shown) return shown;
-                  return await compactInPane(placement.agentName, operation, controller.signal);
+                  return await compactInPane(placement.agentName, operation, signal);
                 }
                 // Only once: a later prompt reaches an agent that has already read these, and
                 // sending them again reads as a new assignment rather than a reminder.
@@ -2000,8 +1969,8 @@ export function createHerdrRunHostFactory(
                 const marker = `[awf-delivery:${randomUUID()}]`;
 
                 const dispatchSignal = operation.deliverySignal
-                  ? AbortSignal.any([operation.deliverySignal, controller.signal])
-                  : controller.signal;
+                  ? AbortSignal.any([operation.deliverySignal, signal])
+                  : signal;
                 let watching: Awaited<ReturnType<typeof prepareTurnRecord>> | undefined;
                 const resumed = operation.previousSessionRef ?? continued;
                 try {
@@ -2014,7 +1983,7 @@ export function createHerdrRunHostFactory(
                       )
                     : undefined;
                 } catch (error) {
-                  if (operation.deliverySignal?.aborted || controller.signal.aborted)
+                  if (operation.deliverySignal?.aborted || signal.aborted)
                     return localOutcome("cancelled", "check-in cancelled before dispatch");
                   const reason = error instanceof Error ? error.message : String(error);
                   // A delivery confirmed by its record cannot go without it; a turn can, on Herdr.
@@ -2023,7 +1992,7 @@ export function createHerdrRunHostFactory(
                     return localOutcome("failed", reason);
                   }
                 }
-                if (operation.deliverySignal?.aborted || controller.signal.aborted) {
+                if (operation.deliverySignal?.aborted || signal.aborted) {
                   return localOutcome("cancelled", "check-in cancelled before dispatch");
                 }
                 if (Date.now() >= operation.deadline.unixMilliseconds) {
@@ -2036,7 +2005,7 @@ export function createHerdrRunHostFactory(
                     watching,
                     turnRecord,
                     operation,
-                    controller.signal,
+                    signal,
                     marker,
                     placement.agentName,
                   );
@@ -2045,7 +2014,7 @@ export function createHerdrRunHostFactory(
                   const busy = await herdrCaughtUp(
                     placement.agentName,
                     operation.deadline.unixMilliseconds,
-                    controller.signal,
+                    signal,
                   );
                   if (busy) return busy;
                 }
@@ -2057,11 +2026,11 @@ export function createHerdrRunHostFactory(
                   prompt,
                   spec.promptLead,
                   waitMs,
-                  controller.signal,
+                  signal,
                   !recorded,
                 );
                 if (!sent.ok) {
-                  if (sent.cancelled || controller.signal.aborted) {
+                  if (sent.cancelled || signal.aborted) {
                     return localOutcome("cancelled", "pane operation cancelled");
                   }
                   // A harness that cannot sign in ends the turn before Herdr sees it working,
@@ -2071,10 +2040,10 @@ export function createHerdrRunHostFactory(
                     harness,
                     placement.paneId,
                     config,
-                    controller.signal,
+                    signal,
                     operation.binding?.operationId,
                   );
-                  if (controller.signal.aborted) {
+                  if (signal.aborted) {
                     return localOutcome("cancelled", "pane operation cancelled");
                   }
                   if (login) return login;
@@ -2091,7 +2060,7 @@ export function createHerdrRunHostFactory(
                     // nudge; resending would duplicate a delivered prompt.
                     return (await abortableDelay(
                       Math.max(0, operation.deadline.unixMilliseconds - Date.now()),
-                      controller.signal,
+                      signal,
                     ))
                       ? localOutcome(
                           "timed-out",
@@ -2123,7 +2092,7 @@ export function createHerdrRunHostFactory(
                     const read = await herdr(
                       ["agent", "read", placement.agentName, "--source", "detection"],
                       config.commandTimeoutMs,
-                      controller.signal,
+                      signal,
                     );
                     const shown = read.ok ? read.stdout : undefined;
                     const login = await loginShown(
@@ -2131,7 +2100,7 @@ export function createHerdrRunHostFactory(
                       harness,
                       placement.paneId,
                       config,
-                      controller.signal,
+                      signal,
                       operation.binding?.operationId,
                       shown,
                     );
@@ -2147,7 +2116,7 @@ export function createHerdrRunHostFactory(
                       await herdr(
                         ["agent", "send-keys", placement.agentName, "enter"],
                         config.commandTimeoutMs,
-                        controller.signal,
+                        signal,
                       );
                     }
                     return undefined;
@@ -2155,7 +2124,7 @@ export function createHerdrRunHostFactory(
                   const ended = await untilEnded(
                     recorded,
                     operation.deadline.unixMilliseconds,
-                    controller.signal,
+                    signal,
                     untaken,
                   );
                   if ("outcome" in ended) {
@@ -2171,7 +2140,7 @@ export function createHerdrRunHostFactory(
                 const read = await herdr(
                   ["agent", "read", placement.agentName, "--source", "detection"],
                   Math.max(1, operation.deadline.unixMilliseconds - Date.now()),
-                  controller.signal,
+                  signal,
                 );
                 if (!read.ok && read.cancelled) {
                   return localOutcome("cancelled", "pane operation cancelled");
@@ -2186,7 +2155,7 @@ export function createHerdrRunHostFactory(
                     harness,
                     placement.paneId,
                     config,
-                    controller.signal,
+                    signal,
                     operation.binding?.operationId,
                     read.ok ? read.stdout : "",
                   ),
@@ -2207,16 +2176,12 @@ export function createHerdrRunHostFactory(
                     request.home,
                   ));
                 return found ? { ...outcome, sessionRef: found } : outcome;
-              } finally {
-                if (activeController === controller) activeController = undefined;
-                finish();
-              }
+              });
             },
             async cancel() {
               for (const observer of receiptObservers) observer.abort();
-              if (!activeController && !current) return false;
-              activeController?.abort();
-              await activeCompletion;
+              if (!active.running && !current) return false;
+              await active.stop();
               // Interrupted and settled, its harness stays the agent's: the next operation is
               // prompted into it, as one after an answered turn stopped past its grace is. The same
               // process goes on, so no session is reopened. One that won't settle is closed.
@@ -2232,8 +2197,7 @@ export function createHerdrRunHostFactory(
             async close(_reason, options) {
               if (closed) return;
               for (const observer of receiptObservers) observer.abort();
-              activeController?.abort();
-              await activeCompletion;
+              await active.stop();
               if (options?.keep) {
                 const kept = pane;
                 const why =
