@@ -162,8 +162,8 @@ awf open review/r7 fixer --no-fork                          # fixer's session it
 harness's TUI where the agent worked: its working directory, its skills, its sandbox, on its model
 and effort. You ask what it read, why it did what it did, and it answers with its whole context.
 The run and the agent's session are untouched, so it works on a finished run, a parked one and a
-live one, except for a sandboxed agent: its sandbox is reopened, so that waits until no attempt
-runs and no other `awf open` has it open. The harness asks before it runs a command, as it would for you, except where it never
+live one, except for a sandboxed agent: its sandbox is reopened, so that is refused, `live` or
+`opened`, while an attempt runs or another `awf open` has it open. The harness asks before it runs a command, as it would for you, except where it never
 asks: pi; a cursor agent's chat, which keeps the run's "Run Everything"; and codex in a sandbox,
 where its own sandbox is off and the agent's sandbox is the boundary.
 

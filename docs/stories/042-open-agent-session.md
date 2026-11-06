@@ -30,8 +30,8 @@ awf open review/r7 fixer --no-fork                          # fixer's session it
 opens the copy where the agent worked: its home and skills, its cwd, its sandbox, on the model and
 effort it ran on, with the harness's own permission prompts. The run and its session are never
 touched, so it works on a finished run, a parked one and a live one; a sandboxed agent's copy
-waits until no attempt runs and no other `awf open` has its sandbox open, as reopening it would
-break theirs.
+is refused while an attempt runs or another `awf open` has its sandbox open, as reopening it
+would break theirs.
 
 `--no-fork` opens the session itself, for when what the operator says should stay with the agent:
 steering a parked event run's agent by hand, say. awf then keeps every other writer out until the
@@ -720,6 +720,15 @@ The docs and the eval, checked by the site's build (every link resolves) and the
   - the reopened spec is checked against the operator's machine and coordinator paths, as the
     run's was;
   - the help, the refusal codes' docs, the guide and the data reference brought in line.
+  Third pass:
+  - a host agent's home of its own (codex with skills) opened on the login the run left in it: it
+    is refreshed from the operator's first, and a refresh handed back at exit, as a sandboxed
+    home's is;
+  - `--session` on a copy placed it by the agent's latest line: a copy is now placed by the line
+    whose home holds a file named for it, as an agent with a home of its own gets a new one each
+    attempt;
+  - a Ctrl-C while the place is made stops the open before the TUI starts;
+  - a sandboxed agent's `--no-fork` refused on a live run no longer says a copy opens anyway.
   Known gap: a TUI launched in srt is not its own process group, so what it leaves running when it
   exits is not reaped at close (docker's is). It stays confined; the next attempt runs beside it.
 - **Open for review:** cursor's prompts cannot be turned on by a flag. Rewriting the copy's chat

@@ -113,6 +113,7 @@ async function open(
     launch?: Launch;
     environment?: Record<string, string>;
     providers?: SandboxProviders;
+    signal?: AbortSignal;
   } = {},
 ) {
   const seen: Seen = { runs: [], attached: [] };
@@ -128,6 +129,7 @@ async function open(
       ...(options.providers ? { providers: async () => options.providers! } : {}),
       ...processes(seen, options.exitCode, options.during),
       ...(options.launch ? { launch: options.launch } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
       ...(options.stdin === undefined
         ? { stdinIsTerminal: true }
         : { stdin: async () => options.stdin! }),
@@ -334,6 +336,19 @@ test("--no-fork opens the agent's own session, the run held until the harness ex
   );
 });
 
+test("a Ctrl-C before the TUI opens is the operator's no: nothing opens, and the run is let go", async () => {
+  const f = await fixture();
+  const stop = new AbortController();
+  stop.abort("SIGINT");
+  const { code, stderr, seen } = await open(f, ["review/r7", "fixer", "--no-fork"], {
+    signal: stop.signal,
+  });
+  expect(code).toBe(1);
+  expect(seen.attached).toEqual([]);
+  expect(stderr.join("\n")).toContain("interrupted before the TUI opened");
+  expect(existsSync(runOpenFile(f.root, "review", "r7"))).toBe(false);
+});
+
 test("--no-fork is refused on a live run, and with a copy, which is the operator's already", async () => {
   const f = await fixture();
   const copy = await open(f, ["review/r7", "fixer", "--no-fork", "--session", "copy-9"]);
@@ -382,9 +397,59 @@ test("an agent's own home is its harness's, for the fork and the TUI alike", asy
     harness: "codex",
   });
   await op(f.run, "coder.1", f.cwd, { harness: "codex", model: "m" });
-  const { seen } = await open(f, ["review/r7", "coder", "--session", "copy-c"]);
+  // The operator's login, newer than the copy the run left in the agent's home.
+  const operator = join(f.cwd, "operator-codex");
+  mkdirSync(operator);
+  const login = (token: string) =>
+    `${JSON.stringify({ tokens: { account_id: "acct", refresh_token: token } })}\n`;
+  writeFileSync(join(operator, "auth.json"), login("rotated"));
+  writeFileSync(join(f.home, "auth.json"), login("stale"));
+  const { seen } = await open(f, ["review/r7", "coder", "--session", "copy-c"], {
+    environment: { CODEX_HOME: operator },
+    // The TUI refreshes the login in the agent's home, as codex would.
+    during: async () => writeFileSync(join(f.home, "auth.json"), login("after")),
+  });
   expect(seen.attached[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "copy-c"]);
   expect(seen.attached[0]!.env).toEqual({ CODEX_HOME: f.home });
+  // Opened on the operator's login, and its refresh handed back, as a run's turn does.
+  expect(readFileSync(join(operator, "auth.json"), "utf8")).toBe(login("after"));
+  rmSync(join(operator, "auth.json"));
+  const gone = await open(f, ["review/r7", "coder", "--session", "copy-c"], {
+    environment: { CODEX_HOME: operator },
+  });
+  expect(gone.code).toBe(3);
+  expect(gone.stderr.join("\n")).toContain("log the harness in first");
+});
+
+test("a copy reopens in the home it was made in, not the agent's latest", async () => {
+  const f = await fixture();
+  const older = join(workDir(f.run.dir), "agents", "a0", "home");
+  mkdirSync(join(older, "sessions"), { recursive: true });
+  writeFileSync(join(older, "sessions", "rollout-copy-c.jsonl"), "");
+  session(f.run, {
+    agent: "coder",
+    session: "c-0",
+    operation: "coder.1",
+    home: older,
+    harness: "codex",
+  });
+  session(f.run, {
+    agent: "coder",
+    session: "c-1",
+    operation: "coder.1",
+    home: f.home,
+    harness: "codex",
+  });
+  await op(f.run, "coder.1", f.cwd, { harness: "codex", model: "m" });
+  const operator = join(f.cwd, "operator-codex");
+  mkdirSync(operator);
+  writeFileSync(join(operator, "auth.json"), "{}\n");
+  const options = { environment: { CODEX_HOME: operator } };
+  const { seen } = await open(f, ["review/r7", "coder", "--session", "copy-c"], options);
+  expect(seen.attached[0]!.env).toEqual({ CODEX_HOME: older });
+  // A copy no home holds is placed as the latest.
+  const other = await open(f, ["review/r7", "coder", "--session", "copy-x"], options);
+  expect(other.seen.attached[0]!.env).toEqual({ CODEX_HOME: f.home });
 });
 
 test("a forked agent's session line, which names no operation, opens on the agent's latest", async () => {

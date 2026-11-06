@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import type {
@@ -43,6 +43,7 @@ import {
 } from "./run-lock";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { isLive, readAttempts, workDir } from "./runs";
+import { refreshHome, type SeededHome } from "./sandbox-homes";
 import { type ReopenedPlace, reopenSandbox } from "./sandboxes";
 import { type Launch, wake } from "./wake";
 
@@ -213,14 +214,22 @@ export async function openCommand(
         : options.print || (await (context.stdin ?? readStdin)());
     if (text !== undefined && text.trim() === "")
       throw new OpenRefused("nothing to ask: stdin was empty", "usage");
-    const held = options.noFork ? await holdRun(status, options.agent, place) : undefined;
+    const held = options.noFork
+      ? await holdRun(status, options.agent, place, where.sandbox !== undefined)
+      : undefined;
     let box: ReopenedPlace | undefined;
     let doors: string | undefined;
     let boxClaim: { file: string; held: ClaimHolder } | undefined;
+    let ownHome: SeededHome | undefined;
     let finished: Promise<void> | undefined;
     // The sandbox closed first, then the run let go: an attempt the release wakes finds it closed.
     const finish = () => {
       finished ??= (async () => {
+        await ownHome
+          ?.writeBack()
+          .catch((error: unknown) =>
+            out.stderr(`awf: ${options.agent}'s login was not handed back: ${messageOf(error)}`),
+          );
         for (const failure of (await box?.close()) ?? [])
           out.stderr(`awf: the sandbox did not close cleanly: ${failure}`);
         if (doors) await rm(doors, { recursive: true, force: true });
@@ -236,6 +245,16 @@ export async function openCommand(
           `${options.agent}'s session changed as the run was held; open it again: ${shellLine(["awf", "open", status.ref, options.agent, "--no-fork", ...place.repeat])}`,
           "live",
         );
+      // A home of its own on the host holds the login copied when the run started: refreshed from
+      // the operator's now, and a refresh handed back at the end, as a run's turns do.
+      if (where.home && !where.sandbox)
+        ownHome = await refreshHome(
+          where.home,
+          hostHome(where.harness, where.home, environment),
+          new Map(),
+        ).catch((error: unknown) => {
+          throw new OpenRefused(messageOf(error), "unreachable");
+        });
       if (where.sandbox) {
         // A provider keeps a sandbox's open state in its directory: the run's own sandbox, open
         // while an attempt runs, or another awf open's, would be broken by this one's close.
@@ -376,6 +395,12 @@ export async function openCommand(
               : `session ${session}`,
         ].join(" · "),
       );
+      // A Ctrl-C while the place was made is the operator's no; once the TUI has the terminal, it is the TUI's.
+      if (context.signal?.aborted)
+        throw new OpenRefused(
+          `interrupted before the TUI opened; open it again: ${again}`,
+          "internal-error",
+        );
       const plan = spec.operatorResume!(session, settings, launchArgs(true));
       const attach =
         context.attach ?? ((input) => runAttached(input, input.exact ? {} : environment));
@@ -427,16 +452,25 @@ type Held = { release(out: Out, context: OpenContext): Promise<void> };
  * append. An attempt claims its number without that lock, then looks for this claim, so this one
  * looks for a live attempt again once it holds: of the two, one always sees the other.
  */
-async function holdRun(status: RunStatus, agent: string, place: ReadPlace): Promise<Held> {
+async function holdRun(
+  status: RunStatus,
+  agent: string,
+  place: ReadPlace,
+  sandboxed: boolean,
+): Promise<Held> {
   const { run, ref } = status;
   const { workflow, id } = run.record;
   const file = runOpenFile(run.root, workflow, id);
   const plain = shellLine(["awf", "open", ref, agent, ...place.repeat]);
+  // A sandboxed agent's copy reopens its sandbox, which a live attempt has open.
+  const instead = sandboxed
+    ? `open a copy once the run is parked or done: ${plain}`
+    : `a copy opens anyway: ${plain}`;
   const live = () =>
     readAttempts(run).then((attempts) => attempts.find((attempt) => isLive(attempt)));
   const running = () =>
     new OpenRefused(
-      `${ref} is running, and ${agent}'s session may be written as you type; a copy opens anyway: ${plain}`,
+      `${ref} is running, and ${agent}'s session may be written as you type; ${instead}`,
       "live",
     );
   const holding = await withRunLock(runLockFile(run.root, workflow, id), async () => {
@@ -538,7 +572,7 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
       `${options.session} is ${others.agent}'s session, not ${agent}'s: awf open ${status.ref} ${others.agent} --session ${options.session}`,
       "no-session",
     );
-  const line = named ?? latest;
+  const line = named ?? (await copysLine(view.sessions.all, agent, options.session)) ?? latest;
   if (!findHarness(line.harness))
     throw new OpenRefused(
       `${agent} ran on ${line.harness}, a harness this awf does not know`,
@@ -591,6 +625,27 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
     ...(line.sandbox ? { sandbox: line.sandbox } : {}),
     ...(skills ? { skills } : {}),
   };
+}
+
+/**
+ * The line a copy was made from, by the home that holds it: an agent with a home of its own gets a
+ * new one each attempt, and a copy is made in its source's. Every harness names a session's files
+ * for its id. None for an agent on the operator's home, whose latest line places it as well.
+ */
+async function copysLine(
+  lines: readonly SessionLine[],
+  agent: string,
+  session: string | undefined,
+): Promise<SessionLine | undefined> {
+  if (session === undefined) return undefined;
+  const seen = new Set<string>();
+  for (const line of lines.toReversed()) {
+    if (line.agent !== agent || line.home === undefined || seen.has(line.home)) continue;
+    seen.add(line.home);
+    const names = await readdir(line.home, { recursive: true }).catch(() => [] as string[]);
+    if (names.some((name) => name.includes(session))) return line;
+  }
+  return undefined;
 }
 
 /**
