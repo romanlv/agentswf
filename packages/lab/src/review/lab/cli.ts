@@ -66,6 +66,7 @@ import {
   type ReportSubject,
   renderMarkdown,
   renderReport,
+  usd,
 } from "./report";
 import { awfAllowance, awfRunner, type Runner } from "./runner";
 import { selectCases } from "./selection";
@@ -840,7 +841,7 @@ async function runOrScore(
     ...(budget === undefined ? {} : { budget }),
     ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
   });
-  out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
+  out.stderr(`${usd(result.listPrice)} at list prices, estimated`);
   if (options.json) {
     out.stdout(
       JSON.stringify(runDocument(planned, { ...documentContext, dryRun: false }, result), null, 2),
@@ -958,7 +959,7 @@ async function runBaseline(
   }
   if (!decided?.stop && !(await goAhead(plan, options, environment, out.stderr))) return 4;
   const result = await runAgainst(lab, against);
-  out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
+  out.stderr(`${usd(result.listPrice)} at list prices, estimated`);
   const { verdict } = result;
   const left = cases.length - result.whole;
   const summary = verdict
@@ -1375,7 +1376,7 @@ async function check(
       s.run?.id === undefined ? [] : [s.run.estimate],
     );
     const each = estimateOf(history);
-    const plan = `re-scores ${plural(scored.length, "trial")} with ${scorer.label} ${scorer.version}, keeping nothing; estimated ${each === null ? "unknown" : `$${(each * scored.length).toFixed(2)}`}`;
+    const plan = `re-scores ${plural(scored.length, "trial")} with ${scorer.label} ${scorer.version}, keeping nothing; estimated ${each === null ? "unknown" : usd(each * scored.length)}`;
     if (options.dryRun) {
       out.stdout(plan);
       return 0;
@@ -1412,9 +1413,7 @@ async function check(
           });
         }
       });
-      out.stderr(
-        `${at}: re-scored, ${again.run ? `$${(again.run.estimate ?? 0).toFixed(2)}` : "no run"}`,
-      );
+      out.stderr(`${at}: re-scored, ${again.run ? usd(again.run.estimate ?? 0) : "no run"}`);
     }
     rescore = {
       trials: scored.length,
