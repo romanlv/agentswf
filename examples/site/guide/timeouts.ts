@@ -29,7 +29,6 @@ export default defineWorkflow({
   async run(wf, { minutes }) {
     let reviews: TurnOutcome<Findings>[];
     try {
-      // #region parallel
       reviews = await wf.parallel(
         LENSES,
         async (lens) => {
@@ -56,7 +55,6 @@ export default defineWorkflow({
           timeout: `${minutes}m`,
         },
       );
-      // #endregion parallel
     } catch (error) {
       // #region over
       if (error instanceof DeadlineExceededError) {

@@ -1,6 +1,5 @@
 import { defineWorkflow } from "agentswf/workflow";
 
-// #region workflow
 export default defineWorkflow({
   meta: { name: "release", description: "Writes the notes for a version." },
   file: import.meta.path,
@@ -18,4 +17,3 @@ export default defineWorkflow({
       : wf.stop(`no notes: ${outcome.kind}`);
   },
 });
-// #endregion workflow
