@@ -9,6 +9,10 @@
  * looked for on the registry at the end, since npm can take minutes to list a version, and a
  * package already there is skipped: running it again finishes a release that stopped.
  *
+ * A stable version goes up under `latest`, a prerelease under its id (`beta`, `rc`), so a beta
+ * never becomes what a plain install gets. Before any stable version exists, a prerelease goes
+ * under `latest`: it is the newest there is.
+ *
  *   bun run release             # publish what isn't on npm yet
  *   bun run release --dry-run   # pack and check, publish nothing
  */
@@ -73,7 +77,10 @@ const publishedVersions = async (name: string): Promise<Set<string>> => {
 };
 
 /** Packs a package into `out` and returns the tarball's path and the manifest inside it. */
-const pack = async (dir: string, out: string): Promise<{ tarball: string; manifest: Manifest }> => {
+const pack = async (
+  dir: string,
+  out: string,
+): Promise<{ tarball: string; manifest: Manifest; paths: string[] }> => {
   const packed = await $`bun pm pack --destination ${out} --quiet`
     .cwd(join(ROOT, "packages", dir))
     .quiet()
@@ -82,7 +89,31 @@ const pack = async (dir: string, out: string): Promise<{ tarball: string; manife
   // --quiet prints the tarball alone, as a path in --destination.
   const tarball = resolve(out, packed.stdout.toString().trim().split("\n").at(-1)!.trim());
   const manifest = JSON.parse(await $`tar -xOf ${tarball} package/package.json`.text());
-  return { tarball, manifest };
+  const paths = (await $`tar -tzf ${tarball}`.text()).split("\n").filter(Boolean);
+  return { tarball, manifest, paths };
+};
+
+/**
+ * The dist-tag `version` goes up under, given the versions of agentswf npm has. A numeric
+ * prerelease id, as `1.0.0-0` has, is no tag npm takes, so it goes under `next`.
+ */
+export const distTag = (version: string, published: Iterable<string>): string => {
+  const id = /^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/.exec(version)?.[1];
+  if (id === undefined) return "latest";
+  if (![...published].some((each) => /^\d+\.\d+\.\d+$/.test(each))) return "latest";
+  return /^\d+$/.test(id) ? "next" : id;
+};
+
+/** Every tarball holds its README and LICENSE, and none of the tests, typechecks or fixtures. */
+export const contentProblems = (name: string, paths: readonly string[]): string[] => {
+  const problems: string[] = [];
+  for (const required of ["package/README.md", "package/LICENSE"])
+    if (!paths.includes(required))
+      problems.push(`${name} lacks ${required.slice("package/".length)}`);
+  for (const path of paths)
+    if (/\.(test|eval|typecheck|fixture)\.ts$|\/fixtures\//.test(path))
+      problems.push(`${name} ships ${path.slice("package/".length)}`);
+  return problems;
 };
 
 /**
@@ -98,8 +129,8 @@ export const accepted = (output: string, name: string, version: string): boolean
  * Runs bun publish in the open, so its sign-in prompt is answerable, and returns what it printed.
  * From the package's directory: bun checks a tarball's bin paths against where it runs.
  */
-const publish = async (dir: string, tarball: string): Promise<string> => {
-  const child = Bun.spawn(["bun", "publish", tarball, "--tag", "latest"], {
+const publish = async (dir: string, tarball: string, tag: string): Promise<string> => {
+  const child = Bun.spawn(["bun", "publish", tarball, "--tag", tag], {
     cwd: join(ROOT, "packages", dir),
     stdin: "inherit",
     stdout: "pipe",
@@ -139,24 +170,26 @@ const main = async () => {
     const plan: { dir: string; name: string; tarball: string; published: boolean }[] = [];
     const problems: string[] = [];
     for (const dir of PACKAGES) {
-      const { tarball, manifest } = await pack(dir, out);
-      problems.push(...manifestProblems(manifest, version, names));
+      const { tarball, manifest, paths } = await pack(dir, out);
+      problems.push(
+        ...manifestProblems(manifest, version, names),
+        ...contentProblems(manifest.name, paths),
+      );
       const published = (await publishedVersions(manifest.name)).has(version);
       plan.push({ dir, name: manifest.name, tarball, published });
     }
     if (problems.length > 0) fail(`not publishing:\n  ${problems.join("\n  ")}`);
+    const tag = distTag(version, await publishedVersions("agentswf"));
 
     for (const { name, published } of plan)
       console.log(`${published ? "on npm  " : "to go up"} ${name}@${version}`);
     const todo = plan.filter((entry) => !entry.published);
     if (todo.length === 0) return console.log(`release: ${version} is on npm whole`);
-    if (dryRun) return console.log(`release: dry run, ${todo.length} to publish`);
+    if (dryRun) return console.log(`release: dry run, ${todo.length} to publish under ${tag}`);
 
     for (const { dir, name, tarball } of todo) {
       console.log(`\nrelease: publishing ${name}@${version}`);
-      // Under latest even as a prerelease: until a stable release, a plain install gets the newest.
-      // TODO: once out of beta, publish a prerelease under its id (beta, rc) and only a stable under latest.
-      const output = await publish(dir, tarball);
+      const output = await publish(dir, tarball, tag);
       if (!accepted(output, name, version))
         fail(
           `npm did not take ${name}@${version}, so the release stopped here.\n` +
@@ -176,7 +209,7 @@ const main = async () => {
           );
         await Bun.sleep(5_000);
       }
-    console.log(`\nrelease: ${version} is on npm whole, under latest`);
+    console.log(`\nrelease: ${version} is on npm whole, under ${tag}`);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

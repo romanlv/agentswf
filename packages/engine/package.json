@@ -13,9 +13,6 @@
   "engines": {
     "bun": ">=1.4.0"
   },
-  "bin": {
-    "awf": "./src/operator-cli.ts"
-  },
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
@@ -29,7 +26,11 @@
     "src",
     "!src/**/*.test.ts",
     "!src/**/*.eval.ts",
-    "!src/**/fixtures"
+    "!src/**/*.typecheck.ts",
+    "!src/**/*.fixture.ts",
+    "!src/**/fixtures",
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@agentswf/contract": "workspace:*",

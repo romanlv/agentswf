@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { accepted, manifestProblems, PACKAGES } from "./release";
+import { accepted, contentProblems, distTag, manifestProblems, PACKAGES } from "./release";
 
 const names = new Set(["@agentswf/contract", "@agentswf/engine", "agentswf"]);
 
@@ -56,6 +56,43 @@ describe("release", () => {
     expect(manifestProblems(manifest, "0.1.0-beta.2", names)).toEqual([
       "@agentswf/engine is 0.1.0-beta.1, not 0.1.0-beta.2",
       "@agentswf/engine has @agentswf/contract at workspace:*, unfilled",
+    ]);
+  });
+
+  test("a prerelease goes under latest only until a stable version exists", () => {
+    const betas = ["0.0.0-stage", "0.1.0-beta.0", "0.1.0-beta.5"];
+    expect(distTag("0.1.0-beta.6", betas)).toBe("latest");
+    expect(distTag("0.1.0", betas)).toBe("latest");
+    const stable = [...betas, "0.1.0"];
+    expect(distTag("0.2.0-beta.0", stable)).toBe("beta");
+    expect(distTag("0.2.0-rc.1", stable)).toBe("rc");
+    expect(distTag("1.0.0-0", stable)).toBe("next");
+    expect(distTag("0.1.1", stable)).toBe("latest");
+  });
+
+  test("a tarball without its README or LICENSE, or with a test in it, stops it", () => {
+    const fine = [
+      "package/package.json",
+      "package/README.md",
+      "package/LICENSE",
+      "package/src/a.ts",
+    ];
+    expect(contentProblems("agentswf", fine)).toEqual([]);
+    expect(
+      contentProblems("agentswf", [
+        "package/package.json",
+        "package/src/a.test.ts",
+        "package/src/a.typecheck.ts",
+        "package/src/hold.fixture.ts",
+        "package/src/fixtures/x.json",
+      ]),
+    ).toEqual([
+      "agentswf lacks README.md",
+      "agentswf lacks LICENSE",
+      "agentswf ships src/a.test.ts",
+      "agentswf ships src/a.typecheck.ts",
+      "agentswf ships src/hold.fixture.ts",
+      "agentswf ships src/fixtures/x.json",
     ]);
   });
 
