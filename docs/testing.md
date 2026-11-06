@@ -35,8 +35,19 @@ for each agent, no model: the conformance suite, then what the provider allows a
 part of `bun test` and free, and skipped where its provider is not installed; docker's also where
 the daemon does not answer within 5 s or the default image is not built.
 
-The fakes encode what the real CLIs do today. They go stale silently, which is what the live levels
-are for.
+The harness CLIs have one too, `tests/harness-cli.local.test.ts`: a real `awf run` of one headless
+agent on pi, codex and claude, each CLI pointed at a scripted model in place of its provider, which
+`packages/harness/src/testing/scripted-model.ts` serves over Chat Completions, Responses and
+Anthropic Messages. The scripted model calls each CLI's own shell tool to run the `wfa result` the
+prompt names, and answers the second turn only from the session's history, so the test reads what
+each CLI really does: its flags, its output, its resume, its session files and usage, and awf's login
+checks, which a dummy login in a throwaway home passes. It is skipped where a CLI is not installed,
+but not in CI, which installs the versions `.github/workflows/test.yml` pins; bump them when a
+harness is upgraded. Cursor has no setting for another endpoint, and a TUI agent needs Herdr, so
+neither is covered.
+
+The fakes encode what the real CLIs do today. They go stale silently; the harness CLI test catches
+what the CLIs change in how they run, and the live levels what the models do.
 
 ### 2. Evals — every supported feature, live, minutes and dollars
 
