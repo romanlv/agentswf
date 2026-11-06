@@ -1,6 +1,6 @@
 // A program's tests' `Client`: keeps the calls it is given and answers as the real one's rules do,
 // or as the test scripts. It makes no run and starts no process.
-import { dirname, isAbsolute } from "node:path";
+import { dirname } from "node:path";
 import {
   type Client,
   ClientError,
@@ -12,15 +12,24 @@ import { type EmitResultJson, emitOk, type InboxItemJson } from "@agentswf/contr
 import {
   awfEventOf,
   isEventWorkflow,
-  isJsonValue,
   type JsonValue,
   nameProblem,
 } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
+import {
+  assertEventWorkflow,
+  checkArgs,
+  checkCursor,
+  checkEmit,
+  checkRunId,
+  derivedId,
+  fileOf,
+  nameOf,
+} from "../client/checks";
 import { isFinal } from "../client/runs";
 import { checkEvent, EmitError } from "../emit";
+import { messageOf } from "../errors";
 import { prepareArgs } from "../run-prepare";
-import { idProblem } from "../runs";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
 
 /** A call a fake client was given, in order, whether or not it was refused. */
@@ -194,12 +203,8 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
 
   /** The real client's checks of a workflow it is given that need no file: its `file` and name. */
   const located = (workflow: AnyWorkflow): string => {
-    const name = workflow?.meta?.name;
-    if (typeof workflow?.file !== "string" || !isAbsolute(workflow.file))
-      throw new ClientError("file", `${name} gives no file: file: import.meta.path`);
-    const problem = idProblem(name);
-    if (problem) throw new ClientError("event", `meta.name: ${problem}`);
-    return name;
+    fileOf(workflow);
+    return nameOf(workflow);
   };
 
   const client: Client = {
@@ -216,23 +221,9 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
         ...(given.source === undefined ? {} : { source: given.source }),
       };
       calls.push(call);
-      if (!isEventWorkflow(target))
-        throw new ClientError(
-          "event",
-          `${(target as AnyWorkflow)?.meta?.name} declares no events; start runs it`,
-        );
+      assertEventWorkflow(target);
       located(target);
-      if (typeof name !== "string")
-        throw new ClientError("event", "an event's name is a string", ref);
-      if (typeof run !== "string") throw new ClientError("id", "a run's id is a string");
-      for (const [field, value] of [
-        ["eventId", given.eventId],
-        ["source", given.source],
-      ] as const)
-        if (value !== undefined && typeof value !== "string")
-          throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
-      if (!isJsonValue(data))
-        throw new ClientError("event", `${name}'s data must contain only JSON values`, ref);
+      checkEmit(ref, run, name, data, given);
       const reply = awfEventOf(name)?.kind === "reply";
       try {
         checkEvent(
@@ -251,8 +242,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
           throw new ClientError("event", `the source ${JSON.stringify(given.source)}: ${bad}`, ref);
       };
       if (!reply) sourceProblem();
-      const problem = idProblem(run);
-      if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
+      checkRunId(run, ref);
       const result = (
         fields: Omit<EmitResultJson, "v" | "ok" | "ref" | "eventId">,
       ): EmitResultJson => ({
@@ -286,7 +276,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
           } catch (error) {
             throw new ClientError(
               "prepare",
-              `${target.meta.name}: a run an event starts has no arguments, which its prepare refuses: ${String(error)}`,
+              `${target.meta.name}: a run an event starts has no arguments, which its prepare refuses: ${messageOf(error)}`,
               ref,
             );
           }
@@ -327,25 +317,8 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       };
       calls.push(call);
       const name = located(target);
-      if (!isJsonValue(args))
-        throw new ClientError("prepare", `${name} arguments must contain only JSON values`);
-      let id = given.id;
-      if (id === undefined && target.id) {
-        let derived: unknown;
-        try {
-          derived = target.id(args as never);
-        } catch (error) {
-          throw new ClientError("prepare", `${name}'s id(args) failed: ${String(error)}`);
-        }
-        if (typeof derived !== "string")
-          throw new ClientError("id", `${name}'s id(args) returned a ${typeof derived}`);
-        id = derived;
-      }
-      if (id === undefined && isEventWorkflow(target) && target.starts !== undefined)
-        throw new ClientError(
-          "no-id",
-          `a run of ${name}, which starts on events, is named by its senders`,
-        );
+      checkArgs(name, args);
+      let id = given.id ?? derivedId(target, args);
       // As the real client generates one: an id no run here holds.
       // A run `rests` names and nothing made yet is the one this start makes.
       for (let n = 1; id === undefined; n++) {
@@ -354,8 +327,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       }
       const ref = `${name}/${id}`;
       call.ref = ref;
-      const problem = idProblem(id);
-      if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
+      checkRunId(id, ref);
       let there = known.get(ref);
       if (there && unclaimedByStart(there)) {
         there.args = call.args;
@@ -395,8 +367,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       const ref = `${(workflow as unknown as AnyWorkflow)?.meta?.name}/${run}`;
       calls.push({ kind: "get", workflow: (workflow as unknown as AnyWorkflow)?.meta?.name, ref });
       located(workflow as unknown as AnyWorkflow);
-      const problem = idProblem(run);
-      if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
+      checkRunId(run, ref);
       if (!known.has(ref)) throw new ClientError("no-run", `no run ${ref}`, ref);
       return handle(ref, isEventWorkflow(workflow as unknown as AnyWorkflow));
     },
@@ -408,12 +379,7 @@ export function fakeClient(script: FakeClientScript = {}): FakeClient {
       };
       calls.push(call);
       located(workflow as unknown as AnyWorkflow);
-      const { after } = given;
-      if (
-        after !== undefined &&
-        (typeof after !== "string" || after === "" || after.startsWith("-"))
-      )
-        throw new ClientError("cursor", `${JSON.stringify(after)} is no cursor an item carried`);
+      checkCursor(given.after);
       return script.inbox?.(call) ?? [];
     },
   };

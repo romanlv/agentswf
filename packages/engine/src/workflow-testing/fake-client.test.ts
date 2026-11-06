@@ -166,6 +166,30 @@ test("the real client's checks: a source, args, a run's id, a file, a cursor", a
   expect(runs.calls.filter((call) => call.kind === "start")).toHaveLength(2);
 });
 
+test("an id(args) is checked as the real client checks it, in its words", async () => {
+  const runs = fakeClient();
+  const named = (id: (args: { version: string }) => string) => defineWorkflow({ ...release, id });
+  await expect(
+    runs.start(
+      named(() => "has space"),
+      { version: "1" },
+    ),
+  ).rejects.toMatchObject({
+    code: "id",
+    message: expect.stringMatching(/^release's id\(args\): "has space"/),
+  });
+  const throwing = named(() => {
+    throw new Error("no ticket");
+  });
+  await expect(runs.start(throwing, { version: "1" })).rejects.toMatchObject({
+    code: "prepare",
+    message: "release's id(args) failed: no ticket",
+  });
+  await expect(
+    runs.emit(review, "pr-1", "pr.pushed", { sha: "a" }, { source: 1 as never }),
+  ).rejects.toMatchObject({ code: "event", message: "source is a string" });
+});
+
 test("generated ids are new; an id an event began is other-args to start; a wait with nothing scripted ends with its signal", async () => {
   const runs = fakeClient();
   await runs.start(release, { version: "1" }, { id: "fake-1" });
