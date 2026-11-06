@@ -170,8 +170,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
   rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, now `wfa`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
-  from a clone. Since then `agentswf` and `@agentswf/*` are published on npm, at 0.1.0-beta.4,
-  from the public repository; what the story still holds open is in the story.
+  from a clone. Since then `agentswf` and `@agentswf/*` are published on npm, 0.1.0 under
+  `latest` since 2026-11-06, from the public repository; what the story still holds open is in the story.
 - [010 — eval isolation](stories/010-eval-isolation.md): done. `awf run --sandbox {file}`
   puts every agent of a run in one operator sandbox and refuses a workflow's own; `awf-lab` runs
   every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
