@@ -35,7 +35,6 @@ export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
-export type SettingsId = string;
 /** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
 export type Effort = string;
 

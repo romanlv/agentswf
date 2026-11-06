@@ -1063,7 +1063,7 @@ export type AgentStateJson = (typeof AGENT_STATES)[number];
  * A stage's state in `awf runs {ref} --json`: `running`, `interrupted` when the run's process went
  * while it ran, `reused` or `provided` from an earlier attempt or `--values`, or how it ended.
  */
-export const STAGE_STATES = [
+const STAGE_STATES = [
   "running",
   "interrupted",
   "reused",

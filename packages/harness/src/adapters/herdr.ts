@@ -106,7 +106,7 @@ const AGENT_START_WAIT_MS = 120_000;
  */
 const KEEP_SETTLE_MS = 3_000;
 /** How long a pane's turn is waited on and looked at. */
-export type PaneTimings = {
+type PaneTimings = {
   /** How often a prompt its harness's record has not taken in is looked at, past `untakenMs`. */
   turnPollMs: number;
   /**
@@ -1973,8 +1973,7 @@ export function createHerdrRunHostFactory(
                   if (idle) return idle;
                 }
 
-                const placement = current;
-                if (!placement) throw new Error("operation pane was not retained");
+                const placement = current!;
                 // A prompt its last operation gave up on, still in its input, would be sent with
                 // what is typed now: none is typed while it is there.
                 if (await stillHeld(placement.agentName, turn, controller.signal)) {
@@ -2086,9 +2085,14 @@ export function createHerdrRunHostFactory(
                     return localOutcome("cancelled", "pane operation cancelled");
                   }
                   if (login) return login;
-                  const stalled = hasHerdrErrorCode(sent.error, "agent_prompt_stalled");
-                  if (!recorded) {
-                    if (!stalled) return herdrFailure(sent, remainingMs);
+                }
+                let settled: Pick<NativeTurnOutcome, "state" | "detail">;
+                let session: string | undefined;
+                if (!recorded) {
+                  if (!sent.ok) {
+                    if (!hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                      return herdrFailure(sent, remainingMs);
+                    }
                     // Herdr had already accepted the submission, so the turn may be running.
                     // Settling here would close the result slot under a live agent and arm the
                     // nudge; resending would duplicate a delivered prompt.
@@ -2102,21 +2106,20 @@ export function createHerdrRunHostFactory(
                         )
                       : localOutcome("cancelled", "pane operation cancelled");
                   }
+                  ({ settled, session } = herdrSettled(harness, sent));
+                } else {
                   // Herdr answered an error, so it said what it did, and sent nothing that runs;
                   // one that never answered, saw no turn start, or lost a live agent a moment
                   // under load may have pasted the prompt, which the record says.
                   if (
+                    !sent.ok &&
                     !sent.timedOut &&
-                    !stalled &&
+                    !hasHerdrErrorCode(sent.error, "agent_prompt_stalled") &&
                     !hasHerdrErrorCode(sent.error, "agent_not_found")
                   ) {
                     dropTurn();
                     return herdrFailure(sent, remainingMs);
                   }
-                }
-                let settled: Pick<NativeTurnOutcome, "state" | "detail">;
-                let session: string | undefined;
-                if (recorded) {
                   // A busy claude drops the Enter after a paste, leaving the prompt unsent in its
                   // input: pressed once more, only while the record shows it untaken and the
                   // screen shows it there on two polls running, since a loaded screen lags its
@@ -2146,7 +2149,7 @@ export function createHerdrRunHostFactory(
                       spec.heldPrompt?.(shown, marker) === true;
                     const press = held && heldBefore && !pressed;
                     heldBefore = held;
-                    if (press && !recorded.accepted) {
+                    if (press) {
                       pressed = true;
                       await herdr(
                         ["agent", "send-keys", placement.agentName, "enter"],
@@ -2171,10 +2174,6 @@ export function createHerdrRunHostFactory(
                   }
                   settled = ended.settled;
                   session = ended.session;
-                } else if (sent.ok) {
-                  ({ settled, session } = herdrSettled(harness, sent));
-                } else {
-                  return herdrFailure(sent, remainingMs);
                 }
                 const read = await herdr(
                   ["agent", "read", placement.agentName, "--source", "detection"],

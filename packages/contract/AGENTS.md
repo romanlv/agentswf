@@ -9,7 +9,7 @@ a call and an attempt; the engine owns the files.
 
 | Entry | Holds |
 | --- | --- |
-| `.` | `CallResult`, the record formats, the schema subset, the semantic seam |
+| `.` | the record formats, the schema subset, the semantic seam |
 | `./schema` | the supported JSON Schema subset, structural check, validation, description, and errors |
 | `./records` | `OpRecord`, `Candidate`, `OutputRecord` and its accounting — formats only |
 | `./wire` | versioned, runtime-decodable control-plane messages |

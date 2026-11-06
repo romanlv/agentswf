@@ -2,8 +2,12 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isRecord } from "@agentswf/contract";
-import { SANDBOX_ENVIRONMENTS, type SandboxEnvironmentKey } from "@agentswf/contract/workflow";
-import type { Gitdir, ResolvedSandbox, SandboxProviders } from "./seam";
+import {
+  type Gitdir,
+  SANDBOX_ENVIRONMENTS,
+  type SandboxEnvironmentKey,
+} from "@agentswf/contract/workflow";
+import type { ResolvedSandbox, SandboxProviders } from "./seam";
 
 const REACH_KEYS = ["read", "write", "network", "sockets", "webSearch"] as const;
 
