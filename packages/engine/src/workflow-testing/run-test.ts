@@ -34,6 +34,7 @@ import { decideEnding, type Finished } from "../attempt-ending";
 import { continueCommand } from "../attempt-view";
 import { checkEvent, eventIdProblem, replyRecord } from "../emit";
 import { messageOf } from "../errors";
+import { isInside } from "../files";
 import { appendIn, readIn } from "../in-lines";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { type EarlierOps, listOps } from "../ops";
@@ -1053,7 +1054,7 @@ async function layOut(
   for (const [path, tree] of Object.entries(files ?? {})) {
     // Under the test's own directory, which it removes: a path outside would be left behind.
     const target = resolve(cwd, path);
-    if (isAbsolute(path) || relative(cwd, target).startsWith(".."))
+    if (isAbsolute(path) || (relative(cwd, target) !== "" && !isInside(cwd, target)))
       throw new Error(`files lays out under the run's directory; ${path} is outside it`);
     await write(target, tree);
   }

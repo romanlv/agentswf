@@ -32,6 +32,7 @@ import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { EmitError, emitEvent, openEventRun } from "./emit";
 import { didOf, EMIT_V, emitCommand, launchExit } from "./emit-command";
 import { messageOf } from "./errors";
+import { isInside } from "./files";
 import { installedEngine } from "./hand-over";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { HOLDER_V, holderCommand } from "./holder-command";
@@ -402,7 +403,7 @@ async function runCommand(
   if ("opens" in ready) return openRun(ready.opens, environment, output);
   // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
-  if (!relative(command.runRoot, sandboxes).startsWith("..")) {
+  if (relative(command.runRoot, sandboxes) === "" || isInside(command.runRoot, sandboxes)) {
     refused(
       "usage",
       `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,

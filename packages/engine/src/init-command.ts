@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
-import type { Out } from "./command-line";
+import { type Out, shellWord } from "./command-line";
 import { messageOf } from "./errors";
 import help from "./help/init.txt" with { type: "text" };
 import { NO_JSON, printRefusal } from "./refusals";
@@ -212,11 +212,6 @@ function packageName(dir: string): string {
 
 function indentOf(text: string): string | number {
   return /^\{\s*\r?\n([ \t]+)"/.exec(text)?.[1] ?? 2;
-}
-
-/** As a shell reads it: bare when that's safe, otherwise single-quoted. */
-function shellWord(word: string): string {
-  return /^[\w./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
 /** `awf init`: writes the folder, installs unless told not to, and says what to run next. */
