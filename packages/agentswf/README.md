@@ -105,3 +105,4 @@ stays in `.awf/runs/hello/{id}`; `awf runs` and `awf logs` show what it did.
 - [Workflow API](https://agents.wf/reference/workflow-api), every call on one page
 - [Patterns](https://agents.wf/patterns/review-loop): review loops, plan and implement
 - [Examples and design](https://github.com/romanlv/agentswf), in the repository
+- [Changelog](https://github.com/romanlv/agentswf/blob/main/CHANGELOG.md): what changed in each release

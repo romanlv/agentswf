@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { accepted, contentProblems, distTag, manifestProblems, PACKAGES } from "./release";
+import {
+  accepted,
+  bumpLock,
+  changelogSection,
+  contentProblems,
+  cutRelease,
+  distTag,
+  manifestProblems,
+  PACKAGES,
+} from "./release";
 
 const names = new Set(["@agentswf/contract", "@agentswf/engine", "agentswf"]);
 
@@ -114,5 +123,67 @@ describe("release", () => {
         const at = byName.get(dep);
         if (at) expect(PACKAGES.indexOf(at)).toBeLessThan(index);
       }
+  });
+  const changelog = [
+    "# Changelog",
+    "",
+    "## Unreleased",
+    "",
+    "### Added",
+    "",
+    "- `awf open`.",
+    "",
+    "## 0.1.0 — 2026-11-06",
+    "",
+    "The first stable release.",
+    "",
+  ].join("\n");
+
+  test("a version's notes are its section of the changelog, dated or not", () => {
+    expect(changelogSection(changelog, "0.1.0")).toBe("The first stable release.");
+    expect(changelogSection(changelog, "Unreleased")).toBe("### Added\n\n- `awf open`.");
+    expect(changelogSection(changelog, "0.1")).toBeUndefined();
+    expect(changelogSection(changelog, "0.2.0")).toBeUndefined();
+  });
+
+  test("preparing a version moves Unreleased's notes under it, dated, and empties Unreleased", () => {
+    const cut = cutRelease(changelog, "0.2.0", "2026-12-01");
+    expect(cut).toContain(
+      "## Unreleased\n\n## 0.2.0 — 2026-12-01\n\n### Added\n\n- `awf open`.\n\n## 0.1.0",
+    );
+    expect(changelogSection(cut, "Unreleased")).toBe("");
+    expect(changelogSection(cut, "0.2.0")).toBe("### Added\n\n- `awf open`.");
+    expect(changelogSection(cut, "0.1.0")).toBe("The first stable release.");
+  });
+
+  test("a version without notes, or one already in the changelog, is not prepared", () => {
+    const cut = cutRelease(changelog, "0.2.0", "2026-12-01");
+    expect(() => cutRelease(cut, "0.3.0", "2026-12-02")).toThrow("Unreleased is empty");
+    expect(() => cutRelease(changelog, "0.1.0", "2026-12-02")).toThrow("already has ## 0.1.0");
+    expect(() => cutRelease("# Changelog\n", "0.2.0", "2026-12-02")).toThrow("no ## Unreleased");
+  });
+
+  test("bun.lock's workspace versions follow the manifests, which bun install leaves stale", () => {
+    const lock = readFileSync(join(import.meta.dir, "..", "bun.lock"), "utf8");
+    const names = PACKAGES.map(
+      (dir) =>
+        JSON.parse(
+          readFileSync(join(import.meta.dir, "..", "packages", dir, "package.json"), "utf8"),
+        ).name as string,
+    );
+    const bumped = bumpLock(lock, names, "9.9.9");
+    for (const name of names)
+      expect(bumped).toContain(`"name": "${name}",\n      "version": "9.9.9"`);
+    expect(bumped.split("\n").length).toBe(lock.split("\n").length);
+    expect(() => bumpLock(lock, ["@agentswf/missing"], "9.9.9")).toThrow("no workspace entry");
+  });
+
+  test("the changelog has notes for the version the manifests are at", () => {
+    const { version } = JSON.parse(
+      readFileSync(join(import.meta.dir, "..", "packages", "agentswf", "package.json"), "utf8"),
+    );
+    const text = readFileSync(join(import.meta.dir, "..", "CHANGELOG.md"), "utf8");
+    expect(changelogSection(text, version)).toBeTruthy();
+    expect(changelogSection(text, "Unreleased")).toBeDefined();
   });
 });
