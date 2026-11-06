@@ -260,6 +260,21 @@ export function createCallerHostFactory(
           }
           const deadline = operation.deadline.unixMilliseconds;
           return active.run(async (signal) => {
+            /** The end of the pane's scrollback, where the turn just ended shows. */
+            const readTurn = () =>
+              herdr(
+                [
+                  "agent",
+                  "read",
+                  pane,
+                  "--source",
+                  "recent-unwrapped",
+                  "--lines",
+                  String(TURN_LINES),
+                ],
+                Math.max(1, deadline - Date.now()),
+                signal,
+              );
             try {
               // Herdr's prompt wait does not track turns, so the session settles first (E8): the
               // turn that replied with the code, the operator's own, or the last operation's.
@@ -283,19 +298,7 @@ export function createCallerHostFactory(
                   return paneCancelled();
                 }
                 // A harness that cannot sign in ends the turn before Herdr sees it working.
-                const shown = await herdr(
-                  [
-                    "agent",
-                    "read",
-                    pane,
-                    "--source",
-                    "recent-unwrapped",
-                    "--lines",
-                    String(TURN_LINES),
-                  ],
-                  Math.max(1, deadline - Date.now()),
-                  signal,
-                );
+                const shown = await readTurn();
                 if (signal.aborted) {
                   return paneCancelled();
                 }
@@ -316,19 +319,7 @@ export function createCallerHostFactory(
                 return herdrFailure(sent, deadline - Date.now());
               }
               outstanding = undefined;
-              const read = await herdr(
-                [
-                  "agent",
-                  "read",
-                  pane,
-                  "--source",
-                  "recent-unwrapped",
-                  "--lines",
-                  String(TURN_LINES),
-                ],
-                Math.max(1, deadline - Date.now()),
-                signal,
-              );
+              const read = await readTurn();
               if (!read.ok && read.cancelled) {
                 return paneCancelled();
               }

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { parseRow, record, text } from "../json";
-import { deadlineExceeded, localOutcome, type NativeTurnOutcome } from "../session-core";
+import {
+  deadlineExceeded,
+  localOutcome,
+  MAX_TIMER_MS,
+  type NativeTurnOutcome,
+} from "../session-core";
 import type { SettledState } from "../types";
 
 export type HerdrResult =
@@ -148,7 +153,7 @@ export async function observeRelease(
   if (remaining <= 0) return releaseDeadlineExceeded();
   const observing = new AbortController();
   observers.add(observing);
-  const timer = setTimeout(() => observing.abort(), Math.min(remaining, 2_147_483_647));
+  const timer = setTimeout(() => observing.abort(), Math.min(remaining, MAX_TIMER_MS));
   try {
     return await observe(observing.signal, remaining);
   } finally {
@@ -281,7 +286,7 @@ export function abortableDelay(milliseconds: number, signal?: AbortSignal): Prom
         signal?.removeEventListener("abort", abort);
         resolve(true);
       },
-      Math.min(milliseconds, 2_147_483_647),
+      Math.min(milliseconds, MAX_TIMER_MS),
     );
     const abort = () => {
       clearTimeout(timer);

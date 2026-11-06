@@ -75,6 +75,9 @@ export type ActiveOperation = {
   stopperForNow(): () => Promise<void>;
 };
 
+/** The longest a `setTimeout` waits: above it, the timer fires at once. */
+export const MAX_TIMER_MS = 2_147_483_647;
+
 export function activeOperation(): ActiveOperation {
   let controller: AbortController | undefined;
   let completion: Promise<void> | undefined;
@@ -110,6 +113,19 @@ export function activeOperation(): ActiveOperation {
         await finished;
       };
     },
+  };
+}
+
+/**
+ * Puts `instructions` before the first prompt it is given only: a later prompt reaches an agent that
+ * has already read them, and sending them again reads as a new assignment rather than a reminder.
+ */
+export function instructOnce(instructions: string | undefined): (prompt: string) => string {
+  let instructed = false;
+  return (prompt) => {
+    const first = !instructed && instructions;
+    instructed = true;
+    return first ? `${instructions}\n\n${prompt}` : prompt;
   };
 }
 
@@ -277,7 +293,7 @@ function createSession(
       const ended = await Promise.race([
         pending.settled.then(() => true),
         new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), Math.max(0, Math.min(wait, 2_147_483_647)));
+          timer = setTimeout(() => resolve(false), Math.max(0, Math.min(wait, MAX_TIMER_MS)));
         }),
       ]);
       clearTimeout(timer);
@@ -661,7 +677,7 @@ async function releaseBefore(
   if (remaining <= 0) return { kind: "quarantined", reason: "release deadline exceeded" };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<"expired">((resolve) => {
-    timer = setTimeout(() => resolve("expired"), Math.min(remaining, 2_147_483_647));
+    timer = setTimeout(() => resolve("expired"), Math.min(remaining, MAX_TIMER_MS));
   });
   try {
     const outcome = await Promise.race([releasing, expiry]);
@@ -689,7 +705,7 @@ function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
   }
 }
 
-function reasonOf(error: unknown): string {
+export function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

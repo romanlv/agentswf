@@ -15,7 +15,12 @@ import { failedOnLogin } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
 import { launchArgs } from "../sandbox-needs";
-import { createSessionAdapter, deadlineExceeded, localOutcome } from "../session-core";
+import {
+  createSessionAdapter,
+  deadlineExceeded,
+  instructOnce,
+  localOutcome,
+} from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { harnessState } from "../state";
@@ -64,7 +69,7 @@ export function createHeadlessAdapter(
        */
       let costTotal: number | undefined = request.continues ? request.continues.costTotal : 0;
       /** The instructions go with the first turn, not a compaction, a forked session's too. */
-      let instructed = false;
+      const instructed = instructOnce(request.instructions);
       /** What each turn is launched at: as activated, then as the last `set` left it. */
       let settings = launchSettings(request.execution);
       /** Every turn, a resumed one too: none of them remembers the last one's arguments. */
@@ -193,10 +198,7 @@ export function createHeadlessAdapter(
               }
             }
             const prompt =
-              !instructed && operation.kind !== "compact" && request.instructions
-                ? `${request.instructions}\n\n${operation.prompt}`
-                : operation.prompt;
-            if (operation.kind !== "compact") instructed = true;
+              operation.kind === "compact" ? operation.prompt : instructed(operation.prompt);
             hasExecuted = true;
             const { env, context } = await launchContext();
             const compaction =

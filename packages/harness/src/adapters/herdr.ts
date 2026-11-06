@@ -21,8 +21,10 @@ import {
   activeOperation,
   createSessionAdapter,
   deadlineExceeded,
+  instructOnce,
   localOutcome,
   type NativeTurnOutcome,
+  reasonOf,
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import {
@@ -374,17 +376,23 @@ export function createHerdrCommands(
     return true;
   };
 
-  /**
-   * Types `text` into a fresh pane's login shell once it has settled, every call ending by `by`.
-   * Undefined once cancelled.
-   */
-  const typeInto = async (paneId: string, text: string, by: number, signal?: AbortSignal) => {
+  /** Herdr commands that each end by `by`, and `paneId`'s screen read through them. */
+  const paneCalls = (paneId: string, by: number, signal?: AbortSignal) => {
     const call = (args: string[]) =>
       herdr(args, Math.max(1, Math.min(config.commandTimeoutMs, by - Date.now())), signal);
     const screen = async () => {
       const read = await call(["pane", "read", paneId]);
       return read.ok ? read.stdout : "";
     };
+    return { call, screen };
+  };
+
+  /**
+   * Types `text` into a fresh pane's login shell once it has settled, every call ending by `by`.
+   * Undefined once cancelled.
+   */
+  const typeInto = async (paneId: string, text: string, by: number, signal?: AbortSignal) => {
+    const { call, screen } = paneCalls(paneId, by, signal);
     // If the text is swallowed nonetheless, what it should show never does.
     if (!(await settle(screen, Math.min(by, Date.now() + TYPED_START_SETTLE_MS), signal))) {
       return undefined;
@@ -417,14 +425,8 @@ export function createHerdrCommands(
     const failed = (error: string, how: { timedOut?: boolean; cancelled?: boolean } = {}) =>
       stopped(1, error, how);
     const cancelled = () => failed("operation cancelled", { cancelled: true });
-    const remaining = () => deadlineUnixMs - Date.now();
     const step = () => Math.min(deadlineUnixMs, Date.now() + TYPED_START_WAIT_MS);
-    const call = (args: string[]) =>
-      herdr(args, Math.max(1, Math.min(config.commandTimeoutMs, remaining())), signal);
-    const screen = async () => {
-      const read = await call(["pane", "read", paneId]);
-      return read.ok ? read.stdout : "";
-    };
+    const { call, screen } = paneCalls(paneId, deadlineUnixMs, signal);
     const type = async (text: string) => {
       const typed = await call(["pane", "run", paneId, text]);
       return typed.ok ? undefined : failed(`typing into the pane failed: ${typed.error}`, typed);
@@ -1087,7 +1089,7 @@ export function createHerdrRunHostFactory(
           /** When its harness was launched: a session it names to nobody started since. */
           let launchedAt = Date.now();
           /** The workflow's instructions go with the first prompt the pane's agent is sent. */
-          let instructed = false;
+          const instructed = instructOnce(request.instructions);
           const active = activeOperation();
           // A run-local sandbox pane preserves the host cwd and seeded harness home.
           const readsRecord =
@@ -1184,6 +1186,17 @@ export function createHerdrRunHostFactory(
             }
           };
 
+          /** Herdr's own wait for the agent to settle; once it has, Herdr has caught up. */
+          const herdrSettle = async (
+            agentName: string,
+            deadline: number,
+            signal: AbortSignal,
+          ): Promise<NativeTurnOutcome | undefined> => {
+            const busy = await settleAgent(herdr, agentName, deadline, signal);
+            if (!busy) herdrBehind = false;
+            return busy;
+          };
+
           /**
            * Herdr's own wait, once its record settled the pane's last turn: Herdr may not show
            * that turn's end yet, which would match a wait on what follows before it ran.
@@ -1192,12 +1205,8 @@ export function createHerdrRunHostFactory(
             agentName: string,
             deadline: number,
             signal: AbortSignal,
-          ): Promise<NativeTurnOutcome | undefined> => {
-            if (!herdrBehind) return undefined;
-            const busy = await settleAgent(herdr, agentName, deadline, signal);
-            if (!busy) herdrBehind = false;
-            return busy;
-          };
+          ): Promise<NativeTurnOutcome | undefined> =>
+            herdrBehind ? herdrSettle(agentName, deadline, signal) : undefined;
 
           /**
            * Waits on Herdr until `stopped` for a dialog blocking `agentName`, or for it gone:
@@ -1322,7 +1331,7 @@ export function createHerdrRunHostFactory(
                     : operation.deadline.unixMilliseconds,
               )
               .catch((error: unknown) => {
-                const reason = error instanceof Error ? error.message : String(error);
+                const reason = reasonOf(error);
                 // Received, its delivery stands: only the record of its end was lost.
                 if (!received && receiving()) operation.onDeliveryFailed?.(reason);
                 end({ failed: reason });
@@ -1381,11 +1390,8 @@ export function createHerdrRunHostFactory(
             // seen it, cannot say it is over.
             if (turn?.accepted && turn.end && "failed" in turn.end)
               return unreadable(turn.end.failed);
-            if (!recordSpeaks(turn)) {
-              const busy = await settleAgent(herdr, agentName, deadline.unixMilliseconds, signal);
-              if (!busy) herdrBehind = false;
-              return busy;
-            }
+            if (!recordSpeaks(turn))
+              return herdrSettle(agentName, deadline.unixMilliseconds, signal);
             const ended = await untilEnded(turn, deadline.unixMilliseconds, signal);
             if ("outcome" in ended) return ended.outcome;
             // A dialog can follow the turn's end, as claude's setup offers did; one shown only a
@@ -1947,13 +1953,7 @@ export function createHerdrRunHostFactory(
                   if (shown) return shown;
                   return await compactInPane(placement.agentName, operation, signal);
                 }
-                // Only once: a later prompt reaches an agent that has already read these, and
-                // sending them again reads as a new assignment rather than a reminder.
-                let prompt =
-                  !instructed && request.instructions
-                    ? `${request.instructions}\n\n${operation.prompt}`
-                    : operation.prompt;
-                instructed = true;
+                let prompt = instructed(operation.prompt);
                 const remainingMs = operation.deadline.unixMilliseconds - Date.now();
                 if (remainingMs <= 0) {
                   return deadlineExceeded();
@@ -1978,7 +1978,7 @@ export function createHerdrRunHostFactory(
                 } catch (error) {
                   if (operation.deliverySignal?.aborted || signal.aborted)
                     return localOutcome("cancelled", "check-in cancelled before dispatch");
-                  const reason = error instanceof Error ? error.message : String(error);
+                  const reason = reasonOf(error);
                   // A delivery confirmed by its record cannot go without it; a turn can, on Herdr.
                   if (operation.onReceived) {
                     operation.onDeliveryFailed?.(reason);

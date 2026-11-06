@@ -223,10 +223,13 @@ export function writableIn(
   reach: { read: readonly string[]; write: readonly string[] },
   path: string,
 ): boolean {
-  const deepest = [...reach.read, ...reach.write]
-    .filter((root) => contains(root, path))
-    .sort((a, b) => b.length - a.length)[0];
+  const deepest = deepestRoot([...reach.read, ...reach.write], path);
   return deepest !== undefined && reach.write.includes(deepest);
+}
+
+/** The deepest of `roots` holding `path`, if any does. */
+export function deepestRoot(roots: readonly string[], path: string): string | undefined {
+  return roots.filter((root) => contains(root, path)).sort((a, b) => b.length - a.length)[0];
 }
 
 /** Whether `path` lies in one of the engine's run directories under its control root. */

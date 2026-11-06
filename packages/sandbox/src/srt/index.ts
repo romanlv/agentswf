@@ -49,6 +49,8 @@ export type SrtOptions = SrtHost & {
 
 /** How long `srt --version` may take before srt is taken to be missing. */
 const VERSION_MS = 10_000;
+/** The longest a `setTimeout` waits: above it, the timer fires at once. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 /** The system's own directories, last on every agent's `PATH`; srt needs `bash` there (H6). */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
@@ -289,8 +291,7 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
           // It ended meanwhile.
         }
       },
-      // A timer overflows past 2^31 - 1 ms, and would fire at once.
-      Math.min(Math.max(0, context.deadline.unixMilliseconds - Date.now()), 2_147_483_647),
+      Math.min(Math.max(0, context.deadline.unixMilliseconds - Date.now()), MAX_TIMER_MS),
     );
     const [output, stderr] = await Promise.all([
       new Response(child.stdout).text(),
