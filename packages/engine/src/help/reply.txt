@@ -14,5 +14,7 @@ message on a participant to the run's code, the id the message's own, and prints
 does; it exits 0 for whatever the run did with it (accepted, duplicate, or refused by a run that
 returned); 1 when the run or participant isn't found, or its attempt didn't start.
 
-Exits 0 when delivered, 1 when refused (the code says why), 2 on a usage error, 3 when the run
-could not be reached.
+With --json, each prints {"v": 3, "id": …} when delivered, or a refusal whose code says why: the
+participant's, or usage, no-run, ambiguous, id, unreachable, no-engine, other-engine or
+internal-error. Exits 0 when delivered, 1 when refused (the code says why), 2 on a usage error,
+3 when the run could not be reached.

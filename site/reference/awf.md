@@ -28,10 +28,52 @@ command gets the `awf run` line it meant.
 
 ## JSON {#json}
 
+With `--json`, stdout always ends with one document, but for `awf inbox`, which prints none when
+it has no items to read. When the command worked, it is the result. When it failed, it is a
+refusal, and stderr still says why, for people:
+
+```json
+{"v": 1, "code": "no-run", "error": "no run review-mr/7 under /work/.awf/runs, or in a project awf knows"}
+```
+
+A document with `code` is a refusal; no result has one. Check for it first, as the exit code
+doesn't tell them apart: `awf emit` exits 1 with a full result when the run's attempt didn't
+start, and `awf tick` exits 1 with the runs it woke when it couldn't wake some. A command that
+prints a line per item, as `awf inbox --json` does, ends with its refusal. A usage error is a
+refusal too, whenever `--json` is anywhere in the arguments before `--`. The exit codes are each
+command's own, as its help says. A project that installs an `agentswf` from before this rule runs
+on it, and prints what it printed: there, an empty stdout is a failure stderr explains.
+
+A code means the same in every command that prints it, and, where the client meets the same
+failure, is the word [`ClientError`](/reference/client-api#clienterror) throws for it:
+
+| `code` | The command failed because | Printed by |
+| --- | --- | --- |
+| `usage` | its arguments can't be parsed, or two of them clash | every command |
+| `no-run` | there is no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `ambiguous` | a name fits more than one: a run's id, runs of two workflows or projects; or `--as`, an agent or `--to`, those with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `id` | a run or event id the grammar refuses, one the workflow's `id(args)` returns, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
+| `event` | the workflow doesn't take the event's name, data or source, or takes no events | `emit` |
+| `prepare` | the workflow refuses its arguments or options, or its `id(args)` throws | `run`, `emit` |
+| `no-id` | a workflow that starts on events, with no `--id` and no `id(args)` | `run` |
+| `other-args` | a run there, started with other arguments or options | `run` |
+| `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose working folder is gone | `run` |
+| `unreachable` | the run's files, a new run's folder included, can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `cursor` | a cursor or handle doesn't fit: made for another run or filter, past the run's end, or naming no event | `logs`, `inbox` |
+| `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `project` | the workflow isn't in a project | `run`, `emit` |
+| `internal-error` | something failed that is neither the caller's nor the run's, such as awf's own record of projects; `error` says what | every command |
+
+`awf reply` and `awf send` also refuse for the [participant's reasons](#reply), and `awf inbox`
+with `no-participant`, a run that never connected the one asked for.
+
 A command's `--json` carries `"v"`, which changes when a field is renamed or removed. It is 1 for
-every command but two at 2: `awf runs {run} --json`, whose agent and stage states are
-[a fixed set](#runs), and `awf send --json` and `awf reply --json`, whose refusal `stopped` is
-[`peer-stopped`](#reply).
+every command but these: `awf runs {run} --json` is at 2, as its agent and stage states are
+[a fixed set](#runs); `awf inbox --json` is at 2, as it took the shared `no-run` and `cursor`;
+and `awf send --json` and `awf reply --json` are at 3, as [their success](#reply) lost its
+`code`. A refusal carries its command's `"v"`. `awf run --json` prints the run's `out.json`, whose
+own `version` says its format, and its refusals carry `"v": 1`.
 
 ## Durations {#durations}
 
@@ -154,12 +196,14 @@ share one help.
 <!--@include: @/../packages/engine/src/help/reply.txt-->
 ```
 
-With `--json`, each prints one line, `{"v": 2, "code": "delivered", "id": …}`, or a refusal with
-its `code` and `error`: `not-found`, `ended`, `no-participant`, `unknown-agent`, `ambiguous`
-(with `choices`), `expired`, `no-route`, `peer-stopped`, `closed`, `too-large`, `limit`,
-`inbox-full`, or `unsupported-version`, when the run's engine is another version of awf than the
-command's, as after installing awf anew while the run is live. Version 1 named `peer-stopped`
-`stopped`.
+With `--json`, each prints one line: `{"v": 3, "id": …}` when delivered, or a
+[refusal](#json) with its `code` and `error`. Past the shared codes, a participant's own:
+`ended`, `no-participant`, `unknown-agent`, `ambiguous` (with `choices`), `expired`, `no-route`,
+`peer-stopped`, `closed`, `too-large`, `limit`, `inbox-full`, or `unsupported-version`, when the
+run's engine is another version of awf than the command's, as after installing awf anew while the
+run is live. Version 1 named `peer-stopped` `stopped`; version 2 said `"code": "delivered"` on
+success, and `not-found` for `no-run`. The deprecated `awf send --event-id` prints
+[`awf emit`](#emit)'s result when it worked, at `awf emit`'s `"v"`, 1, and its refusals at 3.
 
 ## This machine
 

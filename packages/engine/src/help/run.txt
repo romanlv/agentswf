@@ -21,8 +21,11 @@ h or d, such as 20m or 1d.
 A workflow that knows how to present its result prints that; --json prints the full result instead.
 Either way the full result is kept as out.json in the run's folder, beside report.md
 when the workflow writes one. A run that fails or is cancelled once its agents have started keeps
-out.json too, with what it spent and why it ended; --json prints it. A second Ctrl-C stops
-awf at once, without it; a continue then reads what its agents spent.
+out.json too, with what it spent and why it ended; --json prints it. When no run comes of it,
+--json prints a refusal whose code says why: usage, file, prepare, no-id, id, no-run,
+other-args, not-started, unreachable, project, no-engine, other-engine or internal-error;
+--here takes no --json. A second Ctrl-C stops awf at once, without it; a continue then reads
+what its agents spent.
 --cwd sets the directory the workflow and its agents work in; it defaults to the current one.
 --sandbox puts every agent of the run in one sandbox, working in --cwd; the file is a JSON spec
 such as {"read": ["/data/request.md"], "srt": {}}, naming srt or docker, whose relative paths are

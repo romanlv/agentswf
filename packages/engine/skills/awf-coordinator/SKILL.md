@@ -20,7 +20,8 @@ awf inbox --json --wait 100s --after {cursor}
 ```
 
 `--wait 100s` keeps under the shell tool's 120 s limit. Each line is one JSON item; keep the last
-one's `cursor` and pass it next time. `awf inbox {workflow}/{id}` reads one run instead of all.
+one's `cursor` and pass it next time. A line with a `code` is no item but a refusal, with an
+`error` saying why: on `cursor`, read again without `--after`. `awf inbox {workflow}/{id}` reads one run instead of all.
 Nothing new after the wait prints nothing: run it again.
 
 What to do with each item, by `kind`:
@@ -53,9 +54,13 @@ run's code has no agent: send to it as
 `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`,
 and read what the code writes back as `post` items.
 
-The result is one JSON line. `delivered` means the agent will see it. `expired` means the question
-closed or someone answered first: drop it. `ended` means the run is over. Any other `code` comes
-with an `error` saying what to do instead. Never retry a `delivered` answer.
+`awf reply` and `awf send` print one JSON line. `{"v":3,"id":…}`, with no `code`, means it was
+delivered and the agent will see it: never retry it. A line with a `code` is a refusal. `expired`
+means the question closed or someone answered first: drop it. `ended` means the run is over. Any
+other `code` comes with an `error` saying what to do instead. `awf emit` refuses the same way, with
+a `code`; when it has no `code`, it prints what the run did instead: `outcome` `refused` says the
+run didn't take the reply; `ok` false with `accepted` says the run has it but wasn't woken; `why`
+says why.
 
 Stop when the user tells you to, or when every run you were asked to watch has ended.
 

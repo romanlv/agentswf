@@ -6,6 +6,7 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
 import { screenFile } from "./ops";
+import { asksJson, printRefusal, refusalLine } from "./refusals";
 import {
   clockTime,
   command,
@@ -91,7 +92,7 @@ export async function logsCommand(
     options = parseLogs(parsed.rest, (line) => out.stderr(line));
     if (options.follow && json) throw new Error("--follow is for reading; --json takes --wait");
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}\n\n${logsUsage}`);
+    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", logsUsage);
     return 2;
   }
   try {
@@ -125,10 +126,11 @@ export async function logsCommand(
     return await page(read, alsoRunning, options, place, json, out, clock);
   } catch (error) {
     if (error instanceof DoesNotFit) {
+      if (json) out.stdout(refusalLine(1, "cursor", error.message));
       out.stderr(error.message);
       return 1;
     }
-    return failed(error, place, out, messageOf(error));
+    return failed(error, place, out, messageOf(error), { json, v: 1 });
   }
 }
 

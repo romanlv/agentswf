@@ -2,7 +2,17 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import type { HarnessAllowance } from "@agentswf/contract/records";
+import type {
+  AllowanceReport,
+  EmitResultJson,
+  HarnessAllowance,
+  InboxItemJson,
+  LogsJson,
+  ParticipantResultJson,
+  RefusalCode,
+  RunsJson,
+  TickResultJson,
+} from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
@@ -46,6 +56,7 @@ import {
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
+import { asksJson, printRefusal, readFailureCode, refusalLine } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -156,7 +167,12 @@ export async function runOperatorCli(
   given: OperatorEnvironment = {},
 ): Promise<number> {
   const environment = takeLaunch(given);
-  const stdout = environment.stdout ?? ((text) => console.log(text));
+  const print = environment.stdout ?? ((text) => console.log(text));
+  let printed = false;
+  const stdout = (text: string) => {
+    printed = true;
+    print(text);
+  };
   const write = (text: string) => void process.stderr.write(text);
   const stderr =
     environment.stderr ??
@@ -253,10 +269,38 @@ export async function runOperatorCli(
     return 0;
   }
   if (word === "help" || word === "-h" || word === "--help") return help(rest, stdout, stderr);
-  if (isCommand(word)) return handlers[word]();
+  if (isCommand(word)) {
+    const v = JSON_VERSION[word as keyof typeof JSON_VERSION];
+    if (v === undefined || !asksJson(rest)) return handlers[word]();
+    // What a command didn't foresee still ends its stdout with a document, unless it printed one.
+    try {
+      return await handlers[word]();
+    } catch (error) {
+      if (!printed) printRefusal({ stdout, stderr }, { json: true, v }, error, "internal-error");
+      // The stack is the only clue to a failure no command foresaw.
+      if (error instanceof Error && error.stack) stderr(error.stack);
+      return 1;
+    }
+  }
   stderr(unknownCommand(word));
   return 2;
 }
+
+/**
+ * Each `--json` command's `"v"`, which a refusal carries, tied to its result's type so the two move
+ * together: `awf runs`'s list's, as `awf runs {run}` prints its own refusals.
+ */
+const JSON_VERSION = {
+  run: 1,
+  emit: 1 satisfies EmitResultJson["v"],
+  tick: 1 satisfies TickResultJson["v"],
+  runs: 1 satisfies RunsJson["v"],
+  logs: 1 satisfies LogsJson["v"],
+  inbox: 2 satisfies InboxItemJson["v"],
+  reply: 3 satisfies ParticipantResultJson["v"],
+  send: 3 satisfies ParticipantResultJson["v"],
+  allowance: 1 satisfies AllowanceReport["v"],
+} as const;
 
 /** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
 function help(
@@ -291,6 +335,7 @@ async function openRun(
   { loaded, id, argv, panes }: OpensEventRun,
   environment: OperatorEnvironment,
   { stdout, stderr }: Output,
+  json: boolean,
 ): Promise<number> {
   try {
     const opened = await openEventRun(
@@ -312,7 +357,7 @@ async function openRun(
     stderr(`awf: the run's attempt did not start: ${opened.error}`);
     return 1;
   } catch (error) {
-    stderr(`awf: ${messageOf(error)}`);
+    printRefusal({ stdout, stderr }, { json, v: 1 }, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
   }
 }
@@ -327,7 +372,7 @@ async function runCommand(
   try {
     parsed = parseCommand(argv, environment.cwd ?? process.cwd(), stderr);
   } catch (error) {
-    stderr(`awf: ${messageOf(error)}\n\n${usage}`);
+    printRefusal({ stdout, stderr }, { json: asksJson(argv), v: 1 }, error, "usage", usage);
     return 2;
   }
   if (parsed === "help") {
@@ -335,6 +380,10 @@ async function runCommand(
     return 0;
   }
   let command: RunCommand = parsed;
+  // With --json, what makes no run is a refusal, as its sentence on stderr says.
+  const refused = (code: RefusalCode, error: string) => {
+    if (command.json) stdout(refusalLine(1, code, error));
+  };
   const meant = await runNamed(command);
   if (meant) {
     const look = shellLine([
@@ -344,7 +393,9 @@ async function runCommand(
       ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
       ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
     ]);
-    stderr(`awf: ${command.workflowFile} is not a workflow file; did you mean: ${look}`);
+    const why = `${command.workflowFile} is not a workflow file; did you mean: ${look}`;
+    refused("file", why);
+    stderr(`awf: ${why}`);
     return 2;
   }
   if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
@@ -358,16 +409,17 @@ async function runCommand(
   const { sandboxes, callers } = machinePaths(home);
   const ready = await loadAndPrepare(command, now(), home);
   if ("refused" in ready) {
+    refused(ready.code, ready.refused);
     stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
-  if ("opens" in ready) return openRun(ready.opens, environment, output);
+  if ("opens" in ready) return openRun(ready.opens, environment, output, command.json);
   // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {
-    stderr(
-      `awf: --run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,
-    );
+    const why = `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`;
+    refused("usage", why);
+    stderr(`awf: ${why}`);
     return unstarted(2);
   }
   for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
@@ -375,18 +427,21 @@ async function runCommand(
   // Loading the workflow imports operator-supplied code before anything listens to the signal, so
   // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
   if (environment.signal?.aborted) {
+    refused("not-started", CANCELLED);
     return unstarted(cancelledBeforeStart(environment.signal, stderr));
   }
   let calling: { caller: Caller; release: () => void } | undefined;
   if (command.session !== undefined) {
     const taken = await takeCaller(command.session, callers, environment);
     if (typeof taken === "string") {
+      refused("not-started", `--session: ${taken}`);
       stderr(`awf: --session: ${taken}`);
       return 1;
     }
     calling = taken;
     if (environment.signal?.aborted) {
       calling.release();
+      refused("not-started", CANCELLED);
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
@@ -438,7 +493,8 @@ async function runAttempt(
     if (failed) stderr(`awf: the calling session was not told the run ended: ${failed}`);
   };
 
-  const refuse = async (why: string) => {
+  const refuse = async (why: string, code: RefusalCode) => {
+    if (command.json) stdout(refusalLine(1, code, why));
     stderr(`awf: ${why}`);
     await handOver(`did not start: ${why}`);
     return 2;
@@ -452,7 +508,7 @@ async function runAttempt(
       Boolean((environment.environment ?? process.env).AWF_COORDINATOR_DIR),
     );
   } catch (error) {
-    return refuse(messageOf(error));
+    return refuse(messageOf(error), "internal-error");
   }
   try {
     run =
@@ -468,6 +524,7 @@ async function runAttempt(
   } catch (error) {
     return refuse(
       `${error instanceof RunRefused ? "" : `${command.runRoot}: `}${messageOf(error)}`,
+      readFailureCode(error),
     );
   }
   let attempt: Attempt;
@@ -476,7 +533,7 @@ async function runAttempt(
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
-    return refuse(messageOf(error));
+    return refuse(messageOf(error), readFailureCode(error));
   }
   const { id, cwd } = run.record;
   const locked = <T>(work: () => Promise<T>) =>
@@ -551,6 +608,7 @@ async function runAttempt(
       const said = cancelled
         ? "run cancelled before it started"
         : `${end.ending.reason}; the run did not start`;
+      if (command.json) stdout(refusalLine(1, "not-started", `${said}, and nothing of it is kept`));
       stderr(`awf: ${said}, and nothing of it is kept`);
       await handOver(`did not start: ${cancelled ? "cancelled" : end.ending.reason}`);
       return end.exitCode;
@@ -740,8 +798,10 @@ export function stderrLines(
   };
 }
 
+const CANCELLED = "run cancelled before it started";
+
 function cancelledBeforeStart(signal: AbortSignal, stderr: (line: string) => void): number {
-  stderr("awf: run cancelled before it started");
+  stderr(`awf: ${CANCELLED}`);
   return signalExitCode(signal.reason);
 }
 

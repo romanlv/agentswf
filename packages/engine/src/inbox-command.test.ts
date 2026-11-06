@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import {
-  type InboxErrorJson,
   type InboxItemJson,
+  type InboxRefusalJson,
   RUN_EVENT_VERSIONS,
   type RunLogLine,
   TURN_RECORD_VERSION,
@@ -158,7 +158,7 @@ describe("awf inbox", () => {
     const items = read.items as InboxItemJson[];
     expect(items.map(({ cursor: _cursor, at: _at, ...item }) => item)).toEqual([
       {
-        v: 1,
+        v: 2,
         ref,
         kind: "route",
         state: "opened",
@@ -170,7 +170,7 @@ describe("awf inbox", () => {
         labels: { audience: "ops" },
       },
       {
-        v: 1,
+        v: 2,
         ref,
         kind: "message",
         participant: "coordinator",
@@ -180,7 +180,7 @@ describe("awf inbox", () => {
         text: "5xx at 4×.",
       },
       {
-        v: 1,
+        v: 2,
         ref,
         kind: "message",
         participant: "coordinator",
@@ -192,7 +192,7 @@ describe("awf inbox", () => {
         until: "2026-10-22T11:40:00.000Z",
       },
       {
-        v: 1,
+        v: 2,
         ref,
         kind: "answered",
         participant: "coordinator",
@@ -201,7 +201,7 @@ describe("awf inbox", () => {
         via: "terminal",
       },
       {
-        v: 1,
+        v: 2,
         ref,
         kind: "route",
         state: "closed",
@@ -213,7 +213,7 @@ describe("awf inbox", () => {
         labels: { audience: "ops" },
         reason: "released",
       },
-      { v: 1, ref, kind: "ended", attempt: 1, outcome: "completed" },
+      { v: 2, ref, kind: "ended", attempt: 1, outcome: "completed" },
     ]);
     // From any item's cursor, what came after it.
     const from = await inbox(root, ref, "--json", "--after", items[2]!.cursor!);
@@ -317,7 +317,7 @@ describe("awf inbox", () => {
     // A cursor belongs to the filter it was made with.
     const refused = await inbox(root, "--workflow", "triage", "--json", "--after", cursor);
     expect(refused.code).toBe(1);
-    expect(refused.items[0] as InboxErrorJson).toMatchObject({ v: 1, code: "bad-cursor" });
+    expect(refused.items[0] as InboxRefusalJson).toMatchObject({ v: 2, code: "cursor" });
   });
 
   test("--wait waits when nothing is new, then says so", async () => {
@@ -396,23 +396,23 @@ describe("awf inbox", () => {
     expect(sleeps).toHaveLength(1);
   });
 
-  test("failures, in their order: not-found, no-coordinator, bad-cursor", async () => {
+  test("failures, in their order: no-run, no-coordinator, cursor", async () => {
     const root = runDirs.tempRunDir();
     const missing = await inbox(root, "investigate/nope", "--json", "--after", "junk");
     expect(missing).toMatchObject({ code: 1 });
-    expect(missing.items[0] as InboxErrorJson).toMatchObject({ v: 1, code: "not-found" });
+    expect(missing.items[0] as InboxRefusalJson).toMatchObject({ v: 2, code: "no-run" });
     const { run, claim, ref } = await newRun(root);
     const attempt = await claim();
     // Live and not connected yet: empty, not an error.
     expect(await inbox(root, ref, "--json")).toMatchObject({ code: 0, items: [] });
     await endAttempt(attempt, { outcome: "completed" });
     const ended = await inbox(root, ref, "--json", "--after", "junk");
-    expect(ended.items[0]).toMatchObject({ v: 1, code: "no-participant" });
+    expect(ended.items[0]).toMatchObject({ v: 2, code: "no-participant" });
     const other = await newRun(root, "triage");
     await other.claim();
     await log(other.run, 1, { kind: "participant-connected", participant: "coordinator" });
     expect((await inbox(root, other.ref, "--json", "--after", "junk")).items[0]).toMatchObject({
-      code: "bad-cursor",
+      code: "cursor",
     });
     void run;
     expect((await inbox(root, "nope")).code).toBe(1);

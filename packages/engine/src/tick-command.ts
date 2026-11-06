@@ -7,6 +7,7 @@ import { ENGINE_VARIABLE, type InstalledEngine, type ProjectEngine } from "./han
 import help from "./help/tick.txt" with { type: "text" };
 import { ENGINE_VERSION, EngineRefused, engineOf } from "./project-engine";
 import { listProjects, projectRunRoot } from "./projects";
+import { asksJson, printRefusal } from "./refusals";
 import type { Out } from "./run-commands";
 import { parsePlace } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -39,7 +40,7 @@ export async function tickCommand(
     if (parsed.rest.includes("--all") && parsed.place.repeat.length > 0)
       throw new Error("--all wakes every project's runs; it takes no --cwd or --run-root");
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}\n\n${tickUsage}`);
+    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", tickUsage);
     return 2;
   }
   const { place, json } = parsed;

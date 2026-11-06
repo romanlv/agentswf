@@ -3,6 +3,8 @@ import type { RunLogLine } from "@agentswf/contract/records";
 import { maskCredentials } from "@agentswf/harness";
 import { runEstimate, unknownOps } from "./accounting/spent";
 import { continueCommand, shellWord } from "./attempt-view";
+
+import { NO_JSON, readFailureCode, refusalLine } from "./refusals";
 import type { RunCommand } from "./run-command";
 import { type Cursor, encodeCursor } from "./run-read";
 import { RunNotFound, type RunStatus } from "./run-state";
@@ -94,7 +96,16 @@ export function shellLine(words: readonly string[]): string {
 }
 
 /** Says a run that is not there, and exits 1; anything else is the run's files, exit 3. */
-export function failed(error: unknown, place: ReadPlace, out: Out, message: string): number {
+export function failed(
+  error: unknown,
+  place: ReadPlace,
+  out: Out,
+  message: string,
+  json: { json: boolean; v: number } = NO_JSON,
+): number {
+  // The error's own code; else a file that couldn't be read, exit 3's, or a failure of awf's.
+  const code = readFailureCode(error);
+  if (json.json) out.stdout(refusalLine(json.v, code, message));
   if (error instanceof RunNotFound) {
     out.stderr(`${error.message}; runs here: ${shellLine(command(place, "awf", "runs"))}`);
     return 1;

@@ -87,7 +87,7 @@ test("a launch that failed is the result, not a throw; the run is kept, and a re
 test("posts are relayed once, read on from the last cursor", async () => {
   const items = [
     {
-      v: 1,
+      v: 2,
       ref: "pr-review/pr-7",
       at: "2026-11-05T09:00:00Z",
       cursor: "c1",
@@ -97,7 +97,7 @@ test("posts are relayed once, read on from the last cursor", async () => {
       text: "Add a test.",
     },
     {
-      v: 1,
+      v: 2,
       ref: "pr-review/pr-7",
       at: "2026-11-05T09:01:00Z",
       cursor: "c2",

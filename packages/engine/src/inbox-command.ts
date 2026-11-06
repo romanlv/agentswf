@@ -2,9 +2,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
   AttemptRecord,
-  InboxErrorJson,
   InboxExpiry,
   InboxItemJson,
+  InboxRefusalJson,
+  RefusalCode,
   RequestEnd,
   RunLogLine,
 } from "@agentswf/contract/records";
@@ -15,6 +16,7 @@ import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
+import { asksJson, printRefusal } from "./refusals";
 import {
   clockTime,
   command,
@@ -67,7 +69,7 @@ type CursorState = { f: string; r: Record<string, Position> };
 
 class Refused extends Error {
   constructor(
-    readonly code: InboxCode,
+    readonly code: InboxCode | RefusalCode,
     message: string,
   ) {
     super(message);
@@ -103,12 +105,12 @@ export async function inboxCommand(
     json = parsed.json;
     options = parseInbox(parsed.rest, (line) => out.stderr(line));
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}\n\n${inboxUsage}`);
+    printRefusal(out, { json: asksJson(argv), v: 2 }, error, "usage", inboxUsage);
     return 2;
   }
-  const refuse = (code: InboxCode, message: string) => {
-    if (json) out.stdout(JSON.stringify({ v: 1, code, error: message } satisfies InboxErrorJson));
-    else out.stderr(`awf: ${message}`);
+  const refuse = (code: InboxCode | RefusalCode, message: string) => {
+    if (json) out.stdout(JSON.stringify({ v: 2, code, error: message } satisfies InboxRefusalJson));
+    out.stderr(`awf: ${message}`);
     return 1;
   };
   try {
@@ -122,7 +124,7 @@ export async function inboxCommand(
       const given = decodeCursor(options.after!);
       if (!given || given.f !== filter)
         throw new Refused(
-          "bad-cursor",
+          "cursor",
           `cursor ${options.after} was made with another run or filter; read again without --after`,
         );
       state = given;
@@ -141,7 +143,7 @@ export async function inboxCommand(
         const given = decodeCursor(options.after!);
         if (!given || given.f !== filter)
           throw new Refused(
-            "bad-cursor",
+            "cursor",
             `cursor ${options.after} was made with another run or filter; read again without --after`,
           );
         state = given;
@@ -166,7 +168,7 @@ export async function inboxCommand(
           state = { f: filter, r: { ...state.r, [ref]: item.position } };
           const { position: _position, ...shown } = item;
           const published = {
-            v: 1,
+            v: 2,
             ref,
             ...shown,
             cursor: encodeCursor(state),
@@ -194,8 +196,8 @@ export async function inboxCommand(
     }
   } catch (error) {
     if (error instanceof Refused) return refuse(error.code, error.message);
-    if (error instanceof RunNotFound) return refuse("not-found", error.message);
-    return failed(error, place, out, messageOf(error));
+    if (error instanceof RunNotFound) return refuse(error.code, error.message);
+    return failed(error, place, out, messageOf(error), { json, v: 2 });
   }
 }
 
@@ -629,7 +631,7 @@ function openQuestions(runs: readonly RunItems[]): InboxItemJson[] {
   });
   return merged(open).map(({ ref, item }) => {
     const { position: _position, ...shown } = item;
-    return { v: 1, ref, ...shown } as InboxItemJson;
+    return { v: 2, ref, ...shown } as InboxItemJson;
   });
 }
 

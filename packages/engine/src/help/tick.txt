@@ -9,8 +9,9 @@ them. A project's runs are woken by its own agentswf: one at another version tha
 its own awf tick for them. Run it on any schedule; a run is continued once however many wakers
 come at once.
 
-Prints a line for each run it woke, and nothing when it woke none, and one line on stderr counting
-runs with events it can't read, which it doesn't wake; --json prints one document, those runs
-under unreadable.
-Exits 0; 1 when a project is gone, declares agentswf without installing it, or its own agentswf
-failed, or a run could not be woken, the others still woken; 2 on a usage error.
+Prints a line for each run it woke, and nothing when it woke none, and one line on stderr
+counting runs with events it can't read, which it doesn't wake; --json prints one document,
+those runs under unreadable, on exit 1 too, or a refusal whose code says why it failed: usage or
+internal-error. Exits 0; 1 when a project is gone, declares agentswf without installing it, or
+its own agentswf failed, or a run could not be woken, the others still woken; 2 on a usage
+error.

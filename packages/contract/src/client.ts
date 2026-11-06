@@ -1,7 +1,7 @@
 // A program's way to a workflow's runs, `agentswf/client`: the types and the one error, pure. The
 // engine's `client()` does the I/O. Outside the author surface: a workflow never imports it.
 
-import type { EmitResultJson, InboxItemJson, RunStateJson } from "./records";
+import type { EmitResultJson, InboxItemJson, RefusalCode, RunStateJson } from "./records";
 import type { EventData, EventsOf, OwnNames } from "./workflow/events";
 import type { Ending, Located, Workflow } from "./workflow/executable";
 import type { JsonValue } from "./workflow/json";
@@ -122,7 +122,8 @@ export type RunStatus<Result> = {
  * is another version than the client's; `no-run`; `other-args`, a start of a run there with other
  * args or none recorded; `cursor`, an `after` made for another run, workflow or filter.
  */
-export type ClientErrorCode =
+export type ClientErrorCode = Within<
+  RefusalCode,
   | "event"
   | "id"
   | "no-id"
@@ -133,7 +134,11 @@ export type ClientErrorCode =
   | "other-engine"
   | "no-run"
   | "other-args"
-  | "cursor";
+  | "cursor"
+>;
+
+/** `Some`, which must be among `All`'s words: a misspelt or missing one fails to compile. */
+type Within<All, Some extends All> = Some;
 
 /** What a client throws for a call the caller got wrong; what the run decided is a value. */
 export class ClientError extends Error {

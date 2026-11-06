@@ -124,7 +124,8 @@ refusal names its code and what to do instead; [`awf reply`](/reference/awf#repl
 ### What `awf inbox --json` prints
 
 One item per line, oldest first, each with `v`, `ref` (the run), `at`, `kind`, and outside `--open`
-a `cursor`:
+a `cursor`. When it fails, its last line is a [refusal](/reference/awf#json), `{v, code, error}`,
+not an item: on `cursor`, read again without `--after`.
 
 | `kind` | Fields |
 | --- | --- |
@@ -169,10 +170,14 @@ code of its own. A sketch of one, run in each folder where runs start:
    remember which thread is which run, participant and agent.
 3. **A message.** Post it in its thread. A question (`asks`) shows its `id` and, with `until`, when
    it closes.
-4. **Someone replies in the thread.** Pipe the text to `awf reply {ref} {agent} --to {id}` when it
-   answers an open question, or to `awf send {ref} {agent}` otherwise, and post the refusal back if
-   it isn't `delivered`. For a participant whose messages go to the code, it is
-   `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id}`.
+4. **Someone replies in the thread.** Pipe the text to `awf reply {ref} {agent} --to {id} --json`
+   when it answers an open question, or to `awf send {ref} {agent} --json` otherwise, and post the
+   refusal back when it prints one, a line with a `code`. For a participant whose messages go to
+   the code, it is
+   `awf emit {ref} {key}:reply '{"text":…,"author":…}' --event-id {message id} --json`. Its result,
+   without a `code`, may still say the run refused the reply (`outcome: "refused"`), or that it
+   has it but wasn't woken (`ok: false`, `outcome: "accepted"`): post back that one's `why`, and
+   don't send it again.
 5. **Answered, expired, ended.** Mark the question answered elsewhere or closed, and say in the
    thread when the run's attempt ended.
 6. **Save the cursor** after each batch, so a restart reads on from there.

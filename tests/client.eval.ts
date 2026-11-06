@@ -231,4 +231,6 @@ if (import.meta.main) {
     process.exit(1);
   }
   console.log("client eval passed");
+  // What `bun run eval` reads: the last JSON object on stdout. The runs' cost is awf runs' above.
+  console.log(JSON.stringify({ ok: true }));
 }

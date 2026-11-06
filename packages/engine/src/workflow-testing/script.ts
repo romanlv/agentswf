@@ -124,8 +124,8 @@ export type MessageScript = (
 ) => void | NoAnswer | MessageOutcome | Promise<void | NoAnswer | MessageOutcome>;
 
 /**
- * How a participant's script's `reply` or `send` ended, as `awf reply --json` reports it: a reply's
- * `id` is the question's, a send's the new message's.
+ * How a participant's script's `reply` or `send` ended: delivered, a reply's `id` the question's
+ * and a send's the new message's, or refused with the `code` `awf reply --json` would print.
  */
 export type ParticipantOutcome = { code: "delivered"; id: string } | { code: ParticipantCode };
 

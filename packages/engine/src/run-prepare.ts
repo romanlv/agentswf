@@ -2,16 +2,23 @@ import { statSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type ClaimedAttempt, RUN_EVENT_VERSIONS, type RunPanes } from "@agentswf/contract/records";
+import {
+  type ClaimedAttempt,
+  type RefusalCode,
+  RUN_EVENT_VERSIONS,
+  type RunPanes,
+} from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { type EarlierOps, listOps } from "./ops";
+import { EngineRefused } from "./project-engine";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import type { RunCommand } from "./run-command";
 import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
 import { crashedRedo } from "./run-policy/stages";
+import { isSystemError, RunUnreachable } from "./run-unreachable";
 import {
   type Attempt,
   appendEvent,
@@ -68,25 +75,26 @@ export async function loadAndPrepare(
   home: string = homedir(),
 ): Promise<
   | { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand }
-  | { refused: string }
+  | { refused: string; code: RefusalCode }
   | { opens: OpensEventRun }
 > {
   let loaded: LoadedWorkflow;
   try {
     loaded = await loadWorkflowFile(given.workflowFile, given.shellCwd, home);
   } catch (error) {
-    return { refused: `load: ${messageOf(error)}` };
+    const code = error instanceof EngineRefused ? error.code : "file";
+    return { refused: `load: ${messageOf(error)}`, code };
   }
   let command = given;
   if (isEventWorkflow(loaded.workflow)) {
     const refused = eventRunRefusal(command);
-    if (refused) return { refused };
+    if (refused) return refused;
     // An event run lives and works in its file's project, whoever starts or continues it (Q15).
     let project: string;
     try {
       project = await projectOf(loaded.file, home);
     } catch (error) {
-      return { refused: messageOf(error) };
+      return { refused: messageOf(error), code: "project" };
     }
     if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
     if (command.continueId === undefined) {
@@ -94,7 +102,7 @@ export async function loadAndPrepare(
       try {
         const id =
           command.id ??
-          derivedId(loaded.workflow, prepareArgs(loaded.workflow, command.workflowArgs, project)) ??
+          derivedId(loaded.workflow, refusedArgs(loaded.workflow, command.workflowArgs, project)) ??
           // Without starts no sender names its runs, so one may be generated, as a plain run's is.
           (loaded.workflow.starts === undefined
             ? await unusedId(command.runRoot, loaded.workflow.meta.name, now)
@@ -102,6 +110,7 @@ export async function loadAndPrepare(
         if (id === undefined)
           return {
             refused: `a run of ${loaded.file}, which starts on events, is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
+            code: "no-id",
           };
         return {
           opens: {
@@ -112,20 +121,25 @@ export async function loadAndPrepare(
           },
         };
       } catch (error) {
-        return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
+        return prepareRefused(error);
       }
     }
   }
   if (!isEventWorkflow(loaded.workflow) && loaded.workflow.file !== undefined) {
     // A plain workflow that gives `file` keeps its runs in its project, registered, so a run a
     // program started is continued from anywhere (ADR 0016); only the run root moves.
+    let project: string;
     try {
-      const project = await projectOf(loaded.file, home);
-      if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
+      project = await projectOf(loaded.file, home);
+    } catch (error) {
+      return { refused: messageOf(error), code: "project" };
+    }
+    if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
+    try {
       if (command.continueId === undefined && !command.runRootGiven)
         await recordProject(home, project);
     } catch (error) {
-      return { refused: messageOf(error) };
+      return { refused: messageOf(error), code: "internal-error" };
     }
   }
   try {
@@ -137,7 +151,27 @@ export async function loadAndPrepare(
       command: resumes === undefined ? command : { ...command, fromStage: resumes },
     };
   } catch (error) {
-    return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
+    return prepareRefused(error);
+  }
+}
+
+/** A refusal while preparing: the run's own, or the workflow's `prepare` refusing its argv. */
+function prepareRefused(error: unknown): { refused: string; code: RefusalCode } {
+  // Preparing reads the run, when it is continued, and writes nothing: `readFailureCode`'s reading.
+  if (error instanceof RunRefused || error instanceof RunUnreachable)
+    return { refused: messageOf(error), code: error.code };
+  return {
+    refused: messageOf(error),
+    code: isSystemError(error) ? "unreachable" : "internal-error",
+  };
+}
+
+/** `prepareArgs`, its refusal of the argv a `RunRefused`, so a failure of awf's isn't one. */
+function refusedArgs(workflow: AnyWorkflow, argv: readonly string[], cwd: string): JsonValue {
+  try {
+    return prepareArgs(workflow, argv, cwd);
+  } catch (error) {
+    throw new RunRefused(`prepare: ${messageOf(error)}`, "prepare");
   }
 }
 
@@ -152,7 +186,7 @@ async function prepareRun(
 ): Promise<PreparedRun> {
   const { workflow, file } = loaded;
   const { meta } = workflow;
-  const prepare = (argv: readonly string[], cwd: string) => prepareArgs(workflow, argv, cwd);
+  const prepare = (argv: readonly string[], cwd: string) => refusedArgs(workflow, argv, cwd);
   if (command.continueId === undefined) {
     const args = prepare(command.workflowArgs, command.cwd);
     const id = command.id ?? derivedId(workflow, args);
@@ -168,22 +202,23 @@ async function prepareRun(
   });
   const { id, argv, cwd } = run.record;
   if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
-    throw new RunRefused(`${id} works in ${cwd}, which is no longer a directory`);
+    throw new RunRefused(`${id} works in ${cwd}, which is no longer a directory`, "not-started");
   }
   let args: JsonValue;
   try {
     // A run a program started runs with the args it was given, never prepared (ADR 0016).
-    args = run.record.args !== undefined ? run.record.args : prepare(argv, cwd);
+    args = run.record.args !== undefined ? run.record.args : prepareArgs(workflow, argv, cwd);
   } catch (error) {
     throw new RunRefused(
       `the recorded argv of ${id} no longer parses with ${file}: ${messageOf(error)}; start a new run`,
+      "prepare",
     );
   }
   const attempts = await readAttempts(run);
   const { view } = await readRunLines(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
   const refused = attemptRefusal(attempts, view, { fromStage: command.fromStage !== undefined });
-  if (refused) throw new RunRefused(refusalMessage(id, refused, now));
+  if (refused) throw new RunRefused(refusalMessage(id, refused, now), "not-started");
   // A plain run's redo that crashed inside its stage wrote no line, so nothing says it: it goes on
   // from there, as 018 has a crash mid-stage do. A wake carries no flag, so an event run's is lost.
   const resumes =
@@ -231,7 +266,7 @@ async function unusedId(runRoot: string, workflow: string, now: number): Promise
   for (let tries = 1; ; tries += 1) {
     const id = generateId(new Date(now));
     if (!(await exists(join(runRoot, workflow, id)))) return id;
-    if (tries >= 5) throw new RunRefused("every id generated was taken; --id gives one");
+    if (tries >= 5) throw new RunRefused("every id generated was taken; --id gives one", "id");
   }
 }
 
@@ -240,14 +275,21 @@ async function unusedId(runRoot: string, workflow: string, now: number): Promise
  * started by a wake, which passes on none of the flags a run would have to keep. A `--from-stage`
  * is the one attempt's, and its stage line keeps what it redid.
  */
-function eventRunRefusal(command: RunCommand): string | undefined {
+function eventRunRefusal(command: RunCommand): { refused: string; code: RefusalCode } | undefined {
+  const usage = (refused: string) => ({ refused, code: "usage" as const });
   if (command.values !== undefined)
-    return "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs";
+    return usage(
+      "a run of a workflow with events takes no --values: before --from-stage, a stage with no record runs",
+    );
   if (command.fromStage !== undefined && command.continueId === undefined)
-    return "a run of a workflow with events takes --from-stage only with --continue";
+    return usage("a run of a workflow with events takes --from-stage only with --continue");
   if (command.continueId !== undefined) {
+    // Refused as a plain run's continue with arguments is.
     if (command.workflowArgs.length > 0)
-      return "a continue takes no arguments: it goes on with those its run was started with";
+      return {
+        refused: "a continue takes no arguments: it goes on with those its run was started with",
+        code: "other-args",
+      };
     return undefined;
   }
   const unkept = [
@@ -257,7 +299,9 @@ function eventRunRefusal(command: RunCommand): string | undefined {
     command.runRootGiven ? "--run-root" : undefined,
   ].filter((flag) => flag !== undefined);
   if (unkept.length > 0)
-    return `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`;
+    return usage(
+      `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`,
+    );
   return undefined;
 }
 
@@ -268,11 +312,14 @@ function derivedId(workflow: AnyWorkflow, args: JsonValue): string | undefined {
   try {
     id = workflow.id(args);
   } catch (error) {
-    throw new RunRefused(`the workflow's id(args) failed: ${messageOf(error)}; --id gives one`);
+    throw new RunRefused(
+      `the workflow's id(args) failed: ${messageOf(error)}; --id gives one`,
+      "prepare",
+    );
   }
   const problem =
     typeof id === "string" ? idProblem(id) : `it returned a ${typeof id}, not a string`;
-  if (problem) throw new RunRefused(`the workflow's id(args): ${problem}; --id gives one`);
+  if (problem) throw new RunRefused(`the workflow's id(args): ${problem}; --id gives one`, "id");
   return id as string;
 }
 
@@ -305,7 +352,7 @@ export async function claimNext(
     { fromStage: command.fromStage !== undefined },
   );
   if ("refused" in claimed) {
-    throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
+    throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now), "not-started");
   }
   // Claimed first, which `wake` waits for holding the run's lock, then waited on before this
   // attempt writes anything, so the attempt before it has finished its own records and two never
@@ -318,7 +365,7 @@ export async function claimNext(
     ops = await listOps(run.dir);
   } catch (error) {
     await unlink(claimed.attempt.file).catch(() => undefined);
-    throw new Error(`ops/ was not listed: ${messageOf(error)}`);
+    throw new Error(`ops/ was not listed: ${messageOf(error)}`, { cause: error });
   }
   let lines: RunLines;
   try {
@@ -326,7 +373,7 @@ export async function claimNext(
   } catch (error) {
     // Without its fence the attempt may not write: it goes, as a refused claim's does.
     await unlink(claimed.attempt.file).catch(() => undefined);
-    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`);
+    throw new Error(`run.jsonl was not claimed: ${messageOf(error)}`, { cause: error });
   }
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.

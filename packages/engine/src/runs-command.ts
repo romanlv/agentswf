@@ -4,6 +4,7 @@ import type { JsonValue } from "@agentswf/contract/workflow";
 import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
+import { asksJson, printRefusal } from "./refusals";
 import {
   clockTime,
   command,
@@ -59,7 +60,7 @@ export async function runsCommand(
     if (ref !== undefined && limit !== undefined)
       throw new Error("--limit lists runs; it takes no run");
   } catch (error) {
-    out.stderr(`awf: ${messageOf(error)}\n\n${runsUsage}`);
+    printRefusal(out, { json: asksJson(argv), v: runsVersion(argv) }, error, "usage", runsUsage);
     return 2;
   }
   const { place, json } = parsed;
@@ -71,8 +72,21 @@ export async function runsCommand(
     );
     return 0;
   } catch (error) {
-    return failed(error, place, out, messageOf(error));
+    return failed(error, place, out, messageOf(error), { json, v: runsVersion(argv) });
   }
+}
+
+/**
+ * `awf runs {run} --json`'s `"v"` is 2, the list's 1: by whether a word names a run, read before
+ * any parse, so a usage error after it or before it carries the same.
+ */
+function runsVersion(argv: readonly string[]): 1 | 2 {
+  for (let index = 0; index < argv.length; index++) {
+    const word = argv[index]!;
+    if (word === "--cwd" || word === "--run-root" || word === "--limit") index++;
+    else if (!word.startsWith("-")) return 2;
+  }
+  return 1;
 }
 
 /** A run listed, or why it could not be read: one bad run does not hide the others. */

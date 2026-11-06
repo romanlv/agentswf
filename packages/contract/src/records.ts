@@ -1125,10 +1125,11 @@ export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended"
 /**
  * One line of `awf inbox --json`, oldest first. Agents are peer addresses, qualified in a child
  * call; message ids are `{attempt}.{n}`, a post's `{attempt}.p{n}`. A reader ignores the kinds and fields it does not know;
- * `v` changes only when one is renamed or removed.
+ * `v` changes only when one is renamed or removed, or with the command's refusal: version 2 moved
+ * with `InboxRefusalJson`'s renames.
  */
 export type InboxItemJson = {
-  v: 1;
+  v: 2;
   /** `{workflow}/{id}`. */
   ref: string;
   at: string;
@@ -1179,20 +1180,16 @@ export type InboxItemJson = {
 );
 
 /**
- * `awf reply --json` and `awf send --json`. `delivered`'s `id` is what an `awf inbox` item names:
- * for a reply, the question answered, as its `answered` item has it; for a send, the new message.
- * Version 2 renamed the refusal `stopped` to `peer-stopped`, as `wfa` has it.
+ * `awf reply --json` and `awf send --json`: delivered, with the `id` an `awf inbox` item names (for
+ * a reply, the question answered, as its `answered` item has it; for a send, the new message), or
+ * a refusal, `ambiguous`'s with its `choices`. Version 2 renamed the refusal `stopped` to
+ * `peer-stopped`, as `wfa` has it; version 3 took `code: "delivered"` off the success, as only a
+ * refusal has a code, and renamed `not-found` to `no-run`. The deprecated `awf send --event-id`
+ * prints `EmitResultJson` instead when it worked.
  */
 export type ParticipantResultJson =
-  | { v: 2; code: "delivered"; id: string }
-  | {
-      v: 2;
-      code: ParticipantCode;
-      /** The refusal as the command prints it, naming what to do instead. */
-      error: string;
-      /** For `ambiguous`: the participant keys, agent addresses or question ids to choose from. */
-      choices?: string[];
-    };
+  | { v: 3; id: string }
+  | RefusalJson<ParticipantCode | RefusalCode, 3>;
 
 /** What `wake` did to a run: started, nudged or continued it, or nothing. */
 export type WakeDid = "started" | "nudged" | "continued" | "none";
@@ -1257,8 +1254,62 @@ export type TickResultJson = {
   unreadable?: string[];
 };
 
-/** `awf inbox --json` when it read nothing. */
-export type InboxErrorJson = { v: 1; code: InboxCode; error: string };
+/**
+ * `awf inbox --json`'s last line when it read nothing. Version 2 renamed `not-found` to `no-run`
+ * and `bad-cursor` to `cursor`, its items moving with it.
+ */
+export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
+
+/**
+ * Why a `--json` command failed, one meaning each, and the words `ClientError` throws for the same
+ * failures: `usage`, an argv that can't be parsed or whose options clash; `no-run`; `ambiguous`, a
+ * name that fits more than one, with `choices` when they are known; `file`, a workflow file that is
+ * missing, doesn't load or doesn't export the workflow; `event`, an event name, data or source the
+ * workflow doesn't take, or a workflow that takes none; `id`, a run or event id the grammar
+ * refuses, one `id(args)` returns, or one another run has; `no-id`, a start naming no run;
+ * `prepare`, a workflow refusing its arguments or options, or its `id(args)` throwing;
+ * `not-started`, no attempt started: a Ctrl-C, a session not taken, a claim given up, or a run that
+ * is running or completed, or whose working folder is gone; `other-args`, a start or continue of a
+ * run there with other args or options; `unreachable`, a run whose files can't be read or written,
+ * a new one's folder included, or that doesn't answer; `cursor`, a cursor or handle that doesn't
+ * fit: made for another run or filter, past the run's end, or naming no event; `project`, a
+ * workflow in no project; `no-engine` and `other-engine`, a project's `agentswf` missing or another
+ * version; `internal-error`, a failure that is neither the caller's nor the run's, such as awf's
+ * own record of projects not written, which `error` names. `reply` and `send` also refuse with
+ * `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
+ */
+export const REFUSAL_CODES = [
+  "usage",
+  "no-run",
+  "ambiguous",
+  "file",
+  "event",
+  "id",
+  "no-id",
+  "prepare",
+  "not-started",
+  "other-args",
+  "unreachable",
+  "cursor",
+  "project",
+  "no-engine",
+  "other-engine",
+  "internal-error",
+] as const;
+
+export type RefusalCode = (typeof REFUSAL_CODES)[number];
+
+/**
+ * What a `--json` command prints last when it failed, in place of its result: no result has
+ * `code`. `v` is the command's own; `error` is the sentence stderr prints, without `awf: `.
+ */
+export type RefusalJson<Code extends string = RefusalCode, V extends number = number> = {
+  v: V;
+  code: Code;
+  error: string;
+  /** With `ambiguous`: the names to choose from, when they are known. */
+  choices?: string[];
+};
 
 /** Each kind's own version, which changes when that kind's shape does. */
 export const RUN_EVENT_VERSIONS = {

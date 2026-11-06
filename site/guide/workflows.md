@@ -115,7 +115,8 @@ something for a person.
 
 **`present(value, ending)`** is what a completed run prints, on standard output. The sample's
 prints a line a file. Without it, or when it returns `undefined`, `awf run` prints the run's
-record as JSON. `--json` always prints the record. A run that didn't complete never calls
+record as JSON. `--json` prints the record of any run that came to be, and otherwise a
+[refusal](/reference/awf#json). A run that didn't complete never calls
 `present`: awf prints how it ended itself.
 
 **`report(value, ending)`** returns Markdown that awf saves as `report.md` in the run's folder, and

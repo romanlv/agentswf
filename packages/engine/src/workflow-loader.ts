@@ -15,8 +15,9 @@ import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
 import * as typeboxSurface from "./author-typebox";
+import { messageOf } from "./errors";
 import { realPath } from "./files";
-import { checkProjectEngine } from "./project-engine";
+import { checkProjectEngine, EngineRefused } from "./project-engine";
 import { projectOf } from "./projects";
 import { idProblem } from "./runs";
 
@@ -70,6 +71,24 @@ export async function loadWorkflowFile(
   cwd: string,
   home: string = homedir(),
 ): Promise<LoadedWorkflow> {
+  try {
+    return await load(file, cwd, home);
+  } catch (error) {
+    if (error instanceof EngineRefused || error instanceof WorkflowFileError) throw error;
+    throw new WorkflowFileError(messageOf(error), { cause: error });
+  }
+}
+
+/** A workflow file that isn't there, doesn't load, or isn't the workflow it should be. */
+export class WorkflowFileError extends Error {
+  readonly code = "file";
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "WorkflowFileError";
+  }
+}
+
+async function load(file: string, cwd: string, home: string): Promise<LoadedWorkflow> {
   if (file.includes("://") || file.startsWith("file:")) {
     throw new Error("workflow must be an explicit local file path");
   }

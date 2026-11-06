@@ -153,11 +153,10 @@ export const TOOL_CODES = [
  * returned. `expired` is a reply's `--to` naming anything but an open question from that agent to
  * this participant, `--as` included, or no `--to` with none open; like `wfa reply`'s, it comes
  * before the route's state. `unsupported-version`: the run's engine is another version of awf than
- * the command's.
+ * the command's. A run that isn't there is the shared `no-run`, `REFUSAL_CODES`'.
  */
 export const PARTICIPANT_CODES = [
   "unsupported-version",
-  "not-found",
   "ended",
   "no-participant",
   "unknown-agent",
@@ -171,8 +170,11 @@ export const PARTICIPANT_CODES = [
   "inbox-full",
 ] as const;
 
-/** Why `awf inbox` read nothing: no such run, no participant under `--as`, a cursor it cannot use. */
-export const INBOX_CODES = ["not-found", "no-participant", "bad-cursor"] as const;
+/**
+ * Why `awf inbox` read nothing, past the shared `REFUSAL_CODES` (`no-run`, `cursor`, …): no
+ * participant under `--as`.
+ */
+export const INBOX_CODES = ["no-participant"] as const;
 
 export type EnvelopeCode = (typeof ENVELOPE_CODES)[number];
 export type ResultSubmitCode = (typeof RESULT_CODES)[number] | EnvelopeCode;
@@ -410,7 +412,7 @@ function decodeGivenInput(request: Record<string, unknown>): WireDecodeResult<Gi
  * as `participant` (`--as`), to the agent at its peer address, answering question `to`
  * (`{attempt}.{n}`) for a reply. Internal: holders run the commands, which ship with the engine
  * that answers them; one of another version is refused `unsupported-version`, naming both, and any
- * other this engine cannot decode is closed unanswered. The response is a `ParticipantResultJson`.
+ * other this engine cannot decode is closed unanswered. The response is a `HolderWireAnswer`.
  * @internal
  */
 export type HolderWireRequest = {
@@ -421,6 +423,21 @@ export type HolderWireRequest = {
   to?: string;
   text: string;
 };
+
+/**
+ * The coordinator socket's answer to a `HolderWireRequest`, which `awf reply` and `awf send` print
+ * as their `ParticipantResultJson`.
+ * @internal
+ */
+export type HolderWireAnswer =
+  | { v: 2; code: "delivered"; id: string }
+  | {
+      v: 2;
+      code: ParticipantCode;
+      error: string;
+      /** For `ambiguous`: the participant keys, agent addresses or question ids to choose from. */
+      choices?: string[];
+    };
 
 /**
  * awf telling a live run of a workflow with `events` that it has a new event, which its

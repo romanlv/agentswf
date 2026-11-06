@@ -8,9 +8,10 @@ import {
   isJsonValue,
   type JsonValue,
 } from "@agentswf/contract/workflow";
-import { checkEvent, deliverReply, EmitError, emitEvent } from "../emit";
+import { checkEvent, deliverReply, emitEvent } from "../emit";
 import { exists } from "../files";
 import { inboxCommand } from "../inbox-command";
+import { asClientError, clientCode } from "../refusals";
 import { idProblem, openRun } from "../runs";
 import type { WakeContext } from "../wake";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
@@ -54,12 +55,6 @@ export function clientWith(
       start(workflow as AnyWorkflow, args, given ?? {}, context) as never,
     get: (workflow, id) => get(workflow as AnyWorkflow, id, context) as never,
   };
-}
-
-/** An `EmitError` as the caller's mistake it is; anything else as it is. */
-export function asClientError(error: unknown, ref?: string): unknown {
-  if (error instanceof EmitError) return new ClientError(error.code, error.message, ref);
-  return error;
 }
 
 async function emit(
@@ -147,7 +142,8 @@ async function inbox(
   const items = lines.flatMap((line) => line.split("\n")).filter((line) => line !== "");
   if (code === 0) return items.map((line) => JSON.parse(line) as InboxItemJson);
   const refused =
-    items.length > 0 ? (JSON.parse(items[0]!) as { code?: string; error?: string }) : {};
-  if (refused.code === "bad-cursor") throw new ClientError("cursor", refused.error ?? "cursor");
+    items.length > 0 ? (JSON.parse(items.at(-1)!) as { code?: string; error?: string }) : {};
+  const known = clientCode(refused.code);
+  if (known) throw new ClientError(known, refused.error ?? known);
   throw new Error(refused.error ?? (errors.join("\n") || `awf inbox exited ${code}`));
 }
