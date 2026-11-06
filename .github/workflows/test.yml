@@ -1,6 +1,6 @@
 # The free checks on every push and pull request: Biome, tsc, the package boundaries, and the
-# tests, on both systems awf runs on. No live agent runs here; `bun run eval` stays a local, paid
-# run (docs/testing.md).
+# tests, on both systems awf runs on. No live model runs here: the harness CLIs answer a scripted
+# one, and `bun run eval` stays a local, paid run (docs/testing.md).
 name: test
 
 on:
@@ -27,6 +27,12 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
+      # The harness CLIs, which tests/harness-cli.local.test.ts drives against a scripted model:
+      # no login, no spend. Pinned, so a release changes CI only when it is bumped here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g @openai/codex@0.167.0 @earendil-works/pi-coding-agent@1.5.0 @anthropic-ai/claude-code@2.1.318
       - run: bun run check
       # The runner is slower than a laptop: the lab tests, which spawn awf, pass 5 s there.
       - run: bun test --timeout 30000
