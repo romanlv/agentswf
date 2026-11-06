@@ -151,6 +151,20 @@ test("a race leaves a loop's batch held: after a crash, the next receive returns
   expect(ids(await (await waitsOf(runDir, 2)).receive(undefined))).toEqual(["a"]);
 });
 
+test("a race doesn't end an attempt's first wait: the receive after it still returns the held batch", async () => {
+  const runDir = await withEvents("a");
+  expect(ids(await (await waitsOf(runDir, 1)).receive(undefined))).toEqual(["a"]);
+  // The attempt died handling a; the rerun races first, which writes a wait line.
+  await appendIn(runDir, event("b", "dd.closed"));
+  const again = await waitsOf(runDir, 2);
+  await again.race("closed", [["closed", { name: "dd.closed" }]], new Map(), undefined);
+  expect(ids(await again.receive(undefined))).toEqual(["a"]);
+  expect((await stateOf(runDir)).held).toEqual(["a"]);
+  await appendIn(runDir, event("c"));
+  expect(ids(await again.receive(undefined))).toEqual(["c"]);
+  expect((await stateOf(runDir)).unacknowledged).toEqual([]);
+});
+
 test("select takes one event it names at a time; after a crash, the one held comes back once", async () => {
   const runDir = await withEvents("a", "b");
   await appendIn(runDir, event("c", "dd.closed"));

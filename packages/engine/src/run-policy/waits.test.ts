@@ -138,7 +138,7 @@ describe("taking and acknowledging", () => {
     expect(acked.lastWait?.waiting).toBe(true);
   });
 
-  test("a first wait that returns the held batch hands it back to waiting", () => {
+  test("a first select that doesn't take the held batch writes returns: it goes back unacknowledged", () => {
     const lines: RunLine[] = [
       { kind: "wait", attempt: 1, at, takes: [{ name: "dd.changes" }] },
       { kind: "took", attempt: 1, at, took: [{ id: "a" }] },

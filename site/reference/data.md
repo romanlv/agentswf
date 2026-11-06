@@ -239,8 +239,8 @@ an earlier attempt adds after it is ignored.
 | Kind | Fields |
 | --- | --- |
 | `timer` | a timer as first set: `name`, `due`, and `when` as the code gave it; when cancelled, the same line again with `cancelled` |
-| `wait` | a wait as it starts: its `label`, what it `takes`, its `stage` or `race`, and outside those the event ids it `acks`, or `returns` when an attempt's first wait hands back what an earlier one took |
-| `took` | what a wait returned, by id, with a `stage` when it was in one; held until a later wait acknowledges it |
+| `wait` | a wait as it starts: its `label`, what it `takes`, its `race`, and outside a race the event ids it `acks`, or `returns` when an attempt's first `select` doesn't take what an earlier attempt took, which stays unacknowledged. Older runs may carry a `stage`, a wait inside one |
+| `took` | what a wait returned, by id; held until a later wait acknowledges it. Older runs may carry a `stage`, a wait inside one |
 | `race` | a race's winning `branch`, and what it `took` |
 
 A timer that comes due is never written as an event: the wait or race that takes it names it by
