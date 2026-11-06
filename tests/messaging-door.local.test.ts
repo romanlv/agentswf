@@ -14,7 +14,7 @@ import { runCommand } from "../packages/sandbox/src/testing/conformance";
 // A local test: real srt on this machine, `sh` for an agent, no model. Skipped without srt.
 const home = realpathSync(homedir());
 const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".pi", "agent")];
-const found = await findSrt(process.env, harnessState);
+const found = await findSrt(process.env, harnessState).catch(() => undefined);
 const provider = found && createSrtProvider(found);
 
 /** `wfa`'s messaging commands from inside an srt sandbox, through the agent's door. */

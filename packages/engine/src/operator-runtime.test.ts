@@ -731,8 +731,15 @@ function success(stdout: string): ProcessResult {
 
 describe("installSandboxes", () => {
   test("installs srt when its CLI is on PATH, and nothing when nothing answers", async () => {
-    expect(await installSandboxes({ PATH: "/nonexistent", HOME: "/" })).toEqual({ installed: {} });
-    const here = await installSandboxes(process.env);
-    if (Bun.which("srt")) expect(here.installed.srt).toBeDefined();
+    const nothing = await installSandboxes({ PATH: "/nonexistent", HOME: "/" });
+    if (process.platform === "darwin") {
+      expect(nothing).toEqual({ installed: {} });
+      const here = await installSandboxes(process.env);
+      if (Bun.which("srt")) expect(here.installed.srt).toBeDefined();
+    } else {
+      // srt is refused on Linux, and says so when a spec names it (X24).
+      expect(nothing.installed).toEqual({});
+      expect(nothing.unavailable?.srt).toContain("macOS-only");
+    }
   });
 });

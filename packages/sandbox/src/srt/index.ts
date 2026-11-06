@@ -341,7 +341,7 @@ export async function findSrt(
   platform: NodeJS.Platform = process.platform,
 ): Promise<SrtOptions | undefined> {
   // On Linux srt 0.0.81 loses a write nested in a read, git, the network with `/tmp` denied, and
-  // every Unix socket, the door's among them (docs/findings/sandbox-providers.md, X23).
+  // every Unix socket, the door's among them (docs/findings/sandbox-providers.md, X24).
   if (platform !== "darwin") {
     throw new Error('srt is macOS-only in awf for now; on Linux name "docker": {}');
   }
