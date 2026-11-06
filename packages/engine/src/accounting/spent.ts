@@ -118,11 +118,11 @@ function settledOf(op: Extract<OpRecord, { agent: string }>, spend: SpendRecord)
     ...(spend.settledAt === undefined ? {} : { settledAt: spend.settledAt }),
     billing: spend.billing,
     ...(spend.spend === undefined ? {} : { spend: spend.spend }),
-    ...(spend.charged === undefined ? {} : { charged: spend.charged }),
-    // What a metered turn was billed is reported as it ends, never after: read by the next
-    // attempt, its charge is unknown.
+    ...(spend.reportedCost === undefined ? {} : { reportedCost: spend.reportedCost }),
+    // A metered turn's cost is printed as it ends, never after: read by the next attempt, its
+    // reported cost is unknown.
     ...(spend.settledBy !== undefined && spend.billing === "metered"
-      ? { chargeUnread: true as const }
+      ? { reportedCostUnread: true as const }
       : {}),
   };
 }

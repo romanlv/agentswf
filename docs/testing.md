@@ -139,8 +139,8 @@ What they cover between them:
   under a cent.
 - `decisions` — `examples/triage` through `awf run` and the operator runtime it installs, on Jev
   through OpenRouter (story 006): four synthetic tickets, one decision each with a choice, a yes-no
-  and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its charge
-  under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
+  and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its reported
+  cost under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
   `OPENROUTER_API_KEY` is not set, and the runner shows it as skipped, not passed. awf reads the
   key from the environment, else that one name from `.env` in the working directory; Bun loads no
   `.env` itself (`bunfig.toml`). Copy `.env` into a worktree.

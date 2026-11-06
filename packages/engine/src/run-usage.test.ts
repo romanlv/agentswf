@@ -607,12 +607,12 @@ describe("usage read when the run ends", () => {
     ]);
   });
 
-  test("a harness's own dollar figure is a charge only when billing is per token", async () => {
+  test("a harness's own dollar figure is kept as its reported cost only when billing is per token", async () => {
     const outcomes = async (billing: "metered" | "subscription") => {
       const files = sessionFiles();
       const adapter = createFakeAdapter({
         script: (context) => ({
-          chargesUsd: [0.25],
+          reportedCostsUsd: [0.25],
           act: () => submit(context.binding!, { answer: "ok" }).then(() => undefined),
         }),
       });
@@ -627,8 +627,8 @@ describe("usage read when the run ends", () => {
       return result.usage[0]!;
     };
 
-    expect((await outcomes("metered")).charged).toEqual({ amount: 0.25, currency: "USD" });
-    expect(await outcomes("subscription")).not.toHaveProperty("charged");
+    expect((await outcomes("metered")).reportedCost).toEqual({ amount: 0.25, currency: "USD" });
+    expect(await outcomes("subscription")).not.toHaveProperty("reportedCost");
   });
 
   test("the run's finish is taken before its spend is read, so waiting on files is not its time", async () => {

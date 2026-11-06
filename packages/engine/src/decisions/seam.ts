@@ -24,7 +24,7 @@ export type ProviderResponse = {
   answers: Record<string, ProviderAnswer>;
   /** Absent when the provider did not report them: unknown, not zero. */
   tokens?: { input: number; output: number };
-  charged?: Money;
+  reportedCost?: Money;
   requestId?: string;
 };
 
@@ -40,7 +40,7 @@ export interface DecisionProvider {
 export class DecisionProviderError extends Error {
   readonly retryable: boolean;
   readonly tokens?: { input: number; output: number };
-  readonly charged?: Money;
+  readonly reportedCost?: Money;
   readonly requestId?: string;
 
   constructor(
@@ -48,7 +48,7 @@ export class DecisionProviderError extends Error {
     options: {
       retryable: boolean;
       tokens?: { input: number; output: number };
-      charged?: Money;
+      reportedCost?: Money;
       requestId?: string;
     },
   ) {
@@ -56,7 +56,7 @@ export class DecisionProviderError extends Error {
     this.name = "DecisionProviderError";
     this.retryable = options.retryable;
     if (options.tokens) this.tokens = options.tokens;
-    if (options.charged) this.charged = options.charged;
+    if (options.reportedCost) this.reportedCost = options.reportedCost;
     if (options.requestId) this.requestId = options.requestId;
   }
 }

@@ -38,7 +38,7 @@ export async function superviseMessageOperation(options: {
 }): Promise<SupervisedOutcome> {
   const now = options.now ?? Date.now;
   const policy = options.policy ?? DEFAULT_LIVENESS_POLICY;
-  const charges: number[] = [];
+  const reportedCosts: number[] = [];
   let sequence = 0;
   let deliveredAt: number | undefined;
   let stop: OperationStop | undefined;
@@ -65,7 +65,7 @@ export async function superviseMessageOperation(options: {
     kind,
     reason,
     cleanupUnresolved: false,
-    charges,
+    reportedCosts,
     ...(deliveredAt === undefined ? {} : { deliveredAt }),
     settledAt:
       kind === "timed-out"
@@ -141,7 +141,7 @@ export async function superviseMessageOperation(options: {
     void turn.settled.then(
       (value) => {
         outcome = value;
-        charges.push(...value.chargesUsd);
+        reportedCosts.push(...value.reportedCostsUsd);
         changed();
       },
       (error: unknown) => {

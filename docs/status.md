@@ -48,6 +48,12 @@ exists, the code is right, then this page.
   ends. `awf run` prints it and writes it to `out.json` (story 002), for a run that failed, timed
   out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story
   003). A run its own deadline ended is `timed-out`, apart from `failed` (story 008).
+- The cost a harness or provider printed (claude's `total_cost_usd`, OpenRouter's for a decision)
+  is `reportedCost` in the record, `charged` before 2026-11-06, and `awf run` prints it as
+  `$0.42 reported`, never "charged": claude prints it on a subscription too. `out.json` is
+  version 6, and each JSON file in `ops/{key}.{n}/` carries a `version`, which a reader checks;
+  whether billing was observed or assumed is still
+  [`billing-provenance`](stories/todo/billing-provenance.md).
 - Two workflows have run live:
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
@@ -206,7 +212,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `agent.fork({ key })` opens a new agent on a copy of an agent's session, made with no model
   call: claude, codex and pi in their TUI or headless, into either, in a sandbox too, and cursor
   headless (in its TUI too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
-  key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
+  key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn reports what it added to its
   session's total. A claude TUI agent's prompt of several lines is pasted whole, after a short line
   typed before it: claude shows a paste alone as pasted text, and sonnet declined about one in
   eight such prompts (claude 2.1.296); typed in full, a long prompt lost its start.

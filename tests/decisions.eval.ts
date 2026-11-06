@@ -27,7 +27,10 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
   if (exitCode !== 0) return { failed: [`awf run exited ${exitCode}: ${errors.join("\n")}`] };
   const record = JSON.parse(output.join("\n")) as OutputRecord;
   const asked = record.decisions ?? [];
-  const charged = asked.reduce((sum, decision) => sum + (decision.charged?.amount ?? 0), 0);
+  const reportedCost = asked.reduce(
+    (sum, decision) => sum + (decision.reportedCost?.amount ?? 0),
+    0,
+  );
   const failed = [
     ...(asked.length === 4 ? [] : [`${asked.length} decisions recorded, expected 4`]),
     ...asked.flatMap((decision) => [
@@ -40,9 +43,9 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
       ...(decision.tokens?.input ? [] : [`${decision.key}: no input tokens`]),
     ]),
     ...(record.accounting.unpriced.length === 0 ? [] : [`unpriced: ${record.accounting.unpriced}`]),
-    ...(charged > 0 && charged < MOST_USD
+    ...(reportedCost > 0 && reportedCost < MOST_USD
       ? []
-      : [`charged $${charged}, expected (0, ${MOST_USD})`]),
+      : [`reported $${reportedCost}, expected (0, ${MOST_USD})`]),
   ];
   for (const line of errors) console.error(line);
   return { failed, record };

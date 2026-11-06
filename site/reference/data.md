@@ -310,7 +310,7 @@ can't take an agent's key, nor an agent a decision's.
 | `answers.jsonl` | every `wfa result` the agent sent, accepted or not, with the error that refused it |
 | `result.json` | the one accepted answer |
 | `decision.json` | a [decision](/guide/decisions)'s record (model, outcome, tokens), the state and questions sent, and the answers, so a threshold can be fitted again later without asking the model. The record's `artifact` names this file |
-| `spend.json` | what an agent's operation used, read from its sessions: its `billing`, its tokens by model (`spend`, absent when they couldn't be read), what was billed per token when the harness reports it, and its times, `deliveredAt` and `settledAt` |
+| `spend.json` | what an agent's operation used, read from its sessions: its `billing`, its tokens by model (`spend`, absent when they couldn't be read), `reportedCost`, the cost a metered agent's harness printed, not a bill, and its times, `deliveredAt` and `settledAt` |
 | `live.jsonl` | diagnostics of the operation's delivery and nudges, which nothing decides on |
 | `screen.txt` | what a TUI agent's pane showed when the turn or compaction ended without an answer, or its agent failed to start: escape codes stripped, at most its last 64 KiB. `awf logs` names it on the turn's line |
 
@@ -335,7 +335,7 @@ the attempt ran with. A run that failed or was cancelled once its agents started
 
 | Field | Meaning |
 | --- | --- |
-| `version` | `5` |
+| `version` | `6` |
 | `ref` | the run's ref, `{workflow}/{runId}`, as the other run documents have it |
 | `runId`, `attempt` | the run's id, and the attempt that wrote this |
 | `workflow` | `name` and `file` |
@@ -388,9 +388,13 @@ earlier awf made it, or has another one, or is format 1 but lacks a field it req
 `unreadable` by `awf runs`, and nothing else of it is read: continuing it, sending it an event or
 reading its log is refused, and `awf tick` counts it in one line and leaves it be.
 
-`out.json` has a `version`, as does each line of `log.jsonl`; an operation's files have none. A
-newer awf may add fields and kinds of line. A reader of `log.jsonl` skips a kind it doesn't know,
-but a reader of `run.jsonl` refuses one, since a continue acts on every line.
+`out.json` has a `version`, as does each line of `log.jsonl`, and each JSON file of an
+operation, `op.json`, `result.json`, `spend.json` and `decision.json`, its own, now `1`. A newer
+awf may add fields and kinds of line. A reader of `log.jsonl` skips a kind it doesn't know, but a
+reader of `run.jsonl` refuses one, since a continue acts on every line. An operation's file with no
+`version`, or one this awf doesn't know, is not read: a `spend.json` is then usage unknown, not
+zero, as one not yet written is, and with an `op.json` or `decision.json` the run's cost isn't
+added up: `awf runs` shows none, and `awf run`'s total counts earlier attempts as of unknown cost.
 
 The JSON files are replaced whole, never edited in place, so a crash leaves the old file or the
 new one. The `.jsonl` files are only appended to. Temporary files and folders (`.tmp-*`,

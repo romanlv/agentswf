@@ -434,7 +434,7 @@ export function observeTurn(
       settlement,
       state: outcome.state,
       ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
-      usageSamples: outcome.chargesUsd.length,
+      usageSamples: outcome.reportedCostsUsd.length,
     });
   };
   void turn.settled

@@ -240,7 +240,7 @@ export function createCallerHostFactory(
             return {
               ...outcome,
               resultEvidence: { kind: "unavailable" },
-              chargesUsd: [],
+              reportedCostsUsd: [],
               ...(sessionRef ? { sessionRef } : {}),
             };
           } finally {
@@ -313,7 +313,7 @@ export function createCallerHostFactory(
                   check.screen(thisTurn(readable(shown.stdout), operation.binding?.operationId)),
                 );
               if (login)
-                return { ...login, resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+                return { ...login, resultEvidence: { kind: "unavailable" }, reportedCostsUsd: [] };
               if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                 // Submitted, so the turn may be running: wait for its answer, not for a resend.
                 if (
@@ -410,7 +410,7 @@ function callerOutcome(
         : settled),
     resultEvidence: screen.trim() ? { kind: "transcript", text: screen } : { kind: "unavailable" },
     ...(session ? { sessionRef: session } : {}),
-    chargesUsd: [],
+    reportedCostsUsd: [],
   };
 }
 

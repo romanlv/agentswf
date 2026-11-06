@@ -14,7 +14,7 @@ test("successors preserve authority and permit only one successor per handle", a
           return {
             state: "completed",
             resultEvidence: { kind: "unavailable" },
-            chargesUsd: [],
+            reportedCostsUsd: [],
             sessionRef: "native",
           };
         },
@@ -52,7 +52,7 @@ function deferred<T>() {
 const completed = {
   state: "completed" as const,
   resultEvidence: { kind: "unavailable" as const },
-  chargesUsd: [],
+  reportedCostsUsd: [],
 };
 
 test("delivery facts are distinct, clocked once and absent on unsupported backends", async () => {
@@ -252,7 +252,7 @@ test("fresh answered observation outlives an expired prompt observer", async () 
   const original = deferred<{
     state: "timed-out";
     resultEvidence: { kind: "unavailable" };
-    chargesUsd: never[];
+    reportedCostsUsd: never[];
   }>();
   const fresh = deferred<typeof completed>();
   let releaseDeadline = 0;
@@ -408,7 +408,7 @@ test("an abandoned natural release cannot quarantine a later operation", async (
   const fresh = deferred<{
     state: "failed";
     resultEvidence: { kind: "unavailable" };
-    chargesUsd: never[];
+    reportedCostsUsd: never[];
   }>();
   const adapter = createSessionAdapter({
     harnesses: ["fake"],

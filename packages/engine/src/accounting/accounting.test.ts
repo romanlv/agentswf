@@ -210,7 +210,10 @@ describe("summarizeRun", () => {
       [
         record("lens-a", [spent("gpt-5.6-terra", { input: 1_000_000 })]),
         record("lens-b", undefined),
-        record("verifier-a", [], { billing: "metered", charged: { amount: 0.5, currency: "USD" } }),
+        record("verifier-a", [], {
+          billing: "metered",
+          reportedCost: { amount: 0.5, currency: "USD" },
+        }),
       ],
       PUBLISHED_PRICES,
       TIMES,
@@ -227,7 +230,7 @@ describe("summarizeRun", () => {
         agents: 1,
         known: 1,
         estimate: 0,
-        charged: 0.5,
+        reportedCost: 0.5,
       }),
     ]);
     const unknown = summarizeRun([record("lens-b", undefined)], PUBLISHED_PRICES, TIMES, []);
@@ -237,17 +240,23 @@ describe("summarizeRun", () => {
     );
   });
 
-  test("a charge in another currency is an unknown charge, not a missing one", () => {
+  test("a reported cost in another currency is an unknown one, not a missing one", () => {
     const summary = summarizeRun(
       [
-        record("verifier-a", [], { billing: "metered", charged: { amount: 0.5, currency: "USD" } }),
-        record("verifier-b", [], { billing: "metered", charged: { amount: 3, currency: "EUR" } }),
+        record("verifier-a", [], {
+          billing: "metered",
+          reportedCost: { amount: 0.5, currency: "USD" },
+        }),
+        record("verifier-b", [], {
+          billing: "metered",
+          reportedCost: { amount: 3, currency: "EUR" },
+        }),
       ],
       PUBLISHED_PRICES,
       TIMES,
       [],
     );
-    expect(summary.totals).toMatchObject({ agents: 2, charged: 0.5, billed: 1 });
+    expect(summary.totals).toMatchObject({ agents: 2, reportedCost: 0.5, billed: 1 });
   });
 
   test("times: the run's wall clock, each agent's working time, and each stage's span", () => {
@@ -284,7 +293,7 @@ describe("summarizeRun", () => {
 });
 
 describe("byModel", () => {
-  test("a model's share has tokens and an estimate, never a charge or time it cannot split", () => {
+  test("a model's share has tokens and an estimate, never a reported cost or time it cannot split", () => {
     const summary = summarizeRun(
       [
         record(
@@ -293,7 +302,7 @@ describe("byModel", () => {
             spent("claude-opus-5", { output: 1_000_000 }),
             spent("claude-haiku-4-5", { output: 1_000_000 }, true),
           ],
-          { billing: "metered", charged: { amount: 7, currency: "USD" } },
+          { billing: "metered", reportedCost: { amount: 7, currency: "USD" } },
         ),
       ],
       PUBLISHED_PRICES,
@@ -316,7 +325,7 @@ describe("byModel", () => {
         estimate: 25,
       },
     ]);
-    expect(summary.totals.charged).toBe(7);
+    expect(summary.totals.reportedCost).toBe(7);
   });
 });
 

@@ -17,7 +17,7 @@ import { writeJson } from "./files";
 import { listOps, OpIds, spendFile } from "./ops";
 import { claimRunLines, readRunLines } from "./run-lines";
 import { createRun, openRun, readAttempts } from "./runs";
-import { keepSpend, readSpent, settleEarlier, writeSpend } from "./spend";
+import { keepSpend, readOps, readSpent, settleEarlier, writeSpend } from "./spend";
 import { claimLines, createTempRunDirs, future, startNew, submit, writeAttempt } from "./testing";
 import { runWorkflow } from "./workflow-runner";
 
@@ -117,6 +117,7 @@ test("an attempt that ends writes each agent operation's spend.json, once and un
   const { dir } = await openRun(runRoot, "spent", result.runId);
   const spend = await spendOf(dir, "worker.1");
   expect(spend).toMatchObject({
+    version: 1,
     billing: "subscription",
     spend: [{ model: "claude-sonnet-5", delegated: false, tokens: tokens(1_000) }],
     deliveredAt: expect.any(String),
@@ -182,6 +183,7 @@ test("an interrupted attempt's spend is settled by the next one, from its sessio
   );
   expect(handle.value).toBeNull();
   expect(await spendOf(run.dir, "worker.1")).toEqual({
+    version: 1,
     billing: "subscription",
     spend: [{ model: "claude-sonnet-5", delegated: false, tokens: tokens(100) }],
     settledBy: 2,
@@ -360,7 +362,7 @@ test("a calling session isn't read; its spend is written unknown", async () => {
   files.log("s-caller", 50);
   await settle(files.accounting);
   expect(files.accounting.reads).toBe(0);
-  expect(await spendOf(run.dir, op)).toEqual({ billing: "unknown", settledBy: 2 });
+  expect(await spendOf(run.dir, op)).toEqual({ version: 1, billing: "unknown", settledBy: 2 });
 });
 
 test("the window: from the agent's first operation to the attempt's end, shared by start", async () => {
@@ -401,9 +403,10 @@ test("a settling stopped writes nothing, and leaves it for a later attempt", asy
   expect(await spendOf(run.dir, op)).toMatchObject({ spend: [{ tokens: tokens(3) }] });
 });
 
-test("a metered operation the next attempt read has an unknown charge: not billed", async () => {
+test("a metered operation the next attempt read has an unknown reported cost: not billed", async () => {
   const op = (id: string) =>
     ({
+      version: 1,
       id,
       attempt: 1,
       at: iso(Date.now()),
@@ -418,14 +421,19 @@ test("a metered operation the next attempt read has an unknown charge: not bille
     [
       {
         op: op("a"),
-        spend: { billing: "metered", spend, charged: { amount: 1, currency: "USD" } },
+        spend: {
+          version: 1,
+          billing: "metered",
+          spend,
+          reportedCost: { amount: 1, currency: "USD" },
+        },
       },
-      { op: op("b"), spend: { billing: "metered", spend, settledBy: 2 } },
+      { op: op("b"), spend: { version: 1, billing: "metered", spend, settledBy: 2 } },
     ],
     [{ attempt: 1, started: iso(Date.now() - 1_000), ended: iso(Date.now()) }],
     PUBLISHED_PRICES,
   );
-  expect(figures!.accounting.totals).toMatchObject({ agents: 2, billed: 1, charged: 1 });
+  expect(figures!.accounting.totals).toMatchObject({ agents: 2, billed: 1, reportedCost: 1 });
 });
 
 test("an ending attempt whose read failed leaves it to the next, and a withdrawn message spent nothing", async () => {
@@ -442,8 +450,57 @@ test("an ending attempt whose read failed leaves it to the next, and a withdrawn
   };
   expect(await keepSpend(run.dir, 1, [usage], { reads: () => true })).toEqual([]);
   expect(await Bun.file(spendFile(run.dir, unread)).exists()).toBe(false);
-  expect(await spendOf(run.dir, withdrawn)).toEqual({ billing: "unknown", spend: [] });
+  expect(await spendOf(run.dir, withdrawn)).toEqual({ version: 1, billing: "unknown", spend: [] });
   // Where nothing could ever read its harness's sessions, unknown is final at once.
   await keepSpend(run.dir, 1, [usage], { reads: () => false });
-  expect(await spendOf(run.dir, unread)).toEqual({ billing: "unknown" });
+  expect(await spendOf(run.dir, unread)).toEqual({ version: 1, billing: "unknown" });
+});
+
+test("an operation's file of no version, or one this awf doesn't know, is read as none", async () => {
+  const { run, draw } = await earlierRun(Date.now() - 60_000);
+  const [current, newer, unversioned, lostOp] = [draw("a"), draw("b"), draw("c"), draw("d")];
+  const spent = (version?: number) => ({
+    ...(version === undefined ? {} : { version }),
+    billing: "metered",
+    spend: [{ model: "claude-sonnet-5", delegated: false, tokens: tokens(10) }],
+    reportedCost: { amount: 1, currency: "USD" },
+  });
+  await writeJson(spendFile(run.dir, current), spent(1));
+  await writeJson(spendFile(run.dir, newer), spent(2));
+  await writeJson(spendFile(run.dir, unversioned), spent());
+  await writeJson(spendFile(run.dir, lostOp), spent(1));
+  const opPath = join(run.dir, "ops", lostOp, "op.json");
+  await writeJson(opPath, { ...JSON.parse(await readFile(opPath, "utf8")), version: 2 });
+  const ops = await readOps(run.dir);
+  // Its op.json unreadable, the operation is passed over, as one whose op.json was lost.
+  expect(ops.map(({ op }) => op.id).sort()).toEqual([current, newer, unversioned].sort());
+  // A spend.json it can't read is one not written: its usage unknown, not zero, and the
+  // attempt's cost with it.
+  expect(ops.filter(({ spend }) => spend).map(({ op }) => op.id)).toEqual([current]);
+  const [figures] = attemptsSpent(
+    ops,
+    [{ attempt: 1, started: iso(Date.now() - 60_000), ended: iso(Date.now()) }],
+    PUBLISHED_PRICES,
+  );
+  expect(figures).toMatchObject({
+    unsettled: 2,
+    accounting: { totals: { agents: 1, reportedCost: 1 } },
+  });
+  // Priced, an op.json of another version is refused, so the cost reads as unknown, never as
+  // complete without it.
+  const attempts = [{ attempt: 1, started: iso(Date.now() - 60_000), ended: iso(Date.now()) }];
+  await expect(readSpent(run.dir, attempts as never)).rejects.toThrow(
+    "version 2; this awf reads version 1",
+  );
+});
+
+test("a decision.json of another version is no record, and refused when priced", async () => {
+  const { run } = await earlierRun(Date.now() - 60_000);
+  const ids = new OpIds(run.dir, 1, await listOps(run.dir));
+  const { id } = ids.draw("triage", { kind: "decision" });
+  const file = join(run.dir, "ops", id, "decision.json");
+  await writeJson(file, { record: { reportedCost: { amount: 1, currency: "USD" } } });
+  expect(await readOps(run.dir)).toEqual([{ op: expect.objectContaining({ id }) }]);
+  const attempts = [{ attempt: 1, started: iso(Date.now() - 60_000), ended: iso(Date.now()) }];
+  await expect(readSpent(run.dir, attempts as never)).rejects.toThrow("of no version");
 });

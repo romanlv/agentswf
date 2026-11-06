@@ -235,7 +235,7 @@ describe("minimum review live evaluation plan", () => {
           settle({
             state: "cancelled",
             resultEvidence: { kind: "unavailable" },
-            chargesUsd: [],
+            reportedCostsUsd: [],
           });
           await Promise.resolve();
           if (releaseFailure === "rejected") throw new Error("release failed");
@@ -293,7 +293,7 @@ describe("minimum review live evaluation plan", () => {
       },
     );
     expect(evidence).toEqual([]);
-    settle({ state: "completed", resultEvidence: { kind: "unavailable" }, chargesUsd: [] });
+    settle({ state: "completed", resultEvidence: { kind: "unavailable" }, reportedCostsUsd: [] });
     await settled;
     await Promise.resolve();
     expect(evidence).toEqual([

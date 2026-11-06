@@ -40,12 +40,36 @@ import type {
 import type { StageOutcome } from "./workflow/workflow";
 
 /**
+ * Each JSON file in `ops/{id}/`, its own version, which changes when that file's shape does. A
+ * reader takes a file without it, or with another, for one it can't read.
+ */
+export const OP_FILE_VERSIONS = { op: 1, result: 1, spend: 1, decision: 1 } as const;
+
+/** Which of an operation's JSON files: `op.json`, `result.json`, `spend.json` or `decision.json`. */
+export type OpFile = keyof typeof OP_FILE_VERSIONS;
+
+/** Whether `value` is an operation's `file` at the version this reader knows. */
+export function isKnownOpFile(file: OpFile, value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { version?: unknown }).version === OP_FILE_VERSIONS[file]
+  );
+}
+
+/**
  * `ops/{id}/op.json`: what one operation is. `id` is `{key}.{n}`, the `n`th operation of the agent
  * or decision keyed `{key}` in the run, counted from 1 across its attempts, so it is never reused.
  * `at` is when its id was drawn, as it started. The format only; the engine does the I/O.
  * Tier: public, stable.
  */
-export type OpRecord = { id: string; attempt: number; at: string; stage?: string } & (
+export type OpRecord = {
+  version: typeof OP_FILE_VERSIONS.op;
+  id: string;
+  attempt: number;
+  at: string;
+  stage?: string;
+} & (
   | ({
       /** A workflow's turn: its prompt, which its answers are checked against with `schema`. */
       kind: "turn";
@@ -71,16 +95,29 @@ export type AgentOp = { agent: string; execution: AgentExecution; cwd: string };
  * the next attempt as it starts. Tier: public, stable.
  */
 export type SpendRecord = {
+  version: typeof OP_FILE_VERSIONS.spend;
   billing: Billing;
   /** Absent means unknown: its sessions could not be read. */
   spend?: ModelSpend[];
-  /** Only what was actually billed per token; decided with `billing`. */
-  charged?: Money;
+  /**
+   * The cost its harness printed, kept only where `billing` is `metered`: the harness's own
+   * figure, such as claude's `total_cost_usd`, not a bill.
+   */
+  reportedCost?: Money;
   /** When it reached its agent and when it settled, as the attempt that ran it knew them. */
   deliveredAt?: string;
   settledAt?: string;
   /** The attempt that read it, when not the attempt that ran it. */
   settledBy?: number;
+};
+
+/**
+ * `ops/{id}/result.json`: a turn's one accepted answer, written once. Tier: public, stable.
+ */
+export type ResultRecord = {
+  version: typeof OP_FILE_VERSIONS.result;
+  value: JsonValue;
+  at: string;
 };
 
 /**
@@ -150,8 +187,8 @@ export type SettledOperation = OperationRecord & {
   billing: Billing;
   /** Absent means unknown. */
   spend?: ModelSpend[];
-  /** Only what was actually billed per token; decided with `billing`. */
-  charged?: Money;
+  /** The cost its harness printed, kept only where `billing` is `metered`; not a bill. */
+  reportedCost?: Money;
 };
 
 /**
@@ -159,6 +196,7 @@ export type SettledOperation = OperationRecord & {
  * threshold can be fitted again without calling the model. Tier: public, stable.
  */
 export type DecisionArtifact = {
+  version: typeof OP_FILE_VERSIONS.decision;
   record: SettledDecision;
   request: { state: string | JsonObject | JsonValue[]; questions: Record<string, Question> };
   /** As `decide` returned them; absent when the call did not answer. */
@@ -166,12 +204,12 @@ export type DecisionArtifact = {
 };
 
 /**
- * A decision once the run has ended: what the provider said it charged, beside its record.
+ * A decision once the run has ended: the cost its provider reported, beside its record.
  * Tier: public, stable.
  */
 export type SettledDecision = DecisionRecord & {
   /** As the provider reported it; absent when it reported none. */
-  charged?: Money;
+  reportedCost?: Money;
 };
 
 /**
@@ -186,8 +224,8 @@ export type DecisionFigures = {
   tokens: { input: number; output: number };
   /** USD at list price, over the calls whose tokens are known and priced. */
   estimate?: number;
-  /** USD the provider reported charging. */
-  charged?: number;
+  /** USD the provider reported, over the calls it reported a cost for. */
+  reportedCost?: number;
   /** How many of `calls` have known tokens. */
   known: number;
   /** How many of `calls` were known and priced. */
@@ -207,15 +245,15 @@ export type AccountingFigures = {
    * and priced: a known zero is 0, an unknown is never one.
    */
   estimate?: number;
-  /** USD actually billed per token. */
-  charged?: number;
+  /** USD the harnesses reported for metered agents: their own figures, not a bill. */
+  reportedCost?: number;
   /** How many of `agents` have known usage. */
   known: number;
   /** How many of `agents` had all their usage priced. */
   priced: number;
   /**
-   * How many of `agents` have a known billing and every charge counted in `charged`; the rest may
-   * have been charged unseen.
+   * How many of `agents` have a known billing and every reported cost counted in `reportedCost`;
+   * the rest may have cost what nothing reported.
    */
   billed: number;
   /** Absent when the slice asked no decision model anything. */
@@ -223,7 +261,7 @@ export type AccountingFigures = {
 };
 
 /**
- * One model's share. Time and charges belong to an operation, not a model, so are not split.
+ * One model's share. Time and reported costs belong to an operation, not a model, so are not split.
  * Tier: public, stable.
  */
 export type ModelFigures = {
@@ -1374,7 +1412,7 @@ export function runLogLine(value: object): RunLogLine | undefined {
   return version >= oldest && version <= current ? (value as RunEvent) : undefined;
 }
 
-export const OUTPUT_RECORD_VERSION = 5 as const;
+export const OUTPUT_RECORD_VERSION = 6 as const;
 
 /**
  * An attempt, as the operator CLI keeps it in `out.json` and prints it with `--json`, in the

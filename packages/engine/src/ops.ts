@@ -1,7 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Candidate, OpRecord } from "@agentswf/contract/records";
+import {
+  type Candidate,
+  isKnownOpFile,
+  OP_FILE_VERSIONS,
+  type OpFile,
+  type OpRecord,
+  type ResultRecord,
+} from "@agentswf/contract/records";
 import { nameProblem } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { isCode, linkNew, writeWholeSync } from "./files";
@@ -24,7 +31,7 @@ export function opFile(runDir: string, op: string): string {
   return join(opDir(runDir, op), "op.json");
 }
 
-/** Its settled usage: billing, spend per model, charge. */
+/** Its settled usage: billing, spend per model, reported cost. */
 export function spendFile(runDir: string, op: string): string {
   return join(opDir(runDir, op), "spend.json");
 }
@@ -71,10 +78,7 @@ export async function listOps(runDir: string): Promise<EarlierOps> {
       const descending = list.sort((a, b) => b - a);
       let kind: OpRecord["kind"] | undefined;
       for (const n of descending) {
-        kind = await readFile(opFile(runDir, `${key}.${n}`), "utf8").then(
-          (text) => (JSON.parse(text) as Partial<OpRecord>).kind,
-          () => undefined,
-        );
+        kind = (await readOpFile<OpRecord>(opFile(runDir, `${key}.${n}`), "op"))?.kind;
         if (kind !== undefined) break;
       }
       earlier.set(key, {
@@ -139,7 +143,13 @@ export class OpIds {
     const n = (this.#last.get(key) ?? 0) + 1;
     this.#last.set(key, n);
     const id = `${key}.${n}`;
-    const record = { id, attempt: this.attempt, at: new Date().toISOString(), ...what } as OpRecord;
+    const record = {
+      version: OP_FILE_VERSIONS.op,
+      id,
+      attempt: this.attempt,
+      at: new Date().toISOString(),
+      ...what,
+    } as OpRecord;
     try {
       mkdirSync(opDir(this.runDir, id), { recursive: true });
       writeWholeSync(opFile(this.runDir, id), `${JSON.stringify(record, null, 2)}\n`);
@@ -150,10 +160,10 @@ export class OpIds {
   }
 }
 
-/** What an operation is, as it is drawn: its `op.json` but its id, attempt and time. */
+/** What an operation is, as it is drawn: its `op.json` but its version, id, attempt and time. */
 export type OpStart = OpRecord extends infer Each
   ? Each extends OpRecord
-    ? Omit<Each, "id" | "attempt" | "at">
+    ? Omit<Each, "version" | "id" | "attempt" | "at">
     : never
   : never;
 
@@ -175,10 +185,18 @@ export async function writeAcceptedExclusive(
   value: unknown,
 ): Promise<boolean> {
   await mkdir(opDir(runDir, op), { recursive: true });
-  return linkNew(join(opDir(runDir, op), "result.json"), { value, at: new Date().toISOString() });
+  const record = {
+    version: OP_FILE_VERSIONS.result,
+    value,
+    at: new Date().toISOString(),
+  } as ResultRecord;
+  return linkNew(join(opDir(runDir, op), "result.json"), record);
 }
 
-/** Null distinguishes "no value yet" from an operation whose accepted value happens to be null. */
+/**
+ * Null distinguishes "no value yet" from an operation whose accepted value happens to be null. A
+ * result.json of another version throws: unlike a cost, an answer has no unknown to fall back on.
+ */
 export async function readAccepted(runDir: string, op: string): Promise<{ value: unknown } | null> {
   let text: string;
   try {
@@ -187,8 +205,37 @@ export async function readAccepted(runDir: string, op: string): Promise<{ value:
     if (isCode(error, "ENOENT")) return null;
     throw error;
   }
-  const { value } = JSON.parse(text) as { value: unknown };
-  return { value };
+  const record: unknown = JSON.parse(text);
+  if (!isKnownOpFile("result", record))
+    throw new Error(`${op}'s result.json is not version ${OP_FILE_VERSIONS.result}`);
+  return { value: (record as ResultRecord).value };
+}
+
+/**
+ * An operation's JSON `file` at `path`, or undefined when it is missing, can't be parsed, or has no
+ * version or one this reader doesn't know: each is read as a file that isn't there. With `refuse`,
+ * a file that parses at another version throws instead, for a reader whose figures it would
+ * otherwise leave looking complete.
+ */
+export async function readOpFile<T>(
+  path: string,
+  file: OpFile,
+  options: { refuse?: boolean } = {},
+): Promise<T | undefined> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (isKnownOpFile(file, value)) return value as T;
+  if (options.refuse && typeof value === "object" && value !== null) {
+    const version = (value as { version?: unknown }).version;
+    throw new Error(
+      `${path} is ${version === undefined ? "of no version" : `version ${JSON.stringify(version)}`}; this awf reads version ${OP_FILE_VERSIONS[file]}`,
+    );
+  }
+  return undefined;
 }
 
 /** The most of a screen kept: its last lines, where a pane's scrollback came with it. */

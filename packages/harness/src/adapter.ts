@@ -122,7 +122,7 @@ export type HarnessTurnOutcome = {
   detail?: string;
   resultEvidence: HarnessResultEvidence;
   /** The dollars the harness printed for each native turn behind this outcome. */
-  chargesUsd: readonly number[];
+  reportedCostsUsd: readonly number[];
   /**
    * Set only on a compaction the harness confirmed: its summary as the harness wrote it, or `""`
    * where it keeps it opaque, as codex does.

@@ -58,7 +58,7 @@ export function localOutcome(state: "failed" | "timed-out" | "cancelled", detail
     state,
     detail,
     resultEvidence: { kind: "unavailable" } as const,
-    chargesUsd: [],
+    reportedCostsUsd: [],
   };
 }
 
@@ -350,7 +350,7 @@ function createSession(
           state: "failed",
           detail: reasonOf(error),
           resultEvidence: { kind: "unavailable" },
-          chargesUsd: [],
+          reportedCostsUsd: [],
         }),
       )
       .then(

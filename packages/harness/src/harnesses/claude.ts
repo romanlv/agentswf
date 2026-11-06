@@ -244,7 +244,7 @@ export const claude = defineHarness(CLAUDE, {
   launchModel: "claude names a model as it logs it",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "claude logs each request in its session files",
-  readCharge: "claude prints its session's running total, which readCostTotal reads (F9)",
+  readCost: "claude prints its session's running total, which readCostTotal reads (F9)",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",
   allowancePane: "`claude -p /usage` prints what its TUI's `/usage` shows, with no pane",
 });

@@ -128,10 +128,10 @@ export type HarnessSpec = {
    * instead where it prints the session's. Tokens are read from its session files, by
    * `readSessionUsage`.
    */
-  readCharge?(stdout: string): number | undefined;
+  readCost?(stdout: string): number | undefined;
   /**
    * The dollars the harness printed for its whole session so far, where it prints a running total
-   * rather than the turn's (F9). A turn charges what the total grew by.
+   * rather than the turn's (F9). A turn reports what the total grew by.
    */
   readCostTotal?(stdout: string): number | undefined;
   /**

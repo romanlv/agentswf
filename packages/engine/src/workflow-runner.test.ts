@@ -431,7 +431,7 @@ describe("runWorkflow", () => {
     expect(releases).toEqual([true]);
   });
 
-  test("an answer waits for natural release before workflow continuation and records its charge", async () => {
+  test("an answer waits for natural release before workflow continuation and records its reported cost", async () => {
     const events: string[] = [];
     let finish!: () => void;
     const finished = new Promise<void>((resolve) => {
@@ -453,7 +453,7 @@ describe("runWorkflow", () => {
         const native = await dispatch(session, turn, binding);
         const settled = native.settled.then(async (outcome) => {
           await finished;
-          return { ...outcome, chargesUsd: [0.25] };
+          return { ...outcome, reportedCostsUsd: [0.25] };
         });
         return {
           ...native,
@@ -500,7 +500,7 @@ describe("runWorkflow", () => {
     const result = await running;
     expect(result.value).toBe("answered");
     expect(events).toEqual(["release started", "released", "workflow continued"]);
-    expect(result.usage[0]?.charged).toEqual({ amount: 0.25, currency: "USD" });
+    expect(result.usage[0]?.reportedCost).toEqual({ amount: 0.25, currency: "USD" });
     expect(fake.closed).toEqual(["reviewer"]);
   });
 
@@ -770,7 +770,7 @@ describe("runWorkflow", () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         sessionRef: "fake-native",
-        chargesUsd: [0.01],
+        reportedCostsUsd: [0.01],
         act: async () => {
           expect(context.binding).toBeDefined();
           // The schema itself, bounds and all, not a rendering that drops them (E5).
@@ -2146,7 +2146,7 @@ describe("runWorkflow", () => {
             state: "timed-out" as const,
             detail: "native deadline",
             resultEvidence: { kind: "unavailable" as const },
-            chargesUsd: [],
+            reportedCostsUsd: [],
           }),
         };
       }),
@@ -2181,7 +2181,7 @@ describe("runWorkflow", () => {
             state: "timed-out" as const,
             detail: "native deadline",
             resultEvidence: { kind: "unavailable" as const },
-            chargesUsd: [],
+            reportedCostsUsd: [],
           }),
           release: async () => ({
             kind: "quarantined" as const,
@@ -3308,7 +3308,7 @@ test("slot opening failure records the reserved operation and closes its logical
 test("an unexpected supervisor release throw fails the run instead of claiming cleanup", async () => {
   const fake = createFakeAdapter({
     script: (context) => ({
-      chargesUsd: [0.75],
+      reportedCostsUsd: [0.75],
       act: async () => {
         await submit(context.binding!, "saved");
       },
@@ -3351,7 +3351,7 @@ test("an unexpected supervisor release throw fails the run instead of claiming c
     runNew(workflow, null, { runRoot, deadline: future(), runtime: configured }),
   );
   expect(error.usage).toHaveLength(1);
-  expect(error.usage[0]?.charged).toEqual({ amount: 0.75, currency: "USD" });
+  expect(error.usage[0]?.reportedCost).toEqual({ amount: 0.75, currency: "USD" });
   expect(error.usage[0]?.deliveredAt).toBeDefined();
   expect((await readTurns(join(runRoot, workflow.meta.name, error.runId)))[0]?.outcome).toBe(
     "failed",

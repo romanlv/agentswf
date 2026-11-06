@@ -116,7 +116,7 @@ describe("the OpenRouter decision provider", () => {
         urgency: { type: "score", probabilities: [0, 0, 1] },
       },
       tokens: { input: 476, output: 70 },
-      charged: { amount: 0.000019992, currency: "USD" },
+      reportedCost: { amount: 0.000019992, currency: "USD" },
       requestId: "gen-dec-1790015143-AIaTutprXsJ5EwohRSjb",
     });
     expect(answersOf(QUESTIONS, response.answers)).toMatchObject({
@@ -253,22 +253,22 @@ describe("the OpenRouter decision provider", () => {
       .catch((error: unknown) => error);
     expect(failure).toMatchObject({
       tokens: { input: 10, output: 0 },
-      charged: { amount: 0.00000042, currency: "USD" },
+      reportedCost: { amount: 0.00000042, currency: "USD" },
       requestId: "gen-dec-1",
     });
   });
 
-  test("usage not reported is unknown, not zero; a cost not reported is not charged", async () => {
+  test("usage not reported is unknown, not zero; a cost not reported is absent", async () => {
     const { usage: _usage, ...silent } = RECORDED;
     const unreported = await replying(200, silent).decide(request, new AbortController().signal);
     expect(unreported.tokens).toBeUndefined();
-    expect(unreported.charged).toBeUndefined();
+    expect(unreported.reportedCost).toBeUndefined();
     const free = await replying(200, {
       ...RECORDED,
       usage: { input_tokens: 5, output_tokens: 1 },
     }).decide(request, new AbortController().signal);
     expect(free.tokens).toEqual({ input: 5, output: 1 });
-    expect(free.charged).toBeUndefined();
+    expect(free.reportedCost).toBeUndefined();
   });
 
   test.each([

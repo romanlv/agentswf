@@ -3807,7 +3807,7 @@ class LogicalAgent implements AgentRef {
           kind: "failed",
           reason: messageOf(error),
           cleanupUnresolved: true,
-          charges: [],
+          reportedCosts: [],
           settledAt: Date.now(),
         }),
       )
@@ -3827,7 +3827,7 @@ class LogicalAgent implements AgentRef {
         ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),
         settledAt: outcome.settledAt,
       },
-      outcome.charges,
+      outcome.reportedCosts,
     );
     if (outcome.kind === "answered")
       return {
@@ -4142,7 +4142,7 @@ class LogicalAgent implements AgentRef {
         ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),
         settledAt: outcome.settledAt,
       },
-      outcome.charges,
+      outcome.reportedCosts,
     );
     // Recorded `answered` with no value: it did what it was woken for, and takes no result.
     this.turnEnded(
@@ -4173,7 +4173,7 @@ class LogicalAgent implements AgentRef {
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
-      /** A compaction left to end on its own, whose charges come when it does. */
+      /** A compaction left to end on its own, whose reported costs come when it does. */
       later?: Promise<HarnessTurnOutcome>,
     ): TurnOutcome<string> => {
       const usage = entry.settle(
@@ -4181,7 +4181,7 @@ class LogicalAgent implements AgentRef {
           ...times,
           settledAt: Math.min(Date.now(), deadline.unixMilliseconds),
         },
-        native === "expired" ? [] : native.chargesUsd,
+        native === "expired" ? [] : native.reportedCostsUsd,
         later,
       );
       if (native === "expired") {
@@ -4229,7 +4229,7 @@ class LogicalAgent implements AgentRef {
         state: "failed",
         detail: messageOf(error),
         resultEvidence: { kind: "unavailable" },
-        chargesUsd: [],
+        reportedCostsUsd: [],
       });
     }
     times.deliveredAt = Date.now();

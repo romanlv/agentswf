@@ -1551,7 +1551,7 @@ export function createHerdrRunHostFactory(
                   state: "failed",
                   detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
                   resultEvidence: evidence,
-                  chargesUsd: [],
+                  reportedCostsUsd: [],
                 };
               }
               // A stalled prompt returns no agent; the session is the one its turns already named.
@@ -1565,7 +1565,7 @@ export function createHerdrRunHostFactory(
                 state: "completed",
                 resultEvidence: evidence,
                 ...(sessionRef ? { sessionRef } : {}),
-                chargesUsd: [],
+                reportedCostsUsd: [],
                 summary: summary ?? "",
               };
             }
@@ -1874,7 +1874,7 @@ export function createHerdrRunHostFactory(
                       return {
                         ...outcome,
                         resultEvidence: { kind: "unavailable" },
-                        chargesUsd: [],
+                        reportedCostsUsd: [],
                         ...(sessionRef ? { sessionRef } : {}),
                       };
                     } finally {
@@ -2343,7 +2343,7 @@ function paneOutcome(
     resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
     // The screen is no record of spend; the engine reads the session files when the run ends.
-    chargesUsd: [],
+    reportedCostsUsd: [],
   };
 }
 
@@ -2371,7 +2371,7 @@ async function loginShown(
   if (!check) return undefined;
   const failed = (screen: string): NativeTurnOutcome | undefined => {
     const login = failedOnLogin(harness, check, (it) => it.screen(thisTurn(screen, marker)));
-    return login && { ...login, resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+    return login && { ...login, resultEvidence: { kind: "unavailable" }, reportedCostsUsd: [] };
   };
   if (shown !== undefined) {
     const screen = readable(shown);
