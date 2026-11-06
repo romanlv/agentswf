@@ -1192,7 +1192,7 @@ describe("testWorkflow with a calling session", () => {
     expect(run.agentOf("fixer")).toMatchObject({
       execution: { harness: "claude", model: "claude-opus-5-5" },
       forkedFrom: { caller: true, turns: 0 },
-      layout: { workspace: "origin" },
+      panes: { workspace: "origin", keep: "always" },
       keptPane: true,
     });
     expect(run.agentOf("fixer").execution).not.toHaveProperty("caller");
@@ -1397,10 +1397,8 @@ describe("testWorkflow panes", () => {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
     expect(run.value).toBe("agent lead is already open with different pane");
-    expect(run.agentOf("lead")).toMatchObject({
-      pane: { tab: "review", front: true },
-      layout: { tab: "review" },
-    });
+    expect(run.agentOf("lead")).toMatchObject({ pane: { tab: "review", front: true } });
+    expect(run.agentOf("lead")).not.toHaveProperty("panes");
     expect(run.agentOf("security").pane).toEqual({ beside: "lead", side: "right" });
     expect(run.agentOf("plain")).not.toHaveProperty("pane");
   });
@@ -1421,12 +1419,12 @@ describe("testWorkflow panes", () => {
       panes: { workspace: { name: "review" }, keep: "on-failure" },
     });
     expect(run.agentOf("lead")).toMatchObject({
-      layout: { workspace: { name: "review" }, tab: "review" },
-      keepPane: "on-failure",
+      pane: { tab: "review" },
+      panes: { workspace: { name: "review" }, keep: "on-failure" },
     });
     expect(run.agentOf("security")).toMatchObject({
-      layout: { beside: "lead", side: "right" },
-      keepPane: "on-failure",
+      pane: { beside: "lead", side: "right" },
+      panes: { keep: "on-failure" },
     });
   });
 
@@ -1473,8 +1471,8 @@ describe("testWorkflow panes", () => {
       return null;
     });
     const run = await runTest(besides, { agents: {} });
-    expect(run.agentOf("a").layoutFallback).toBe("quiet is headless");
-    expect(run.agentOf("b").layoutFallback).toBe("later is not open");
+    expect(run.agentOf("a").paneFallback).toBe("quiet is headless");
+    expect(run.agentOf("b").paneFallback).toBe("later is not open");
   });
 
   test("beside a sibling opening in the same parallel waits for it, if it began first", async () => {
@@ -1499,8 +1497,8 @@ describe("testWorkflow panes", () => {
     expect(run.agents.map((agent) => agent.key).indexOf("b")).toBeGreaterThan(
       run.agents.map((agent) => agent.key).indexOf("a"),
     );
-    expect(run.agentOf("b")).not.toHaveProperty("layoutFallback");
-    expect(run.agentOf("c").layoutFallback).toBe("d is not open");
+    expect(run.agentOf("b")).not.toHaveProperty("paneFallback");
+    expect(run.agentOf("c").paneFallback).toBe("d is not open");
   });
 
   test("two forks beside each other: the first, whose target was not yet open, falls back", async () => {
@@ -1516,8 +1514,8 @@ describe("testWorkflow panes", () => {
     const run = await runTest(crossed, {
       agents: { lead: [answer(PLAN, { steps: ["a"] })] },
     });
-    expect(run.agentOf("x").layoutFallback).toBe("y is not open");
-    expect(run.agentOf("y")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("x").paneFallback).toBe("y is not open");
+    expect(run.agentOf("y")).not.toHaveProperty("paneFallback");
   });
 
   test("a pane given with an undefined field reopens as one without it", async () => {
@@ -1538,7 +1536,7 @@ describe("testWorkflow panes", () => {
     });
     const run = await runTest(reopening, { agents: {} });
     expect(run.value).toBe("ok");
-    expect(run.agentOf("b").layout).toEqual({ beside: "a", side: "right" });
+    expect(run.agentOf("b").pane).toEqual({ beside: "a", side: "right" });
   });
 
   test("a fork made headless, or an agent in a sandbox, is refused a pane", async () => {
@@ -1612,10 +1610,10 @@ describe("testWorkflow panes", () => {
       return null;
     });
     const run = await runTest(besides, { agents: {}, caller: { harness: "claude" } });
-    expect(run.agentOf("a").layoutFallback).toBe(
+    expect(run.agentOf("a").paneFallback).toBe(
       "author is the calling session, whose pane is the operator's",
     );
-    expect(run.agentOf("b").layoutFallback).toBe(
+    expect(run.agentOf("b").paneFallback).toBe(
       "boxed runs in a sandbox, whose panes are in its own Herdr",
     );
   });

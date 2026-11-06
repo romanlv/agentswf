@@ -16,8 +16,8 @@ import {
   type Effort,
   type JsonObject,
   type KeepPane,
-  type PaneLayout,
   type PaneSpec,
+  type PaneWorkspace,
   placementOf,
   positiveDurationMilliseconds,
 } from "@agentswf/contract/workflow";
@@ -103,13 +103,14 @@ export type OpenedAgent = {
    * host has no screen, so nothing says where a pane landed or whether a `beside` fell back.
    */
   pane?: PaneSpec;
-  /** What the host was asked: the `pane`, in the workspace `panes.workspace` names. */
-  layout?: PaneLayout;
-  /** Why the engine already knew `layout` could not be used: a `beside` an agent with no pane. */
-  layoutFallback?: string;
-  /** As `panes.keep` asked. */
-  keepPane?: KeepPane;
-  /** Its pane was kept when it was done: `keepPane` asked, and how its last operation ended let it. */
+  /**
+   * The run's `panes` as the host was asked to apply them to this pane: the `workspace` its tab
+   * opens in, which a `beside` takes from the pane it splits, and whether it is `keep`.
+   */
+  panes?: { workspace?: PaneWorkspace; keep?: KeepPane };
+  /** Why the engine already knew `pane` could not be used: a `beside` an agent with no pane. */
+  paneFallback?: string;
+  /** Its pane was kept when it was done: `panes.keep` asked, and its last operation's end let it. */
   keptPane?: true;
 };
 
@@ -754,9 +755,8 @@ export function createScriptedHost(
                 ? { forkedFrom: forks.get(request.continues.sessionRef)! }
                 : {}),
               ...paneOf(request),
-              ...(request.layout ? { layout: request.layout } : {}),
-              ...(request.layoutFallback ? { layoutFallback: request.layoutFallback } : {}),
-              ...(request.keepPane ? { keepPane: request.keepPane } : {}),
+              ...panesOf(request),
+              ...(request.layoutFallback ? { paneFallback: request.layoutFallback } : {}),
             };
             agents.push(opened);
             return {
@@ -870,6 +870,18 @@ function paneOf({ layout, front }: HarnessActivation): { pane?: PaneSpec } {
   const tab = layout?.tab;
   if (tab === undefined && !front) return {};
   return { pane: { ...(tab === undefined ? {} : { tab }), ...(front ? { front } : {}) } };
+}
+
+/** The run's `panes` as the host was asked to apply them to this pane. */
+function panesOf({ layout, keepPane }: HarnessActivation): Pick<OpenedAgent, "panes"> {
+  const workspace = layout?.beside === undefined ? layout?.workspace : undefined;
+  if (workspace === undefined && keepPane === undefined) return {};
+  return {
+    panes: {
+      ...(workspace === undefined ? {} : { workspace }),
+      ...(keepPane === undefined ? {} : { keep: keepPane }),
+    },
+  };
 }
 
 /** What the pane host refuses before it opens a pane. */

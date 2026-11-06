@@ -361,9 +361,9 @@ the sandbox evals check what a real provider enforces.
   switches; **`run.compactions`** and **`run.sets`** have everyone's.
 - **`run.agentOf(key)`** is what an agent was opened with: `key`, `execution`, `instructions`,
   `skills`, `sandbox`, `pane` (`tab` or `beside`, and `front`, read back from what the host was
-  given), `layout` and `keepPane` as the host was given them, with [`panes`](#panes) applied,
-  `layoutFallback` when its pane couldn't go where it asked, `keptPane` when its pane was kept, and
-  `forkedFrom` for a fork. It throws for a key never opened. **`run.agents`** lists them all.
+  given), `panes` as the host was asked to apply [`panes`](#panes) to it (the `workspace` its tab
+  opens in, and `keep`), `paneFallback` when its pane couldn't go where it asked, `keptPane` when
+  its pane was kept, and `forkedFrom` for a fork. It throws for a key never opened. **`run.agents`** lists them all.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
   with a `reason`.
