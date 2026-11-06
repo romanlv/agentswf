@@ -24,6 +24,8 @@ const dirs = createTempRunDirs();
 let listening: { stop(closeActive?: boolean): void } | undefined;
 afterAll(() => {
   listening?.stop(true);
+  // Readable again, so the folder can go.
+  chmodSync(join(fixture.sealed, ".awf", "runs", "dd-case", "r1", "attempts"), 0o700);
   dirs.cleanup();
 });
 
@@ -51,6 +53,8 @@ type Fixture = {
   plain: string;
   home: string;
   broken: string;
+  /** A project whose event run `dd-case/r1` has an `attempts/` the system won't let awf read. */
+  sealed: string;
   /** Where `r1`'s coordinator socket is, which closes on each request unanswered. */
   silent: string;
 };
@@ -77,7 +81,19 @@ beforeAll(async () => {
     file: broken.file,
   });
   const silent = dirs.tempRunDir();
-  fixture = { ...made, plain, broken: broken.root, silent };
+  const sealed = eventProject(dirs, "case.ts", EVENTS);
+  const sealedRun = await createRun(join(sealed.root, ".awf", "runs"), {
+    id: "r1",
+    workflow: "dd-case",
+    argv: [],
+    cwd: sealed.root,
+    sandbox: null,
+    events: true,
+    file: sealed.file,
+  });
+  mkdirSync(join(sealedRun.dir, "attempts"), { recursive: true });
+  chmodSync(join(sealedRun.dir, "attempts"), 0o000);
+  fixture = { ...made, plain, broken: broken.root, silent, sealed: sealed.root };
   const runRoot = join(fixture.root, ".awf", "runs");
   await createRun(runRoot, {
     id: "r1",
@@ -203,6 +219,15 @@ const ROWS: Row[] = [
     exit: 1,
     v: 1,
     says: /dd-case\/old/,
+  },
+  {
+    command: "emit",
+    failure: "a run whose files the system won't let it read",
+    argv: (f) => ["dd-case/r1", "slack:reply", '{"text":"x"}', "--cwd", f.sealed],
+    code: "unreachable",
+    exit: 1,
+    v: 1,
+    says: /EACCES/,
   },
   {
     command: "emit",
@@ -532,6 +557,24 @@ const ROWS: Row[] = [
     exit: 2,
     v: 1,
     says: /EACCES/,
+  },
+  {
+    command: "run",
+    failure: "an --id the grammar refuses",
+    argv: (f) => [f.plain, "--id", "Bad Id"],
+    code: "id",
+    exit: 2,
+    v: 1,
+    says: /--id: /,
+  },
+  {
+    command: "send",
+    failure: "an --event-id the grammar refuses",
+    argv: () => ["dd-case/r1", "--as", "slack", "--event-id", "a b", "hi"],
+    code: "id",
+    exit: 2,
+    v: 3,
+    says: /--event-id a b/,
   },
   {
     command: "run",

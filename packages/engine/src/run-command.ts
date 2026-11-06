@@ -7,7 +7,7 @@ import { messageOf } from "./errors";
 import help from "./help/run.txt" with { type: "text" };
 import { SESSION_CODE } from "./here";
 import { KEEP_PANES, parseWorkspace } from "./pane-layout";
-import { idProblem, runRootOf, stageNameProblem } from "./runs";
+import { idProblem, RunRefused, runRootOf, stageNameProblem } from "./runs";
 
 export const usage = help.trimEnd();
 
@@ -117,7 +117,8 @@ export function parseCommand(
     } else if (option === "--id") {
       if (!value) throw new Error("--id needs a run's id");
       const problem = idProblem(value);
-      if (problem) throw new Error(`--id: ${problem}`);
+      // Refused as any id the grammar refuses is, `id`, still a usage error's exit.
+      if (problem) throw new RunRefused(`--id: ${problem}`, "id");
       named = value;
     } else if (option === "--from-stage") {
       if (!value) throw new Error("--from-stage needs a stage's name");

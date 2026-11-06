@@ -3,7 +3,7 @@ import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent, emitToRun } from "./emit";
 import { messageOf } from "./errors";
 import help from "./help/emit.txt" with { type: "text" };
-import { asksJson, printRefusal } from "./refusals";
+import { asksJson, printRefusal, readFailureCode } from "./refusals";
 import { type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef } from "./run-state";
 import type { Launch } from "./wake";
@@ -65,7 +65,7 @@ export async function emitCommand(
       );
     }
   } catch (error) {
-    printRefusal(out, json, error, "internal-error");
+    printRefusal(out, json, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
   }
   return printEmit(result, parsed.json, out);

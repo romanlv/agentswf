@@ -59,7 +59,7 @@ failure, is the word [`ClientError`](/reference/client-api#clienterror) throws f
 | `no-id` | a workflow that starts on events, with no `--id` and no `id(args)` | `run` |
 | `other-args` | a run there, started with other arguments or options | `run` |
 | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose working folder is gone | `run` |
-| `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `unreachable` | the run's files can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `cursor` | a cursor or handle doesn't fit: made for another run or filter, past the run's end, or naming no event | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `project` | the workflow isn't in a project | `run`, `emit` |
@@ -203,7 +203,7 @@ With `--json`, each prints one line: `{"v": 3, "id": …}` when delivered, or a
 run's engine is another version of awf than the command's, as after installing awf anew while the
 run is live. Version 1 named `peer-stopped` `stopped`; version 2 said `"code": "delivered"` on
 success, and `not-found` for `no-run`. The deprecated `awf send --event-id` prints
-[`awf emit`](#emit)'s result when it worked, and its own refusals.
+[`awf emit`](#emit)'s result when it worked, at `awf emit`'s `"v"`, 1, and its refusals at 3.
 
 ## This machine
 

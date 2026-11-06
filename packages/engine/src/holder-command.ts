@@ -14,7 +14,7 @@ import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { RunUnreachable } from "./run-unreachable";
-import { readAttempts, readEvents, readNumberedEvents } from "./runs";
+import { RunRefused, readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
 export const replyUsage = help.trimEnd();
@@ -189,7 +189,7 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     if (!ref) throw new Error("send needs a run, <workflow>/<id> or <id>");
     if (!as) throw new Error("--event-id sends as a participant routed to the code: --as names it");
     const problem = eventIdProblem(id);
-    if (problem) throw new Error(`--event-id ${id}: ${problem}`);
+    if (problem) throw new RunRefused(`--event-id ${id}: ${problem}`, "id");
     target = { id, as };
   } else {
     let agent: string | undefined;

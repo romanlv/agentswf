@@ -214,7 +214,7 @@ Out of scope:
   | `no-id` | a start naming no run | `run`; client |
   | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
   | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running or completed, or whose working folder is gone | `run` |
-  | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+  | `unreachable` | the run's files can't be read or written, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle that doesn't fit: another run's or filter's, past the run's end, naming no event | `logs`, `inbox`; client |
   | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `project` | a workflow in no project | `run`, `emit`; client |
@@ -558,6 +558,15 @@ Manual or live evaluation:
   and the Outcome say a code is the client's word only where the client meets the failure;
   `no-id` glossed as a workflow that starts on events; `event` takes a bad `--source` too; the
   summary, the index entry and the status entry name `awf inbox`'s empty read.
+
+- Round 5, correctness: `awf emit` and `awf run --id` for a workflow with events refused a run's
+  file the system won't let them read as `internal-error`: both use `readFailureCode` now, and
+  `unreachable` covers a run's file that can't be written too, as `emit`'s writes are the run's;
+  a row.
+- Round 5, design and docs: a malformed `awf run --id` or `send --event-id` was `usage`, where every
+  other malformed id is `id`: both throw `RunRefused(…, "id")`, still exit 2; rows. The
+  deprecated `send --event-id`'s two `v`s, its result's 1 and its refusals' 3, said in the
+  reference.
 
 ## Readiness
 

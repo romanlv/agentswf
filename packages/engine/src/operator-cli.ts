@@ -357,7 +357,7 @@ async function openRun(
     stderr(`awf: the run's attempt did not start: ${opened.error}`);
     return 1;
   } catch (error) {
-    printRefusal({ stdout, stderr }, { json, v: 1 }, error, "internal-error");
+    printRefusal({ stdout, stderr }, { json, v: 1 }, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
   }
 }

@@ -1269,12 +1269,12 @@ export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
  * `prepare`, a workflow refusing its arguments or options; `not-started`, no attempt started: a
  * Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose
  * working folder is gone; `other-args`, a start or continue of a run there with other args or
- * options; `unreachable`, a run whose files can't be read or that doesn't answer; `cursor`, a
- * cursor or handle that doesn't fit: made for another run or filter, past the run's end, or naming
- * no event; `project`, a workflow in no project; `no-engine` and `other-engine`, a project's
- * `agentswf` missing or another version; `internal-error`, a failure that isn't the caller's, such
- * as a file awf couldn't write, which `error` names. `reply` and `send` also refuse with
- * `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
+ * options; `unreachable`, a run whose files can't be read or written, or that doesn't answer;
+ * `cursor`, a cursor or handle that doesn't fit: made for another run or filter, past the run's
+ * end, or naming no event; `project`, a workflow in no project; `no-engine` and `other-engine`, a
+ * project's `agentswf` missing or another version; `internal-error`, a failure that isn't the
+ * caller's, such as a file awf couldn't write, which `error` names. `reply` and `send` also refuse
+ * with `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
  */
 export const REFUSAL_CODES = [
   "usage",
