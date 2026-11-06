@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
+import { isInside } from "./files";
 
 /**
  * `path` as typed from `cwd`: relative under it, absolute elsewhere, so it works from anywhere; with
@@ -7,8 +8,7 @@ import { isAbsolute, relative, resolve } from "node:path";
  */
 export function pathFrom(cwd: string, path: string, options: { home?: string } = {}): string {
   const absolute = resolve(cwd, path);
-  const inside = relative(cwd, absolute);
-  if (inside && !inside.startsWith("..") && !isAbsolute(inside)) return inside;
+  if (isInside(cwd, absolute)) return relative(cwd, absolute);
   const { home } = options;
   return home !== undefined && absolute.startsWith(`${home}/`)
     ? `~${absolute.slice(home.length)}`

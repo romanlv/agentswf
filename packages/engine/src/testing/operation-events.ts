@@ -1,19 +1,12 @@
 import { open } from "node:fs/promises";
 import {
-  OPERATION_LIVENESS_KINDS,
   OPERATION_LIVENESS_RECORD_VERSION,
   type OperationLivenessRecord,
 } from "@agentswf/contract/records";
+import { validEvent } from "../operation-events";
 import { liveFile } from "../ops";
 
-type OperationEvent = Pick<
-  OperationLivenessRecord,
-  "kind" | "at" | "sequence" | "reason" | "until" | "peer"
->;
 const MAX_BYTES = 1024 * 1024;
-function eventFile(runDir: string, operationId: string): string {
-  return liveFile(runDir, operationId);
-}
 
 export async function readOperationEvents(
   runDir: string,
@@ -25,7 +18,7 @@ export async function readOperationEvents(
   let text: string;
   let clipped = false;
   try {
-    const file = await open(eventFile(runDir, operationId), "r");
+    const file = await open(liveFile(runDir, operationId), "r");
     try {
       const buffer = Buffer.alloc(MAX_BYTES + 1);
       let size = 0;
@@ -63,19 +56,6 @@ export async function readOperationEvents(
   return { records, incomplete };
 }
 
-function validEvent(value: OperationEvent): boolean {
-  return (
-    typeof value.kind === "string" &&
-    (OPERATION_LIVENESS_KINDS as readonly string[]).includes(value.kind) &&
-    Number.isSafeInteger(value.at) &&
-    value.at >= 0 &&
-    Number.isSafeInteger(value.sequence) &&
-    value.sequence >= 0 &&
-    (value.reason === undefined || typeof value.reason === "string") &&
-    (value.until === undefined || (Number.isSafeInteger(value.until) && value.until >= 0)) &&
-    (value.peer === undefined || (typeof value.peer === "string" && value.peer.trim() !== ""))
-  );
-}
 function isRecord(value: unknown, operationId: string): value is OperationLivenessRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as OperationLivenessRecord;

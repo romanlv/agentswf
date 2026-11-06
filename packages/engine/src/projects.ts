@@ -34,7 +34,7 @@ export function projectRunRoot(project: string): string {
 }
 
 /** `~/.awf/projects`: each project awf has started an event run in, one absolute path a line. */
-export function projectsFile(home: string): string {
+function projectsFile(home: string): string {
   return join(home, ".awf", "projects");
 }
 

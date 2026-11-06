@@ -13,13 +13,10 @@ import type { ResultSlotRegistry } from "./result-slots";
 import type { ToolCalls } from "./tools";
 
 /** What the control plane asks of the run's tools, by the agent whose socket asked. */
-export type ToolHandler = Pick<ToolCalls<unknown>, "call" | "running" | "accepted">;
+type ToolHandler = Pick<ToolCalls<unknown>, "call" | "running" | "accepted">;
 
 /** What the control plane asks of the run's messaging, by the agent whose socket asked. */
-export type MessagingHandler = Pick<
-  Messaging,
-  "checkFinish" | "peers" | "send" | "reply" | "owing"
->;
+type MessagingHandler = Pick<Messaging, "checkFinish" | "peers" | "send" | "reply" | "owing">;
 
 /** `wfa` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
 const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;

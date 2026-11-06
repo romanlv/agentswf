@@ -16,7 +16,7 @@ export type SessionLine = Extract<RunLine, { kind: "session" }>;
  * later never renumbers the others. Its files are found under its agent's home and working
  * directory: a sandbox's, for an agent in one.
  */
-export type NativeSession = {
+type NativeSession = {
   n: number;
   harness: HarnessKind;
   id: string;
@@ -29,7 +29,7 @@ export type NativeSession = {
 type Span = { from: number; to?: number };
 
 /** What the log says of an agent: where its files are, and the spans its activity is the run's. */
-export type RunAgent = {
+type RunAgent = {
   key: AgentKey;
   cwd?: string;
   home?: string;
@@ -213,7 +213,7 @@ const TAIL_BYTES = 4 * 1024 * 1024;
 const READ_BYTES = 4 * 1024 * 1024;
 
 /** One native file of a session, by a key its name gives, so a late file renumbers nothing. */
-export type SessionFile = { session: NativeSession; key: string; path: string };
+type SessionFile = { session: NativeSession; key: string; path: string };
 
 /** A session's files, the first its own and keyed `""`; none where they cannot be found. */
 async function sessionFiles(

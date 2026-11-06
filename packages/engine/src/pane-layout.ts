@@ -27,7 +27,7 @@ export function checkPaneOptions(
   const refuse = (why: string): never => {
     throw new Error(`agent ${key}: ${why}`);
   };
-  // Removed in 0.1.0-beta.6; ignored, they would place or keep a pane otherwise than written.
+  // Removed in 0.1.0-beta.6; refused, as they would place or keep a pane otherwise than written.
   const given = spec as { layout?: unknown; keepPane?: unknown };
   if (given.layout !== undefined)
     refuse(

@@ -173,7 +173,7 @@ describe("set", () => {
     ]);
   });
 
-  test("is refused before it is queued: another harness, nothing to set, a level the harness lacks, or a host that cannot switch", async () => {
+  test("is refused before it is queued: another harness, nothing to set, a level the harness lacks, a removed field, or a host that cannot switch", async () => {
     const adapter = settingAdapter();
     const fixed = settingAdapter({ sets: false });
     const result = await run(adapter, async (context) => {
@@ -184,6 +184,8 @@ describe("set", () => {
         settled(fake.set({})),
         settled(fake.set({ model: "" })),
         settled(claude.set({ effort: "huge" })),
+        settled(fake.set({ effort: "low", timeoutMs: 1_000 } as SettingsSpec)),
+        settled(fake.set({ id: "s-1", effort: "low" } as SettingsSpec)),
       ]);
     });
     const unswitchable = await run(fixed, async (context) => {
@@ -196,6 +198,8 @@ describe("set", () => {
       "set names neither a model nor an effort",
       'set names no model: ""',
       'agent claude: claude has no effort "huge"; its levels are low, medium, high, xhigh, max',
+      "set takes no timeoutMs: bound it with timeout",
+      "set takes no id",
     ]);
     expect(adapter.sets).toHaveLength(0);
     expect(unswitchable.value).toBe(

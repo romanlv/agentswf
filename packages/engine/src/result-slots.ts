@@ -4,11 +4,12 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { GivenInput, ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
+import { messageOf } from "./errors";
 import { recordAnswer, writeAcceptedExclusive } from "./ops";
 import { evaluateGiven } from "./result-validation";
 
-export type ResultRejectionCode = ResultSubmitCode;
-export type ResultSlotAccepted = {
+type ResultRejectionCode = ResultSubmitCode;
+type ResultSlotAccepted = {
   kind: "accepted";
   value: unknown;
   candidateRecorded: boolean;
@@ -18,8 +19,8 @@ export type ResultSlotAccepted = {
   acceptedAt: number;
 };
 type Rejected = { kind: "rejected"; code: ResultRejectionCode; error: string };
-export type ResultSubmission = ResultSlotAccepted | Rejected;
-export type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline?: number };
+type ResultSubmission = ResultSlotAccepted | Rejected;
+type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline?: number };
 export type ResultSlotSettlement =
   | ResultSlotAccepted
   | { kind: "closed" }
@@ -29,7 +30,7 @@ export type ResultSlotEvent =
   | { kind: "waiting"; reason: string; waitUntil: number; at: number; revision: number }
   | { kind: "admitted"; admittedAt: number; revision: number }
   | { kind: "persisted"; accepted: ResultSlotAccepted; revision: number };
-export type ResultSlotBinding = { operationId: string; settled: Promise<ResultSlotSettlement> };
+type ResultSlotBinding = { operationId: string; settled: Promise<ResultSlotSettlement> };
 export type ResultSlotSpec = {
   operationId: string;
   agentId: string;
@@ -232,7 +233,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
           },
           () => {},
         );
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = messageOf(error);
         if (slot.state === "committing") {
           slot.state = "failed";
           slot.settle({ kind: "failed", reason });

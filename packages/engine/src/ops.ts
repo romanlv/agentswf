@@ -22,7 +22,7 @@ import { appendLine, readLines } from "./jsonl";
  */
 
 /** An operation's folder. */
-export function opDir(runDir: string, op: string): string {
+function opDir(runDir: string, op: string): string {
   return join(runDir, "ops", op);
 }
 
@@ -94,7 +94,7 @@ export async function listOps(runDir: string): Promise<EarlierOps> {
  * Why `key` can't be an agent's or a decision's: it names folders, so it is a name, as an event's
  * or stage's is, and has no colon, which awf's own event names, `{key}:ended`, split at.
  */
-export function keyProblem(key: string): string | undefined {
+function keyProblem(key: string): string | undefined {
   if (key.includes(":"))
     return `a colon is kept for awf's own event names, such as {key}:ended; take another key, such as ${key.replaceAll(":", "-")}`;
   return nameProblem(key);
@@ -161,7 +161,7 @@ export class OpIds {
 }
 
 /** What an operation is, as it is drawn: its `op.json` but its version, id, attempt and time. */
-export type OpStart = OpRecord extends infer Each
+type OpStart = OpRecord extends infer Each
   ? Each extends OpRecord
     ? Omit<Each, "version" | "id" | "attempt" | "at">
     : never
@@ -194,7 +194,8 @@ export async function writeAcceptedExclusive(
 }
 
 /**
- * Null distinguishes "no value yet" from an operation whose accepted value happens to be null. A
+ * An operation's accepted result, as tests check it; a run never reads it back. Null
+ * distinguishes "no value yet" from an operation whose accepted value happens to be null. A
  * result.json of another version throws: unlike a cost, an answer has no unknown to fall back on.
  */
 export async function readAccepted(runDir: string, op: string): Promise<{ value: unknown } | null> {

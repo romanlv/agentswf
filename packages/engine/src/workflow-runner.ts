@@ -3154,31 +3154,16 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     id: TurnId,
   ): Promise<RunResult<JsonValue>> {
-    if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
-    const refused = this.#refusedWhileStarted("run");
-    if (refused) return Promise.reject(refused);
-    const scope = scopes.getStore();
-    try {
-      scope?.assertAccepting();
-      this.options.checkOperation();
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    const admitted = this.#admit<RunResult<JsonValue>, AbsoluteDeadline | undefined>(
+      "run",
+      { checkOperation: true },
+      (scope) => this.operationDeadline(spec, scope),
+    );
+    if ("rejected" in admitted) return admitted.rejected;
+    const { scope, prepared: deadline } = admitted;
     const opensWindow = !inTimeoutHandler();
     const completeSpec: TurnSpec = structuredClone({ ...spec, id });
-    let deadline: AbsoluteDeadline | undefined;
-    try {
-      deadline = this.operationDeadline(spec, scope);
-    } catch (error) {
-      const rejected = Promise.reject<RunResult<JsonValue>>(error);
-      scope?.track(rejected);
-      return rejected;
-    }
-    const result = this.queue(async () => {
-      if (this.#closed || this.options.isRunClosing()) {
-        throw new Error("logical agent is closed");
-      }
-      scope?.assertActive();
+    const result = this.#queueActive(scope, async () => {
       const cancelled = this.#cancelledTurns.get(id);
       if (cancelled !== undefined) {
         this.#cancelledTurns.delete(id);
@@ -3218,36 +3203,19 @@ class LogicalAgent implements AgentRef {
         await this.options.afterOperation?.();
       }
     });
-    const tracked = this.options.track(result);
-    scope?.track(tracked);
-    return tracked;
+    return this.#tracked(scope, result);
   }
 
   compact(spec: CompactSpec): Promise<TurnOutcome<string>> {
-    if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
-    const refused = this.#refusedWhileStarted("compact");
-    if (refused) return Promise.reject(refused);
-    const scope = scopes.getStore();
-    try {
-      scope?.assertAccepting();
-      this.options.checkOperation();
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    const admitted = this.#admit<TurnOutcome<string>, AbsoluteDeadline>(
+      "compact",
+      { checkOperation: true },
+      (scope) => harnessDeadline(this.operationDeadline(spec, scope)),
+    );
+    if ("rejected" in admitted) return admitted.rejected;
+    const { scope, prepared: deadline } = admitted;
     const id = randomUUID();
-    let deadline: AbsoluteDeadline;
-    try {
-      deadline = harnessDeadline(this.operationDeadline(spec, scope));
-    } catch (error) {
-      const rejected = Promise.reject<TurnOutcome<string>>(error);
-      scope?.track(rejected);
-      return rejected;
-    }
-    const result = this.queue(async () => {
-      if (this.#closed || this.options.isRunClosing()) {
-        throw new Error("logical agent is closed");
-      }
-      scope?.assertActive();
+    const result = this.#queueActive(scope, async () => {
       const tags = tagsOf(scope);
       const drawn = this.options.ops.draw(this.key, { kind: "compact", ...this.opWhere(tags) });
       const operation = this.operationLog(drawn.id, "compact", tags);
@@ -3265,32 +3233,23 @@ class LogicalAgent implements AgentRef {
         await this.options.afterOperation?.();
       }
     });
-    const tracked = this.options.track(result);
-    scope?.track(tracked);
-    return tracked;
+    return this.#tracked(scope, result);
   }
 
   /** Not a turn: progress counts none for it, and it asks the model nothing. */
   set(spec: SettingsSpec): Promise<TurnOutcome<null>> {
-    if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
-    const refused = this.#refusedWhileStarted("set");
-    if (refused) return Promise.reject(refused);
-    const scope = scopes.getStore();
-    try {
-      scope?.assertAccepting();
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    let change: SettingsChange;
-    let deadline: AbsoluteDeadline;
-    try {
-      change = this.settingsChange(spec);
-      deadline = harnessDeadline(this.operationDeadline(spec, scope));
-    } catch (error) {
-      const rejected = Promise.reject<TurnOutcome<null>>(error);
-      scope?.track(rejected);
-      return rejected;
-    }
+    const admitted = this.#admit<
+      TurnOutcome<null>,
+      { change: SettingsChange; deadline: AbsoluteDeadline }
+    >("set", { checkOperation: false }, (scope) => ({
+      change: this.settingsChange(spec),
+      deadline: harnessDeadline(this.operationDeadline(spec, scope)),
+    }));
+    if ("rejected" in admitted) return admitted.rejected;
+    const {
+      scope,
+      prepared: { change, deadline },
+    } = admitted;
     this.#pendingSets.push(change);
     const result = this.queue(async () => {
       try {
@@ -3305,6 +3264,50 @@ class LogicalAgent implements AgentRef {
         this.#pendingSets.splice(this.#pendingSets.indexOf(change), 1);
       }
     });
+    return this.#tracked(scope, result);
+  }
+
+  /**
+   * The checks before an operation is queued, in order: the agent open, no started turn in its
+   * way, the scope accepting and, with `checkOperation`, the stage; then `prepare`, whose refusal
+   * the scope tracks. A refusal is a rejection, never a throw.
+   */
+  #admit<T, P>(
+    what: string,
+    options: { checkOperation: boolean },
+    prepare: (scope: ExecutionScope | undefined) => P,
+  ): { scope: ExecutionScope | undefined; prepared: P } | { rejected: Promise<T> } {
+    if (this.#closed) return { rejected: Promise.reject(new Error("logical agent is closed")) };
+    const refused = this.#refusedWhileStarted(what);
+    if (refused) return { rejected: Promise.reject(refused) };
+    const scope = scopes.getStore();
+    try {
+      scope?.assertAccepting();
+      if (options.checkOperation) this.options.checkOperation();
+    } catch (error) {
+      return { rejected: Promise.reject(error) };
+    }
+    try {
+      return { scope, prepared: prepare(scope) };
+    } catch (error) {
+      const rejected = Promise.reject<T>(error);
+      scope?.track(rejected);
+      return { rejected };
+    }
+  }
+
+  /** `work` once the queue reaches it, the agent and run still open and `scope` still active. */
+  #queueActive<T>(scope: ExecutionScope | undefined, work: () => Promise<T>): Promise<T> {
+    return this.queue(async () => {
+      if (this.#closed || this.options.isRunClosing()) {
+        throw new Error("logical agent is closed");
+      }
+      scope?.assertActive();
+      return work();
+    });
+  }
+
+  #tracked<T>(scope: ExecutionScope | undefined, result: Promise<T>): Promise<T> {
     const tracked = this.options.track(result);
     scope?.track(tracked);
     return tracked;
@@ -3420,11 +3423,7 @@ class LogicalAgent implements AgentRef {
     // The harness bounds its fork by this deadline and stops it there, so the session is idle again
     // when the fork rejects.
     const take: TakeFork = (deadline, into) =>
-      this.queue(async () => {
-        if (this.#closed || this.options.isRunClosing()) {
-          throw new Error("logical agent is closed");
-        }
-        scope?.assertActive();
+      this.#queueActive(scope, async () => {
         // The fork was opened at the settings it would copy; a `set` before it that did not take
         // would leave it recording settings it never ran at.
         if (!isDeepStrictEqual(sessionSettings(this.#execution), sessionSettings(settings))) {
@@ -3468,9 +3467,19 @@ class LogicalAgent implements AgentRef {
         `agent ${this.key} is the calling session, whose model and effort are the operator's`,
       );
     }
+    const removed = Object.keys(spec).filter(
+      (field) =>
+        REMOVED_SETTINGS_FIELDS.has(field) && (spec as Record<string, unknown>)[field] != null,
+    );
+    if (removed.length > 0) {
+      const bound = removed.some((field) => field !== "id") ? ": bound it with timeout" : "";
+      throw new Error(`set takes no ${removed.join(", ")}${bound}`);
+    }
     // A workflow is untyped JavaScript at run time: a harness or placement asked for must not be
     // dropped in silence.
-    const others = Object.keys(spec).filter((field) => !SETTINGS_FIELDS.has(field));
+    const others = Object.keys(spec).filter(
+      (field) => !SETTINGS_FIELDS.has(field) && !REMOVED_SETTINGS_FIELDS.has(field),
+    );
     if (others.length > 0) {
       throw new Error(
         `set changes an agent's model and effort, not its ${others.join(", ")}: another harness or placement is another agent`,
@@ -4852,7 +4861,10 @@ function withKnownEffort(execution: AgentExecution): AgentExecution {
 /** What `set` changes. */
 type SettingsChange = Partial<Pick<AgentExecution, "model" | "effort">>;
 
-const SETTINGS_FIELDS = new Set(["id", "model", "effort", "timeout", "deadline", "timeoutMs"]);
+const SETTINGS_FIELDS = new Set(["model", "effort", "timeout"]);
+
+/** Removed in 0.1.0-beta.6; refused, as the switch would run otherwise than written. */
+const REMOVED_SETTINGS_FIELDS = new Set(["id", "deadline", "timeoutMs"]);
 
 function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
   return { model, ...(effort === undefined ? {} : { effort }) };
@@ -4903,7 +4915,7 @@ const FORK_RUNTIME_FIELDS = ["placement", "metered", "effort"] as const;
 /** A fork's spec, its `runtime` checked: what a typed caller can't get wrong, a plain one can. */
 function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
   const { runtime, ...rest } = spec;
-  // Removed in 0.1.0-beta.6; ignored, the fork would run otherwise than written.
+  // Removed in 0.1.0-beta.6; refused, as the fork would run otherwise than written.
   const flat = FORK_RUNTIME_FIELDS.filter(
     (field) => (rest as Record<string, unknown>)[field] !== undefined,
   );
