@@ -320,7 +320,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 - [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
   one left running.
 - [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
-  way to do each thing in the author API, before more people build on the beta. In progress; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+  way to do each thing in the author API, before more people build on the beta. Awaiting human review, its live checks not run; design in [`design/api-consolidation.md`](design/api-consolidation.md).
   Task 1 built: `wf.steps`, `wf.call`, `receive({ take })`, `wf.timers()`, `WorkflowDefinition`,
   `agents.attach` and `participants.get` are gone; agent `labels`, `meta.whenToUse`, a stage
   around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
@@ -388,6 +388,15 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   brings a tab forward only in the operator's own workspace. A run an event starts takes the
   defaults. An older awf continuing a run with `panes` silently ignores the operator's choices.
   Not yet checked live in Herdr: a pane in a named workspace and tab, and `front`.
+  Task 10 built: what tasks 1–9 deprecated, shipped in 0.1.0-beta.5, is removed, with the one list
+  of deprecations. `tsc` refuses each removed name, a started turn as a wait's branch included. Run
+  time refuses what the operator or a workflow could still give: `awf send --event-id` (naming `awf
+  emit`), a bare `--wait 90`, `ms` for `--timeout` on `awf` and `wfa`, a key with a colon (an
+  agent's, a participant's or a decision's), `to:` on `connect`, a fork's flat runtime fields,
+  `layout`, `keepPane`, `receive()` in a stage, and `start()` for an agent whose `{key}:ended` isn't
+  declared. A run without stages groups its cost as `agents`, a row per agent or decision key; an
+  attempt recorded with `prefix` still reads. `testWorkflow` takes `panes: { workspace?, keep? }`,
+  as `awf run` records them. Named Herdr sessions, which only `layout.session` reached, are gone.
 
 ## Known gaps
 
