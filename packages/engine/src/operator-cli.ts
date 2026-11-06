@@ -56,7 +56,7 @@ import {
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
-import { asksJson, printRefusal, readFailureCode, refusalLine } from "./refusals";
+import { asksJson, NO_JSON, printRefusal, readFailureCode, refusalLine } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -335,7 +335,6 @@ async function openRun(
   { loaded, id, argv, panes }: OpensEventRun,
   environment: OperatorEnvironment,
   { stdout, stderr }: Output,
-  json: boolean,
 ): Promise<number> {
   try {
     const opened = await openEventRun(
@@ -357,7 +356,7 @@ async function openRun(
     stderr(`awf: the run's attempt did not start: ${opened.error}`);
     return 1;
   } catch (error) {
-    printRefusal({ stdout, stderr }, { json, v: 1 }, error, readFailureCode(error));
+    printRefusal({ stdout, stderr }, NO_JSON, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
   }
 }
@@ -413,7 +412,7 @@ async function runCommand(
     stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
-  if ("opens" in ready) return openRun(ready.opens, environment, output, command.json);
+  if ("opens" in ready) return openRun(ready.opens, environment, output);
   // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {

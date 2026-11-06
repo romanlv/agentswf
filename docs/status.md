@@ -299,8 +299,9 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
   meets the same failure (an `awf inbox` that reads nothing new prints none); exit codes unchanged,
   the sentence still on stderr. `awf reply`/`awf send --json` at `v` 3, a success `{v, id}`; `awf
   inbox --json` at `v` 2; `not-found` is `no-run`, `bad-cursor` `cursor`. A guard runs every
-  `--json` command into failures its help names, and checks each code a help lists is published. Q6,
-  `awf run --id`'s text line for a workflow with events, open.
+  `--json` command into failures its help names, and checks each code a help lists is published. `awf run`
+  opening a run of a workflow with events refuses `--json` as `usage`, as `--here` does (Q6). A
+  scripted participant's `reply`/`send` in `agentswf/testing` resolves to `{ id }` or `{ code }` (Q7).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

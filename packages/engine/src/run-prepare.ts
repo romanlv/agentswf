@@ -112,6 +112,11 @@ export async function loadAndPrepare(
             refused: `a run of ${loaded.file}, which starts on events, is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
             code: "no-id",
           };
+        if (command.json)
+          return {
+            refused: `a run of ${loaded.file}, which starts on events, opens detached and prints no document: leave out --json, or start it with an event with awf emit --json`,
+            code: "usage",
+          };
         return {
           opens: {
             loaded,

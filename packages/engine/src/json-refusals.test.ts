@@ -486,6 +486,15 @@ const ROWS: Row[] = [
   },
   {
     command: "run",
+    failure: "a workflow with events, whose run opens detached with no document",
+    argv: (f) => [f.file, "--id", "k"],
+    code: "usage",
+    exit: 2,
+    v: 1,
+    says: /opens detached and prints no document/,
+  },
+  {
+    command: "run",
     failure: "--here, which prints no document",
     argv: (f) => [f.plain, "--here"],
     code: "usage",

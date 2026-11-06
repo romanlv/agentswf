@@ -259,13 +259,7 @@ Alternatives rejected:
 
 ## Open questions
 
-- Q6. `awf run --id {id} --json` for a workflow with events opens its run and prints a text line,
-  `dd-case/k: started`, not a document, on success and on a failed launch (exit 1) alike: the one
-  `--json` call left without one. Options: a result of its own, close to `awf emit`'s
-  (`{v: 1, ok, ref, created, did, why?, error?}`), a new format; refusing `--json` there as
-  `usage`, as `--here` is; or recording it as the rule's one exception. Its refusals are
-  documents already. Raised in task 4; to settle before the branch merges, as the reference
-  states the rule.
+None.
 
 Decided with the human on 2026-11-05:
 
@@ -277,6 +271,9 @@ Decided with the human on 2026-11-05:
 - Q4. `code` marks a refusal, and no result carries it; `reply`/`send`'s success drops
   `code: "delivered"`.
 - Q5. A refusal carries its command's `v`.
+- Q6. `awf run` opening a run of a workflow with events, with `--id` or the workflow's `id(args)`,
+  refuses `--json` as `usage`, as `--here` does: the run opens detached and prints a text line, no
+  document, so the rule keeps no exception. `awf emit --json` is the call with a result.
 - Q7. `agentswf/testing`'s `ParticipantOutcome`, what a scripted participant's `reply` or `send`
   resolves to, is `{ id } | { code }`, `awf reply --json`'s document without the `v`: the right
   shape now, no compatibility kept. Was `{ code: "delivered", id }`.
