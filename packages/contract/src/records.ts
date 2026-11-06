@@ -1264,15 +1264,17 @@ export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
  * failures: `usage`, an argv that can't be parsed or whose options clash; `no-run`; `ambiguous`, a
  * name that fits more than one, with `choices` when they are known; `file`, a workflow file that is
  * missing, doesn't load or doesn't export the workflow; `event`, an event name or data the workflow
- * doesn't take; `id`, a run or event id the grammar refuses, one `id(args)` returns, or one another
- * run has; `no-id`, a start naming no run; `prepare`, a workflow refusing its arguments or options;
- * `not-started`, no attempt started: a Ctrl-C, a session not taken, a claim given up, or a run that
- * is running, completed or gone; `other-args`, a start of a run there with other args;
- * `unreachable`, a run whose files can't be read or that doesn't answer; `cursor`, a cursor or
- * handle made for another run or filter; `project`, a workflow in no project; `no-engine` and
- * `other-engine`, a project's `agentswf` missing or another version; `internal-error`, a failure
- * that isn't the caller's, such as a file awf couldn't write, which `error` names. `reply` and
- * `send` also refuse with `PARTICIPANT_CODES`.
+ * doesn't take, or a workflow that takes none; `id`, a run or event id the grammar refuses, one
+ * `id(args)` returns, or one another run has; `no-id`, a start naming no run; `prepare`, a workflow
+ * refusing its arguments or options; `not-started`, no attempt started: a Ctrl-C, a session not
+ * taken, a claim given up, or a run that is running, completed or gone; `other-args`, a start or
+ * continue of a run there with other args or options; `unreachable`, a run whose files can't be
+ * read or that doesn't answer; `cursor`, a cursor or handle that doesn't fit: made for another run
+ * or filter, past the run's end, or naming no event; `project`, a workflow in no project;
+ * `no-engine` and `other-engine`, a project's `agentswf` missing or another version;
+ * `internal-error`, a failure that isn't the caller's, such as a file awf couldn't write, which
+ * `error` names. `reply` and `send` also refuse with `PARTICIPANT_CODES`, and `inbox` with
+ * `INBOX_CODES`.
  */
 export const REFUSAL_CODES = [
   "usage",

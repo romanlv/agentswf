@@ -52,7 +52,7 @@ A code means the same in every command that prints it, and is the word
 | `usage` | its arguments can't be parsed, or two of them clash | every command |
 | `no-run` | there is no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `ambiguous` | a name fits more than one: a run's id runs of two workflows or projects, or `--as`, an agent or `--to` more than one of theirs, with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
-| `id` | a run or event id the grammar refuses, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
+| `id` | a run or event id the grammar refuses, one the workflow's `id(args)` returns, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
 | `event` | the workflow doesn't take the event's name or data, or takes no events | `emit` |
 | `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
@@ -60,7 +60,7 @@ A code means the same in every command that prints it, and is the word
 | `other-args` | a run there, started with other arguments or options | `run` |
 | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running, completed or gone | `run` |
 | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
-| `cursor` | a cursor or handle doesn't fit | `logs`, `inbox` |
+| `cursor` | a cursor or handle doesn't fit: made for another run or filter, past the run's end, or naming no event | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `project` | the workflow isn't in a project | `run`, `emit` |
 | `internal-error` | something failed that isn't the caller's, such as a file awf couldn't write; `error` says what | every command |

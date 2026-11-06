@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { type RunLine, type RunView, readRun } from "@agentswf/contract/records";
 import { isCode, syncDir } from "./files";
 import { unendedTurns } from "./run-policy/waits";
+import { RunUnreachable } from "./run-unreachable";
 import { crashedEnd } from "./turn-ends";
 
 /** `run.jsonl`, what the run settled; resolved, as it keys the append queue. */
@@ -72,7 +73,7 @@ export async function readRunLines(runDir: string): Promise<{ lines: RunLine[]; 
     try {
       return JSON.parse(line) as unknown;
     } catch {
-      throw new Error(`run.jsonl line ${index + 1}: not JSON`);
+      throw new RunUnreachable(`run.jsonl line ${index + 1}: not JSON`);
     }
   });
   const view = readRun(parsed);

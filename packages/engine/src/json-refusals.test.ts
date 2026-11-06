@@ -112,6 +112,15 @@ beforeAll(async () => {
     unix: coordinatorSocketPath(silent, join(runRoot, "dd-case", "r1")),
     socket: { data: (socket) => void socket.end() },
   });
+  // A plain run whose run.jsonl can't be read.
+  const torn = await createRun(runRoot, {
+    id: "torn",
+    workflow: "plain",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  writeFileSync(join(torn.dir, "run.jsonl"), "garbage\n");
   // A run whose record this awf can't read: one made before `run.json` had a format.
   mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
   writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
@@ -477,6 +486,15 @@ const ROWS: Row[] = [
     exit: 2,
     v: 1,
     says: /takes no --values/,
+  },
+  {
+    command: "run",
+    failure: "a continue of a run whose run.jsonl can't be read",
+    argv: (f) => [f.plain, "--id", "torn", "--continue"],
+    code: "unreachable",
+    exit: 2,
+    v: 1,
+    says: /run.jsonl line 1: not JSON/,
   },
   {
     command: "run",

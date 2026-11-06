@@ -13,6 +13,7 @@ import { coordinatorDir } from "./machine";
 import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
+import { RunUnreachable } from "./run-unreachable";
 import { readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
@@ -135,7 +136,7 @@ export async function holderCommand(
       throw error;
     }
     if (!answer)
-      throw new Error(
+      throw new RunUnreachable(
         `${status.ref} did not answer, most likely as it runs an older awf than this one, which speaks wire version ${WIRE_VERSION}: reach it with the awf it started with, or let it end and continue it under this one.`,
       );
     const result = JSON.parse(answer) as HolderWireAnswer;

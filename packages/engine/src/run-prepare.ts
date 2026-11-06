@@ -18,6 +18,7 @@ import { projectOf, projectRunRoot, recordProject } from "./projects";
 import type { RunCommand } from "./run-command";
 import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
 import { crashedRedo } from "./run-policy/stages";
+import { RunUnreachable } from "./run-unreachable";
 import {
   type Attempt,
   appendEvent,
@@ -156,7 +157,8 @@ export async function loadAndPrepare(
 
 /** A refusal while preparing: the run's own, or the workflow's `prepare` refusing its argv. */
 function prepareRefused(error: unknown): { refused: string; code: RefusalCode } {
-  if (error instanceof RunRefused) return { refused: messageOf(error), code: error.code };
+  if (error instanceof RunRefused || error instanceof RunUnreachable)
+    return { refused: messageOf(error), code: error.code };
   return { refused: messageOf(error), code: "internal-error" };
 }
 

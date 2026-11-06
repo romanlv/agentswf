@@ -103,8 +103,9 @@ export function failed(
   message: string,
   json: { json: boolean; v: number } = NO_JSON,
 ): number {
-  // The error's own code, else exit 3's: the run's files couldn't be read.
-  if (json.json) out.stdout(refusalLine(json.v, refusalCode(error) ?? "unreachable", message));
+  // The error's own code; else a file that couldn't be read, exit 3's, or a failure of awf's.
+  const code = refusalCode(error) ?? (isSystemError(error) ? "unreachable" : "internal-error");
+  if (json.json) out.stdout(refusalLine(json.v, code, message));
   if (error instanceof RunNotFound) {
     out.stderr(`${error.message}; runs here: ${shellLine(command(place, "awf", "runs"))}`);
     return 1;
@@ -253,4 +254,10 @@ export function clockTime(at: number | string): string {
   const date = new Date(at);
   const two = (n: number) => String(n).padStart(2, "0");
   return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+
+/** An error the system gave, `ENOENT`, `EACCES` and the like: reading the run's files failed. */
+function isSystemError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^E[A-Z]+$/.test(code);
 }

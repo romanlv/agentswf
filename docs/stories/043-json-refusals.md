@@ -19,9 +19,9 @@ exit codes stay as they are, and stderr stays for people.
 The refusal codes are the words `agentswf/client` throws as `ClientError.code`, so a program
 reaching runs by the CLI and one using the client handle the same failure the same way.
 
-A test runs every `--json` command into the failures its help documents and checks that each
-prints a refusal. A new `--json` command without rows, or a documented failure that goes silent,
-fails `bun test`, not a host in production.
+A test runs every `--json` command into failures its help documents and checks that each prints
+a refusal, and that every code each help lists is a published one. A new `--json` command without
+rows, or one of those failures gone silent, fails `bun test`, not a host in production.
 
 **Why now.** On 2026-11-05 awf-chat moved its replies to a run's code from the deprecated
 `awf send --event-id` to `awf emit {run} {key}:reply`, the replacement the deprecation names.
@@ -201,7 +201,7 @@ Out of scope:
   | `usage` | the argv can't be parsed, or its options clash | every command |
   | `no-run` | no such run | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send`; client |
   | `ambiguous` | a name fits more than one: a run's id, or `--as`, an agent or `--to`, with `choices` | `emit`, the run readers, `reply`, `send` |
-  | `id` | a run or event id the grammar refuses, or one another run has | `run`, `emit`, the run readers; client |
+  | `id` | a run or event id the grammar refuses, one `id(args)` returns, or one another run has | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `file` | the workflow file is missing, doesn't load, or doesn't export it | `run`, `emit`; client |
   | `event` | an event name or data the workflow doesn't take, or it takes none | `emit`; client |
   | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
@@ -209,12 +209,12 @@ Out of scope:
   | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
   | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running, completed or gone | `run` |
   | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
-  | `cursor` | a cursor or handle made for another run or filter | `logs`, `inbox`; client |
-  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers; client |
+  | `cursor` | a cursor or handle that doesn't fit: another run's or filter's, past the run's end, naming no event | `logs`, `inbox`; client |
+  | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `project` | a workflow in no project | `run`, `emit`; client |
   | `internal-error` | a failure that isn't the caller's, such as an I/O error; `error` says what | every command |
 
-  Plus the participant codes only `reply` and `send` have: `no-participant`, `ended`,
+  Plus the participant codes `reply` and `send` have, `no-participant` `inbox` too: `ended`,
   `ambiguous`, `peer-stopped` and the rest of `PARTICIPANT_CODES`. Each command's help lists the
   codes it prints. Task plans may find a failure the table lacks; it gets a row, not a
   command-local word.
@@ -401,7 +401,8 @@ Done when:
 
 Automated:
 
-- [x] The guard: every `--json` command, every documented failure, a refusal on stdout's last line.
+- [x] The guard: every `--json` command, failures each help documents, a refusal on stdout's last
+  line; every code a help lists published.
 - [x] `bun test`: 2818 pass, 0 fail
 - [x] `bunx tsc --noEmit`
 - [x] `bun run scripts/check-boundaries.ts`, and the site's `bun run build`
@@ -523,6 +524,16 @@ Manual or live evaluation:
   `out.json` with no `code`. Seen there, not this story's: an `expired` refusal names question
   `1.9` as `9`, `messaging.ts`'s text.
 
+- Round 2, correctness: a continue whose `run.jsonl` can't be parsed was `internal-error`, where a
+  bad `run.json` was `unreachable`: `run-lines.ts` throws `RunUnreachable` for it, and so does a
+  holder whose run doesn't answer; a row for it.
+- Round 2, design and docs: the readers' `failed()` gave every uncoded error `unreachable`, where
+  `emit` and `run` say `internal-error`: now a system error reading the run's files is
+  `unreachable` and anything else `internal-error`, exit 3 either way; the skill's reading of
+  `awf emit`'s `ok`; the guard's coverage claims reworded to what it enforces; `event`, `id`,
+  `cursor` and `other-args` glossed alike everywhere; the story's table and task 1 note; the
+  status entry.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -541,7 +552,7 @@ Manual or live evaluation:
   `Extract` of `RefusalCode`, so the client can't throw a word the table lacks. `RefusalJson` takes
   the code set and the command's `v` as parameters.
 - `no-id` and `other-args` are in the table: the client throws them, and one set of words was the
-  point. No command prints them.
+  point. No command printed them until task 4, when `awf run` came to.
 - `unreachable` and `cursor` cover `runs` and `logs` too: their helps already promise exit 3 when
   the run's files can't be read, and `logs` exits 1 for a cursor or handle that doesn't fit.
 - The mapping is `engine/src/refusals.ts`: `refusalCode` reads the code an engine error carries
