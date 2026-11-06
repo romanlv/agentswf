@@ -8,7 +8,16 @@ import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
 import { screenFile } from "./ops";
 import { asksJson, printRefusal, refusalLine } from "./refusals";
-import { continueOf, currentStage, failed, nextLogs, span, stateWord } from "./run-commands";
+import {
+  continueOf,
+  currentStage,
+  failed,
+  MAX_WAIT_SECONDS,
+  nextLogs,
+  POLL_MS,
+  span,
+  stateWord,
+} from "./run-commands";
 import {
   type Cursor,
   cutCursor,
@@ -34,10 +43,8 @@ const DEFAULT_LIMIT = 40;
  * result or a message whole, short of a dumped file. `@{handle}` gives it whole.
  */
 const PAGE_TEXT = 50_000;
-const MAX_WAIT_SECONDS = 300;
 /** After a first new event, how long to wait for the rest of its burst. */
 const SETTLE_MS = 1_000;
-const POLL_MS = 1_000;
 
 type LogsOptions = {
   ref?: string;

@@ -17,7 +17,7 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import { failed } from "./run-commands";
+import { failed, MAX_WAIT_SECONDS, POLL_MS } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import { waitLabels as labelsOf } from "./run-policy/waits";
 import { findRunByRef, listRuns, RunNotFound, statusOf } from "./run-state";
@@ -32,9 +32,6 @@ import {
 } from "./runs";
 
 export const inboxUsage = help.trimEnd();
-
-const MAX_WAIT_SECONDS = 300;
-const POLL_MS = 1_000;
 
 /** The clock and the pause between polls, which tests drive. */
 export type InboxClock = { now(): number; sleep(ms: number): Promise<void> };
@@ -110,9 +107,8 @@ export async function inboxCommand(
       ? `all|${options.workflow ?? ""}|${options.as ?? ""}`
       : `run|${options.ref}|${options.as ?? ""}`;
     let state: CursorState = { f: filter, r: {} };
-    // Reading every run here, none is missing or unconnected, so a cursor is checked first, sparing a read.
     let checked = options.after === undefined;
-    if (!checked && options.all) {
+    const takeCursor = () => {
       const given = decodeCursor(options.after!);
       if (!given || given.f !== filter)
         throw new Refused(
@@ -121,7 +117,9 @@ export async function inboxCommand(
         );
       state = given;
       checked = true;
-    }
+    };
+    // Reading every run here, none is missing or unconnected, so a cursor is checked first, sparing a read.
+    if (!checked && options.all) takeCursor();
     const deadline = clock.now() + options.waitSeconds * 1000;
     // An event run lives in its project, found through ~/.awf/projects from anywhere (Q15).
     const found =
@@ -132,14 +130,7 @@ export async function inboxCommand(
       const runs = await readInbox(options, state, watch, one);
       // After a run that is not there, or never connected one: those come first.
       if (!checked) {
-        const given = decodeCursor(options.after!);
-        if (!given || given.f !== filter)
-          throw new Refused(
-            "cursor",
-            `cursor ${options.after} was made with another run or filter; read again without --after`,
-          );
-        state = given;
-        checked = true;
+        takeCursor();
         continue;
       }
       if (options.open) {

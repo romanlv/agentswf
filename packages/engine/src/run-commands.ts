@@ -13,6 +13,11 @@ import { clockTime } from "./run-text";
 import { runRootOf } from "./runs";
 import { readSpent } from "./spend";
 
+/** The longest `--wait` the commands that read runs take. */
+export const MAX_WAIT_SECONDS = 300;
+/** How often they read a run while they wait. */
+export const POLL_MS = 1_000;
+
 /** Says a run that is not there, and exits 1; anything else is the run's files, exit 3. */
 export function failed(
   error: unknown,
