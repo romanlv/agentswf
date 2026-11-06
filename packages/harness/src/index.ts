@@ -22,10 +22,15 @@ export { loginFailure } from "./harnesses/login";
 export { launchSettings } from "./harnesses/shared";
 export { createPlacementHostFactory } from "./placement-host";
 export { effortRefusal, headlessRefusal, settingsRefusal } from "./refusals";
-export { hostHome, sandboxNeeds, sandboxTokens } from "./sandbox-needs";
+export {
+  hostHome,
+  sandboxedOperatorArgs,
+  sandboxNeeds,
+  sandboxTokens,
+} from "./sandbox-needs";
 export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";
-export { HOME_ENV, harnessState } from "./state";
+export { harnessState } from "./state";
 export * from "./types";
 export { createSessionAccounting, type SessionAccounting } from "./usage/accounting";
 export type { AllowanceRead } from "./usage/allowance";

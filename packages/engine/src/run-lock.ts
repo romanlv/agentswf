@@ -81,6 +81,49 @@ async function claim(file: string): Promise<Holder> {
 }
 
 /**
+ * `{root}/{workflow}/{run id}.open`: held by `awf open --no-fork` for as long as the session it
+ * opened is open, so no attempt starts and no second one opens it (story 042). Claimed as the
+ * run's lock is, but never waited for.
+ */
+export function runOpenFile(runRoot: string, workflow: string, runId: string): string {
+  return join(runRoot, workflow, `${runId}.open`);
+}
+
+/** Who holds a claim: its process, by pid and start. */
+export type ClaimHolder = Holder;
+
+/**
+ * Claims `file` once, without waiting: this process's holding, or the live process that holds it.
+ * A holder whose process is gone is taken over.
+ */
+export async function claimNow(file: string): Promise<{ held: Holder } | { heldBy: Holder }> {
+  const started = ownStart();
+  if (started === undefined) throw new Error(`no start time for this process (${process.pid})`);
+  const mine: Holder = { pid: process.pid, processStart: started, at: new Date().toISOString() };
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  for (let tries = 0; tries < 5; tries += 1) {
+    if (await linkNew(file, mine)) return { held: mine };
+    const holder = await readHolder(file);
+    if (holder === "gone") continue;
+    if (holder && !gone(holder)) return { heldBy: holder };
+    await takeOver(file, holder);
+  }
+  throw new Error(`${file} changed hands as it was claimed; try again`);
+}
+
+/** Lets go of `file`, if `held` still holds it. */
+export async function releaseClaim(file: string, held: Holder): Promise<void> {
+  if (JSON.stringify(await readHolder(file)) === JSON.stringify(held))
+    await unlink(file).catch(() => undefined);
+}
+
+/** The live process holding `file`, read without taking it; none for a holder that is gone. */
+export async function liveHolder(file: string): Promise<Holder | undefined> {
+  const holder = await readHolder(file);
+  return holder !== "gone" && holder !== undefined && !gone(holder) ? holder : undefined;
+}
+
+/**
  * Whether a live process holds the lock, read without taking it. A holder whose process is gone,
  * a sender killed mid-launch, holds nothing; nor does a torn file, which `claim` takes over.
  */

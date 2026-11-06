@@ -50,11 +50,11 @@ import { logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import { openCommand } from "./open-command";
 import {
-  agentWithheldEnvironment,
   allowanceReader,
   herdrConfig,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
+  openRuntime,
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
@@ -238,7 +238,7 @@ export async function runOperatorCli(
         {
           home: wakes.home,
           environment: wakes.environment,
-          withheld: agentWithheldEnvironment(),
+          ...openRuntime(wakes.environment),
           ...(environment.stdin
             ? { stdin: environment.stdin }
             : { stdinIsTerminal: process.stdin.isTTY === true }),

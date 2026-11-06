@@ -287,6 +287,9 @@ export function refusalMessage(id: string, refusal: AttemptRefusal, now: number)
   if (refusal.kind === "running") {
     return `attempt ${refusal.attempt.attempt} of ${id} is still running, as process ${refusal.attempt.pid}`;
   }
+  if (refusal.kind === "opened") {
+    return `${id} is open in awf open --no-fork (pid ${refusal.pid}); it goes on once that exits`;
+  }
   if (refusal.stages.length === 0) return `${id} completed; there is nothing to continue`;
   return `${id} completed; to redo from a stage, --from-stage one of:\n${listRecorded(refusal.stages, now).join("\n")}`;
 }

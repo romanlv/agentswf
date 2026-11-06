@@ -1,12 +1,22 @@
 import { afterAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import type { ProcessInput, ProcessResult } from "@agentswf/harness";
 import { writeJson } from "./files";
 import { type Attach, openCommand } from "./open-command";
-import { createRun, type Run, workDir } from "./runs";
-import { createTempRunDirs } from "./testing";
+import { runOpenFile } from "./run-lock";
+import { createRun, processStart, type Run, workDir } from "./runs";
+import { createTempRunDirs, writeAttempt } from "./testing";
+import type { Launch } from "./wake";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -15,8 +25,8 @@ const AT = "2026-11-05T10:00:00.000Z";
 
 type Fixture = { cwd: string; root: string; run: Run; home: string };
 
-/** A finished run whose agent `fixer` ran claude in `cwd`, on its own home inside the run. */
-async function fixture(): Promise<Fixture> {
+/** A finished run whose agent `fixer` ran claude in `cwd`; `home`, a codex agent's own, inside it. */
+async function fixture(events = false): Promise<Fixture> {
   const cwd = runDirs.tempRunDir();
   const root = join(cwd, ".awf", "runs");
   const run = await createRun(root, {
@@ -25,6 +35,7 @@ async function fixture(): Promise<Fixture> {
     argv: [],
     cwd,
     sandbox: null,
+    ...(events ? { events: true } : {}),
   });
   const home = join(workDir(run.dir), "agents", "a1", "home");
   mkdirSync(home, { recursive: true });
@@ -32,8 +43,8 @@ async function fixture(): Promise<Fixture> {
     join(run.dir, "run.jsonl"),
     `${JSON.stringify({ kind: "claimed", attempt: 1, at: AT })}\n`,
   );
-  session(run, { agent: "fixer", session: "s-old", operation: "fixer.1", home });
-  session(run, { agent: "fixer", session: "s-1", operation: "fixer.2", home });
+  session(run, { agent: "fixer", session: "s-old", operation: "fixer.1" });
+  session(run, { agent: "fixer", session: "s-1", operation: "fixer.2" });
   await op(run, "fixer.1", cwd, { harness: "claude", model: "claude-sonnet-5-5" });
   await op(run, "fixer.2", cwd, { harness: "claude", model: "claude-sonnet-5-5", effort: "high" });
   return { cwd, root, run, home };
@@ -63,7 +74,7 @@ async function op(run: Run, id: string, cwd: string, execution: Record<string, u
 type Seen = { runs: ProcessInput[]; attached: Parameters<Attach>[0][] };
 
 /** Fake processes: claude's fork answers with `copy-1`, its turn with `the answer`. */
-function processes(seen: Seen, exitCode = 0) {
+function processes(seen: Seen, exitCode = 0, during?: () => Promise<void>) {
   return {
     run: async (input: ProcessInput): Promise<ProcessResult> => {
       seen.runs.push(input);
@@ -75,6 +86,7 @@ function processes(seen: Seen, exitCode = 0) {
     },
     attach: async (input: Parameters<Attach>[0]) => {
       seen.attached.push(input);
+      await during?.();
       return 7;
     },
   };
@@ -83,7 +95,13 @@ function processes(seen: Seen, exitCode = 0) {
 async function open(
   f: Fixture,
   argv: string[],
-  options: { stdin?: string; exitCode?: number } = {},
+  options: {
+    stdin?: string;
+    exitCode?: number;
+    /** Run while the TUI is open. */
+    during?: () => Promise<void>;
+    launch?: Launch;
+  } = {},
 ) {
   const seen: Seen = { runs: [], attached: [] };
   const stdout: string[] = [];
@@ -95,8 +113,8 @@ async function open(
     {
       home: f.cwd,
       environment: {},
-      withheld: ["CLAUDECODE"],
-      ...processes(seen, options.exitCode),
+      ...processes(seen, options.exitCode, options.during),
+      ...(options.launch ? { launch: options.launch } : {}),
       ...(options.stdin === undefined
         ? { stdinIsTerminal: true }
         : { stdin: async () => options.stdin! }),
@@ -131,7 +149,7 @@ test("a copy of the agent's latest session opens in its harness's TUI, where and
   const [fork] = seen.runs;
   expect(fork!.argv.slice(0, 5)).toEqual(["claude", "-p", "--resume", "s-1", "--fork-session"]);
   expect(fork!.cwd).toBe(f.cwd);
-  expect(fork!.env).toMatchObject({ CLAUDE_CONFIG_DIR: f.home, CLAUDECODE: undefined });
+  expect(fork!.env).toEqual({});
   // The TUI opens the copy, at the agent's model and effort, without the unattended flags.
   const [tui] = seen.attached;
   expect(tui!.argv.slice(0, 7)).toEqual([
@@ -145,9 +163,8 @@ test("a copy of the agent's latest session opens in its harness's TUI, where and
   ]);
   expect(tui!.argv).not.toContain("--allowed-tools");
   expect(tui!.cwd).toBe(f.cwd);
-  expect(tui!.env).toMatchObject({ CLAUDE_CONFIG_DIR: f.home, CLAUDECODE: undefined });
   expect(stderr).toEqual([
-    "fixer · claude claude-sonnet-5-5 · a copy of s-1, copy-1",
+    "fixer · claude claude-sonnet-5-5 high · a copy of s-1",
     `again: awf open review/r7 fixer --session copy-1 --run-root ${f.root}`,
   ]);
   expect(hashes(f.run.dir)).toEqual(before);
@@ -169,12 +186,8 @@ test("-p asks a copy one question headless and prints the answer, or with --json
   expect(turn.stdin).toBe("why?");
   expect(JSON.parse(stdout[0]!)).toEqual({
     v: 1,
-    agent: "fixer",
-    harness: "claude",
     session: "copy-1",
     forkedFrom: "s-1",
-    cwd: f.cwd,
-    model: "m",
     reply: "the answer",
     again: `awf open review/r7 fixer --session copy-1 --run-root ${f.root}`,
   });
@@ -188,7 +201,7 @@ test("-p without text reads stdin, and is refused on a terminal", async () => {
   expect(piped.code).toBe(0);
   expect(piped.seen.runs[1]!.stdin).toBe("from stdin");
   const terminal = await open(f, ["review/r7", "fixer", "-p"]);
-  expect(terminal.code).toBe(1);
+  expect(terminal.code).toBe(2);
   expect(terminal.seen.runs).toEqual([]);
 });
 
@@ -201,7 +214,7 @@ test("--session names an earlier session, copied as the latest is, or a copy, op
   const copy = await open(f, ["review/r7", "fixer", "--session", "copy-9"]);
   expect(copy.seen.runs).toEqual([]);
   expect(copy.seen.attached[0]!.argv.slice(0, 3)).toEqual(["claude", "--resume", "copy-9"]);
-  expect(copy.stderr[0]).toBe("fixer · claude claude-sonnet-5-5 · session copy-9");
+  expect(copy.stderr[0]).toBe("fixer · claude claude-sonnet-5-5 high · session copy-9");
   expect(copy.stderr[1]).toBe(
     `again: awf open review/r7 fixer --session copy-9 --run-root ${f.root}`,
   );
@@ -214,6 +227,7 @@ test("each place the session can't be opened from is refused, naming why", async
     expect(result.code).toBe(code);
     expect(result.stderr.join("\n")).toMatch(said);
     expect(result.seen.attached).toEqual([]);
+    expect(result.seen.runs).toEqual([]);
   };
   await refused(
     ["review/r7", "nobody"],
@@ -224,13 +238,28 @@ test("each place the session can't be opened from is refused, naming why", async
   await refused(["review/r7", "fixer", "--json"], 2, /a TUI has no JSON/);
   await refused(["review/r7", "fixer", "extra"], 2, /-p takes the question/);
   // claude headless bills per token: an agent that did not run metered is not asked headless.
-  await refused(["review/r7", "fixer", "-p", "why?"], 1, /billed per token/);
+  await refused(["review/r7", "fixer", "-p", "why?"], 2, /billed per token/);
+  // Another agent's session is not fixer's to open, as a copy or otherwise.
+  session(f.run, { agent: "reviewer", session: "rev-1", operation: "reviewer.1" });
+  await refused(
+    ["review/r7", "fixer", "--session", "rev-1"],
+    1,
+    /rev-1 is reviewer's session, not fixer's: awf open review\/r7 reviewer --session rev-1/,
+  );
   // A home outside the run's folder is a sandbox's, which this line does not record.
   session(f.run, { agent: "boxed", session: "s-2", operation: "boxed.1", home: f.cwd });
   await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m" });
   await refused(["review/r7", "boxed"], 3, /ran in a sandbox this run did not record/);
+  session(f.run, {
+    agent: "coder",
+    session: "c-1",
+    operation: "coder.1",
+    home: f.home,
+    harness: "codex",
+  });
+  await op(f.run, "coder.1", f.cwd, { harness: "codex", model: "m" });
   rmSync(f.home, { recursive: true });
-  await refused(["review/r7", "fixer"], 3, /own home .* is gone/);
+  await refused(["review/r7", "coder"], 3, /own home .* is gone/);
   rmSync(f.cwd, { recursive: true });
 });
 
@@ -250,4 +279,114 @@ test("a question the harness fails is refused with its error, and no again", asy
   expect(result.code).toBe(1);
   expect(result.stderr.join("\n")).toContain("claude exited 1");
   expect(result.stdout).toEqual([]);
+});
+
+const ALIVE = { pid: process.pid, processStart: processStart(process.pid)! };
+const GONE = { pid: Bun.spawnSync(["true"]).pid, processStart: "2026-10-11T09:00:00Z" };
+
+test("--no-fork opens the agent's own session, the run held until the harness exits", async () => {
+  const f = await fixture();
+  const file = runOpenFile(f.root, "review", "r7");
+  let heldMeanwhile = false;
+  let second: Awaited<ReturnType<typeof open>> | undefined;
+  const { code, stderr, seen } = await open(f, ["review/r7", "fixer", "--no-fork"], {
+    during: async () => {
+      heldMeanwhile = existsSync(file);
+      second = await open(f, ["review/r7", "fixer", "--no-fork"]);
+    },
+  });
+  expect(code).toBe(7);
+  expect(seen.runs).toEqual([]);
+  expect(seen.attached[0]!.argv.slice(0, 3)).toEqual(["claude", "--resume", "s-1"]);
+  expect(heldMeanwhile).toBe(true);
+  expect(existsSync(file)).toBe(false);
+  expect(second!.code).toBe(1);
+  expect(second!.stderr.join("\n")).toMatch(
+    new RegExp(`review/r7 is open in awf open --no-fork \\(pid ${process.pid}\\)`),
+  );
+  expect(second!.seen.attached).toEqual([]);
+  expect(stderr).toEqual([
+    "fixer · claude claude-sonnet-5-5 high · session s-1, the run held until you exit",
+    `again: awf open review/r7 fixer --no-fork --run-root ${f.root}`,
+  ]);
+  // A copy opens while it is held.
+  const copy = await open(f, ["review/r7", "fixer", "--no-fork", "--session", "s-old"]);
+  expect(copy.stderr.at(-1)).toBe(
+    `again: awf open review/r7 fixer --no-fork --session s-old --run-root ${f.root}`,
+  );
+});
+
+test("--no-fork is refused on a live run, and with a copy, which is the operator's already", async () => {
+  const f = await fixture();
+  const copy = await open(f, ["review/r7", "fixer", "--no-fork", "--session", "copy-9"]);
+  expect(copy.code).toBe(2);
+  expect(copy.stderr.join("\n")).toContain("open it without --no-fork");
+  await writeAttempt(f.run, { ...ALIVE });
+  const live = await open(f, ["review/r7", "fixer", "--no-fork"]);
+  expect(live.code).toBe(1);
+  expect(live.stderr.join("\n")).toContain(
+    `review/r7 is running, and fixer's session may be written as you type; a copy opens anyway: awf open review/r7 fixer --run-root ${f.root}`,
+  );
+  expect(live.seen.attached).toEqual([]);
+  expect(existsSync(runOpenFile(f.root, "review", "r7"))).toBe(false);
+  // A copy opens on a live run.
+  expect((await open(f, ["review/r7", "fixer"])).code).toBe(7);
+});
+
+test("a run with events is woken once the harness exits, as awf tick would", async () => {
+  const f = await fixture(true);
+  await writeAttempt(f.run, { ...GONE, ended: AT, outcome: "failed" });
+  const launched: string[] = [];
+  const launch: Launch = async (run) => {
+    launched.push(run.record.id);
+    await writeAttempt(run, { ...GONE });
+  };
+  const { stderr } = await open(f, ["review/r7", "fixer", "--no-fork"], { launch });
+  expect(launched).toEqual(["r7"]);
+  expect(stderr).toContain("woke review/r7: continued, for an attempt that failed");
+  // A plain run is left as it was.
+  const plain = await fixture();
+  await writeAttempt(plain.run, { ...GONE, ended: AT, outcome: "failed" });
+  const left: string[] = [];
+  await open(plain, ["review/r7", "fixer", "--no-fork"], {
+    launch: async (run) => void left.push(run.record.id),
+  });
+  expect(left).toEqual([]);
+});
+
+test("an agent's own home is its harness's, for the fork and the TUI alike", async () => {
+  const f = await fixture();
+  session(f.run, {
+    agent: "coder",
+    session: "c-1",
+    operation: "coder.1",
+    home: f.home,
+    harness: "codex",
+  });
+  await op(f.run, "coder.1", f.cwd, { harness: "codex", model: "m" });
+  const { seen } = await open(f, ["review/r7", "coder", "--session", "copy-c"]);
+  expect(seen.attached[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "copy-c"]);
+  expect(seen.attached[0]!.env).toEqual({ CODEX_HOME: f.home });
+});
+
+test("a forked agent's session line, which names no operation, opens on the agent's latest", async () => {
+  const f = await fixture();
+  session(f.run, { agent: "fixer", session: "s-fork" });
+  await op(f.run, "fixer.3", f.cwd, { harness: "claude", model: "later", effort: "low" });
+  const { seen } = await open(f, ["review/r7", "fixer"]);
+  expect(seen.runs[0]!.argv.slice(3, 4)).toEqual(["s-fork"]);
+  expect(seen.attached[0]!.argv.slice(3, 7)).toEqual(["--model", "later", "--effort", "low"]);
+});
+
+test("-p reads `-` as stdin, and a question that starts with a dash as its text", async () => {
+  const f = await fixture();
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  const dashed = await open(f, ["review/r7", "fixer", "-p", "-why?"]);
+  expect(dashed.seen.runs[1]!.stdin).toBe("-why?");
+  const piped = await open(f, ["review/r7", "fixer", "-p", "-"], { stdin: "piped" });
+  expect(piped.seen.runs[1]!.stdin).toBe("piped");
+  const optioned = await open(f, ["review/r7", "fixer", "-p", "--session", "copy-2"], {
+    stdin: "piped too",
+  });
+  expect(optioned.seen.runs[0]!.stdin).toBe("piped too");
 });

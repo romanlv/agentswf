@@ -24,6 +24,7 @@ import { appendLine, endTornLine } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
 import type { EarlierOps } from "./ops";
 import { type RunLines, readRunLines } from "./run-lines";
+import { liveHolder, runOpenFile } from "./run-lock";
 import { upcomingStages } from "./run-policy/stages";
 
 /**
@@ -405,9 +406,13 @@ export function sameStart(now: string, started: string): boolean {
   return Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
 }
 
-/** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
+/**
+ * Why a run takes no attempt now: one of its attempts is still running, `awf open --no-fork`
+ * holds its session, or it completed.
+ */
 export type AttemptRefusal =
   | { kind: "running"; attempt: ClaimedAttempt }
+  | { kind: "opened"; pid: number }
   /**
    * `stages`, each recorded stage's latest line in the order they started, but those the last
    * redo left behind, are what `--from-stage` redoes.
@@ -480,6 +485,13 @@ export async function claimAttempt(
       const unclaim = () => unlink(file).catch(() => undefined);
       try {
         await syncDir(dir);
+        // Linked first, then looked for: `awf open --no-fork` claims its file, then looks for a
+        // live attempt, so of the two one always sees the other.
+        const opened = await liveHolder(runOpenFile(run.root, run.record.workflow, run.record.id));
+        if (opened) {
+          await unclaim();
+          return { refused: { kind: "opened", pid: opened.pid } };
+        }
         const before = (await readAttempts(run)).filter((other) => other.attempt < n);
         const refused = attemptRefusal(before, (await readRunLines(run.dir)).view, {
           fromStage: options.fromStage ?? false,

@@ -272,3 +272,32 @@ function capture(
   })();
   return { text, stop: () => reader.cancel() };
 }
+
+/**
+ * A process on this terminal, a person's TUI: its stdio this process's, and this process deaf to
+ * the keys that interrupt it, which are the child's while it runs. Its exit code once it ends.
+ * `env` is merged over `environment`; a name given as undefined is unset.
+ */
+export async function runAttached(
+  input: { argv: readonly string[]; cwd: string; env: Record<string, string | undefined> },
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<number> {
+  const merged: Record<string, string> = {};
+  for (const [name, value] of Object.entries({ ...environment, ...input.env }))
+    if (value !== undefined) merged[name] = value;
+  // SIGTSTP is left alone: a suspend stops the whole job, this process with it, and `fg` resumes both.
+  const signals = ["SIGINT", "SIGQUIT"] as const;
+  const ignore = () => undefined;
+  for (const signal of signals) process.on(signal, ignore);
+  try {
+    const child = Bun.spawn({
+      cmd: [...input.argv],
+      cwd: input.cwd,
+      env: merged,
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    return await child.exited;
+  } finally {
+    for (const signal of signals) process.off(signal, ignore);
+  }
+}

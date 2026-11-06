@@ -78,22 +78,17 @@ export async function forkResult(
 export async function forkRecordedSession(
   harness: Harness,
   session: string,
-  where: {
-    cwd: string;
-    env: Record<string, string>;
-    context: TurnContext;
-    place?: (input: ProcessInput & { env: Record<string, string> }) => Parameters<RunProcess>[0];
-  },
+  where: { cwd: string; env: Record<string, string>; context: TurnContext },
   run: RunProcess,
-  signal: AbortSignal = new AbortController().signal,
-): Promise<string> {
+  bound: { deadline?: AbsoluteDeadline; signal?: AbortSignal } = {},
+): Promise<NativeFork> {
   const spec = harnessSpec(harness);
   if (!spec.forkSession) throw new Error(`${harness} cannot fork: ${spec.absent.forkSession}`);
-  const deadline = { unixMilliseconds: Date.now() + FORK_ACTIVATION_MS };
+  const deadline = bound.deadline ?? { unixMilliseconds: Date.now() + FORK_ACTIVATION_MS };
+  const signal = bound.signal ?? new AbortController().signal;
   const plan = await spec.forkSession(session, randomUUID(), where.context);
   const command = forkCommand(plan, { cwd: where.cwd, env: where.env, deadline, signal });
-  const result = await run(where.place ? where.place(command) : command);
-  return (await forkResult(harness, plan, result, deadline)).sessionRef;
+  return forkResult(harness, plan, await run(command), deadline);
 }
 
 /**
@@ -202,7 +197,6 @@ export function callingSession(
   environment?: Readonly<Record<string, string | undefined>>,
 ): CallingSession {
   const { harness, session, cwd } = found;
-  const spec = harnessSpec(harness);
   const home = harnessState(environment)[harness];
   return {
     harness,
@@ -225,10 +219,14 @@ export function callingSession(
         const copied = await copySession(harness, home, session, cwd, into);
         return { ...copied, model };
       }
-      if (!spec.forkSession) throw new Error(`${harness} cannot fork`);
-      const plan = await spec.forkSession(session, randomUUID(), { model, sessionHint: session });
-      const command = forkCommand(plan, { cwd, env: {}, deadline, signal });
-      return { ...(await forkResult(harness, plan, await run(command), deadline)), model };
+      const forked = await forkRecordedSession(
+        harness,
+        session,
+        { cwd, env: {}, context: { model, sessionHint: session } },
+        run,
+        { deadline, signal },
+      );
+      return { ...forked, model };
     },
   };
 }

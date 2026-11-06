@@ -1207,7 +1207,9 @@ export type WakeWhy =
   | "cancelled"
   | "nothing-due"
   | "nudge-failed"
-  | "launch-failed";
+  | "launch-failed"
+  /** `awf open --no-fork` holds the run's session: the event waits for its exit (story 042). */
+  | "opened";
 
 /** `awf emit --json`, and the deprecated `awf send --event-id --json`. */
 export type EmitResultJson = {
@@ -1246,15 +1248,10 @@ export function emitOk(outcome: EmitOutcome, why: WakeWhy | undefined): boolean 
  */
 export type OpenResultJson = {
   v: 1;
-  agent: string;
-  harness: HarnessKind;
   /** The session asked: the copy, or with `--no-fork` the agent's own. */
   session: string;
   /** The agent's session the copy was made from; absent when none was made. */
   forkedFrom?: string;
-  cwd: string;
-  /** Absent where the agent ran on its harness's default. */
-  model?: string;
   reply: string;
   /** The command that asks the same session again. */
   again: string;
@@ -1295,7 +1292,9 @@ export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
  * fit: made for another run or filter, past the run's end, or naming no event; `project`, a
  * workflow in no project; `no-engine` and `other-engine`, a project's `agentswf` missing or another
  * version; `internal-error`, a failure that is neither the caller's nor the run's, such as awf's
- * own record of projects not written, which `error` names. `reply` and `send` also refuse with
+ * own record of projects not written, which `error` names; `no-session`, an agent `awf open` names
+ * with no session recorded in the run, or a session that is another agent's; `live`, `awf open
+ * --no-fork` on a run whose attempt is running; `opened`, a run another `awf open --no-fork` holds. `reply` and `send` also refuse with
  * `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
  */
 export const REFUSAL_CODES = [

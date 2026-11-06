@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sandboxedArgs } from "../sandbox-needs";
+import { sandboxedArgs, sandboxedOperatorArgs } from "../sandbox-needs";
 import { HARNESSES } from "../spec";
 
 /** What lets an agent's turns run its commands unasked: never on a person's resume. */
@@ -30,22 +30,21 @@ test("each harness resumes a session for a person on its model and effort, askin
 });
 
 test("codex in awf's sandbox runs with its own off, as an agent's turns do, and asks on request", () => {
-  const plan = HARNESSES.codex.operatorResume!("s-1", {}, [], true);
-  expect(plan.argv.slice(0, 7)).toEqual([
-    "codex",
-    "resume",
-    "s-1",
-    "--sandbox",
-    "danger-full-access",
+  const args = sandboxedOperatorArgs("codex", false);
+  expect(args.slice(0, 4)).toEqual([
+    "-c",
+    'sandbox_mode="danger-full-access"',
     "--ask-for-approval",
     "on-request",
   ]);
+  expect(args.slice(4)).toEqual([...sandboxedArgs("codex", false)]);
+  expect(sandboxedOperatorArgs("pi", false)).toEqual(sandboxedArgs("pi", false));
 });
 
 test("a sandboxed agent's resume takes its sandboxed arguments, last", () => {
   for (const harness of ["codex", "cursor", "pi"] as const) {
     const args = sandboxedArgs(harness, false);
-    const plan = HARNESSES[harness].operatorResume!("s-1", {}, args, true);
+    const plan = HARNESSES[harness].operatorResume!("s-1", {}, args);
     expect(plan.argv.slice(-args.length)).toEqual([...args]);
     for (const flag of UNATTENDED) expect(plan.argv).not.toContain(flag);
   }

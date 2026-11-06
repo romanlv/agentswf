@@ -114,13 +114,12 @@ export type HarnessSpec = {
   /**
    * The same TUI on a session that exists, for a person at the terminal: the harness's own
    * defaults, its permission prompts on, none of the flags that let an agent's turns run unasked
-   * (story 042). `sandboxed` when it runs in awf's sandbox, where its own may not nest.
+   * (story 042). In awf's sandbox, `launchArgs` carries what the harness needs there.
    */
   operatorResume?(
     sessionId: string,
     settings?: LaunchSettings,
     launchArgs?: readonly string[],
-    sandboxed?: boolean,
   ): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;

@@ -25,6 +25,11 @@ type SandboxedHarness = {
    * harness needs inside, and what it would reach past the sandbox with that no spec can grant.
    */
   args: readonly string[];
+  /**
+   * What a person's resume in a sandbox adds before `args`, where the harness's own sandbox would
+   * nest in awf's (story 042).
+   */
+  operatorArgs?: readonly string[];
   /** What turns off its model-side web tools, which reach past `network` (X15), unless a spec keeps them. */
   webSearch: readonly string[] | Absent;
   /** Whether an agent on the host may have a home of its own, which skills can need. */
@@ -126,6 +131,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     ],
     // Apps and plugins act through the login on the operator's ChatGPT account, past any sandbox
     // (Task 4 found them listed).
+    // Its own sandbox does not nest in awf's: off, as on an agent's turns; it still asks on request.
+    operatorArgs: ["-c", 'sandbox_mode="danger-full-access"', "--ask-for-approval", "on-request"],
     args: [
       "-c",
       "features.apps=false",
@@ -262,6 +269,13 @@ export function sandboxedArgs(harness: string, webSearch: boolean): readonly str
   const needs = sandboxed(harness);
   if (isAbsent(needs)) return [];
   return webSearch || isAbsent(needs.webSearch) ? needs.args : [...needs.webSearch, ...needs.args];
+}
+
+/** What a person's resume in a sandbox adds: the harness's own sandbox off where it would nest. */
+export function sandboxedOperatorArgs(harness: string, webSearch: boolean): readonly string[] {
+  const needs = sandboxed(harness);
+  if (isAbsent(needs)) return [];
+  return [...(needs.operatorArgs ?? []), ...sandboxedArgs(harness, webSearch)];
 }
 
 /**

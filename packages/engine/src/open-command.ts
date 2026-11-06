@@ -13,11 +13,11 @@ import {
   forkRecordedSession,
   HARNESSES,
   type Harness,
-  HOME_ENV,
+  hostHome,
   launchSettings,
   type RunProcess,
+  runAttached,
   runProcess,
-  withholding,
 } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import help from "./help/open.txt" with { type: "text" };
@@ -25,8 +25,10 @@ import { listOps, opFile } from "./ops";
 import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace, shellLine } from "./run-commands";
 import { readRunLines } from "./run-lines";
+import { claimNow, releaseClaim, runLockFile, runOpenFile, withRunLock } from "./run-lock";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
-import { workDir } from "./runs";
+import { isLive, readAttempts, workDir } from "./runs";
+import { type Launch, wake } from "./wake";
 
 export const openUsage = help.trimEnd();
 
@@ -43,20 +45,22 @@ export type Attach = (input: {
 export type OpenContext = {
   home?: string;
   environment?: Environment;
-  /** What an agent never inherits: withheld from the fork, the `-p` turn and the TUI alike. */
-  withheld?: readonly string[];
-  /** Runs a fork, or the turn `-p` asks. */
+  /** Runs a fork, or the turn `-p` asks; the operator runtime's withholds what no agent inherits. */
   run?: RunProcess;
-  /** Runs the TUI on this terminal. */
+  /** Runs the TUI on this terminal, withholding the same. */
   attach?: Attach;
   stdin?: () => Promise<string>;
   /** Then nothing is piped in: `-p` without text is refused rather than waiting. */
   stdinIsTerminal?: boolean;
+  /** How the wake at a held run's release starts its attempt; absent, as `awf tick` does. */
+  launch?: Launch;
 };
 
 type Options = {
   ref: string;
   agent: string;
+  /** `--no-fork`: the agent's own session, the run held while it is open. */
+  noFork: boolean;
   session?: string;
   /** `-p`: its text, or `""` for stdin. */
   print?: string;
@@ -102,7 +106,7 @@ export async function openCommand(
   }
   const refuse = (error: OpenRefused) => {
     printRefusal(out, { json, v: 1 }, error, error.code);
-    return error.code === "unreachable" ? 3 : 1;
+    return error.code === "usage" ? 2 : error.code === "unreachable" ? 3 : 1;
   };
   const home = context.home ?? homedir();
   const environment = context.environment ?? process.env;
@@ -123,42 +127,21 @@ export async function openCommand(
     const where = await agentPlace(status, options);
     const spec = HARNESSES[where.harness];
     const settings = launchSettings(where.execution);
-    const env: Record<string, string> = where.home ? { [HOME_ENV[where.harness]]: where.home } : {};
-    const withheld = Object.fromEntries((context.withheld ?? []).map((name) => [name, undefined]));
+    const env: Record<string, string> = where.home
+      ? hostHome(where.harness, where.home, environment).env
+      : {};
     const turnContext = (sessionHint: string) => ({
       ...settings,
       sessionHint,
       ...(where.home ? { home: where.home } : {}),
     });
-    const run = withholding(context.run ?? runProcess, context.withheld ?? []);
-    // A copy is made first, before anything waits on stdin or opens a TUI.
-    let session = where.session;
-    let forkedFrom: string | undefined;
-    if (!where.copy) {
-      forkedFrom = session;
-      session = await forkRecordedSession(
-        where.harness,
-        session,
-        { cwd: where.cwd, env, context: turnContext(session) },
-        run,
-      ).catch((error: unknown) => {
-        throw new OpenRefused(
-          `${options.agent}'s session ${where.session} could not be copied: ${messageOf(error)}`,
-          "internal-error",
-        );
-      });
-    }
-    const again = shellLine([
-      "awf",
-      "open",
-      status.ref,
-      options.agent,
-      "--session",
-      session,
-      ...place.repeat,
-    ]);
-    const model = where.execution.model || undefined;
-    const said = `${options.agent} · ${where.harness}${model ? ` ${model}` : ""}`;
+    const run = context.run ?? runProcess;
+    if (options.noFork && where.copy)
+      throw new OpenRefused(
+        `${options.session} is not one of ${options.agent}'s sessions in ${status.ref}: a copy an earlier awf open made is yours already; open it without --no-fork`,
+        "usage",
+      );
+    // Every refusal comes before the copy: a refused open leaves nothing behind.
     if (options.print !== undefined) {
       if (!spec.resumeTurn)
         throw new OpenRefused(
@@ -170,71 +153,196 @@ export async function openCommand(
           `headless ${where.harness} is billed per token even on a subscription login, and ${options.agent} did not run metered: open it without -p`,
           "usage",
         );
-      const text = options.print || (await (context.stdin ?? readStdin)());
-      if (text.trim() === "") throw new OpenRefused("nothing to ask: stdin was empty", "usage");
-      const plan = spec.resumeTurn(text, session, turnContext(session));
-      const stop = new AbortController();
-      const interrupt = () => stop.abort();
-      process.on("SIGINT", interrupt);
-      let result: Awaited<ReturnType<RunProcess>>;
-      try {
-        result = await run({
-          argv: plan.argv,
-          cwd: where.cwd,
-          env,
-          ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
-          timeoutMs: PRINT_TIMEOUT_MS,
-          signal: stop.signal,
-        });
-      } finally {
-        process.off("SIGINT", interrupt);
-      }
-      if (result.cancelled) throw new OpenRefused("the question was interrupted", "internal-error");
-      if (result.exitCode !== 0)
-        throw new OpenRefused(
-          `${where.harness} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(-400)}`,
-          "internal-error",
-        );
-      const reply = (spec.readTranscript?.(result.stdout) ?? result.stdout).trim();
-      if (json) {
-        out.stdout(
-          JSON.stringify({
-            v: 1,
-            agent: options.agent,
-            harness: where.harness,
-            session,
-            ...(forkedFrom ? { forkedFrom } : {}),
-            cwd: where.cwd,
-            ...(model ? { model } : {}),
-            reply,
-            again,
-          } satisfies OpenResultJson),
-        );
-      } else out.stdout(reply);
-      out.stderr(`again: ${again}`);
-      return 0;
-    }
-    if (!spec.operatorResume)
+    } else if (!spec.operatorResume)
       throw new OpenRefused(
         `${where.harness} has no TUI a person can resume: ${spec.absent.operatorResume}`,
         "usage",
       );
-    out.stderr(
-      `${said} · ${forkedFrom ? `a copy of ${forkedFrom}, ${session}` : `session ${session}`}`,
-    );
-    const plan = spec.operatorResume(session, settings, [], false);
-    const code = await (context.attach ?? attachHere(environment))({
-      argv: plan.argv,
-      cwd: where.cwd,
-      env: { ...env, ...withheld },
-    });
-    out.stderr(`again: ${again}`);
-    return code;
+    const text =
+      options.print === undefined
+        ? undefined
+        : options.print || (await (context.stdin ?? readStdin)());
+    if (text !== undefined && text.trim() === "")
+      throw new OpenRefused("nothing to ask: stdin was empty", "usage");
+    const held = options.noFork ? await holdRun(status, options.agent, place) : undefined;
+    try {
+      let session = where.session;
+      let forkedFrom: string | undefined;
+      if (!where.copy && !options.noFork) {
+        forkedFrom = session;
+        const forked = await forkRecordedSession(
+          where.harness,
+          session,
+          { cwd: where.cwd, env, context: turnContext(session) },
+          run,
+        ).catch((error: unknown) => {
+          throw new OpenRefused(
+            `${options.agent}'s session ${where.session} could not be copied: ${messageOf(error)}`,
+            "internal-error",
+          );
+        });
+        session = forked.sessionRef;
+      }
+      const again = shellLine([
+        "awf",
+        "open",
+        status.ref,
+        options.agent,
+        ...(options.noFork ? ["--no-fork"] : []),
+        ...(!options.noFork || options.session !== undefined ? ["--session", session] : []),
+        ...place.repeat,
+      ]);
+      if (text !== undefined) {
+        const plan = spec.resumeTurn!(text, session, turnContext(session));
+        const stop = new AbortController();
+        const interrupt = () => stop.abort();
+        process.on("SIGINT", interrupt);
+        let result: Awaited<ReturnType<RunProcess>>;
+        try {
+          result = await run({
+            argv: plan.argv,
+            cwd: where.cwd,
+            env,
+            ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
+            timeoutMs: PRINT_TIMEOUT_MS,
+            signal: stop.signal,
+          });
+        } finally {
+          process.off("SIGINT", interrupt);
+        }
+        if (result.cancelled)
+          throw new OpenRefused("the question was interrupted", "internal-error");
+        if (result.timedOut)
+          throw new OpenRefused(
+            `${where.harness} gave no answer within ${PRINT_TIMEOUT_MS / 60_000} minutes`,
+            "internal-error",
+          );
+        if (result.exitCode !== 0)
+          throw new OpenRefused(
+            `${where.harness} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(-400)}`,
+            "internal-error",
+          );
+        const reply = (spec.readTranscript?.(result.stdout) ?? result.stdout).trim();
+        out.stdout(
+          json
+            ? JSON.stringify({
+                v: 1,
+                session,
+                ...(forkedFrom ? { forkedFrom } : {}),
+                reply,
+                again,
+              } satisfies OpenResultJson)
+            : reply,
+        );
+        await held?.release(out, context);
+        out.stderr(`again: ${again}`);
+        return 0;
+      }
+      const { model, effort } = settings;
+      out.stderr(
+        [
+          options.agent,
+          [where.harness, model, effort].filter(Boolean).join(" "),
+          forkedFrom
+            ? `a copy of ${forkedFrom}`
+            : held
+              ? `session ${session}, the run held until you exit`
+              : `session ${session}`,
+        ].join(" · "),
+      );
+      const plan = spec.operatorResume!(session, settings, []);
+      const code = await (context.attach ?? ((input) => runAttached(input, environment)))({
+        argv: plan.argv,
+        cwd: where.cwd,
+        env,
+      });
+      await held?.release(out, context);
+      out.stderr(`again: ${again}`);
+      return code;
+    } finally {
+      // Released once, by whichever comes first; a refusal or a throw lets go here.
+      await held?.release(out, context);
+    }
   } catch (error) {
     if (error instanceof OpenRefused) return refuse(error);
     return failed(error, place, out, messageOf(error), { json, v: 1 });
   }
 }
+
+/** A run `--no-fork` holds: let go once, then woken as `awf tick` would wake it. */
+type Held = { release(out: Out, context: OpenContext): Promise<void> };
+
+/**
+ * Holds the run for `--no-fork`: refused while an attempt is live or another `awf open --no-fork`
+ * holds it. Checked under the run's lock, which is let go at once: senders take it for every
+ * append. An attempt claims its number without that lock, then looks for this claim, so this one
+ * looks for a live attempt again once it holds: of the two, one always sees the other.
+ */
+async function holdRun(status: RunStatus, agent: string, place: ReadPlace): Promise<Held> {
+  const { run, ref } = status;
+  const { workflow, id } = run.record;
+  const file = runOpenFile(run.root, workflow, id);
+  const plain = shellLine(["awf", "open", ref, agent, ...place.repeat]);
+  const live = () =>
+    readAttempts(run).then((attempts) => attempts.find((attempt) => isLive(attempt)));
+  const running = () =>
+    new OpenRefused(
+      `${ref} is running, and ${agent}'s session may be written as you type; a copy opens anyway: ${plain}`,
+      "live",
+    );
+  const holding = await withRunLock(runLockFile(run.root, workflow, id), async () => {
+    if (await live()) throw running();
+    const claimed = await claimNow(file);
+    if ("heldBy" in claimed)
+      throw new OpenRefused(
+        `${ref} is open in awf open --no-fork (pid ${claimed.heldBy.pid}); a copy opens anyway: ${plain}`,
+        "opened",
+      );
+    if (await live()) {
+      await releaseClaim(file, claimed.held);
+      throw running();
+    }
+    return claimed.held;
+  });
+  let released: Promise<void> | undefined;
+  return {
+    release: (out, context) => {
+      released ??= (async () => {
+        await releaseClaim(file, holding);
+        if (run.record.events) await wakeAfter(status, out, context);
+      })();
+      return released;
+    },
+  };
+}
+
+/** What waited while the run was held, taken as `awf tick` takes it: said, never thrown. */
+async function wakeAfter(status: RunStatus, out: Out, context: OpenContext): Promise<void> {
+  const { run, ref } = status;
+  try {
+    const woken = await withRunLock(runLockFile(run.root, run.record.workflow, run.record.id), () =>
+      wake(run, {
+        home: context.home ?? homedir(),
+        environment: context.environment ?? process.env,
+        nudgeLive: false,
+        ...(context.launch ? { launch: context.launch } : {}),
+      }),
+    );
+    if (woken.why === "launch-failed")
+      out.stderr(`awf: ${ref} was not woken: ${woken.error}; awf tick tries again`);
+    else if (woken.did === "started" || woken.did === "continued")
+      out.stderr(`woke ${ref}: ${woken.did}, for ${WOKEN_FOR[woken.cause ?? "event"]}`);
+  } catch (error) {
+    out.stderr(`awf: ${ref} was not woken: ${messageOf(error)}; awf tick wakes it`);
+  }
+}
+
+const WOKEN_FOR = {
+  event: "an event that waited",
+  timer: "a timer due",
+  crashed: "an attempt that was interrupted",
+  failed: "an attempt that failed",
+} as const;
 
 /** Where the agent's session is and how it ran, as the run recorded it; or why it can't be opened. */
 type AgentPlace = {
@@ -267,13 +375,21 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
       : view.sessions.all.findLast(
           (line) => line.agent === agent && line.session === options.session,
         );
+  const others = named
+    ? undefined
+    : view.sessions.all.find((each) => each.session === options.session && each.agent !== agent);
+  if (others)
+    throw new OpenRefused(
+      `${options.session} is ${others.agent}'s session, not ${agent}'s: awf open ${status.ref} ${others.agent} --session ${options.session}`,
+      "no-session",
+    );
   const line = named ?? latest;
   if (!findHarness(line.harness))
     throw new OpenRefused(
       `${agent} ran on ${line.harness}, a harness this awf does not know`,
       "usage",
     );
-  const op = await agentOp(status.run.dir, agent, line, view);
+  const op = await agentOp(status.run.dir, agent, line);
   const cwd = op.cwd;
   if (!(await isDirectory(cwd)))
     throw new OpenRefused(
@@ -304,42 +420,36 @@ async function agentPlace(status: RunStatus, options: Options): Promise<AgentPla
 }
 
 /**
- * The operation that recorded the session: its line's, else the agent's latest one that names an
- * operation, else its highest-numbered folder.
+ * The operation that recorded the session: its line's, else the agent's latest, whose cwd and
+ * settings are the agent's: a fork's line is written before its first operation names it.
  */
-async function agentOp(
-  runDir: string,
-  agent: string,
-  line: SessionLine,
-  view: RunView,
-): Promise<AgentOp> {
-  const named =
-    line.operation ??
-    view.sessions.all.findLast((each) => each.agent === agent && each.operation !== undefined)
-      ?.operation;
-  const op = named ?? (await lastOp(runDir, agent));
-  if (op === undefined)
+async function agentOp(runDir: string, agent: string, line: SessionLine): Promise<AgentOp> {
+  const ops = line.operation ? [line.operation] : await agentOps(runDir, agent);
+  if (ops.length === 0)
     throw new OpenRefused(
       `${agent} has no operation recorded, so where it ran is unknown`,
       "no-session",
     );
-  let record: OpRecord;
-  try {
-    record = JSON.parse(await readFile(opFile(runDir, op), "utf8")) as OpRecord;
-  } catch (error) {
-    throw new OpenRefused(
-      `${agent}'s operation ${op} could not be read: ${messageOf(error)}`,
-      "unreachable",
-    );
+  let failure: unknown;
+  for (const op of ops) {
+    try {
+      const record = JSON.parse(await readFile(opFile(runDir, op), "utf8")) as OpRecord;
+      if (record.kind !== "decision" && typeof record.cwd === "string") return record;
+    } catch (error) {
+      failure = error;
+    }
   }
-  if (record.kind === "decision" || typeof record.cwd !== "string")
-    throw new OpenRefused(`operation ${op} is not ${agent}'s`, "unreachable");
-  return record;
+  throw new OpenRefused(
+    `${agent}'s operation ${ops[0]} could not be read${failure ? `: ${messageOf(failure)}` : ""}`,
+    "unreachable",
+  );
 }
 
-async function lastOp(runDir: string, agent: string): Promise<string | undefined> {
+/** The agent's operations, latest first. */
+async function agentOps(runDir: string, agent: string): Promise<string[]> {
   const last = (await listOps(runDir)).get(agent);
-  return last?.of === "agent" ? `${agent}.${last.last}` : undefined;
+  if (last?.of !== "agent") return [];
+  return Array.from({ length: last.last }, (_, index) => `${agent}.${last.last - index}`);
 }
 
 async function isDirectory(path: string): Promise<boolean> {
@@ -359,24 +469,28 @@ async function within(directory: string, path: string): Promise<boolean> {
   return inside !== "" && !inside.startsWith(`..${sep}`) && inside !== "..";
 }
 
+/** The options `parseOpen` takes, which `-p` never reads as its text. */
+const OPTIONS = new Set(["--no-fork", "--session", "--"]);
+
 function parseOpen(rest: readonly string[]): Options {
   const words: string[] = [];
   let session: string | undefined;
   let print: string | undefined;
+  let noFork = false;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
-    if (arg === "--session") {
+    if (arg === "--no-fork") noFork = true;
+    else if (arg === "--session") {
       const value = rest[index + 1];
       if (!value || value.startsWith("-")) throw new Error("--session needs a session's id");
       session = value;
       index += 1;
     } else if (arg === "-p") {
       const value = rest[index + 1];
-      // Its text, unless what follows is an option: then it reads stdin.
-      if (value !== undefined && !value.startsWith("-")) {
-        print = value;
-        index += 1;
-      } else print = "";
+      // Its text, unless it is absent, `-`, or one of this command's options: then stdin.
+      if (value !== undefined && value !== "-" && !OPTIONS.has(value)) print = value;
+      else print = "";
+      if (value === "-" || (value !== undefined && !OPTIONS.has(value))) index += 1;
     } else if (arg === "--") {
       words.push(...rest.slice(index + 1));
       break;
@@ -391,6 +505,7 @@ function parseOpen(rest: readonly string[]): Options {
   return {
     ref,
     agent,
+    noFork,
     ...(session === undefined ? {} : { session }),
     ...(print === undefined ? {} : { print }),
   };
@@ -398,30 +513,4 @@ function parseOpen(rest: readonly string[]): Options {
 
 function readStdin(): Promise<string> {
   return new Response(Bun.stdin.stream()).text();
-}
-
-/**
- * The TUI on this terminal: its stdio this process's, and this process deaf to the keys that stop
- * it, which are the harness's while it runs, as a shell is to its foreground job.
- */
-export function attachHere(environment: Environment): Attach {
-  return async ({ argv, cwd, env }) => {
-    const merged: Record<string, string> = {};
-    for (const [name, value] of Object.entries({ ...environment, ...env }))
-      if (value !== undefined) merged[name] = value;
-    const ignore = () => undefined;
-    const signals = ["SIGINT", "SIGQUIT", "SIGTSTP"] as const;
-    for (const signal of signals) process.on(signal, ignore);
-    try {
-      const child = Bun.spawn({
-        cmd: [...argv],
-        cwd,
-        env: merged,
-        stdio: ["inherit", "inherit", "inherit"],
-      });
-      return await child.exited;
-    } finally {
-      for (const signal of signals) process.off(signal, ignore);
-    }
-  };
 }

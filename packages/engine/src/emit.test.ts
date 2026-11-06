@@ -17,9 +17,17 @@ import { readIn } from "./in-lines";
 import { logsCommand } from "./logs-command";
 import { listProjects, projectOf } from "./projects";
 import { runLinesFile } from "./run-lines";
-import { runLockFile, withRunLock } from "./run-lock";
+import { claimNow, releaseClaim, runLockFile, runOpenFile, withRunLock } from "./run-lock";
 import { STUCK_AFTER } from "./run-state";
-import { createRun, openRun, processStart, type Run, readAttemptFiles, readAttempts } from "./runs";
+import {
+  claimAttempt,
+  createRun,
+  openRun,
+  processStart,
+  type Run,
+  readAttemptFiles,
+  readAttempts,
+} from "./runs";
 import { runsCommand } from "./runs-command";
 import { createTempRunDirs, writeAttempt } from "./testing";
 import { tickCommand } from "./tick-command";
@@ -1103,5 +1111,59 @@ describe("awf tick", () => {
     // Whichever came second found it running: the emit nudged it, or the tick left it.
     expect(ticked.woke).toHaveLength(emitted.did === "continued" ? 0 : 1);
     expect(emitted.did === "continued" || emitted.did === "nudged").toBe(true);
+  });
+
+  test("while awf open --no-fork holds a run, an event waits and no attempt starts; it is taken after", async () => {
+    const p = project();
+    const launch = fakeLaunch();
+    await emit(p, "dd.changes", { case: "held" }, { id: "c1", launch });
+    const run = await runOf(p, "held");
+    // Its attempt failed and is gone: a wake would continue it.
+    await writeJson(join(run.dir, "attempts", "1.json"), {
+      ...(await readAttempts(run))[0],
+      ...GONE,
+      ended: new Date().toISOString(),
+      outcome: "failed",
+    });
+    const file = runOpenFile(run.root, "dd-case", "held");
+    const claimed = await claimNow(file);
+    if (!("held" in claimed)) throw new Error("not claimed");
+    expect(await emit(p, "dd.closed", { case: "held" }, { id: "c2", launch })).toMatchObject({
+      outcome: "accepted",
+      did: "none",
+      why: "opened",
+    });
+    expect(await eventsOf(run)).toEqual(["c1", "c2"]);
+    expect(launch.launched).toHaveLength(1);
+    // `awf run --continue` by hand is refused too.
+    const continued = await claimAttempt(run, { file: p.file, flags: {} });
+    expect(continued).toEqual({ refused: { kind: "opened", pid: process.pid } });
+    // A second claim sees this process holding it.
+    expect(await claimNow(file)).toEqual({ heldBy: claimed.held });
+    await releaseClaim(file, claimed.held);
+    const woken = await withRunLock(runLockFile(run.root, "dd-case", "held"), () =>
+      wake(run, { home: p.home, environment: {}, launch, nudgeLive: false }),
+    );
+    expect(woken).toEqual({ did: "continued", cause: "failed" });
+  });
+
+  test("a holder of awf open whose process is gone holds nothing", async () => {
+    const p = project();
+    const launch = fakeLaunch();
+    await emit(p, "dd.changes", { case: "stale" }, { id: "c1", launch });
+    const run = await runOf(p, "stale");
+    await writeJson(join(run.dir, "attempts", "1.json"), {
+      ...(await readAttempts(run))[0],
+      ...GONE,
+      ended: new Date().toISOString(),
+      outcome: "failed",
+    });
+    const file = runOpenFile(run.root, "dd-case", "stale");
+    writeFileSync(file, JSON.stringify({ ...GONE, at: new Date().toISOString() }));
+    expect(await emit(p, "dd.closed", { case: "stale" }, { id: "c2", launch })).toMatchObject({
+      did: "continued",
+    });
+    // Taken over by the next claim.
+    expect(await claimNow(file)).toMatchObject({ held: { pid: process.pid } });
   });
 });
