@@ -96,7 +96,7 @@ async function runWorkflowTests(
   cwd: string,
   options: {
     signal?: AbortSignal;
-    output?: { stdout(text: string): void; stderr(text: string): void };
+    output?: Out;
   } = {},
 ): Promise<number> {
   const { signal, output } = options;
