@@ -121,6 +121,15 @@ beforeAll(async () => {
     sandbox: null,
   });
   writeFileSync(join(torn.dir, "run.jsonl"), "garbage\n");
+  // And one whose run.jsonl is JSON, but no line this awf knows.
+  const shapeless = await createRun(runRoot, {
+    id: "shapeless",
+    workflow: "plain",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  writeFileSync(join(shapeless.dir, "run.jsonl"), "{}\n");
   // A run whose record this awf can't read: one made before `run.json` had a format.
   mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
   writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
@@ -495,6 +504,15 @@ const ROWS: Row[] = [
     exit: 2,
     v: 1,
     says: /run.jsonl line 1: not JSON/,
+  },
+  {
+    command: "run",
+    failure: "a continue of a run whose run.jsonl holds no line awf knows",
+    argv: (f) => [f.plain, "--id", "shapeless", "--continue"],
+    code: "unreachable",
+    exit: 2,
+    v: 1,
+    says: /run.jsonl line 1/,
   },
   {
     command: "run",

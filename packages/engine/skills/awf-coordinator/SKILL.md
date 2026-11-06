@@ -20,7 +20,8 @@ awf inbox --json --wait 100s --after {cursor}
 ```
 
 `--wait 100s` keeps under the shell tool's 120 s limit. Each line is one JSON item; keep the last
-one's `cursor` and pass it next time. `awf inbox {workflow}/{id}` reads one run instead of all.
+one's `cursor` and pass it next time. A line with a `code` is no item but a refusal, with an
+`error` saying why: on `cursor`, read again without `--after`. `awf inbox {workflow}/{id}` reads one run instead of all.
 Nothing new after the wait prints nothing: run it again.
 
 What to do with each item, by `kind`:

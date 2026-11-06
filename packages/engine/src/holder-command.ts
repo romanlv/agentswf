@@ -133,7 +133,8 @@ export async function holderCommand(
       // A socket an attempt left when it was killed: this attempt has not opened its own yet.
       if (["ECONNREFUSED", "ENOENT", "ENOTSOCK"].some((code) => isCode(error, code)))
         return unreachable();
-      throw error;
+      // Open and silent, or gone mid-answer: the run doesn't answer.
+      throw new RunUnreachable(`${status.ref} did not answer: ${messageOf(error)}`);
     }
     if (!answer)
       throw new RunUnreachable(

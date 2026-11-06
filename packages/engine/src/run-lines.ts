@@ -76,7 +76,13 @@ export async function readRunLines(runDir: string): Promise<{ lines: RunLine[]; 
       throw new RunUnreachable(`run.jsonl line ${index + 1}: not JSON`);
     }
   });
-  const view = readRun(parsed);
+  let view: RunView;
+  try {
+    view = readRun(parsed);
+  } catch (error) {
+    // A line of no kind this awf knows: the run's record can't be read, as a line not JSON.
+    throw new RunUnreachable(error instanceof Error ? error.message : String(error));
+  }
   return { lines: parsed as RunLine[], view };
 }
 

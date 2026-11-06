@@ -11,7 +11,8 @@ depends_on: ["040"]
 
 ## Outcome
 
-A program that runs `awf {command} --json` reads one document from stdout whatever happened.
+A program that runs `awf {command} --json` reads one document from stdout whatever happened, but
+from an `awf inbox` that reads nothing new, which prints nothing.
 When the command worked, the document is its result. When it failed, the document is a refusal,
 `{"v": …, "code": …, "error": …}`, whose `code` comes from a table the contract publishes. The
 exit codes stay as they are, and stderr stays for people.
@@ -46,7 +47,8 @@ awf {command} … --json
 ```
 
 **One document, always last.** A command that prints lines, as `awf inbox --json` does, ends
-with its refusal as the last line. A reader takes the last line, as awf-chat already does.
+with its refusal as the last line, which a reader takes, as awf-chat already does. The others
+print one document, which may span lines.
 
 **`code` means refused.** A document with `code` is a refusal, and no result has `code`. A reader
 checks for it first, then reads the result. The exit code doesn't tell them apart: `emit` exits 1
@@ -184,7 +186,8 @@ Out of scope:
 ## Design
 
 - **The rule.** With `--json`, stdout ends with exactly one JSON document: the result, or a
-  `RefusalJson`. No `--json` command exits with nothing on stdout.
+  `RefusalJson`. No `--json` command exits with nothing on stdout, but an `awf inbox` with nothing
+  new to read.
 - **The shape.** `RefusalJson<Code> = { v; code: Code; error: string } & extras`. `error` is the
   sentence stderr prints, without `awf: `. A code with extra data declares it, as `ambiguous`
   does `choices`.
@@ -207,7 +210,7 @@ Out of scope:
   | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
   | `no-id` | a start naming no run | `run`; client |
   | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
-  | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running, completed or gone | `run` |
+  | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim discarded, or a run running or completed, or whose working folder is gone | `run` |
   | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
   | `cursor` | a cursor or handle that doesn't fit: another run's or filter's, past the run's end, naming no event | `logs`, `inbox`; client |
   | `no-engine`, `other-engine` | the project's `agentswf` missing or another version | `run`, `emit`, the run readers, `reply`, `send`; client |
@@ -403,7 +406,7 @@ Automated:
 
 - [x] The guard: every `--json` command, failures each help documents, a refusal on stdout's last
   line; every code a help lists published.
-- [x] `bun test`: 2818 pass, 0 fail
+- [x] `bun test`: 2823 pass, 0 fail, after the branch review
 - [x] `bunx tsc --noEmit`
 - [x] `bun run scripts/check-boundaries.ts`, and the site's `bun run build`
 - [x] awf-chat: `bun run check` and `bun test`, 50 pass.
@@ -534,6 +537,14 @@ Manual or live evaluation:
   `cursor` and `other-args` glossed alike everywhere; the story's table and task 1 note; the
   status entry.
 
+- Round 3, correctness: a `run.jsonl` of JSON but no line this awf knows, and a run that holds its
+  socket open and never answers `awf reply`, were `internal-error`: both `RunUnreachable` now. A
+  row for the first; the second waits out the exchange's 30 s, so it has none.
+- Round 3, design and docs: the coordinator skill says an inbox line with a `code` is a refusal;
+  the Outcome, Design and status name `awf inbox`'s empty read; `not-started`'s gone run is one
+  whose working folder is gone, as a run that is gone is `no-run`; the story's counts and its
+  task 1 note on `ClientErrorCode`.
+
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
@@ -548,8 +559,8 @@ Manual or live evaluation:
 ### Task 1
 
 - The codes live in `contract/src/records.ts` as `REFUSAL_CODES`, beside the `--json` result
-  types they refuse in place of; `wire.ts` stays the agent's wire. `ClientErrorCode` is an
-  `Extract` of `RefusalCode`, so the client can't throw a word the table lacks. `RefusalJson` takes
+  types they refuse in place of; `wire.ts` stays the agent's wire. `ClientErrorCode` sits
+  within `RefusalCode`, so the client can't throw a word the table lacks. `RefusalJson` takes
   the code set and the command's `v` as parameters.
 - `no-id` and `other-args` are in the table: the client throws them, and one set of words was the
   point. No command printed them until task 4, when `awf run` came to.
@@ -608,7 +619,7 @@ Manual or live evaluation:
   `other-args`, `prepare`, `unreachable` or `not-started`. `loadAndPrepare` returns each refusal
   with its code, and `awf run` prints it.
 - `not-started` means no attempt started: besides Ctrl-C, a session not taken and a claim given
-  up, a continue of a run that is running, completed, or whose folder is gone. `error` says which.
+  up, a continue of a run that is running or completed, or whose working folder is gone. `error` says which.
 - The client's `start` never throws `not-started`: it takes no session and no Ctrl-C, its claim
   is the detached attempt's, and a launch that fails is its `launch-failed` result. So
   `ClientErrorCode` doesn't gain it.

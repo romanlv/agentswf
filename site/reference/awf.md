@@ -58,7 +58,7 @@ A code means the same in every command that prints it, and is the word
 | `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
 | `no-id` | a workflow with events, and no run named | `run` |
 | `other-args` | a run there, started with other arguments or options | `run` |
-| `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running, completed or gone | `run` |
+| `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose working folder is gone | `run` |
 | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `cursor` | a cursor or handle doesn't fit: made for another run or filter, past the run's end, or naming no event | `logs`, `inbox` |
 | `no-engine`, `other-engine` | the project's `agentswf` is missing, or another version than this awf | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
