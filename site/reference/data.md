@@ -421,7 +421,7 @@ holds `~/.awf/sandboxes` is refused.
 
 - **The skills cache**, `~/.cache/awf/skills` (`$XDG_CACHE_HOME/awf/skills` when that is set): the
   repositories skills were fetched from, kept so the next run fetches less.
-- **Each agent's socket and `wfa` launcher**, in a folder of its own under `/tmp/awf-*`, which the
+- **Each agent's socket and `wfa` launcher**, in a folder of its own under `/tmp/awf-doors-*`, which the
   run removes when it closes.
 - **The agents' own sessions**: a harness on the host keeps its session files in its own home, such
   as `~/.claude/projects` or `~/.codex/sessions`. awf doesn't copy them; `awf logs` and each
@@ -448,7 +448,7 @@ lose is the run itself:
   you are done with a run you sandboxed.
 - **The skills cache**, while no run is running: a run fetches a skill whenever an agent given
   one opens. The next run fetches again.
-- **Temporary files** (`.tmp-*`, `.new-*`) and a `/tmp/awf-*` folder whose run has ended: awf
+- **Temporary files** (`.tmp-*`, `.new-*`) and a `/tmp/awf-doors-*` folder whose run has ended: awf
   removes them itself; deleting them sooner does no harm once their run is gone.
 
 Keep `~/.awf/projects` while you have runs with events you want `awf tick --all` to wake: a

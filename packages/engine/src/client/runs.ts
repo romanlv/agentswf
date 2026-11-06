@@ -26,6 +26,7 @@ import {
   RunRefused,
   RunTaken,
   readAttemptFiles,
+  takenInCase,
 } from "../runs";
 import { wake } from "../wake";
 import type { AnyWorkflow } from "../workflow-loader";
@@ -164,13 +165,20 @@ export async function openExact(
   id: string,
   differing: "id" | "no-run",
 ): Promise<Run | undefined> {
-  if (!(await exists(join(runRoot, workflow, id, "run.json")))) return undefined;
+  const ref = `${workflow}/${id}`;
+  const refuse = (other: string) =>
+    differing === "id"
+      ? new ClientError("id", `${ref} differs only in case from ${other}`, ref)
+      : new ClientError("no-run", `no run ${ref}; ${other} differs only in case`, ref);
+  if (!(await exists(join(runRoot, workflow, id, "run.json")))) {
+    // A file system that tells case apart, as Linux's does, finds no folder at all.
+    const other = await takenInCase(join(runRoot, workflow), id);
+    if (other === undefined) return undefined;
+    throw refuse(other);
+  }
   const run = await openRun(runRoot, workflow, id);
   if (run.record.id === id) return run;
-  const ref = `${workflow}/${id}`;
-  throw differing === "id"
-    ? new ClientError("id", `${ref} differs only in case from ${run.record.id}`, ref)
-    : new ClientError("no-run", `no run ${ref}; ${run.record.id} differs only in case`, ref);
+  throw refuse(run.record.id);
 }
 
 /** A run, read from its files whenever asked. */

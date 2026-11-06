@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   type AgentRef,
   choice,
@@ -634,7 +634,8 @@ describe("testWorkflow", () => {
     const skill = join(cwd, "skills", "notes");
     mkdirSync(skill, { recursive: true });
     writeFileSync(join(skill, "SKILL.md"), "---\nname: notes\ndescription: Take notes.\n---\n");
-    const missing = join(cwd, "no-logins");
+    // Outside the sandbox's cwd, where harness state may not lie.
+    const missing = join(mkdtempSync(join(tmpdir(), "awf-test-homes-")), "no-logins");
     const names = ["PATH", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CURSOR_CONFIG_DIR"];
     const tokens = ["CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY"];
     const saved = Object.fromEntries(
@@ -681,6 +682,7 @@ describe("testWorkflow", () => {
         else process.env[name] = value;
       }
       rmSync(cwd, { recursive: true, force: true });
+      rmSync(dirname(missing), { recursive: true, force: true });
     }
   });
 

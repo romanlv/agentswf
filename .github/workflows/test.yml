@@ -1,7 +1,6 @@
 # The free checks on every push and pull request: Biome, tsc, the package boundaries, and the
-# tests. No live agent runs here; `bun run eval` stays a local, paid run (docs/testing.md).
-# macOS, where awf is built and used: on Linux the temporary directory is /tmp, where the engine's
-# sockets also live, and the tests that make projects there are refused as exposing them.
+# tests, on both systems awf runs on. No live agent runs here; `bun run eval` stays a local, paid
+# run (docs/testing.md).
 name: test
 
 on:
@@ -16,7 +15,11 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

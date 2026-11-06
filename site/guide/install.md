@@ -5,8 +5,9 @@ description: What awf needs on your machine, per harness and for sandboxes, how 
 
 # Install
 
-awf runs on [Bun](https://bun.sh), on macOS or Linux. You install one package, `agentswf`, which
-puts the `awf` command on your PATH and gives a workflow its imports.
+awf runs on [Bun](https://bun.sh), on macOS or Linux; on Linux it needs `ps`, from procps, which
+slim container images leave out. You install one package, `agentswf`, which puts the `awf` command
+on your PATH and gives a workflow its imports.
 
 ```sh
 bun add -g agentswf   # puts awf in ~/.bun/bin

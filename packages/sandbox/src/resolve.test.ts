@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "@agentswf/contract";
-import { isDomain, repositoryOf, resolveSandbox, withinReach } from "./resolve";
+import { DOORS_PREFIX, isDomain, repositoryOf, resolveSandbox, withinReach } from "./resolve";
 import type { SandboxProvider, SandboxProviders } from "./seam";
 
 // Made before the tests are declared, which `test.each` does with these paths.
@@ -183,8 +183,11 @@ describe("resolveSandbox", () => {
 
   test("the engine's doors are refused: their root, and a run's directory under it", async () => {
     const doors = join(root, "doors");
-    await mkdir(join(doors, "awf-run", "a1"), { recursive: true });
+    const run = `${DOORS_PREFIX}run`;
+    await mkdir(join(doors, run, "a1"), { recursive: true });
     await mkdir(join(doors, "mine"), { recursive: true });
+    // A project in the temp directory, which on Linux is the control root itself.
+    await mkdir(join(doors, "awf-project"), { recursive: true });
     const options = {
       key: "box",
       cwd: repo,
@@ -195,13 +198,14 @@ describe("resolveSandbox", () => {
       harnessState,
       controlRoot: doors,
     };
-    for (const path of [doors, join(doors, "awf-run"), join(doors, "awf-run", "a1")]) {
+    for (const path of [doors, join(doors, run), join(doors, run, "a1")]) {
       await expect(resolveSandbox({ write: [path], srt: {} }, options)).rejects.toThrow(
         "would expose the engine's doors",
       );
     }
-    const { sandbox } = await resolveSandbox({ write: [join(doors, "mine")], srt: {} }, options);
-    expect(sandbox.write).toEqual([join(doors, "mine")]);
+    const mine = [join(doors, "mine"), join(doors, "awf-project")];
+    const { sandbox } = await resolveSandbox({ write: mine, srt: {} }, options);
+    expect(sandbox.write).toEqual(mine);
   });
 
   test("webSearch is a boolean, false when absent", async () => {
@@ -232,6 +236,25 @@ describe("resolveSandbox", () => {
           home,
           providers,
           harnessState: [join(home, "notes")],
+        },
+      ),
+    ).rejects.toThrow("would expose harness state");
+  });
+
+  test("harness state not made yet, named through a link, is refused by where it will be", async () => {
+    const alias = join(root, "alias");
+    await symlink(home, alias);
+    await expect(
+      resolveSandbox(
+        { read: ["~/notes"], srt: {} },
+        {
+          key: "box",
+          cwd: repo,
+          runRoot,
+          machineRoot,
+          home,
+          providers,
+          harnessState: [join(alias, "notes", "codex")],
         },
       ),
     ).rejects.toThrow("would expose harness state");

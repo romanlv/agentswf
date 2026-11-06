@@ -177,7 +177,7 @@ function takenMessage(id: string): string {
 }
 
 /** Another run whose id differs from `id` only in case; the same id is the rename's to refuse. */
-async function takenInCase(parent: string, id: string): Promise<string | undefined> {
+export async function takenInCase(parent: string, id: string): Promise<string | undefined> {
   return (await entries(parent)).find(
     (name) => name !== id && name.toLowerCase() === id.toLowerCase(),
   );

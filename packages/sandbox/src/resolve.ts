@@ -1,6 +1,6 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isRecord } from "@agentswf/contract";
 import {
   type Gitdir,
@@ -8,6 +8,13 @@ import {
   type SandboxEnvironmentKey,
 } from "@agentswf/contract/workflow";
 import type { ResolvedSandbox, SandboxProviders } from "./seam";
+
+/**
+ * What names a directory under the control root that is an agent's door or an srt agent's short
+ * directory: a sandbox path in one is refused. Distinct enough that a project in `/tmp`, the temp
+ * directory on Linux, never matches it.
+ */
+export const DOORS_PREFIX = "awf-doors-";
 
 const REACH_KEYS = ["read", "write", "network", "sockets", "webSearch"] as const;
 
@@ -36,8 +43,8 @@ export type ResolveOptions = {
   /** The operator's harness state, where its environment put it: no sandbox path may overlap it. */
   harnessState: readonly string[];
   /**
-   * Where the engine keeps every run's doors: `/tmp`, holding an `awf-*` directory per run. No
-   * sandbox path may contain it, or lie in one of those directories: an agent could rewrite
+   * Where the engine keeps every run's doors: `/tmp`, holding a `DOORS_PREFIX` directory per run.
+   * No sandbox path may contain it, or lie in one of those directories: an agent could rewrite
    * another agent's launcher, which runs on the host.
    */
   controlRoot?: string;
@@ -89,18 +96,14 @@ export async function resolveSandbox(
 
   const home = await realpath(options.home ?? homedir());
   const runRoot = await realpath(options.runRoot);
-  const machine = await realpath(options.machineRoot).catch(() => options.machineRoot);
+  const machine = await realpathMissing(options.machineRoot);
   const controlRoot =
-    options.controlRoot === undefined
-      ? undefined
-      : await realpath(options.controlRoot).catch(() => options.controlRoot);
+    options.controlRoot === undefined ? undefined : await realpathMissing(options.controlRoot);
   const coordinatorRoot =
     options.coordinatorRoot === undefined
       ? undefined
-      : await realpath(options.coordinatorRoot).catch(() => options.coordinatorRoot);
-  const harnessState = await Promise.all(
-    options.harnessState.map((path) => realpath(path).catch(() => path)),
-  );
+      : await realpathMissing(options.coordinatorRoot);
+  const harnessState = await Promise.all(options.harnessState.map(realpathMissing));
   const forbidden = (path: string, field: string) => {
     if (contains(path, home)) throw new Error(`sandbox ${field} ${path} would expose ~`);
     // A path within the run root would be another run's. One holding it is `hidden`.
@@ -232,11 +235,26 @@ export function deepestRoot(roots: readonly string[], path: string): string | un
   return roots.filter((root) => contains(root, path)).sort((a, b) => b.length - a.length)[0];
 }
 
-/** Whether `path` lies in one of the engine's run directories under its control root. */
+/**
+ * `path` by its real path, though it may not exist yet: its deepest existing ancestor resolved,
+ * the rest kept. A root made after the check, under a linked directory such as macOS's `/var`,
+ * is then still compared by the path a sandbox's would be.
+ */
+async function realpathMissing(path: string): Promise<string> {
+  const rest: string[] = [];
+  for (let at = path; ; at = dirname(at)) {
+    const found = await realpath(at).catch(() => undefined);
+    if (found !== undefined) return join(found, ...rest.reverse());
+    if (at === dirname(at)) return path;
+    rest.push(basename(at));
+  }
+}
+
+/** Whether `path` lies in one of the engine's door directories under its control root. */
 function insideDoors(controlRoot: string, path: string): boolean {
   if (path === controlRoot || !contains(controlRoot, path)) return false;
   const [first = ""] = path.slice(controlRoot.length + 1).split("/");
-  return first.startsWith("awf-");
+  return first.startsWith(DOORS_PREFIX);
 }
 
 /** Whether `path` is `root` or lies under it. Both are absolute and resolved. */
