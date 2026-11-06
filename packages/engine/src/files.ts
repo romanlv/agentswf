@@ -55,10 +55,15 @@ export function writeWholeSync(path: string, text: string): void {
  * Links a complete file holding `value` to `path`, which fails when `path` exists: the first to
  * link holds it. False when it was taken.
  */
-export async function linkNew(path: string, value: unknown): Promise<boolean> {
+export function linkNew(path: string, value: unknown): Promise<boolean> {
+  return linkNewText(path, jsonText(value));
+}
+
+/** As `linkNew`, for text. */
+export async function linkNewText(path: string, text: string): Promise<boolean> {
   const temporary = temporaryBeside(path);
   try {
-    await writeSynced(temporary, jsonText(value));
+    await writeSynced(temporary, text);
     await link(temporary, path);
     return true;
   } catch (error) {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, rename, rmdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { HERDR_VERSION, type RunProcess } from "@agentswf/harness";
+import { isCode } from "./files";
 import { parseSessions } from "./herdr-run-session";
 import { machinePaths } from "./machine";
 
@@ -123,7 +124,7 @@ export function workspaceLock(home: string) {
         await mkdir(lock);
         return () => rmdir(lock).catch(() => undefined);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!isCode(error, "EEXIST")) throw error;
       }
       const made = await stat(lock).then(
         (found) => found.mtimeMs,

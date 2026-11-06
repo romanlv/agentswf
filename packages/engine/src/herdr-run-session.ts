@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { link, mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RunProcess } from "@agentswf/harness";
 import { messageOf } from "./errors";
+import { linkNewText } from "./files";
 import {
   liveness,
   type MarkedPane,
@@ -431,15 +431,7 @@ export function serverEnvironment(
 async function quietConfig(home: string): Promise<string> {
   const file = join(machinePaths(home).herdr, "config.toml");
   await mkdir(dirname(file), { recursive: true });
-  const temporary = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  try {
-    await writeFile(temporary, QUIET_CONFIG, { flag: "wx" });
-    await link(temporary, file);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  } finally {
-    await unlink(temporary).catch(() => undefined);
-  }
+  await linkNewText(file, QUIET_CONFIG);
   return file;
 }
 
