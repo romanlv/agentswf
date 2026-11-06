@@ -49,7 +49,7 @@ export type AgentView = {
   sessions: { harness: HarnessKind; id: string; files: string[] }[];
 };
 
-export type DecisionView = { decision: number; key: string; askedAt: number; outcome?: string };
+type DecisionView = { decision: number; key: string; askedAt: number; outcome?: string };
 
 export type RunView = {
   status: RunStatus;

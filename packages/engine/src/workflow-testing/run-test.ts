@@ -345,7 +345,7 @@ function panesProblem(panes: unknown): string | undefined {
 }
 
 /** What a test of the engine, not of a workflow, may give `runTest`. */
-export type EngineTestOptions = {
+type EngineTestOptions = {
   /**
    * Where an agent may `--await-reply`: `listed`, where the engine's list allows it for the
    * agent's harness and placement, as a run would; `anywhere`, on any harness, the fake's included.

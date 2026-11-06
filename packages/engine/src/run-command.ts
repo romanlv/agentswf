@@ -9,6 +9,9 @@ import { SESSION_CODE } from "./here";
 import { KEEP_PANES, parseWorkspace } from "./pane-layout";
 import { idProblem, RunRefused, runRootOf, stageNameProblem } from "./runs";
 
+/** `awf run --json`'s `"v"`, which its refusals carry too. */
+export const RUN_V = 1;
+
 export const usage = help.trimEnd();
 
 export type RunCommand = {
@@ -49,7 +52,6 @@ export type RunCommand = {
 
 /** `awf run`'s options and workflow; `"help"` for a `-h` or `--help` anywhere before `--`. */
 export function parseCommand(argv: readonly string[], cwd: string): RunCommand | "help" {
-  if (argv[0] !== "run") throw new Error("expected the run command");
   const end = argv.indexOf("--");
   const own = end < 0 ? argv : argv.slice(0, end);
   if (own.includes("-h") || own.includes("--help")) return "help";
@@ -186,15 +188,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
 
 /** `--values`'s file: a JSON object of stage values, by stage name. */
 function readValues(file: string): NonNullable<RunCommand["values"]> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(`--values: ${messageOf(error)}`);
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`--values: ${file} must hold a JSON object, each stage's value by its name`);
-  }
+  const parsed = readJsonObject(file, "--values", "each stage's value by its name");
   for (const stage of Object.keys(parsed)) {
     const problem = stageNameProblem(stage);
     if (problem) throw new Error(`--values: ${problem}`);
@@ -202,17 +196,22 @@ function readValues(file: string): NonNullable<RunCommand["values"]> {
   return { file, stages: new Map(Object.entries(parsed as Record<string, JsonValue>)) };
 }
 
+/** `flag`'s file, which must hold a JSON object: `what`, as its refusal says. */
+function readJsonObject(file: string, flag: string, what: string): object {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`${flag}: ${messageOf(error)}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new Error(`${flag}: ${file} must hold a JSON object, ${what}`);
+  return parsed;
+}
+
 /** `--sandbox`'s file: an inline sandbox spec, whose working directory is the run's. */
 function readSandboxSpec(file: string): object {
-  let spec: unknown;
-  try {
-    spec = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(`--sandbox: ${messageOf(error)}`);
-  }
-  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
-    throw new Error(`--sandbox: ${file} must hold a JSON object, a sandbox spec`);
-  }
+  const spec = readJsonObject(file, "--sandbox", "a sandbox spec");
   for (const [field, why] of Object.entries(NOT_IN_A_RUN_SANDBOX)) {
     if (field in spec) throw new Error(`--sandbox: the run's sandbox names no ${field}; ${why}`);
   }

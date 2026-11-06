@@ -10,17 +10,16 @@ import {
 import type { AttemptRecord, ClaimedAttempt, OutputRecord } from "@agentswf/contract/records";
 import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { canonical } from "../canonical-json";
+import { shellLine } from "../command-line";
 import { messageOf } from "../errors";
 import { exists } from "../files";
 import { recordProject } from "../projects";
-import { shellLine } from "../run-commands";
 import { lockHeld, runLockFile, withRunLock } from "../run-lock";
 import { type RunState, runStatus, statusOf, stuckOf } from "../run-state";
 import {
   claimedOf,
   createRun,
   generateId,
-  idProblem,
   openRun,
   outFile,
   type Run,
@@ -29,7 +28,8 @@ import {
   readAttemptFiles,
 } from "../runs";
 import { wake } from "../wake";
-import { type AnyWorkflow, assertJsonValue } from "../workflow-loader";
+import type { AnyWorkflow } from "../workflow-loader";
+import { checkArgs, checkRunId, derivedId } from "./checks";
 import type { ClientContext } from "./index";
 import { locate } from "./locate";
 
@@ -49,16 +49,9 @@ export async function start(
 ): Promise<StartResult<JsonValue>> {
   const found = await locate(workflow, context.home);
   const name = workflow.meta.name;
-  try {
-    assertJsonValue(args, `${name} arguments`);
-  } catch (error) {
-    throw new ClientError("prepare", messageOf(error));
-  }
+  checkArgs(name, args);
   const named = given.id ?? derivedId(workflow, args);
-  if (named !== undefined) {
-    const problem = idProblem(named);
-    if (problem) throw new ClientError("id", `the run's id: ${problem}`, `${name}/${named}`);
-  }
+  if (named !== undefined) checkRunId(named, `${name}/${named}`);
   // Without one, a new id, as awf run makes one: no sender names this run.
   const id = named ?? (await unusedId(found.runRoot, name));
   const create = async (id: string): Promise<StartResult<JsonValue> | undefined> => {
@@ -116,11 +109,9 @@ export async function start(
       if (made) return made;
     }
   return withRunLock(runLockFile(found.runRoot, name, id), async () => {
+    const run = await openExact(found.runRoot, name, id, "id");
     // Named, so never drawn again: create returns a result or throws.
-    if (!(await exists(join(found.runRoot, name, id, "run.json")))) return (await create(id))!;
-    const run = await openRun(found.runRoot, name, id);
-    if (run.record.id !== id)
-      throw new ClientError("id", `${ref} differs only in case from ${run.record.id}`, ref);
+    if (!run) return (await create(id))!;
     if (run.record.args === undefined)
       throw new ClientError(
         "other-args",
@@ -149,28 +140,6 @@ async function unusedId(runRoot: string, workflow: string): Promise<string> {
   }
 }
 
-/** The id `id(args)` gives, checked; a workflow with `starts` and none is refused. */
-function derivedId(workflow: AnyWorkflow, args: JsonValue): string | undefined {
-  const name = workflow.meta.name;
-  if (!workflow.id) {
-    if (isEventWorkflow(workflow) && workflow.starts !== undefined)
-      throw new ClientError(
-        "no-id",
-        `a run of ${name}, which starts on events, is named by its senders: start(${name}, args, { id }), or an id(args) on the workflow`,
-      );
-    return undefined;
-  }
-  let id: unknown;
-  try {
-    id = workflow.id(args as never);
-  } catch (error) {
-    throw new ClientError("prepare", `${name}'s id(args) failed: ${messageOf(error)}`);
-  }
-  const problem = typeof id === "string" ? idProblem(id) : `it returned a ${typeof id}`;
-  if (problem) throw new ClientError("id", `${name}'s id(args): ${problem}`);
-  return id as string;
-}
-
 /** `get`: the run `id` of `workflow`, or `no-run`. */
 export async function get(
   workflow: AnyWorkflow,
@@ -179,21 +148,33 @@ export async function get(
 ): Promise<RunHandle<JsonValue>> {
   const found = await locate(workflow, context.home);
   const ref = `${workflow.meta.name}/${id}`;
-  const problem = idProblem(id);
-  if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
-  if (!(await exists(join(found.runRoot, workflow.meta.name, id, "run.json"))))
-    throw new ClientError("no-run", `no run ${ref} in ${found.project}`, ref);
-  const run = await openRun(found.runRoot, workflow.meta.name, id);
-  if (run.record.id !== id)
-    throw new ClientError("no-run", `no run ${ref}; ${run.record.id} differs only in case`, ref);
+  checkRunId(id, ref);
+  const run = await openExact(found.runRoot, workflow.meta.name, id, "no-run");
+  if (!run) throw new ClientError("no-run", `no run ${ref} in ${found.project}`, ref);
   return runHandle(run, context);
 }
 
+/**
+ * The run `{workflow}/{id}` in `runRoot`, or undefined when there is none; one there whose id
+ * differs from `id` only in case is refused with `differing`.
+ */
+export async function openExact(
+  runRoot: string,
+  workflow: string,
+  id: string,
+  differing: "id" | "no-run",
+): Promise<Run | undefined> {
+  if (!(await exists(join(runRoot, workflow, id, "run.json")))) return undefined;
+  const run = await openRun(runRoot, workflow, id);
+  if (run.record.id === id) return run;
+  const ref = `${workflow}/${id}`;
+  throw differing === "id"
+    ? new ClientError("id", `${ref} differs only in case from ${run.record.id}`, ref)
+    : new ClientError("no-run", `no run ${ref}; ${run.record.id} differs only in case`, ref);
+}
+
 /** A run, read from its files whenever asked. */
-export function runHandle(
-  run: Run,
-  context: Pick<ClientContext, "now"> & { pollMs?: number },
-): RunHandle<JsonValue> {
+function runHandle(run: Run, context: Pick<ClientContext, "pollMs">): RunHandle<JsonValue> {
   const { id, workflow } = run.record;
   return {
     id,

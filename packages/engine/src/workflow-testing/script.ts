@@ -518,7 +518,7 @@ function globMatches(pattern: string, key: string): boolean {
   return new RegExp(`^${escaped.join(".*")}$`).test(key);
 }
 
-export function firstLine(text: string): string {
+function firstLine(text: string): string {
   const line = text.split("\n", 1)[0]!;
   return line.length > 100 ? `${line.slice(0, 100)}…` : line;
 }

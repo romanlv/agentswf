@@ -2,23 +2,13 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import type {
-  AllowanceReport,
-  EmitResultJson,
-  HarnessAllowance,
-  InboxItemJson,
-  LogsJson,
-  ParticipantResultJson,
-  RefusalCode,
-  RunsJson,
-  TickResultJson,
-} from "@agentswf/contract/records";
+import type { HarnessAllowance, RefusalCode } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
 import { earlierSpent, unreadEarlier } from "./accounting/spent";
-import { allowanceCommand } from "./allowance-command";
+import { ALLOWANCE_V, allowanceCommand } from "./allowance-command";
 import {
   type AttemptEnd,
   cleanupFailed,
@@ -30,6 +20,7 @@ import {
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
+import { placeFlags, shellLine } from "./command-line";
 import { type CommandName, helpOf, index, isCommand, reference, unknownCommand } from "./commands";
 import {
   type LineReader,
@@ -39,14 +30,14 @@ import {
 } from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { EmitError, emitEvent, openEventRun } from "./emit";
-import { emitCommand } from "./emit-command";
+import { didOf, EMIT_V, emitCommand, launchExit } from "./emit-command";
 import { messageOf } from "./errors";
 import { installedEngine } from "./hand-over";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
-import { holderCommand } from "./holder-command";
-import { inboxCommand } from "./inbox-command";
+import { HOLDER_V, holderCommand } from "./holder-command";
+import { INBOX_V, inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
-import { logsCommand } from "./logs-command";
+import { LOGS_V, logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
   allowanceReader,
@@ -57,8 +48,8 @@ import {
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { asksJson, NO_JSON, printRefusal, readFailureCode, refusalLine } from "./refusals";
-import { parseCommand, type RunCommand, usage } from "./run-command";
-import { placeFlags, shellLine, startedLine } from "./run-commands";
+import { parseCommand, RUN_V, type RunCommand, usage } from "./run-command";
+import { startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
 import {
   claimNext,
@@ -69,11 +60,11 @@ import {
 } from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
-import { runsCommand } from "./runs-command";
+import { RUNS_V, runsCommand } from "./runs-command";
 import { readSpent } from "./spend";
 import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
-import { tickCommand } from "./tick-command";
+import { TICK_V, tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
 import type { EventWorkflow, LoadedWorkflow } from "./workflow-loader";
 import {
@@ -137,6 +128,12 @@ export type OperatorEnvironment = {
   stdin?: () => Promise<string>;
 };
 
+/** An operator environment with the operator's home and environment variables resolved. */
+type Resolved = OperatorEnvironment & {
+  home: string;
+  environment: Readonly<Record<string, string | undefined>>;
+};
+
 type Output = {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
@@ -166,7 +163,12 @@ export async function runOperatorCli(
   argv: readonly string[],
   given: OperatorEnvironment = {},
 ): Promise<number> {
-  const environment = takeLaunch(given);
+  const taken = takeLaunch(given);
+  const environment: Resolved = {
+    ...taken,
+    home: taken.home ?? homedir(),
+    environment: taken.environment ?? process.env,
+  };
   const print = environment.stdout ?? ((text) => console.log(text));
   let printed = false;
   const stdout = (text: string) => {
@@ -199,16 +201,17 @@ export async function runOperatorCli(
       stderr,
       stdin: environment.stdin ?? (() => new Response(Bun.stdin.stream()).text()),
       ...(environment.stdin ? {} : { stdinIsTerminal: process.stdin.isTTY === true }),
-      ...(environment.environment ? { environment: environment.environment } : {}),
-      ...(environment.home ? { home: environment.home } : {}),
+      environment: environment.environment,
+      home: environment.home,
     });
   const wakes = {
-    home: environment.home ?? homedir(),
-    environment: environment.environment ?? process.env,
+    home: environment.home,
+    environment: environment.environment,
     ...(environment.launch ? { launch: environment.launch } : {}),
   };
+  const output = { stdout, stderr, notice, terminal, now };
   const handlers = {
-    run: () => runCommand(argv, environment, { stdout, stderr, notice, terminal, now }),
+    run: () => runCommand(argv, environment, output),
     test: () => {
       const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
       return testCommand(argv.slice(1), cwd, {
@@ -226,14 +229,21 @@ export async function runOperatorCli(
       }),
     emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
-    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, Date.now(), wakes.home),
-    logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }, undefined, wakes.home),
+    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, now(), environment.home),
+    logs: () =>
+      logsCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        { now, sleep: (ms) => Bun.sleep(ms) },
+        environment.home,
+      ),
     inbox: () =>
       inboxCommand(
         argv.slice(1),
         cwd,
         { stdout, stderr },
-        { home: wakes.home, ...(environment.signal ? { signal: environment.signal } : {}) },
+        { home: environment.home, ...(environment.signal ? { signal: environment.signal } : {}) },
       ),
     reply: () => holder(),
     send: () => holder(),
@@ -243,12 +253,7 @@ export async function runOperatorCli(
         stderr,
         read:
           environment.readAllowance ??
-          allowanceReader(
-            environment.environment ?? process.env,
-            undefined,
-            environment.signal,
-            environment.home ?? homedir(),
-          ),
+          allowanceReader(environment.environment, undefined, environment.signal, environment.home),
         now,
       }),
   } satisfies Record<CommandName, () => Promise<number>>;
@@ -286,20 +291,17 @@ export async function runOperatorCli(
   return 2;
 }
 
-/**
- * Each `--json` command's `"v"`, which a refusal carries, tied to its result's type so the two move
- * together: `awf runs`'s list's, as `awf runs {run}` prints its own refusals.
- */
+/** Each `--json` command's `"v"`, which a refusal carries: `awf runs`'s list's for `awf runs`. */
 const JSON_VERSION = {
-  run: 1,
-  emit: 1 satisfies EmitResultJson["v"],
-  tick: 1 satisfies TickResultJson["v"],
-  runs: 1 satisfies RunsJson["v"],
-  logs: 1 satisfies LogsJson["v"],
-  inbox: 2 satisfies InboxItemJson["v"],
-  reply: 3 satisfies ParticipantResultJson["v"],
-  send: 3 satisfies ParticipantResultJson["v"],
-  allowance: 1 satisfies AllowanceReport["v"],
+  run: RUN_V,
+  emit: EMIT_V,
+  tick: TICK_V,
+  runs: RUNS_V,
+  logs: LOGS_V,
+  inbox: INBOX_V,
+  reply: HOLDER_V,
+  send: HOLDER_V,
+  allowance: ALLOWANCE_V,
 } as const;
 
 /** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
@@ -326,14 +328,13 @@ function help(
   return 0;
 }
 
-/** `awf run`: parses it, then starts or continues the run, here or in a tab. */
 /**
  * `awf run --id` for a workflow with events: the run is made with no event and started detached, as
  * an event starts one, so it runs to its first wait and parks; one already there is only woken.
  */
 async function openRun(
   { loaded, id, argv, panes }: OpensEventRun,
-  environment: OperatorEnvironment,
+  environment: Resolved,
   { stdout, stderr }: Output,
 ): Promise<number> {
   try {
@@ -342,36 +343,32 @@ async function openRun(
       id,
       argv,
       {
-        home: environment.home ?? homedir(),
-        environment: environment.environment ?? process.env,
+        home: environment.home,
+        environment: environment.environment,
         ...(environment.launch ? { launch: environment.launch } : {}),
       },
       panes,
     );
-    const did = opened.did === "none" ? opened.why : opened.did;
-    stdout(
-      `${opened.run}${opened.created ? "" : " was there"}${did === undefined ? "" : `: ${did}`}`,
-    );
-    if (opened.why !== "launch-failed") return 0;
-    stderr(`awf: the run's attempt did not start: ${opened.error}`);
-    return 1;
+    stdout(`${opened.run}${opened.created ? "" : " was there"}${didOf(opened)}`);
+    return launchExit(opened, { stdout, stderr });
   } catch (error) {
     printRefusal({ stdout, stderr }, NO_JSON, error, readFailureCode(error));
     return error instanceof EmitError ? 2 : 1;
   }
 }
 
+/** `awf run`: parses it, then starts or continues the run, here or in a tab. */
 async function runCommand(
   argv: readonly string[],
-  environment: OperatorEnvironment,
+  environment: Resolved,
   output: Output,
 ): Promise<number> {
-  const { stdout, stderr, notice, terminal, now } = output;
+  const { stdout, stderr, notice, now } = output;
   let parsed: RunCommand | "help";
   try {
     parsed = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
-    printRefusal({ stdout, stderr }, { json: asksJson(argv), v: 1 }, error, "usage", usage);
+    printRefusal({ stdout, stderr }, { json: asksJson(argv), v: RUN_V }, error, "usage", usage);
     return 2;
   }
   if (parsed === "help") {
@@ -380,21 +377,12 @@ async function runCommand(
   }
   let command: RunCommand = parsed;
   // With --json, what makes no run is a refusal, as its sentence on stderr says.
-  const refused = (code: RefusalCode, error: string) => {
-    if (command.json) stdout(refusalLine(1, code, error));
-  };
+  const refused = (code: RefusalCode, error: string) =>
+    printRefusal({ stdout, stderr }, { json: command.json, v: RUN_V }, error, code);
   const meant = await runNamed(command);
   if (meant) {
-    const look = shellLine([
-      "awf",
-      "runs",
-      meant,
-      ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
-      ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
-    ]);
-    const why = `${command.workflowFile} is not a workflow file; did you mean: ${look}`;
-    refused("file", why);
-    stderr(`awf: ${why}`);
+    const look = shellLine(["awf", "runs", meant, ...placeFlags(command)]);
+    refused("file", `${command.workflowFile} is not a workflow file; did you mean: ${look}`);
     return 2;
   }
   if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
@@ -404,21 +392,21 @@ async function runCommand(
     if (command.session !== undefined) await showOwnTab(environment);
     return exitCode;
   };
-  const home = environment.home ?? homedir();
+  const { home } = environment;
   const { sandboxes, callers } = machinePaths(home);
   const ready = await loadAndPrepare(command, now(), home);
   if ("refused" in ready) {
     refused(ready.code, ready.refused);
-    stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
   if ("opens" in ready) return openRun(ready.opens, environment, output);
   // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {
-    const why = `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`;
-    refused("usage", why);
-    stderr(`awf: ${why}`);
+    refused(
+      "usage",
+      `--run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,
+    );
     return unstarted(2);
   }
   for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
@@ -426,7 +414,7 @@ async function runCommand(
   // Loading the workflow imports operator-supplied code before anything listens to the signal, so
   // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
   if (environment.signal?.aborted) {
-    refused("not-started", CANCELLED);
+    if (command.json) stdout(refusalLine(RUN_V, "not-started", CANCELLED));
     return unstarted(cancelledBeforeStart(environment.signal, stderr));
   }
   let calling: { caller: Caller; release: () => void } | undefined;
@@ -434,23 +422,16 @@ async function runCommand(
     const taken = await takeCaller(command.session, callers, environment);
     if (typeof taken === "string") {
       refused("not-started", `--session: ${taken}`);
-      stderr(`awf: --session: ${taken}`);
       return 1;
     }
     calling = taken;
     if (environment.signal?.aborted) {
       calling.release();
-      refused("not-started", CANCELLED);
+      if (command.json) stdout(refusalLine(RUN_V, "not-started", CANCELLED));
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
-  return runAttempt(command, ready, calling, environment, home, {
-    stdout,
-    stderr,
-    notice,
-    terminal,
-    now,
-  });
+  return runAttempt(command, ready, calling, environment, output);
 }
 
 /** The run `awf run {ref}` names where `{ref}` is no file: one meant for `awf runs`. */
@@ -468,11 +449,11 @@ async function runAttempt(
   command: RunCommand,
   { loaded, prepared }: { loaded: LoadedWorkflow; prepared: PreparedRun },
   calling: { caller: Caller; release: () => void } | undefined,
-  environment: OperatorEnvironment,
-  home: string,
+  environment: Resolved,
   output: Output,
 ): Promise<number> {
   const { stdout, stderr, notice, terminal, now } = output;
+  const { home } = environment;
   const { workflow } = loaded;
   const { meta } = workflow;
   /** The run, once it is claimed. */
@@ -493,18 +474,17 @@ async function runAttempt(
   };
 
   const refuse = async (why: string, code: RefusalCode) => {
-    if (command.json) stdout(refusalLine(1, code, why));
-    stderr(`awf: ${why}`);
+    printRefusal({ stdout, stderr }, { json: command.json, v: RUN_V }, why, code);
     await handOver(`did not start: ${why}`);
     return 2;
   };
   // The operator's, never where the workflow's agents work.
-  const coordinatorRoot = coordinatorDir(home, environment.environment ?? process.env);
+  const coordinatorRoot = coordinatorDir(home, environment.environment);
   try {
     await prepareCoordinatorDir(
       coordinatorRoot,
       command.cwd,
-      Boolean((environment.environment ?? process.env).AWF_COORDINATOR_DIR),
+      Boolean(environment.environment.AWF_COORDINATOR_DIR),
     );
   } catch (error) {
     return refuse(messageOf(error), "internal-error");
@@ -546,7 +526,7 @@ async function runAttempt(
   if (run.record.events && previous && previous.ended === undefined)
     await stopCrashed(previous, workspaceLabel(meta.name, run.record.id, previous.attempt), {
       home,
-      environment: environment.environment ?? process.env,
+      environment: environment.environment,
     }).catch((error: unknown) =>
       notice(
         `awf: what attempt ${previous.attempt} left running was not all stopped: ${messageOf(error)}`,
@@ -607,8 +587,12 @@ async function runAttempt(
       const said = cancelled
         ? "run cancelled before it started"
         : `${end.ending.reason}; the run did not start`;
-      if (command.json) stdout(refusalLine(1, "not-started", `${said}, and nothing of it is kept`));
-      stderr(`awf: ${said}, and nothing of it is kept`);
+      printRefusal(
+        { stdout, stderr },
+        { json: command.json, v: RUN_V },
+        `${said}, and nothing of it is kept`,
+        "not-started",
+      );
       await handOver(`did not start: ${cancelled ? "cancelled" : end.ending.reason}`);
       return end.exitCode;
     }
@@ -654,7 +638,7 @@ async function runAttempt(
   placed = (session) => {
     progress.placedIn(session.name);
     const label = workspaceLabel(meta.name, id, n);
-    const insideHerdr = (environment.environment ?? process.env).HERDR_ENV === "1";
+    const insideHerdr = environment.environment.HERDR_ENV === "1";
     for (const line of describeRunSession(session, label, insideHerdr)) progress.log(line);
   };
   // Interactive: a coordinator's questions are asked here, unless the output is for a program.
@@ -716,7 +700,7 @@ async function runAttempt(
           await emitEvent(target, event, {
             from,
             home,
-            environment: environment.environment ?? process.env,
+            environment: environment.environment,
             ...(environment.launch ? { launch: environment.launch } : {}),
           })
         ).outcome,

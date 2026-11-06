@@ -1,13 +1,14 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
+import type { Out } from "./command-line";
 import { messageOf } from "./errors";
 import help from "./help/init.txt" with { type: "text" };
-import type { Out } from "./run-commands";
+import { NO_JSON, printRefusal } from "./refusals";
 
 export const initUsage = help.trimEnd();
 
-export type InitCommand = { dir: string; install: boolean };
+type InitCommand = { dir: string; install: boolean };
 
 /** `awf init`: a folder set up for writing workflows. */
 export async function initCommand(
@@ -19,7 +20,7 @@ export async function initCommand(
   try {
     command = parseInitCommand(argv, cwd);
   } catch (error) {
-    io.stderr(`awf: ${messageOf(error)}\n\n${initUsage}`);
+    printRefusal(io, NO_JSON, error, "usage", initUsage);
     return 2;
   }
   if (command === "help") {
@@ -86,7 +87,7 @@ function targetOf(dir: string, path: string): Target {
  * Writes what `awf init` writes into `dir`, and says what it did to each file. Everything that
  * would stop it, such as a package.json that isn't a JSON object, is found before it writes.
  */
-export function initFolder(dir: string): Change[] {
+function initFolder(dir: string): Change[] {
   for (const parent of new Set(COPIED.map(dirname))) {
     const stat = lstatSync(join(dir, parent), { throwIfNoEntry: false });
     if (stat !== undefined && !stat.isDirectory()) {
@@ -219,7 +220,7 @@ function shellWord(word: string): string {
 }
 
 /** `awf init`: writes the folder, installs unless told not to, and says what to run next. */
-export async function runInit(
+async function runInit(
   command: InitCommand,
   cwd: string,
   output: { stdout(text: string): void; stderr(text: string): void },

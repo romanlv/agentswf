@@ -1,18 +1,21 @@
-import { homedir } from "node:os";
 import type { ParticipantResultJson, RefusalCode } from "@agentswf/contract/records";
 import { type HolderWireAnswer, type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
+import { type Out, parsePlace, type ReadPlace } from "./command-line";
 import { liveCoordinatorSocket } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
 import help from "./help/reply.txt" with { type: "text" };
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
-import { asksJson, printRefusal } from "./refusals";
-import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
+import { asksJson, printRefusal, refusalLine } from "./refusals";
+import { failed } from "./run-commands";
 import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { RunUnreachable } from "./run-unreachable";
 import { readAttempts, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
+
+/** `awf reply --json`'s and `awf send --json`'s `"v"`, which their refusals carry too. */
+export const HOLDER_V = 3 satisfies ParticipantResultJson["v"];
 
 export const replyUsage = help.trimEnd();
 
@@ -25,13 +28,13 @@ type Options = {
   as?: string;
 };
 
-export type HolderIo = Out & {
+type HolderIo = Out & {
   /** Stdin, when no text is given as an argument. */
   stdin(): Promise<string>;
   /** Then there is nothing piped in to read: refused rather than waited on. */
   stdinIsTerminal?: boolean;
-  environment?: Readonly<Record<string, string | undefined>>;
-  home?: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  home: string;
 };
 
 /** A refusal of `reply` or `send`: its document with `--json`, its sentence on stderr, exit 1. */
@@ -56,30 +59,22 @@ export async function holderCommand(
     json = parsed.json;
     options = parseHolder(argv[0] as "reply" | "send", parsed.rest);
   } catch (error) {
-    printRefusal(io, { json: asksJson(argv), v: 3 }, error, "usage", replyUsage);
+    printRefusal(io, { json: asksJson(argv), v: HOLDER_V }, error, "usage", replyUsage);
     return 2;
   }
   const delivered = (id: string, line: string): number => {
-    io.stdout(json ? JSON.stringify({ v: 3, id } satisfies ParticipantResultJson) : line);
+    io.stdout(json ? JSON.stringify({ v: HOLDER_V, id } satisfies ParticipantResultJson) : line);
     return 0;
   };
   const refused: Refuse = (code, error, choices) => {
-    if (json)
-      io.stdout(
-        JSON.stringify({
-          v: 3,
-          code,
-          error,
-          ...(choices ? { choices } : {}),
-        } satisfies ParticipantResultJson),
-      );
+    if (json) io.stdout(refusalLine(HOLDER_V, code, error, choices));
     io.stderr(
       `awf: ${options.command} refused (${code}): ${error}${choices ? ` Choose: ${choices.join(", ")}` : ""}`,
     );
     return 1;
   };
   const usage = (problem: string) => {
-    printRefusal(io, { json, v: 3 }, problem, "usage", replyUsage);
+    printRefusal(io, { json, v: HOLDER_V }, problem, "usage", replyUsage);
     return 2;
   };
   if (options.text !== undefined && options.text.trim() === "")
@@ -89,7 +84,7 @@ export async function holderCommand(
   try {
     let status: RunStatus;
     try {
-      status = await findRunByRef(options.ref, place, io.home ?? homedir());
+      status = await findRunByRef(options.ref, place, io.home);
     } catch (error) {
       if (error instanceof RunNotFound) return refused(error.code, error.message);
       throw error;
@@ -104,7 +99,7 @@ export async function holderCommand(
         "no-participant",
         `${status.ref} has no participant${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
       );
-    const dir = coordinatorDir(io.home ?? homedir(), io.environment ?? process.env);
+    const dir = coordinatorDir(io.home, io.environment);
     // Live with no socket: its attempt has not connected one yet, or is opening it.
     const socket = await liveCoordinatorSocket(dir, status);
     if (!socket) return unreachable();
@@ -141,7 +136,7 @@ export async function holderCommand(
       `delivered as ${result.id}${awaited ? `; ${options.agent} still awaits the reply to ${awaited}` : ""}`,
     );
   } catch (error) {
-    return failed(error, place, io, messageOf(error), { json, v: 3 });
+    return failed(error, place, io, messageOf(error), { json, v: HOLDER_V });
   }
 }
 

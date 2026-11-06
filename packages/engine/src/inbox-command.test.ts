@@ -314,6 +314,10 @@ describe("awf inbox", () => {
     ]);
     const narrowed = await inbox(root, "--workflow", "triage", "--json");
     expect(narrowed.items.map((item: InboxItemJson) => item.ref)).toEqual(["triage/r3"]);
+    // The place comes after the workflow --workflow names, never between them.
+    expect((await inbox(root, "--workflow", "triage")).stdout).toMatch(
+      /next: awf inbox --workflow triage --run-root \S+ --after \S+$/,
+    );
     // A cursor belongs to the filter it was made with.
     const refused = await inbox(root, "--workflow", "triage", "--json", "--after", cursor);
     expect(refused.code).toBe(1);

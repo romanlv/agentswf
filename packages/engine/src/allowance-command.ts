@@ -5,13 +5,16 @@ import type {
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
 import { planPrice } from "./accounting/plans";
+import type { Out } from "./command-line";
 import help from "./help/allowance.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import type { Out } from "./run-commands";
+
+/** `awf allowance --json`'s `"v"`, which its refusals carry too. */
+export const ALLOWANCE_V = 1 satisfies AllowanceReport["v"];
 
 export const allowanceUsage = help.trimEnd();
 
-export type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
+type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
 
 export function parseAllowanceCommand(argv: readonly string[]): AllowanceCommand {
   const harnesses: Harness[] = [];
@@ -35,7 +38,7 @@ export async function allowanceCommand(
   try {
     command = parseAllowanceCommand(argv);
   } catch (error) {
-    printRefusal(io, { json: asksJson(argv), v: 1 }, error, "usage", allowanceUsage);
+    printRefusal(io, { json: asksJson(argv), v: ALLOWANCE_V }, error, "usage", allowanceUsage);
     return 2;
   }
   if (command === "help") {
@@ -54,7 +57,7 @@ export async function readReport(
   now: number,
 ): Promise<AllowanceReport> {
   return {
-    v: 1,
+    v: ALLOWANCE_V,
     readAt: new Date(now).toISOString(),
     harnesses: await Promise.all(harnesses.map(read)),
   };

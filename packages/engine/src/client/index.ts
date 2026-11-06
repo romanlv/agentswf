@@ -1,22 +1,15 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { type Client, ClientError, type ClientOptions } from "@agentswf/contract/client";
 import type { EmitResultJson, InboxItemJson } from "@agentswf/contract/records";
-import {
-  awfEventOf,
-  isEventWorkflow,
-  isJsonValue,
-  type JsonValue,
-} from "@agentswf/contract/workflow";
+import { awfEventOf, type JsonValue } from "@agentswf/contract/workflow";
 import { checkEvent, deliverReply, emitEvent } from "../emit";
-import { exists } from "../files";
 import { inboxCommand } from "../inbox-command";
 import { asClientError, clientCode } from "../refusals";
-import { idProblem, openRun } from "../runs";
 import type { WakeContext } from "../wake";
 import type { AnyWorkflow, EventWorkflow } from "../workflow-loader";
+import { assertEventWorkflow, checkCursor, checkEmit, checkRunId } from "./checks";
 import { locate } from "./locate";
-import { get, start } from "./runs";
+import { get, openExact, start } from "./runs";
 
 /** What the client runs each call with: the operator's home and environment, and how it launches. */
 export type ClientContext = Omit<WakeContext, "file"> & {
@@ -65,25 +58,10 @@ async function emit(
   given: { eventId?: string; source?: string },
   context: ClientContext,
 ): Promise<EmitResultJson> {
-  if (!isEventWorkflow(workflow))
-    throw new ClientError(
-      "event",
-      `${(workflow as AnyWorkflow)?.meta?.name} declares no events; start runs it`,
-    );
+  assertEventWorkflow(workflow);
   const located = await locate(workflow, context.home);
   const ref = `${workflow.meta.name}/${runId}`;
-  // What the types rule out, refused as the caller's mistake when it comes anyway.
-  if (typeof name !== "string") throw new ClientError("event", "an event's name is a string", ref);
-  if (typeof runId !== "string") throw new ClientError("id", "a run's id is a string");
-  for (const [field, value] of [
-    ["eventId", given.eventId],
-    ["source", given.source],
-  ] as const)
-    if (value !== undefined && typeof value !== "string")
-      throw new ClientError(field === "eventId" ? "id" : "event", `${field} is a string`, ref);
-  // What tsc lets through in a value that isn't a literal: in.jsonl keeps JSON only.
-  if (!isJsonValue(data))
-    throw new ClientError("event", `${name}'s data must contain only JSON values`, ref);
+  checkEmit(ref, runId, name, data, given);
   const event = {
     name,
     data,
@@ -97,17 +75,14 @@ async function emit(
     // Checked against the value given, not the run's file: the program holds the workflow, and no
     // author surface is served to it.
     checkEvent(workflow, event, true);
-    const problem = idProblem(runId);
-    if (problem) throw new ClientError("id", `the run's id: ${problem}`, ref);
-    if (!(await exists(join(located.runRoot, workflow.meta.name, runId, "run.json"))))
+    checkRunId(runId, ref);
+    const run = await openExact(located.runRoot, workflow.meta.name, runId, "id");
+    if (!run)
       throw new ClientError(
         "no-run",
         `no run ${ref} in ${located.project}: a reply never starts one`,
         ref,
       );
-    const run = await openRun(located.runRoot, workflow.meta.name, runId);
-    if (run.record.id !== runId)
-      throw new ClientError("id", `${ref} differs only in case from ${run.record.id}`, ref);
     return await deliverReply({ run }, reply.key, event, context);
   } catch (error) {
     throw asClientError(error, ref);
@@ -120,9 +95,7 @@ async function inbox(
   context: ClientContext,
 ): Promise<InboxItemJson[]> {
   const located = await locate(workflow, context.home);
-  // A cursor is an item's, never an option of the command it is read with.
-  if (after !== undefined && (typeof after !== "string" || after === "" || after.startsWith("-")))
-    throw new ClientError("cursor", `${JSON.stringify(after)} is no cursor an item carried`);
+  checkCursor(after);
   const lines: string[] = [];
   const errors: string[] = [];
   // `awf inbox --workflow --json`'s own reader, so what a program reads is what the command lists.

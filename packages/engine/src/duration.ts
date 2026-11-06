@@ -1,4 +1,8 @@
-import { durationMilliseconds, positiveDurationMilliseconds } from "@agentswf/contract/workflow";
+import {
+  durationMilliseconds,
+  positiveDurationMilliseconds,
+  secondsForMilliseconds,
+} from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 
 /**
@@ -6,13 +10,10 @@ import { messageOf } from "./errors";
  * A number of `ms`, which the CLI took before 0.1.0-beta.6, is refused with its replacement.
  */
 export function parseDuration(value: string, flag: string): number {
-  const ms = /^(\d+)ms$/.exec(value);
-  if (!ms) return positiveDurationMilliseconds(value, flag);
-  const milliseconds = Number(ms[1]);
-  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0)
-    throw new Error(`${flag} is a positive duration: not ${value}`);
+  const seconds = secondsForMilliseconds(value);
+  if (seconds === undefined) return positiveDurationMilliseconds(value, flag);
   throw new Error(
-    `${flag} is a duration, a decimal and s, m, h or d: give ${milliseconds / 1000}s, not ${value}`,
+    `${flag} is a duration, a decimal and s, m, h or d: give ${seconds}, not ${value}`,
   );
 }
 

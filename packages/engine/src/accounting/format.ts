@@ -237,7 +237,8 @@ function count(tokens: number): string {
   return String(tokens);
 }
 
-function usd(amount: number): string {
+/** `$6.10`, or `<$0.01` for a cost too small to show in cents. */
+export function usd(amount: number): string {
   return belowCent(amount) ? "<$0.01" : `$${amount.toFixed(2)}`;
 }
 

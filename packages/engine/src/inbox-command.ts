@@ -4,7 +4,6 @@ import type {
   AttemptRecord,
   InboxExpiry,
   InboxItemJson,
-  InboxRefusalJson,
   RefusalCode,
   RequestEnd,
   RunLogLine,
@@ -12,23 +11,17 @@ import type {
 import type { InboxCode } from "@agentswf/contract/wire";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { maskCredentials } from "@agentswf/harness";
+import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { formatDuration, parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/inbox.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import {
-  clockTime,
-  command,
-  failed,
-  type Out,
-  parsePlace,
-  type ReadPlace,
-  shellLine,
-} from "./run-commands";
+import { failed, MAX_WAIT_SECONDS, POLL_MS } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import { waitLabels as labelsOf } from "./run-policy/waits";
 import { findRunByRef, listRuns, RunNotFound, statusOf } from "./run-state";
+import { clockTime } from "./run-text";
 import {
   attemptsToken,
   type LogMark,
@@ -38,10 +31,10 @@ import {
   readEventsFrom,
 } from "./runs";
 
-export const inboxUsage = help.trimEnd();
+/** `awf inbox --json`'s `"v"`, which its refusals carry too. */
+export const INBOX_V = 2 satisfies InboxItemJson["v"];
 
-const MAX_WAIT_SECONDS = 300;
-const POLL_MS = 1_000;
+export const inboxUsage = help.trimEnd();
 
 /** The clock and the pause between polls, which tests drive. */
 export type InboxClock = { now(): number; sleep(ms: number): Promise<void> };
@@ -105,12 +98,11 @@ export async function inboxCommand(
     json = parsed.json;
     options = parseInbox(parsed.rest);
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 2 }, error, "usage", inboxUsage);
+    printRefusal(out, { json: asksJson(argv), v: INBOX_V }, error, "usage", inboxUsage);
     return 2;
   }
   const refuse = (code: InboxCode | RefusalCode, message: string) => {
-    if (json) out.stdout(JSON.stringify({ v: 2, code, error: message } satisfies InboxRefusalJson));
-    out.stderr(`awf: ${message}`);
+    printRefusal(out, { json, v: INBOX_V }, message, code);
     return 1;
   };
   try {
@@ -118,9 +110,8 @@ export async function inboxCommand(
       ? `all|${options.workflow ?? ""}|${options.as ?? ""}`
       : `run|${options.ref}|${options.as ?? ""}`;
     let state: CursorState = { f: filter, r: {} };
-    // Reading every run here, none is missing or unconnected, so a cursor is checked first, sparing a read.
     let checked = options.after === undefined;
-    if (!checked && options.all) {
+    const takeCursor = () => {
       const given = decodeCursor(options.after!);
       if (!given || given.f !== filter)
         throw new Refused(
@@ -129,7 +120,9 @@ export async function inboxCommand(
         );
       state = given;
       checked = true;
-    }
+    };
+    // Reading every run here, none is missing or unconnected, so a cursor is checked first, sparing a read.
+    if (!checked && options.all) takeCursor();
     const deadline = clock.now() + options.waitSeconds * 1000;
     // An event run lives in its project, found through ~/.awf/projects from anywhere (Q15).
     const found =
@@ -140,14 +133,7 @@ export async function inboxCommand(
       const runs = await readInbox(options, state, watch, one);
       // After a run that is not there, or never connected one: those come first.
       if (!checked) {
-        const given = decodeCursor(options.after!);
-        if (!given || given.f !== filter)
-          throw new Refused(
-            "cursor",
-            `cursor ${options.after} was made with another run or filter; read again without --after`,
-          );
-        state = given;
-        checked = true;
+        takeCursor();
         continue;
       }
       if (options.open) {
@@ -181,13 +167,12 @@ export async function inboxCommand(
           const words = options.all
             ? ["awf", "inbox", ...(options.workflow ? ["--workflow", options.workflow] : [])]
             : ["awf", "inbox", options.ref!];
-          const again = command(
-            place,
-            ...words,
+          const again = [
+            ...command(place, ...words),
             ...(options.as ? ["--as", options.as] : []),
             "--after",
             encodeCursor(state),
-          );
+          ];
           out.stdout([...lines, `next: ${shellLine(again)}`].join("\n"));
         }
         return 0;
@@ -197,7 +182,7 @@ export async function inboxCommand(
   } catch (error) {
     if (error instanceof Refused) return refuse(error.code, error.message);
     if (error instanceof RunNotFound) return refuse(error.code, error.message);
-    return failed(error, place, out, messageOf(error), { json, v: 2 });
+    return failed(error, place, out, messageOf(error), { json, v: INBOX_V });
   }
 }
 
@@ -630,7 +615,7 @@ function openQuestions(runs: readonly RunItems[]): InboxItemJson[] {
   });
   return merged(open).map(({ ref, item }) => {
     const { position: _position, ...shown } = item;
-    return { v: 2, ref, ...shown } as InboxItemJson;
+    return { v: INBOX_V, ref, ...shown } as InboxItemJson;
   });
 }
 
