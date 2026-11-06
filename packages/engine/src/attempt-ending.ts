@@ -179,7 +179,7 @@ export function runOutcome(
   const stop = failure instanceof WorkflowStopped ? failure : undefined;
   const timedOut =
     failure instanceof DeadlineExceededError &&
-    failure.deadline.unixMilliseconds === deadline?.unixMilliseconds;
+    failure.deadline.getTime() === deadline?.unixMilliseconds;
   const kind = cancellation ? "cancelled" : stop ? "stopped" : timedOut ? "timed-out" : "failed";
   return { kind, ...(stop ? { stop } : {}), ...(cancellation ? { cancellation } : {}) };
 }

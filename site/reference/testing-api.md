@@ -76,6 +76,9 @@ test("a reader that never answers is nudged once, then the summary says why", as
 
 ## Options
 
+Their type is `TestOptions<Args, Events>`. Bare, `TestOptions` is what any test may share, with no
+args or events: a helper spreads it into each test's own.
+
 | Option | Default | What it gives |
 | --- | --- | --- |
 | [`args`](#testworkflow) | what `prepare` makes of no argv; required where the workflow takes args | the args `run` is given |
@@ -104,7 +107,8 @@ A [workflow with events](#a-workflow-with-events) takes these too, but not `valu
 ## Scripts
 
 `agents` maps an agent's key, or a pattern such as `"verifier-*"`, to its script. An exact key
-wins over a pattern; two patterns matching one key fail the test.
+wins over a pattern; two patterns matching one key fail the test. A script built apart from the
+test is typed `Script`.
 
 A script is one entry, which meets every turn of that agent, or a list, one entry per turn. A list
 is strict: a turn past its end, or an entry never reached, fails the test. So a test can spread a
@@ -154,7 +158,7 @@ A `noAnswer` ends a turn without an answer, so it takes no schema. The turn's `o
 
 ### The turn {#the-turn}
 
-A function entry gets the turn as the workflow asked it:
+A function entry gets the turn as the workflow asked it, a `Turn`:
 
 - **`agent`**, **`n`** (1-based in the session; a nudge keeps its turn's number), **`nudge`**,
   **`prompt`**, **`schema`** (absent for text), **`label`**, **`stage`**, **`cwd`**, and
@@ -335,6 +339,8 @@ the sandbox evals check what a real provider enforces.
   `keptPane` when its pane was kept.
 
 ## What the run did
+
+`testWorkflow` resolves to a `TestRun`, the type for a helper that checks one.
 
 - **`run.value`** is what the workflow returned. If it threw, reading `value` throws, with the
   workflow's error as the cause: `expect(() => run.value).toThrow("lens ids must be unique")`.

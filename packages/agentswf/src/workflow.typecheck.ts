@@ -5,6 +5,7 @@ import {
   AgentEnded,
   type AgentRef,
   type CallerRef,
+  DeadlineExceededError,
   type Duration,
   defineWorkflow,
   duration,
@@ -211,6 +212,9 @@ export async function removedTime(): Promise<void> {
   await wf.messages.allow({ from: reviewer, to: reviewer, purpose: "p", timeoutMs: 60_000 });
   // @ts-expect-error wf.deadline is a Date: wf.deadline.getTime().
   void plain.deadline?.unixMilliseconds;
+  const passed: Date = new DeadlineExceededError(deadline).deadline;
+  // @ts-expect-error DeadlineExceededError's deadline is a Date: deadline.getTime().
+  void passed.unixMilliseconds;
 }
 
 export const whenToUse = defineWorkflow({

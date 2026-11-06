@@ -23,7 +23,6 @@ export type {
   HarnessKind,
   KeepPane,
   NoInput,
-  NudgeOptions,
   OperationRecord,
   PaneSpec,
   PaneWorkspace,
@@ -90,7 +89,6 @@ export type {
   PeerRef,
 } from "./participants";
 export type {
-  Gitdir,
   InlineSandboxSpec,
   SandboxDirectory,
   SandboxEnvironment,
@@ -99,7 +97,6 @@ export type {
   SandboxRef,
   SandboxSpec,
 } from "./sandboxes";
-export type { AbsoluteDeadline } from "./timing";
 export { DeadlineExceededError } from "./timing";
 export type {
   Duration,

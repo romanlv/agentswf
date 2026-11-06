@@ -1005,8 +1005,21 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `OutputSchema<T>` | A JSON Schema carrying the type `T` of what it accepts: [`typed`](#typed) gives a TypeBox schema this type, and `run`, `stage` and `events` take it. A declaration that needs only the type writes it, `declare const X: OutputSchema<{ id: string }>`. |
 | `JsonValue`, `JsonObject` | What args, results, stage values, `meta` and tool results are. |
 | `Workflow<Args, Result, Events>` | What `defineWorkflow` returns. |
-| `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. |
-| `Duration`, `Timeout` | A [duration](#waiting-on-time); and a call's [bound](#deadlines), `Duration \| Date \| false`. |
+| `DeadlineExceededError`, `DecisionError` | Errors, with `code` `"deadline-exceeded"` and `"decision-failed"`. `DeadlineExceededError`'s `deadline` is the `Date` that passed. |
+| `Duration`, `Timeout`, `When` | A [duration](#waiting-on-time); a call's [bound](#deadlines), `Duration \| Date \| false`; and when a timer is due, `Duration \| Date`. |
+| `WorkflowMeta`, `WorkflowInvocation` | What `meta` is; and what `prepare` is given, `argv` and `cwd`. |
+| `StageSummary` | One stage an attempt entered, as `report` is given it: `stage`, `source` (`ran` or `reused`) and its outcome. |
+| `RuntimeSelection` | What `runtime` takes: an alias's name, an alias with constraints, or an `ExecutionConfig`. |
+| `ExecutionConfig`, `AgentPlacement`, `Effort` | A complete runtime: `harness`, `model`, `effort?`, `placement?` (`tui` or `headless`) and `metered?`. |
+| `AgentExecution` | What `agent.execution` is: its `ExecutionConfig`, and the `alias` it was opened through. |
+| `AgentOpenSpec` | What [`open`](#agents-open) takes, for a helper that builds one. |
+| `RunResult<T>` | What `run` resolves to: `{ outcome }`. |
+| `SkillRef` | An item of `skills`. |
+| `ToolSpec<I>`, `ToolCall` | What [`tool`](#tool) returns; and a handler's second argument: the call's `id`, its `agent` and its `signal`. |
+| `SandboxRef` | A sandbox the run opened, to pass where an agent opens. |
+| `PeerRef` | What [`allow`](#messages-allow) takes: an agent, the calling session or a participant. |
+| `Question` | One of the questions `choice`, `score` and `yesNo` make. |
+| `WorkflowEvent`, `ReceivedEvent<Events>` | An event a wait returns: `id`, `name`, `data`; and any event a workflow's waits can return, its own or a timer's. |
 | `WaitOptions` | The options of `receive`, `race` and `select`: `label?`, a string or a function. |
 | `TOOL_LIMITS` | The tool limits: `name` (a pattern), `tools` 16, `descriptionBytes` 1024, `schemaBytes` 8192, `defaultTimeoutMs` 30000, `inputBytes` and `resultBytes` 65536. |
 
