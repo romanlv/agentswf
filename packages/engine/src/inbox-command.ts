@@ -31,6 +31,9 @@ import {
   readEventsFrom,
 } from "./runs";
 
+/** `awf inbox --json`'s `"v"`, which its refusals carry too. */
+export const INBOX_V = 2 satisfies InboxItemJson["v"];
+
 export const inboxUsage = help.trimEnd();
 
 /** The clock and the pause between polls, which tests drive. */
@@ -95,11 +98,11 @@ export async function inboxCommand(
     json = parsed.json;
     options = parseInbox(parsed.rest);
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 2 }, error, "usage", inboxUsage);
+    printRefusal(out, { json: asksJson(argv), v: INBOX_V }, error, "usage", inboxUsage);
     return 2;
   }
   const refuse = (code: InboxCode | RefusalCode, message: string) => {
-    printRefusal(out, { json, v: 2 }, message, code);
+    printRefusal(out, { json, v: INBOX_V }, message, code);
     return 1;
   };
   try {
@@ -179,7 +182,7 @@ export async function inboxCommand(
   } catch (error) {
     if (error instanceof Refused) return refuse(error.code, error.message);
     if (error instanceof RunNotFound) return refuse(error.code, error.message);
-    return failed(error, place, out, messageOf(error), { json, v: 2 });
+    return failed(error, place, out, messageOf(error), { json, v: INBOX_V });
   }
 }
 
@@ -612,7 +615,7 @@ function openQuestions(runs: readonly RunItems[]): InboxItemJson[] {
   });
   return merged(open).map(({ ref, item }) => {
     const { position: _position, ...shown } = item;
-    return { v: 2, ref, ...shown } as InboxItemJson;
+    return { v: INBOX_V, ref, ...shown } as InboxItemJson;
   });
 }
 

@@ -14,6 +14,9 @@ import { listRunEntries, listRuns } from "./run-state";
 import { RunUnreadable, readAttempts } from "./runs";
 import { type Launch, wake } from "./wake";
 
+/** `awf tick --json`'s `"v"`, which its refusals carry too. */
+export const TICK_V = 1 satisfies TickResultJson["v"];
+
 export const tickUsage = help.trimEnd();
 
 export async function tickCommand(
@@ -39,7 +42,7 @@ export async function tickCommand(
     if (parsed.rest.includes("--all") && parsed.place.repeat.length > 0)
       throw new Error("--all wakes every project's runs; it takes no --cwd or --run-root");
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", tickUsage);
+    printRefusal(out, { json: asksJson(argv), v: TICK_V }, error, "usage", tickUsage);
     return 2;
   }
   const { place, json } = parsed;
@@ -130,7 +133,11 @@ export async function tickCommand(
     );
   }
   if (json) {
-    const result: TickResultJson = { v: 1, woke, ...(unreadable.length ? { unreadable } : {}) };
+    const result: TickResultJson = {
+      v: TICK_V,
+      woke,
+      ...(unreadable.length ? { unreadable } : {}),
+    };
     out.stdout(JSON.stringify(result));
   } else for (const each of woke) out.stdout(`${each.did} ${each.ref}: ${each.why}`);
   return failed ? 1 : 0;

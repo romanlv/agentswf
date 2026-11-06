@@ -9,6 +9,9 @@ import { findRunByRef } from "./run-state";
 import type { Launch, Woken } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";
 
+/** `awf emit --json`'s `"v"`, which its refusals carry too. */
+export const EMIT_V = 1 satisfies EmitResultJson["v"];
+
 export const emitUsage = help.trimEnd();
 
 type Event = { name: string; data: JsonValue; id?: string; source?: string };
@@ -37,10 +40,10 @@ export async function emitCommand(
   try {
     parsed = parse(argv, shellCwd);
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", emitUsage);
+    printRefusal(out, { json: asksJson(argv), v: EMIT_V }, error, "usage", emitUsage);
     return 2;
   }
-  const json = { json: parsed.json, v: 1 };
+  const json = { json: parsed.json, v: EMIT_V };
   const event = {
     name: parsed.name,
     data: parsed.data,

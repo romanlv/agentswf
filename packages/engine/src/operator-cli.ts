@@ -2,23 +2,13 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import type {
-  AllowanceReport,
-  EmitResultJson,
-  HarnessAllowance,
-  InboxItemJson,
-  LogsJson,
-  ParticipantResultJson,
-  RefusalCode,
-  RunsJson,
-  TickResultJson,
-} from "@agentswf/contract/records";
+import type { HarnessAllowance, RefusalCode } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
 import { earlierSpent, unreadEarlier } from "./accounting/spent";
-import { allowanceCommand } from "./allowance-command";
+import { ALLOWANCE_V, allowanceCommand } from "./allowance-command";
 import {
   type AttemptEnd,
   cleanupFailed,
@@ -40,14 +30,14 @@ import {
 } from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { EmitError, emitEvent, openEventRun } from "./emit";
-import { didOf, emitCommand, launchExit } from "./emit-command";
+import { didOf, EMIT_V, emitCommand, launchExit } from "./emit-command";
 import { messageOf } from "./errors";
 import { installedEngine } from "./hand-over";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
-import { holderCommand } from "./holder-command";
-import { inboxCommand } from "./inbox-command";
+import { HOLDER_V, holderCommand } from "./holder-command";
+import { INBOX_V, inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
-import { logsCommand } from "./logs-command";
+import { LOGS_V, logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
   allowanceReader,
@@ -58,7 +48,7 @@ import {
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { asksJson, NO_JSON, printRefusal, readFailureCode, refusalLine } from "./refusals";
-import { parseCommand, type RunCommand, usage } from "./run-command";
+import { parseCommand, RUN_V, type RunCommand, usage } from "./run-command";
 import { startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
 import {
@@ -70,11 +60,11 @@ import {
 } from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
-import { runsCommand } from "./runs-command";
+import { RUNS_V, runsCommand } from "./runs-command";
 import { readSpent } from "./spend";
 import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
-import { tickCommand } from "./tick-command";
+import { TICK_V, tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
 import type { EventWorkflow, LoadedWorkflow } from "./workflow-loader";
 import {
@@ -301,20 +291,17 @@ export async function runOperatorCli(
   return 2;
 }
 
-/**
- * Each `--json` command's `"v"`, which a refusal carries, tied to its result's type so the two move
- * together: `awf runs`'s list's, as `awf runs {run}` prints its own refusals.
- */
+/** Each `--json` command's `"v"`, which a refusal carries: `awf runs`'s list's for `awf runs`. */
 const JSON_VERSION = {
-  run: 1,
-  emit: 1 satisfies EmitResultJson["v"],
-  tick: 1 satisfies TickResultJson["v"],
-  runs: 1 satisfies RunsJson["v"],
-  logs: 1 satisfies LogsJson["v"],
-  inbox: 2 satisfies InboxItemJson["v"],
-  reply: 3 satisfies ParticipantResultJson["v"],
-  send: 3 satisfies ParticipantResultJson["v"],
-  allowance: 1 satisfies AllowanceReport["v"],
+  run: RUN_V,
+  emit: EMIT_V,
+  tick: TICK_V,
+  runs: RUNS_V,
+  logs: LOGS_V,
+  inbox: INBOX_V,
+  reply: HOLDER_V,
+  send: HOLDER_V,
+  allowance: ALLOWANCE_V,
 } as const;
 
 /** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
@@ -381,7 +368,7 @@ async function runCommand(
   try {
     parsed = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
-    printRefusal({ stdout, stderr }, { json: asksJson(argv), v: 1 }, error, "usage", usage);
+    printRefusal({ stdout, stderr }, { json: asksJson(argv), v: RUN_V }, error, "usage", usage);
     return 2;
   }
   if (parsed === "help") {
@@ -391,7 +378,7 @@ async function runCommand(
   let command: RunCommand = parsed;
   // With --json, what makes no run is a refusal, as its sentence on stderr says.
   const refused = (code: RefusalCode, error: string) =>
-    printRefusal({ stdout, stderr }, { json: command.json, v: 1 }, error, code);
+    printRefusal({ stdout, stderr }, { json: command.json, v: RUN_V }, error, code);
   const meant = await runNamed(command);
   if (meant) {
     const look = shellLine(["awf", "runs", meant, ...placeFlags(command)]);
@@ -427,7 +414,7 @@ async function runCommand(
   // Loading the workflow imports operator-supplied code before anything listens to the signal, so
   // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
   if (environment.signal?.aborted) {
-    if (command.json) stdout(refusalLine(1, "not-started", CANCELLED));
+    if (command.json) stdout(refusalLine(RUN_V, "not-started", CANCELLED));
     return unstarted(cancelledBeforeStart(environment.signal, stderr));
   }
   let calling: { caller: Caller; release: () => void } | undefined;
@@ -440,7 +427,7 @@ async function runCommand(
     calling = taken;
     if (environment.signal?.aborted) {
       calling.release();
-      if (command.json) stdout(refusalLine(1, "not-started", CANCELLED));
+      if (command.json) stdout(refusalLine(RUN_V, "not-started", CANCELLED));
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
@@ -487,7 +474,7 @@ async function runAttempt(
   };
 
   const refuse = async (why: string, code: RefusalCode) => {
-    printRefusal({ stdout, stderr }, { json: command.json, v: 1 }, why, code);
+    printRefusal({ stdout, stderr }, { json: command.json, v: RUN_V }, why, code);
     await handOver(`did not start: ${why}`);
     return 2;
   };
@@ -602,7 +589,7 @@ async function runAttempt(
         : `${end.ending.reason}; the run did not start`;
       printRefusal(
         { stdout, stderr },
-        { json: command.json, v: 1 },
+        { json: command.json, v: RUN_V },
         `${said}, and nothing of it is kept`,
         "not-started",
       );

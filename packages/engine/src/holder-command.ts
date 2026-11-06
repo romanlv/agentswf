@@ -14,6 +14,9 @@ import { RunUnreachable } from "./run-unreachable";
 import { readAttempts, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
+/** `awf reply --json`'s and `awf send --json`'s `"v"`, which their refusals carry too. */
+export const HOLDER_V = 3 satisfies ParticipantResultJson["v"];
+
 export const replyUsage = help.trimEnd();
 
 type Options = {
@@ -56,22 +59,22 @@ export async function holderCommand(
     json = parsed.json;
     options = parseHolder(argv[0] as "reply" | "send", parsed.rest);
   } catch (error) {
-    printRefusal(io, { json: asksJson(argv), v: 3 }, error, "usage", replyUsage);
+    printRefusal(io, { json: asksJson(argv), v: HOLDER_V }, error, "usage", replyUsage);
     return 2;
   }
   const delivered = (id: string, line: string): number => {
-    io.stdout(json ? JSON.stringify({ v: 3, id } satisfies ParticipantResultJson) : line);
+    io.stdout(json ? JSON.stringify({ v: HOLDER_V, id } satisfies ParticipantResultJson) : line);
     return 0;
   };
   const refused: Refuse = (code, error, choices) => {
-    if (json) io.stdout(refusalLine(3, code, error, choices));
+    if (json) io.stdout(refusalLine(HOLDER_V, code, error, choices));
     io.stderr(
       `awf: ${options.command} refused (${code}): ${error}${choices ? ` Choose: ${choices.join(", ")}` : ""}`,
     );
     return 1;
   };
   const usage = (problem: string) => {
-    printRefusal(io, { json, v: 3 }, problem, "usage", replyUsage);
+    printRefusal(io, { json, v: HOLDER_V }, problem, "usage", replyUsage);
     return 2;
   };
   if (options.text !== undefined && options.text.trim() === "")
@@ -133,7 +136,7 @@ export async function holderCommand(
       `delivered as ${result.id}${awaited ? `; ${options.agent} still awaits the reply to ${awaited}` : ""}`,
     );
   } catch (error) {
-    return failed(error, place, io, messageOf(error), { json, v: 3 });
+    return failed(error, place, io, messageOf(error), { json, v: HOLDER_V });
   }
 }
 

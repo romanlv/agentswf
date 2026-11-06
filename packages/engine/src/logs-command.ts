@@ -35,6 +35,9 @@ import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-sta
 import { clockTime, masked, said } from "./run-text";
 import { describeActivity } from "./run-view";
 
+/** `awf logs --json`'s `"v"`, which its refusals carry too. */
+export const LOGS_V = 1 satisfies LogsJson["v"];
+
 export const logsUsage = help.trimEnd();
 
 const DEFAULT_LIMIT = 40;
@@ -86,7 +89,7 @@ export async function logsCommand(
     options = parseLogs(parsed.rest);
     if (options.follow && json) throw new Error("--follow is for reading; --json takes --wait");
   } catch (error) {
-    printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", logsUsage);
+    printRefusal(out, { json: asksJson(argv), v: LOGS_V }, error, "usage", logsUsage);
     return 2;
   }
   try {
@@ -120,11 +123,11 @@ export async function logsCommand(
     return await page(read, alsoRunning, options, place, json, out, clock);
   } catch (error) {
     if (error instanceof DoesNotFit) {
-      if (json) out.stdout(refusalLine(1, "cursor", error.message));
+      if (json) out.stdout(refusalLine(LOGS_V, "cursor", error.message));
       out.stderr(error.message);
       return 1;
     }
-    return failed(error, place, out, messageOf(error), { json, v: 1 });
+    return failed(error, place, out, messageOf(error), { json, v: LOGS_V });
   }
 }
 
@@ -389,7 +392,7 @@ async function page(
   if (json) {
     const { started, ended } = span(status, clock.now());
     const document: LogsJson = {
-      v: 1,
+      v: LOGS_V,
       run: {
         ref: status.ref,
         state: status.state,
@@ -506,7 +509,7 @@ async function oneEvent(
   const screens = await keptScreens(status.run.dir, [event]);
   if (json) {
     const document: LogsJson = {
-      v: 1,
+      v: LOGS_V,
       run: { ref: status.ref, state: status.state, checked: status.checked },
       events: [publish(event, stages, screens)],
     };

@@ -13,6 +13,10 @@ import { clockTime, masked, money, said } from "./run-text";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 import { isClaimed, RunUnreadable } from "./runs";
 
+/** `awf runs --json`'s `"v"`, the list's, and `awf runs {run} --json`'s. */
+export const RUNS_V = 1 satisfies RunsJson["v"];
+export const RUNS_ONE_V = 2 satisfies RunJson["v"];
+
 export const runsUsage = help.trimEnd();
 
 const LISTED = 20;
@@ -66,13 +70,13 @@ export async function runsCommand(
  * `awf runs {run} --json`'s `"v"` is 2, the list's 1: by whether a word names a run, read before
  * any parse, so a usage error after it or before it carries the same.
  */
-function runsVersion(argv: readonly string[]): 1 | 2 {
+function runsVersion(argv: readonly string[]): typeof RUNS_V | typeof RUNS_ONE_V {
   for (let index = 0; index < argv.length; index++) {
     const word = argv[index]!;
     if (word === "--cwd" || word === "--run-root" || word === "--limit") index++;
-    else if (!word.startsWith("-")) return 2;
+    else if (!word.startsWith("-")) return RUNS_ONE_V;
   }
-  return 1;
+  return RUNS_V;
 }
 
 /** A run listed, or why it could not be read: one bad run does not hide the others. */
@@ -115,7 +119,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
       };
     });
     const document: RunsJson = {
-      v: 1,
+      v: RUNS_V,
       runs: runsJson,
       ...(older > 0 ? { more: { older: true } } : {}),
     };
@@ -323,7 +327,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ? undefined
       : continueOf(status, view.lines, place);
   return {
-    v: 2,
+    v: RUNS_ONE_V,
     run: {
       ref: status.ref,
       state: status.state,

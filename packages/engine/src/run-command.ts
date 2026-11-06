@@ -9,6 +9,9 @@ import { SESSION_CODE } from "./here";
 import { KEEP_PANES, parseWorkspace } from "./pane-layout";
 import { idProblem, RunRefused, runRootOf, stageNameProblem } from "./runs";
 
+/** `awf run --json`'s `"v"`, which its refusals carry too. */
+export const RUN_V = 1;
+
 export const usage = help.trimEnd();
 
 export type RunCommand = {
