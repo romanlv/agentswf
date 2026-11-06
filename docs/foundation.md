@@ -427,11 +427,11 @@ telemetry is extracted later, the shape does not move and nothing downstream bre
 harness. Prices are applied when a run is summarised, so a run can be re-priced later with a
 different table, and the summary names the table it used. Only extraction sits beside the adapter.
 
-**One cost field cannot say which cost it was.** `charged` is what an API billed, the list-price
-`estimate` exists only in the run's summary, and `billing` says whether the agent drew on a
-subscription or was metered (story 002). A decision (story 006) is always metered, on the
-operator's own provider account; its list-price estimate sits in the summary apart from the
-agents'.
+**One cost field cannot say which cost it was.** `reportedCost` is what a harness or provider
+printed (once `charged`, which read as a bill), the list-price `estimate` exists only in the run's
+summary, and `billing` says whether the agent drew on a subscription or was metered (story 002).
+A decision (story 006) is always metered, on the operator's own provider account; its list-price
+estimate sits in the summary apart from the agents'.
 
 What a package boundary buys is control over who may import something. Nothing here needs that:
 the engine and ad-hoc scripts should both be able to ask what a run cost. A boundary would not have

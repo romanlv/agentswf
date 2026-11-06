@@ -5,7 +5,7 @@ import type { OperationMessages } from "./operation-liveness";
 
 const turn = () =>
   ({
-    settled: Promise.resolve({ state: "completed", chargesUsd: [] }),
+    settled: Promise.resolve({ state: "completed", reportedCostsUsd: [] }),
     release: async () => ({ kind: "released" }),
   }) as unknown as HarnessTurn;
 

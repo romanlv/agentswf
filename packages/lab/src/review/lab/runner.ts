@@ -244,7 +244,7 @@ export function summaryOf(result: RunResult): RunSummary {
   const priced =
     (totals.agents === 0 || totals.estimate !== undefined) &&
     (!decisions || decisions.calls === 0 || decisions.estimate !== undefined);
-  const charged = (totals.charged ?? 0) + (decisions?.charged ?? 0);
+  const reportedCost = (totals.reportedCost ?? 0) + (decisions?.reportedCost ?? 0);
   return {
     ...(record.outcome !== "completed" && CLEANUP_LATE.test(record.reason)
       ? {}
@@ -254,7 +254,7 @@ export function summaryOf(result: RunResult): RunSummary {
     models: record.accounting.byModel.map((model) => model.model),
     ms: record.accounting.wallMs,
     ...(priced ? { estimate: (totals.estimate ?? 0) + (decisions?.estimate ?? 0) } : {}),
-    ...(charged > 0 ? { charged } : {}),
+    ...(reportedCost > 0 ? { charged: reportedCost } : {}),
     billing: record.accounting.billing,
     complete:
       totals.known === totals.agents &&

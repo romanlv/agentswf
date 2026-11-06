@@ -24,7 +24,7 @@ bun run preview    # serves the build
 - Placeholders are `{name}` in prose, and `<name>` only inside CLI usage, in a code block. A bare
   `<name>` in prose is an HTML tag.
 - No claim about spend beyond the records' own words: a headless claude being "metered" is a rule,
-  not a bill. Never "charged" or "spent".
+  not a bill, and `reportedCost` is what a harness or provider printed. Never "charged" or "spent".
 - No private project's name.
 - The pitch (the landing page, the overview, the README opening) says "coding agents" or "the
   agents you already use", never a list of harnesses: more are coming. Harnesses are named where

@@ -665,7 +665,7 @@ describe("awf run", () => {
         provider: "fake",
         snapshot: "fake/jev-1-20260926",
         outcome: "answered",
-        charged: { amount: 0.000042, currency: "USD" },
+        reportedCost: { amount: 0.000042, currency: "USD" },
         artifact: "ops/triage-1.1/decision.json",
       }),
     ]);
@@ -2193,6 +2193,7 @@ describe("awf run's stages", () => {
     writeFileSync(
       join(dir, "ops", "worker.1", "op.json"),
       JSON.stringify({
+        version: 1,
         id: "worker.1",
         attempt: 2,
         at: attemptOf(dir, 2).started,
@@ -2207,6 +2208,7 @@ describe("awf run's stages", () => {
     expect(third.exitCode).toBe(0);
     // Settled by the attempt after it, with what could be read: this runtime reads no sessions.
     expect(JSON.parse(readFileSync(join(dir, "ops", "worker.1", "spend.json"), "utf8"))).toEqual({
+      version: 1,
       billing: "unknown",
       settledBy: 3,
     });

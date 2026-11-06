@@ -45,7 +45,7 @@ describe("decisions.decide", () => {
           urgency: { type: "score", probabilities: [0.1, 0.2, 0.7] },
         },
         tokens: { input: 10_000, output: 8 },
-        charged: { amount: 0.00042, currency: "USD" },
+        reportedCost: { amount: 0.00042, currency: "USD" },
         requestId: "gen-1",
       },
     ]);
@@ -97,7 +97,7 @@ describe("decisions.decide", () => {
       outcome: "answered",
       attempts: 1,
       tokens: { input: 10_000, output: 8 },
-      charged: { amount: 0.00042, currency: "USD" },
+      reportedCost: { amount: 0.00042, currency: "USD" },
       requestId: "gen-1",
       artifact: "ops/triage-1.1/decision.json",
     });
@@ -110,6 +110,7 @@ describe("decisions.decide", () => {
       ),
     );
     expect(artifact).toEqual({
+      version: 1,
       record,
       request: {
         state: { ticket: "Checkout double-charges on retry" },
@@ -133,7 +134,7 @@ describe("decisions.decide", () => {
       attempts: 1,
       tokens: { input: 10_000, output: 8 },
       estimate: expect.closeTo(0.00042, 12),
-      charged: 0.00042,
+      reportedCost: 0.00042,
       known: 1,
       priced: 1,
     });
@@ -695,6 +696,26 @@ describe("decision accounting", () => {
       ["typesafe/jev-1.13-20260917", 1],
     ]);
     expect(describeAccounting(summary)[2]).toBe("  review        1 agent · 2s · ~$2.00");
+  });
+
+  test("a cost a harness or provider reported is shown as reported, never as charged", () => {
+    const agent: SettledOperation = {
+      callPath: [],
+      agent: "review",
+      operationId: "op-1",
+      execution: { harness: "claude", model: "claude-sonnet-5" },
+      sessions: [],
+      billing: "metered",
+      spend: [],
+      reportedCost: { amount: 0.42, currency: "USD" },
+    };
+    const summary = summarizeRun([agent], PUBLISHED_PRICES, TIMES, [
+      { ...decision({ key: "match" }), reportedCost: { amount: 0.03, currency: "USD" } },
+    ]);
+    const [totals, decisions] = describeAccounting(summary);
+    expect(totals).toContain(" · $0.42 reported · metered");
+    expect(decisions).toContain(" · $0.03 reported");
+    expect(describeAccounting(summary).join("\n")).not.toContain("charged");
   });
 });
 

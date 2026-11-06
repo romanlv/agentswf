@@ -59,7 +59,7 @@ export function createHeadlessAdapter(
       let hasExecuted = false;
       /**
        * The session's running total as the harness last printed it: a new session's is nothing, a
-       * fork's is what was printed when it was made, its parent's. Unknown, the next total charges
+       * fork's is what was printed when it was made, its parent's. Unknown, the next total reports
        * nothing rather than its parent's spend again.
        */
       let costTotal: number | undefined = request.continues ? request.continues.costTotal : 0;
@@ -157,7 +157,11 @@ export function createHeadlessAdapter(
           if (result.cancelled) return localOutcome("cancelled", "native process was cancelled");
           if (result.exitCode !== 0)
             return localOutcome("failed", `native process exited with status ${result.exitCode}`);
-          return { state: "completed", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+          return {
+            state: "completed",
+            resultEvidence: { kind: "unavailable" },
+            reportedCostsUsd: [],
+          };
         },
         async execute(operation) {
           const processReady = Promise.withResolvers<ActiveProcess | undefined>();
@@ -283,7 +287,7 @@ export function createHeadlessAdapter(
                 .keepTurnUsage?.(result.stdout, nativeSession, context)
                 .catch(() => undefined);
             }
-            let charge = spec.readCharge?.(result.stdout);
+            let cost = spec.readCost?.(result.stdout);
             const total = spec.readCostTotal?.(result.stdout);
             if (total !== undefined) {
               // A resume that started a session of its own, or a total below the last, is no running
@@ -292,7 +296,7 @@ export function createHeadlessAdapter(
                 nativeSession === operation.previousSessionRef || !operation.previousSessionRef
                   ? costTotal
                   : 0;
-              charge =
+              cost =
                 before === undefined
                   ? undefined
                   : total >= before
@@ -310,7 +314,7 @@ export function createHeadlessAdapter(
                 ? ({ kind: "transcript", text: transcript } as const)
                 : ({ kind: "unavailable" } as const),
               ...(nativeSession ? { sessionRef: nativeSession } : {}),
-              chargesUsd: charge === undefined ? [] : [charge],
+              reportedCostsUsd: cost === undefined ? [] : [cost],
             };
             // What the harness printed decides a compaction it answered, not how it was made to exit.
             if (compaction && result.answered && !result.cancelled) {

@@ -50,7 +50,7 @@ function describeTotals(accounting: AttemptAccounting): string {
     took,
     tokensOf(totals),
     ...(totals.estimate === undefined ? [] : [`${estimate(totals.estimate)} at ${basis}`]),
-    ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
+    ...(totals.reportedCost === undefined ? [] : [`${usd(totals.reportedCost)} reported`]),
     accounting.billing,
     ...(totals.billed < totals.agents ? [`billing known ${totals.billed}/${totals.agents}`] : []),
     ...usageGap(totals),
@@ -182,7 +182,7 @@ function describeDecisions(decisions: DecisionFigures, basis: string): string {
     ...(decisions.attempts > decisions.calls ? [plural(decisions.attempts, "request")] : []),
     decisions.known === 0 ? "no usage known" : plural(tokens, "token", count),
     ...(decisions.estimate === undefined ? [] : [`${estimate(decisions.estimate)} at ${basis}`]),
-    ...(decisions.charged === undefined ? [] : [`${usd(decisions.charged)} charged`]),
+    ...(decisions.reportedCost === undefined ? [] : [`${usd(decisions.reportedCost)} reported`]),
     ...decisionGaps(decisions),
   ].join(" · ");
 }

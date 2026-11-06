@@ -524,7 +524,7 @@ describe("createHeadlessAdapter", () => {
       await expect(compact.settled).resolves.toMatchObject({
         state: "completed",
         summary: "the path is 14 m",
-        chargesUsd: [0.02],
+        reportedCostsUsd: [0.02],
       });
       expect(calls[1]?.stdin).toBe("/compact Keep the path.");
       expect(calls[1]?.argv).toEqual(expect.arrayContaining(["--resume", "sess-1", "stream-json"]));
@@ -870,7 +870,7 @@ describe("createHeadlessAdapter", () => {
     const session = await headless(run);
     const turn = await session.start(turnSpec, firstBinding);
 
-    expect((await turn.settled).chargesUsd).toEqual([0.042]);
+    expect((await turn.settled).reportedCostsUsd).toEqual([0.042]);
   });
 
   describe("fork", () => {
@@ -1014,7 +1014,7 @@ describe("createHeadlessAdapter", () => {
       }
     });
 
-    test("a continued fork resumes its copy with its own instructions, and charges from its parent's total", async () => {
+    test("a continued fork resumes its copy with its own instructions, and reports from its parent's total", async () => {
       const { run, calls } = stub([
         JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.13 }),
       ]);
@@ -1029,13 +1029,13 @@ describe("createHeadlessAdapter", () => {
       );
       const turn = await session.start(turnSpec, firstBinding);
 
-      expect((await turn.settled).chargesUsd).toEqual([0.007]);
+      expect((await turn.settled).reportedCostsUsd).toEqual([0.007]);
       expect(calls[0]?.argv[calls[0].argv.indexOf("--resume") + 1]).toBe("fork-1");
       expect(calls[0]?.stdin).toBe(`You write the tests.\n\n${turnSpec.prompt}`);
       expect(session.sessions?.()).toEqual(["fork-1"]);
     });
 
-    test("a fork that printed no total charges its first turn nothing, never its parent's spend", async () => {
+    test("a fork that printed no total reports nothing for its first turn, never its parent's spend", async () => {
       const { run } = stub([
         JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.13 }),
         JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.15 }),
@@ -1046,12 +1046,12 @@ describe("createHeadlessAdapter", () => {
         { ...activation, continues: { harness: "claude", sessionRef: "fork-1" } },
       );
       const first = await session.start(turnSpec, firstBinding);
-      expect((await first.settled).chargesUsd).toEqual([]);
+      expect((await first.settled).reportedCostsUsd).toEqual([]);
       const second = await session.start(
         { ...turnSpec, id: "turn-2" },
         { ...firstBinding, operationId: "op-2" },
       );
-      expect((await second.settled).chargesUsd).toEqual([0.02]);
+      expect((await second.settled).reportedCostsUsd).toEqual([0.02]);
     });
 
     test("a fork compacted before its first turn still gives that turn its instructions", async () => {
@@ -1254,17 +1254,17 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
-  describe("claude prints its session's running total, and each turn charges what it added (F9)", () => {
+  describe("claude prints its session's running total, and each turn reports what it added (F9)", () => {
     const priced = (total: number | undefined, result = "ok") =>
       JSON.stringify({
         session_id: "sess-1",
         result,
         ...(total === undefined ? {} : { total_cost_usd: total }),
       });
-    const charges = async (turn: { settled: Promise<{ chargesUsd: readonly number[] }> }) =>
-      (await turn.settled).chargesUsd;
+    const reported = async (turn: { settled: Promise<{ reportedCostsUsd: readonly number[] }> }) =>
+      (await turn.settled).reportedCostsUsd;
 
-    test("two turns, a nudge and a compaction each charge the difference", async () => {
+    test("two turns, a nudge and a compaction each report the difference", async () => {
       const compacted = [
         { type: "system", subtype: "compact_boundary" },
         { type: "user", isSynthetic: true, message: { role: "user", content: "kept" } },
@@ -1275,15 +1275,15 @@ describe("createHeadlessAdapter", () => {
       const { run } = stub([priced(0.0753), priced(0.0871), priced(0.09), compacted]);
       const session = await headless(run);
       const first = await session.start(turnSpec, firstBinding);
-      expect(await charges(first)).toEqual([0.0753]);
+      expect(await reported(first)).toEqual([0.0753]);
       const second = await session.start(
         { ...turnSpec, id: "turn-2" },
         { ...firstBinding, operationId: "op-2" },
       );
-      expect(await charges(second)).toEqual([0.0118]);
-      expect(await charges(await second.nudge(nudgeSpec))).toEqual([0.0029]);
+      expect(await reported(second)).toEqual([0.0118]);
+      expect(await reported(await second.nudge(nudgeSpec))).toEqual([0.0029]);
       const compact = await session.compact("c-1", "Keep it.", activation.deadline);
-      expect(await charges(compact)).toEqual([0.0117]);
+      expect(await reported(compact)).toEqual([0.0117]);
     });
 
     test("a turn that printed no total leaves its cost to the next one that does", async () => {
@@ -1294,15 +1294,15 @@ describe("createHeadlessAdapter", () => {
         { ...turnSpec, id: "turn-2" },
         { ...firstBinding, operationId: "op-2" },
       );
-      expect(await charges(silent)).toEqual([]);
+      expect(await reported(silent)).toEqual([]);
       const third = await session.start(
         { ...turnSpec, id: "turn-3" },
         { ...firstBinding, operationId: "op-3" },
       );
-      expect(await charges(third)).toEqual([0.03]);
+      expect(await reported(third)).toEqual([0.03]);
     });
 
-    test("a resume that started a session of its own charges all it printed", async () => {
+    test("a resume that started a session of its own reports all it printed", async () => {
       const { run } = stub([
         priced(0.05),
         JSON.stringify({ session_id: "sess-2", result: "ok", total_cost_usd: 0.06 }),
@@ -1313,10 +1313,10 @@ describe("createHeadlessAdapter", () => {
         { ...turnSpec, id: "turn-2" },
         { ...firstBinding, operationId: "op-2" },
       );
-      expect(await charges(second)).toEqual([0.06]);
+      expect(await reported(second)).toEqual([0.06]);
     });
 
-    test("a total that drops charges the new total, never a negative", async () => {
+    test("a total that drops reports the new total, never a negative", async () => {
       const { run } = stub([priced(0.05), priced(0.01)]);
       const session = await headless(run);
       await (await session.start(turnSpec, firstBinding)).settled;
@@ -1324,11 +1324,11 @@ describe("createHeadlessAdapter", () => {
         { ...turnSpec, id: "turn-2" },
         { ...firstBinding, operationId: "op-2" },
       );
-      expect(await charges(second)).toEqual([0.01]);
+      expect(await reported(second)).toEqual([0.01]);
     });
   });
 
-  test("a pi turn charges every request it made, not only the last", async () => {
+  test("a pi turn reports every request it made, not only the last", async () => {
     const turnEnd = (total: number) =>
       JSON.stringify({ type: "turn_end", message: { usage: { cost: { total } } } });
     const { run } = stub([
@@ -1340,7 +1340,7 @@ describe("createHeadlessAdapter", () => {
       { ...activation, execution: { harness: "pi", model: "terra", placement: "headless" } },
     );
     const turn = await session.start(turnSpec, firstBinding);
-    expect((await turn.settled).chargesUsd[0]).toBeCloseTo(0.03, 12);
+    expect((await turn.settled).reportedCostsUsd[0]).toBeCloseTo(0.03, 12);
   });
 
   test("a turn that reports no session is not resumed under an id the harness never saw", async () => {
@@ -1362,12 +1362,12 @@ describe("createHeadlessAdapter", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("a charge the turn never printed stays absent rather than becoming zero", async () => {
+  test("a cost the turn never printed stays absent rather than becoming zero", async () => {
     const { run } = stub(["a screen with no JSON on it"]);
     const session = await headless(run);
     const turn = await session.start(turnSpec, firstBinding);
 
-    expect((await turn.settled).chargesUsd).toEqual([]);
+    expect((await turn.settled).reportedCostsUsd).toEqual([]);
   });
 
   test("a harness with no confirmed resume cannot be nudged, and says so", async () => {

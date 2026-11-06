@@ -1099,6 +1099,30 @@ export default defineComparison({
     expect(late.estimate).toBe(0);
   });
 
+  test("a run's summary keeps what its agents and decisions reported, together, as its charged", () => {
+    const record = {
+      runId: "r1",
+      outcome: "completed",
+      value: null,
+      accounting: {
+        wallMs: 5,
+        billing: "metered",
+        byModel: [],
+        totals: {
+          agents: 1,
+          known: 1,
+          priced: 1,
+          estimate: 0.5,
+          reportedCost: 0.25,
+          decisions: { calls: 1, known: 1, priced: 1, estimate: 0.01, reportedCost: 0.02 },
+        },
+      },
+    } as unknown as RunOutput;
+    const summary = summaryOf({ exitCode: 0, stderr: "", ms: 5, record });
+    expect(summary.charged).toBeCloseTo(0.27, 10);
+    expect(summary.estimate).toBeCloseTo(0.51, 10);
+  });
+
   test("loop: a try cut short after its proposal resumes with it, not with a new one", async () => {
     await ws.variant("canned");
     await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });

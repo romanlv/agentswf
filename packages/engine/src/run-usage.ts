@@ -45,11 +45,12 @@ export type AccountedAgent = {
 type OperationEntry = {
   /**
    * Records what is known when the operation settles; spend and billing wait for the run's end.
-   * `finishing` is an answered turn the host left finishing, whose charges are added when it ends.
+   * `finishing` is an answered turn the host left finishing, whose reported costs are added when
+   * it ends.
    */
   settle(
     times: { deliveredAt?: number; settledAt: number },
-    charges: readonly number[],
+    reportedCosts: readonly number[],
     finishing?: Promise<HarnessTurnOutcome>,
   ): OperationRecord;
 };
@@ -132,17 +133,17 @@ export function createRunLedger({
           const operation: Operation = { agent, costs: [] };
           operations.push(operation);
           return {
-            settle(times, charges, finishing) {
+            settle(times, reportedCosts, finishing) {
               operation.usage = {
                 ...recordOf(agent, operationId, execution(), tags, times.deliveredAt),
                 settledAt: new Date(times.settledAt).toISOString(),
               };
-              operation.costs = [...charges];
+              operation.costs = [...reportedCosts];
               if (finishing) {
                 late.add(
                   finishing.then(
-                    ({ chargesUsd }) => {
-                      operation.costs.push(...chargesUsd);
+                    ({ reportedCostsUsd }) => {
+                      operation.costs.push(...reportedCostsUsd);
                     },
                     () => undefined,
                   ),
@@ -178,7 +179,7 @@ export function createRunLedger({
       try {
         return await runUntilStopped(
           async () => {
-            // Closing the host ended every turn left finishing; what each charged lands here.
+            // Closing the host ended every turn left finishing; what each reported lands here.
             await waitForDeadline(lateEnded(), { unixMilliseconds: deadline }).catch(
               () => undefined,
             );
@@ -257,12 +258,14 @@ async function settleUsage(
   return operations.map((operation) => {
     const { billing, shares } = settledAgents.get(operation.agent)!;
     const { costs } = operation;
-    const charged = billing === "metered" && costs.length > 0 ? sum(costs) : undefined;
+    const reportedCost = billing === "metered" && costs.length > 0 ? sum(costs) : undefined;
     return {
       ...withSessions(operation),
       billing,
       ...(shares ? { spend: spendOf(shares.get(operation.usage.operationId) ?? []) } : {}),
-      ...(charged === undefined ? {} : { charged: { amount: charged, currency: "USD" } }),
+      ...(reportedCost === undefined
+        ? {}
+        : { reportedCost: { amount: reportedCost, currency: "USD" } }),
     };
   });
 }

@@ -79,7 +79,7 @@ export type SupervisedOutcome = {
   value?: unknown;
   reason: string;
   cleanupUnresolved: boolean;
-  charges: number[];
+  reportedCosts: number[];
   deliveredAt?: number;
   settledAt: number;
   /** A failed turn whose harness showed it cannot sign in. */
@@ -181,7 +181,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     | Promise<import("@agentswf/harness/adapter").HarnessReleaseDisposition>
     | undefined;
   let answerReleaseDeadline: number | undefined;
-  const charges: number[] = [];
+  const reportedCosts: number[] = [];
   const emit = (
     kind: OperationLivenessKind,
     reason?: string,
@@ -332,7 +332,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           (outcome) => {
             if (!valid()) return;
             native = outcome;
-            charges.push(...outcome.chargesUsd);
+            reportedCosts.push(...outcome.reportedCostsUsd);
             if (
               result === undefined &&
               outcome.state === "completed" &&
@@ -705,7 +705,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       kind,
       reason,
       cleanupUnresolved: false,
-      charges,
+      reportedCosts,
       ...(deliveredAt === undefined ? {} : { deliveredAt }),
       settledAt:
         kind === "timed-out"

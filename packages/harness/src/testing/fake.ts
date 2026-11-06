@@ -46,7 +46,7 @@ export type FakeAdapterTurn = {
   detail?: string;
   transcript?: string;
   sessionRef?: string;
-  chargesUsd?: readonly number[];
+  reportedCostsUsd?: readonly number[];
   /** A compaction's summary: set, the harness confirmed it compacted. */
   summary?: string;
   /** On a failed turn: its harness showed it cannot sign in. */
@@ -190,7 +190,11 @@ export function createFakeAdapter(
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
           if (operation.deliverySignal?.aborted) {
-            return { state: "cancelled", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+            return {
+              state: "cancelled",
+              resultEvidence: { kind: "unavailable" },
+              reportedCostsUsd: [],
+            };
           }
           operation.onDispatched?.();
           operation.onAccepted?.();
@@ -238,7 +242,7 @@ export function createFakeAdapter(
                 : ({ kind: "unavailable" } as const),
               // Every turn names its session, as a real harness's output does.
               sessionRef: scripted.sessionRef ?? sessionId,
-              chargesUsd: scripted.chargesUsd ?? [],
+              reportedCostsUsd: scripted.reportedCostsUsd ?? [],
               ...(scripted.summary === undefined || controller.signal.aborted
                 ? {}
                 : { summary: scripted.summary }),

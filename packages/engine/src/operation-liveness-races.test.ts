@@ -10,7 +10,7 @@ import { createResultSlotRegistry } from "./result-slots";
 const completed: HarnessTurnOutcome = {
   state: "completed",
   resultEvidence: { kind: "unavailable" },
-  chargesUsd: [],
+  reportedCostsUsd: [],
 };
 const cancelled: HarnessTurnOutcome = { ...completed, state: "cancelled" };
 const flush = async () => {
@@ -478,7 +478,7 @@ test("late successor rejection cannot restart release after cleanup is unresolve
   expect(s.first.releases).toHaveLength(releases);
 });
 
-test("late receipt during cancellation release preserves releasing progress and final charges", async () => {
+test("late receipt during cancellation release preserves releasing progress and final reported costs", async () => {
   const release = Promise.withResolvers<HarnessReleaseDisposition>();
   const next = turn(() => release.promise);
   const s = fixture({ successor: async () => next.handle });
@@ -491,13 +491,13 @@ test("late receipt during cancellation release preserves releasing progress and 
   await flush();
   expect(s.phases.at(-1)).toBe("releasing");
   next.receive(11);
-  next.end.resolve({ ...completed, chargesUsd: [7] });
+  next.end.resolve({ ...completed, reportedCostsUsd: [7] });
   await flush();
   expect(s.phases.at(-1)).toBe("releasing");
   expect(s.events).toContain("received");
   release.resolve({ kind: "released", outcome: completed });
   await stopping;
-  expect(await s.run).toMatchObject({ kind: "cancelled", charges: [7] });
+  expect(await s.run).toMatchObject({ kind: "cancelled", reportedCosts: [7] });
 });
 
 test("initial acquisition rejection before persistence completes cannot prove cleanup", async () => {
@@ -515,7 +515,7 @@ test("initial acquisition rejection before persistence completes cannot prove cl
   expect(s.first.releases).toHaveLength(0);
 });
 
-test("unexpected release evidence errors retain observed charges and delivery", async () => {
+test("unexpected release evidence errors retain reported costs and delivery", async () => {
   const first = turn(async () => ({
     kind: "released",
     get outcome(): never {
@@ -525,13 +525,13 @@ test("unexpected release evidence errors retain observed charges and delivery", 
   const s = fixture({ first });
   await flush();
   first.receive(4);
-  first.end.resolve({ ...completed, chargesUsd: [0.75] });
+  first.end.resolve({ ...completed, reportedCostsUsd: [0.75] });
   await flush();
   await s.answer();
   expect(await s.run).toMatchObject({
     kind: "failed",
     cleanupUnresolved: true,
-    charges: [0.75],
+    reportedCosts: [0.75],
     deliveredAt: 4,
   });
 });

@@ -191,7 +191,7 @@ export async function settleAgent(
 export function blockedBy(result: HerdrResult): NativeTurnOutcome | undefined {
   const agent = result.ok ? reportedAgent(result.result) : undefined;
   return agent && settledState(agent) === "blocked"
-    ? { ...settledOutcome(agent), resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
+    ? { ...settledOutcome(agent), resultEvidence: { kind: "unavailable" }, reportedCostsUsd: [] }
     : undefined;
 }
 

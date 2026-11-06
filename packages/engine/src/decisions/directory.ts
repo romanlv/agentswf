@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { DecisionArtifact, Money, SettledDecision } from "@agentswf/contract/records";
+import {
+  type DecisionArtifact,
+  type Money,
+  OP_FILE_VERSIONS,
+  type SettledDecision,
+} from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type Answers,
@@ -176,14 +181,14 @@ export class RunDecisions {
 
     let attempts = 0;
     let tokens: { input: number; output: number } | undefined;
-    let charged: Money[] = [];
+    let reportedCosts: Money[] = [];
     let requestId: string | undefined;
     let response: ProviderResponse | undefined;
     let answers: Record<string, unknown> | undefined;
     let error: string | undefined;
     const count = (spent: {
       tokens?: ProviderResponse["tokens"];
-      charged?: Money;
+      reportedCost?: Money;
       requestId?: string;
     }) => {
       if (spent.tokens) {
@@ -192,7 +197,7 @@ export class RunDecisions {
           output: (tokens?.output ?? 0) + spent.tokens.output,
         };
       }
-      if (spent.charged) charged = [...charged, spent.charged];
+      if (spent.reportedCost) reportedCosts = [...reportedCosts, spent.reportedCost];
       if (spent.requestId) requestId = spent.requestId;
     };
     const request = {
@@ -266,9 +271,10 @@ export class RunDecisions {
       ...(requestId ? { requestId } : {}),
       artifact,
     };
-    const total = sumMoney(charged);
-    let settled: SettledDecision = { ...record, ...(total ? { charged: total } : {}) };
+    const total = sumMoney(reportedCosts);
+    let settled: SettledDecision = { ...record, ...(total ? { reportedCost: total } : {}) };
     const written: DecisionArtifact = {
+      version: OP_FILE_VERSIONS.decision,
       record: settled,
       request: { state: spec.state, questions: spec.questions },
       ...(answers ? { answers: answers as JsonObject } : {}),
@@ -295,7 +301,7 @@ export class RunDecisions {
       outcome: settled.outcome,
       ...(settled.error === undefined ? {} : { error: settled.error }),
     });
-    const { charged: _charged, ...returned } = settled;
+    const { reportedCost: _reportedCost, ...returned } = settled;
 
     if (returned.outcome === "answered") return { answers: answers!, record: returned };
     if (returned.outcome === "timed-out") throw new DeadlineExceededError(deadline!);
@@ -413,11 +419,11 @@ function isProbability(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-/** Charges in more than one currency cannot be added without converting, so their sum is unknown. */
-function sumMoney(charges: readonly Money[]): Money | undefined {
-  const currency = charges[0]?.currency;
-  if (!currency || charges.some((charge) => charge.currency !== currency)) return undefined;
-  return { amount: charges.reduce((sum, charge) => sum + charge.amount, 0), currency };
+/** Costs in more than one currency cannot be added without converting, so their sum is unknown. */
+function sumMoney(costs: readonly Money[]): Money | undefined {
+  const currency = costs[0]?.currency;
+  if (!currency || costs.some((cost) => cost.currency !== currency)) return undefined;
+  return { amount: costs.reduce((sum, cost) => sum + cost.amount, 0), currency };
 }
 
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
