@@ -100,6 +100,15 @@ describe("awf help", () => {
     }
   });
 
+  test("every command takes -h or --help anywhere before --, and only there", async () => {
+    for (const name of names) {
+      const asked = await said("help", name);
+      expect(await said(name, "a", "--unknown", "-h")).toEqual(asked);
+      expect(await said(name, "a", "--help", "b")).toEqual(asked);
+      expect(await said(name, "a", "--", "-h")).not.toEqual(asked);
+    }
+  });
+
   test("awf run -h is run's usage alone, before -- only", async () => {
     const help = await said("run", "-h");
     expect(help.exitCode).toBe(0);

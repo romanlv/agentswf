@@ -32,10 +32,6 @@ export async function emitCommand(
     launch?: Launch;
   },
 ): Promise<number> {
-  if (argv.includes("-h") || argv.includes("--help")) {
-    out.stdout(emitUsage);
-    return 0;
-  }
   let parsed: Parsed;
   try {
     parsed = parse(argv, shellCwd);

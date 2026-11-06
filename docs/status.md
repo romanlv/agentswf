@@ -281,60 +281,8 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
 - [038 — the agents.wf site](stories/038-agents-wf-site.md): done. agents.wf, VitePress, serves
   the guide, patterns and reference for people and an `llms.txt` for agents; CI deploys it on a
   push to main that touches what it reads.
-- [040 — a program drives a workflow's runs, typed from the workflow](stories/040-workflows-from-code.md):
-  done. `agentswf/client`:
-  typed `emit` (events and replies), `start` with recorded args, `get`, `inbox` and `wait`; the
-  fake client; one engine per project, the `agentswf` it depends on, the global `awf` handing over.
-- [041 — a run's records, one home per fact](stories/041-run-record-layout.md): done. A run's folder has the layout of [`design/run-record.md`](design/run-record.md):
-  `run.json` with `format: 1`; `run.jsonl`, what the run settled (claims, stage ends, races,
-  timers, waits and what they took, started turns and their ends, sessions), one writer fenced by
-  each attempt's `claimed` line, read through `contract`'s published `readRun`; `in.jsonl`, the
-  events senders add under the run's lock; `attempts/{n}.json` with the run's `value`, a failed
-  background launch an attempt file too, each launch's output in `launches/`; `log.jsonl`, which
-  nothing that acts on the run reads; `ops/{key}.{n}/` per operation, numbered across attempts,
-  agent and decision keys one set of names; `spend.json` unpriced, priced when read, an interrupted
-  attempt's settled by the next; `out.json` and `report.md` as views; scratch in `work/`. `stages/`,
-  `replaced/`, the mailbox, `calls/`, `decisions/` and `process.log` are gone; every start point is
-  a redo line; `awf logs` shows each session on the `run.jsonl` line that first names it, its
-  cursor spanning both files; a run made before is listed `unreadable` and not read. ADR 0014.
-- [043 — every --json command says why it failed, as a document](stories/043-json-refusals.md):
-  done. With `--json`, stdout ends with one document, the result or a
-  refusal `{v, code, error}` from the published codes, the word `agentswf/client` throws where it
-  meets the same failure (an `awf inbox` that reads nothing new prints none); exit codes unchanged,
-  the sentence still on stderr. `awf reply`/`awf send --json` at `v` 3, a success `{v, id}`; `awf
-  inbox --json` at `v` 2; `not-found` is `no-run`, `bad-cursor` `cursor`. A guard runs every
-  `--json` command into failures its help names, and checks each code a help lists is published. `awf run`
-  opening a run of a workflow with events refuses `--json` as `usage`, as `--here` does (Q6). A
-  scripted participant's `reply`/`send` in `agentswf/testing` resolves to `{ id }` or `{ code }` (Q7).
-- [042 — the operator opens any agent's session and asks it more](stories/042-open-agent-session.md):
-  awaiting human review. `awf open {run} {agent}` copies the agent's latest session with no model
-  turn and opens the copy in its harness's TUI where the agent worked (its cwd, own home, skills
-  and sandbox, on its model and effort), with the harness's own prompts; `-p` asks it one
-  question headless; `--session` reopens a copy or an earlier session; `--no-fork` opens the
-  session itself and holds the run in `{id}.open`, so no attempt starts (`WakeWhy` `opened`) and
-  a run with events is woken at exit. The `session` line in `run.jsonl` gains `sandbox` and
-  `skills` (Q6, Q7); a sandbox's `launch` takes the operator's terminal (srt with a pty profile,
-  docker `exec -t`).
-
-The inbox of possible stories is [`stories/todo/`](stories/todo/).
-
-## Next
-
-The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as the site
-promises (durable runs, an engine that handles a quiet or hung agent, a run that parks with no
-process left). The autoresearch loop is a long-term bet, so [`comparison-efficiency`](stories/todo/comparison-efficiency.md) and
-[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait. The todo inbox
-is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities). The P0s:
-
-- [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go
-  on, and can keep its agent open for a person to finish the step.
-- [`non-answered-evidence`](stories/todo/non-answered-evidence.md): the screen is kept (built
-  2026-11-04); left are checking that a failed start's screen and Herdr's start errors carry no
-  credential (M1, M2), and whether `awf run`'s closing block names the screen.
-- [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
-  one left running.
-- [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): one
-  way to do each thing in the author API, before more people build on the beta. Awaiting human review, its live checks not run; design in [`design/api-consolidation.md`](design/api-consolidation.md).
+- [039 — an author learns one way to do each thing](stories/039-one-way-author-api.md): done,
+  approved 2026-11-06; its live checks not run. One way to do each thing in the author API; design in [`design/api-consolidation.md`](design/api-consolidation.md).
   Task 1 built: `wf.steps`, `wf.call`, `receive({ take })`, `wf.timers()`, `WorkflowDefinition`,
   `agents.attach` and `participants.get` are gone; agent `labels`, `meta.whenToUse`, a stage
   around `receive`, `isAnswered`, `defineExecutableWorkflow`, a call's `id` and a started turn in
@@ -411,6 +359,58 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
   declared. A run without stages groups its cost as `agents`, a row per agent or decision key; an
   attempt recorded with `prefix` still reads. `testWorkflow` takes `panes: { workspace?, keep? }`,
   as `awf run` records them. Named Herdr sessions, which only `layout.session` reached, are gone.
+- [040 — a program drives a workflow's runs, typed from the workflow](stories/040-workflows-from-code.md):
+  done. `agentswf/client`:
+  typed `emit` (events and replies), `start` with recorded args, `get`, `inbox` and `wait`; the
+  fake client; one engine per project, the `agentswf` it depends on, the global `awf` handing over.
+- [041 — a run's records, one home per fact](stories/041-run-record-layout.md): done. A run's folder has the layout of [`design/run-record.md`](design/run-record.md):
+  `run.json` with `format: 1`; `run.jsonl`, what the run settled (claims, stage ends, races,
+  timers, waits and what they took, started turns and their ends, sessions), one writer fenced by
+  each attempt's `claimed` line, read through `contract`'s published `readRun`; `in.jsonl`, the
+  events senders add under the run's lock; `attempts/{n}.json` with the run's `value`, a failed
+  background launch an attempt file too, each launch's output in `launches/`; `log.jsonl`, which
+  nothing that acts on the run reads; `ops/{key}.{n}/` per operation, numbered across attempts,
+  agent and decision keys one set of names; `spend.json` unpriced, priced when read, an interrupted
+  attempt's settled by the next; `out.json` and `report.md` as views; scratch in `work/`. `stages/`,
+  `replaced/`, the mailbox, `calls/`, `decisions/` and `process.log` are gone; every start point is
+  a redo line; `awf logs` shows each session on the `run.jsonl` line that first names it, its
+  cursor spanning both files; a run made before is listed `unreadable` and not read. ADR 0014.
+- [043 — every --json command says why it failed, as a document](stories/043-json-refusals.md):
+  done. With `--json`, stdout ends with one document, the result or a
+  refusal `{v, code, error}` from the published codes, the word `agentswf/client` throws where it
+  meets the same failure (an `awf inbox` that reads nothing new prints none); exit codes unchanged,
+  the sentence still on stderr. `awf reply`/`awf send --json` at `v` 3, a success `{v, id}`; `awf
+  inbox --json` at `v` 2; `not-found` is `no-run`, `bad-cursor` `cursor`. A guard runs every
+  `--json` command into failures its help names, and checks each code a help lists is published. `awf run`
+  opening a run of a workflow with events refuses `--json` as `usage`, as `--here` does (Q6). A
+  scripted participant's `reply`/`send` in `agentswf/testing` resolves to `{ id }` or `{ code }` (Q7).
+- [042 — the operator opens any agent's session and asks it more](stories/042-open-agent-session.md):
+  awaiting human review. `awf open {run} {agent}` copies the agent's latest session with no model
+  turn and opens the copy in its harness's TUI where the agent worked (its cwd, own home, skills
+  and sandbox, on its model and effort), with the harness's own prompts; `-p` asks it one
+  question headless; `--session` reopens a copy or an earlier session; `--no-fork` opens the
+  session itself and holds the run in `{id}.open`, so no attempt starts (`WakeWhy` `opened`) and
+  a run with events is woken at exit. The `session` line in `run.jsonl` gains `sandbox` and
+  `skills` (Q6, Q7); a sandbox's `launch` takes the operator's terminal (srt with a pty profile,
+  docker `exec -t`).
+
+The inbox of possible stories is [`stories/todo/`](stories/todo/).
+
+## Next
+
+The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as the site
+promises (durable runs, an engine that handles a quiet or hung agent, a run that parks with no
+process left). The autoresearch loop is a long-term bet, so [`comparison-efficiency`](stories/todo/comparison-efficiency.md) and
+[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait. The todo inbox
+is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities). The P0s:
+
+- [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go
+  on, and can keep its agent open for a person to finish the step.
+- [`non-answered-evidence`](stories/todo/non-answered-evidence.md): the screen is kept (built
+  2026-11-04); left are checking that a failed start's screen and Herdr's start errors carry no
+  credential (M1, M2), and whether `awf run`'s closing block names the screen.
+- [`crash-leftovers-reaper`](stories/todo/crash-leftovers-reaper.md): a later awf ends what a dead
+  one left running.
 
 ## Known gaps
 

@@ -1163,11 +1163,12 @@ describe("createHeadlessAdapter", () => {
     });
 
     test("cursor forks by copying its chat's directory under a new id, keeping its parent's agentId", async () => {
-      const operator = process.env.HOME;
+      // The config directory itself, not HOME: an XDG_CONFIG_HOME, as GitHub's runners set, moves it.
+      const operator = process.env.CURSOR_CONFIG_DIR;
       const home = mkdtempSync(join(tmpdir(), "cursor-home-"));
-      const workspace = join(home, ".cursor", "chats", "workspace");
+      const workspace = join(home, "chats", "workspace");
       try {
-        process.env.HOME = home;
+        process.env.CURSOR_CONFIG_DIR = home;
         mkdirSync(join(workspace, "chat-1"), { recursive: true });
         const { run, calls } = stub([
           JSON.stringify({
@@ -1210,7 +1211,8 @@ describe("createHeadlessAdapter", () => {
           HARNESSES.cursor.forkSession!("../chat-1", "fork-2", { sessionHint: "x" }),
         ).rejects.toThrow("cursor has no chat ../chat-1 to fork");
       } finally {
-        process.env.HOME = operator;
+        if (operator === undefined) delete process.env.CURSOR_CONFIG_DIR;
+        else process.env.CURSOR_CONFIG_DIR = operator;
         rmSync(home, { recursive: true, force: true });
       }
     });

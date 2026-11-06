@@ -1330,10 +1330,10 @@ describe("an outside participant", () => {
       owedBy: "coordinator",
       asker: "investigator",
       end: "timed-out",
-      reason: "the question closed unanswered after 2m00s",
+      reason: "the question closed unanswered after 2m 00s",
     });
     expect(route.messaging.take("op-1", "continues")?.text).toContain(
-      "No reply from coordinator: the question closed unanswered after 2m00s.",
+      "No reply from coordinator: the question closed unanswered after 2m 00s.",
     );
     const own = outside({ timeoutMs: 7_200_000 });
     await own.messaging.send("investigator", {
@@ -1600,7 +1600,7 @@ describe("a route's timeout between agents", () => {
       owedBy: "implementer",
       asker: "reviewer",
       end: "timed-out",
-      reason: "the question closed unanswered after 2m00s",
+      reason: "the question closed unanswered after 2m 00s",
     });
   });
 });

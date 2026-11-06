@@ -45,11 +45,6 @@ export async function holderCommand(
   shellCwd: string,
   io: HolderIo,
 ): Promise<number> {
-  // Help only as the first word after the command: a message's text may say anything.
-  if (argv[1] === "-h" || argv[1] === "--help") {
-    io.stdout(replyUsage);
-    return 0;
-  }
   let place: ReadPlace;
   let json: boolean;
   let options: Options;

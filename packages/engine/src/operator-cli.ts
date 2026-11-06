@@ -293,6 +293,10 @@ export async function runOperatorCli(
   }
   if (word === "help" || word === "-h" || word === "--help") return help(rest, stdout, stderr);
   if (isCommand(word)) {
+    if (asksHelp(rest)) {
+      stdout(helpOf(word));
+      return 0;
+    }
     const v = JSON_VERSION[word as keyof typeof JSON_VERSION];
     if (v === undefined || !asksJson(rest)) return handlers[word]();
     // What a command didn't foresee still ends its stdout with a document, unless it printed one.
@@ -322,6 +326,15 @@ const JSON_VERSION = {
   allowance: ALLOWANCE_V,
   open: OPEN_V,
 } as const;
+
+/**
+ * One rule for every command: `-h` or `--help` anywhere before `--` prints its help. A word that
+ * must be either, a message's text say, goes after `--`.
+ */
+function asksHelp(words: readonly string[]): boolean {
+  const end = words.indexOf("--");
+  return (end < 0 ? words : words.slice(0, end)).some((word) => word === "-h" || word === "--help");
+}
 
 /** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
 function help(
@@ -383,16 +396,12 @@ async function runCommand(
   output: Output,
 ): Promise<number> {
   const { stdout, stderr, notice, now } = output;
-  let parsed: RunCommand | "help";
+  let parsed: RunCommand;
   try {
     parsed = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     printRefusal({ stdout, stderr }, { json: asksJson(argv), v: RUN_V }, error, "usage", usage);
     return 2;
-  }
-  if (parsed === "help") {
-    stdout(usage);
-    return 0;
   }
   let command: RunCommand = parsed;
   // With --json, what makes no run is a refusal, as its sentence on stderr says.

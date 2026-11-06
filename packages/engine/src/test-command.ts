@@ -24,16 +24,12 @@ export async function testCommand(
   cwd: string,
   io: Out & { output?: Out; signal?: AbortSignal },
 ): Promise<number> {
-  let tests: TestCommand | "help";
+  let tests: TestCommand;
   try {
     tests = parseTestCommand(argv, cwd);
   } catch (error) {
     printRefusal(io, NO_JSON, error, "usage", testUsage);
     return 2;
-  }
-  if (tests === "help") {
-    io.stdout(testUsage);
-    return 0;
   }
   try {
     // Each test's workflow gets this engine's author surface: its project, and each path's, must
@@ -59,13 +55,12 @@ export async function testCommand(
  * Only these flags pass through, so the published command is awf's, not the whole of `bun test`'s,
  * and a later runner can take its place. A path must exist; Bun would take it as a filter.
  */
-function parseTestCommand(argv: readonly string[], cwd: string): TestCommand | "help" {
+function parseTestCommand(argv: readonly string[], cwd: string): TestCommand {
   const paths: string[] = [];
   const bunArgs: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const option = argv[index]!;
     const value = argv[index + 1];
-    if (option === "-h" || option === "--help") return "help";
     if (option === "--watch") {
       bunArgs.push("--watch");
     } else if (option === "-t") {

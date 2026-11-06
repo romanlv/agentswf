@@ -9,7 +9,7 @@ import type {
 import type { ParticipantCode, PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
 import type { AgentKey, JsonObject } from "@agentswf/contract/workflow";
 import type { AuthoredMessage } from "@agentswf/harness/adapter";
-import { formatDuration } from "../duration";
+import { duration } from "../accounting/format";
 import { MESSAGE_LIMITS } from "./limits";
 import {
   directions,
@@ -1087,7 +1087,7 @@ export class Messaging {
             obligation,
             "timed-out",
             obligation.closes?.by === "route"
-              ? `the question closed unanswered after ${formatDuration(obligation.closes.ms)}`
+              ? `the question closed unanswered after ${duration(obligation.closes.ms)}`
               : `your --timeout passed at ${clock(closesAt, this.#host.now())}`,
           );
         }

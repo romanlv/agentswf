@@ -481,8 +481,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   args: Args,
   options: RunWorkflowOptions,
 ): Promise<WorkflowRunHandle<Result>> {
-  assertDeadline(options.deadline);
+  // Cancellation wins when the deadline has passed too, as runUntilStopped has it.
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
+  assertDeadline(options.deadline);
   // Before anything opens, so a refusal leaves nothing to close.
   const withEvents = isEventWorkflow(definition);
   const locked = options.run.locked ?? (<T>(work: () => Promise<T>) => work());
