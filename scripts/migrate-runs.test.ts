@@ -8,7 +8,7 @@ import { readAttemptFiles } from "../packages/engine/src/runs";
 import { readWaits } from "../packages/engine/src/waits";
 import { migrateRuns } from "./migrate-runs";
 
-const root = mkdtempSync(join(tmpdir(), "wf-migrate-"));
+const root = mkdtempSync(join(tmpdir(), "awf-migrate-"));
 afterAll(async () => {
   const { rm } = await import("node:fs/promises");
   await rm(root, { recursive: true, force: true });
