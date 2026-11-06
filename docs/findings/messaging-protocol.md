@@ -3,7 +3,7 @@
 Whether agents operate the protocol of [the messaging design](../design/messaging.md), measured
 2026-10-12 before it was built, for Q11 of [story 029](../stories/029-agent-messaging.md). pi 0.87.1
 headless on gpt-6-luna and gpt-6.1-sol, against a stand-in `wf` that answers as the design says;
-the raw results and the scripts are in [`experiments/e9-messaging-protocol`](../../experiments/e9-messaging-protocol/).
+the raw results and the scripts are in [`experiments/_archive/e9-messaging-protocol`](../../experiments/_archive/e9-messaging-protocol/).
 
 | | question | verdict |
 |---|---|---|

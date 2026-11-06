@@ -1,10 +1,10 @@
 # E9 — do agents operate the messaging protocol?
 
 Run 2026-10-12, before anything is built, to ground Q11 of
-[story 029](../../docs/stories/029-agent-messaging.md): what must
-[M2](../../docs/design/messaging.md#to-measure) show before `--await-reply` is enabled on a
+[story 029](../../../docs/stories/029-agent-messaging.md): what must
+[M2](../../../docs/design/messaging.md#to-measure) show before `--await-reply` is enabled on a
 harness? The verdicts are in
-[`docs/findings/messaging-protocol.md`](../../docs/findings/messaging-protocol.md).
+[`docs/findings/messaging-protocol.md`](../../../docs/findings/messaging-protocol.md).
 
 ## Setup
 

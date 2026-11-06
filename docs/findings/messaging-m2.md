@@ -4,7 +4,7 @@ Whether agents use `wf send --await-reply` as [story 029](../stories/029-agent-m
 gate needs, on the built engine, measured 2026-10-12. Each trial is a real `awf run`: a planner
 must plan retries whose home is its architect's call, with a route to ask it, and nothing in the
 task says how to wait. Both agents of a pair run one runtime. The scripts and raw results are in
-[`experiments/m2-messaging`](../../experiments/m2-messaging/).
+[`experiments/_archive/m2-messaging`](../../experiments/_archive/m2-messaging/).
 
 | | question | verdict |
 |---|---|---|

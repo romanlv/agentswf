@@ -12,3 +12,10 @@ in the harness. They are in git history: `git show xperiments/_archive/{file}`, 
 2026-10-01: its throwaway probes, kept as text since they import this checkout by absolute path,
 what they wrote, the per-request rows read back from the harnesses' session files, and the console
 output nothing else kept.
+
+`e9-messaging-protocol/`, `m2-messaging/` and `m1-resume/` are the evidence behind
+[`messaging-protocol.md`](../../docs/findings/messaging-protocol.md),
+[`messaging-m2.md`](../../docs/findings/messaging-m2.md) and
+[`resume-after-hours.md`](../../docs/findings/resume-after-hours.md), archived with their scripts
+on 2026-11-06. The scripts import this checkout's sources by relative path and are left out of
+`tsc` and Biome, so they may no longer compile against it.
