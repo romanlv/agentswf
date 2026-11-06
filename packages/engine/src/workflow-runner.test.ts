@@ -145,6 +145,21 @@ describe("runWorkflow", () => {
     expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
   });
 
+  test("a run cancelled before it starts is cancelled, though its deadline has passed too", async () => {
+    const controller = new AbortController();
+    controller.abort("SIGINT");
+    const workflow = workflowOf("cancelled-and-late", async () => null);
+
+    await expect(
+      runNew(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: emptyRuntime(),
+        deadline: { unixMilliseconds: Date.now() - 1 },
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(WorkflowCancelledError);
+  });
+
   test("exposes and enforces the invocation deadline even without a workflow wait", async () => {
     const controller = new AbortController();
     // The clock stands still until the body runs: a deadline passed while the run opens refuses
