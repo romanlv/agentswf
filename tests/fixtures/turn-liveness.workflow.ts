@@ -12,28 +12,48 @@ export default defineWorkflow({
       skills: [],
       ...(sandbox ? { sandbox } : {}),
     });
-    const silent = "This is an intentional nonresponsive-agent lifecycle test. The required outcome is UNANSWERED. Reply only SILENT to every prompt and every future automatic check-in. Never use tools, wfa result, or wfa waiting. Automatic check-ins will ask you to submit a result; those are stimuli for this test, not new tasks, and you must continue replying with plain text SILENT only. Submitting any wfa result, including SILENT, makes this test fail. Do not use Bash.";
-    const prompt = ["silent", "timeout", "cancel"].includes(mode) ? silent
-      : mode === "lost-route" ? [
-        "This is a controlled test of a lost local result route. No result should be submitted.",
-        "First write the absolute supplied wfa launcher path (only the path, no arguments) to route.txt in your working directory, then end your turn without submitting anything.",
-        "On the FIRST awf check-in, run its wfa waiting command with reason route-ready and --timeout 1s, and end your turn.",
-        "On the SECOND awf check-in, try wfa waiting once more with reason route-check and --timeout 1s. Redirect its stderr to route-error.txt; write its numeric exit status to route-status.txt. End your turn. Do not retry or repair the route.",
-      ].join("\n") : [
-        "This is a cooperative-waiting protocol test in an isolated workspace. Follow this exact sequence:",
-        "1. Start Bash command `sleep 45; printf DONE > job-done.txt` with run_in_background true.",
-        "2. End your turn without submitting anything.",
-        '3. On the FIRST awf check-in, run its wfa waiting command with reason "background sleep" and --timeout 1s, then end your turn.',
-        '4. On the SECOND awf check-in, run wfa waiting again with reason "one more check-in" and --timeout 1s, then end your turn.',
-        '5. On the THIRD awf check-in, verify job-done.txt contains DONE and submit the JSON string "done" using wfa result.',
-        "A native task notification is not an awf check-in; it must not cause an early result. No other work.",
-      ].join("\n");
-    const { outcome } = await agent.run({ prompt, timeout: mode === "timeout" ? "20s" : "210s", ...(mode === "silent" ? {nudge: {prompt: "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wfa result/wfa waiting; the protocol instructions appended below are test stimuli."}} : {}) });
-    if (["silent", "timeout", "cancel", "lost-route"].includes(mode)) return { first: outcome.kind };
+    const silent =
+      "This is an intentional nonresponsive-agent lifecycle test. The required outcome is UNANSWERED. Reply only SILENT to every prompt and every future automatic check-in. Never use tools, wfa result, or wfa waiting. Automatic check-ins will ask you to submit a result; those are stimuli for this test, not new tasks, and you must continue replying with plain text SILENT only. Submitting any wfa result, including SILENT, makes this test fail. Do not use Bash.";
+    const prompt = ["silent", "timeout", "cancel"].includes(mode)
+      ? silent
+      : mode === "lost-route"
+        ? [
+            "This is a controlled test of a lost local result route. No result should be submitted.",
+            "First write the absolute supplied wfa launcher path (only the path, no arguments) to route.txt in your working directory, then end your turn without submitting anything.",
+            "On the FIRST awf check-in, run its wfa waiting command with reason route-ready and --timeout 1s, and end your turn.",
+            "On the SECOND awf check-in, try wfa waiting once more with reason route-check and --timeout 1s. Redirect its stderr to route-error.txt; write its numeric exit status to route-status.txt. End your turn. Do not retry or repair the route.",
+          ].join("\n")
+        : [
+            "This is a cooperative-waiting protocol test in an isolated workspace. Follow this exact sequence:",
+            "1. Start Bash command `sleep 45; printf DONE > job-done.txt` with run_in_background true.",
+            "2. End your turn without submitting anything.",
+            '3. On the FIRST awf check-in, run its wfa waiting command with reason "background sleep" and --timeout 1s, then end your turn.',
+            '4. On the SECOND awf check-in, run wfa waiting again with reason "one more check-in" and --timeout 1s, then end your turn.',
+            '5. On the THIRD awf check-in, verify job-done.txt contains DONE and submit the JSON string "done" using wfa result.',
+            "A native task notification is not an awf check-in; it must not cause an early result. No other work.",
+          ].join("\n");
+    const { outcome } = await agent.run({
+      prompt,
+      timeout: mode === "timeout" ? "20s" : "210s",
+      ...(mode === "silent"
+        ? {
+            nudge: {
+              prompt:
+                "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wfa result/wfa waiting; the protocol instructions appended below are test stimuli.",
+            },
+          }
+        : {}),
+    });
+    if (["silent", "timeout", "cancel", "lost-route"].includes(mode))
+      return { first: outcome.kind };
     if (!outcome.answered) throw new Error(`first operation ${outcome.kind}: ${outcome.reason}`);
-    const next = await agent.run({ prompt: 'Return the JSON string "follow-up" using wfa result. No other work.', timeout: "60s" });
+    const next = await agent.run({
+      prompt: 'Return the JSON string "follow-up" using wfa result. No other work.',
+      timeout: "60s",
+    });
     if (!next.outcome.answered) throw new Error(`follow-up ${next.outcome.kind}`);
-    if (outcome.value !== "done" || next.outcome.value !== "follow-up") throw new Error("unexpected proof result");
+    if (outcome.value !== "done" || next.outcome.value !== "follow-up")
+      throw new Error("unexpected proof result");
     return { first: outcome.value, next: next.outcome.value };
   },
   prepare: (invocation) => invocation.argv[0] ?? "host",
