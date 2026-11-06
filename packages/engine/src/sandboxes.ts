@@ -11,7 +11,13 @@ import type {
   SandboxEnvironmentKey,
   SandboxRef,
 } from "@agentswf/contract/workflow";
-import { type AgentSkills, harnessState, sandboxNeeds, skillsLayout } from "@agentswf/harness";
+import {
+  type AgentSkills,
+  type HarnessHomes,
+  harnessState,
+  OPERATOR_HOMES,
+  skillsLayout,
+} from "@agentswf/harness";
 import {
   type AgentDoor,
   type HarnessSandboxNeeds,
@@ -47,6 +53,8 @@ export type RunSandboxOptions = {
    * agent's harness is found on and claude's token. Defaults to the engine's.
    */
   environment?: Readonly<Record<string, string | undefined>>;
+  /** Where an agent's home and its harness's needs come from; the operator's installs and logins by default. */
+  homes?: HarnessHomes;
   /**
    * The operator's sandbox for the whole run (`awf run --sandbox`): every agent runs in it, at the
    * run's working directory, and the workflow opens none of its own. Unresolved, as a file gave it.
@@ -229,7 +237,7 @@ export class RunSandboxes {
       const home = join(sandbox.directory, "homes", id);
       // Beside `homes/`, which every agent in the sandbox can write, and out of their reach.
       const staging = join(sandbox.directory, "staging", id);
-      const needs = await sandboxNeeds(
+      const needs = await (this.options.sandboxes?.homes ?? OPERATOR_HOMES).sandboxed(
         agent.execution.harness,
         home,
         agent.execution.model,

@@ -27,7 +27,8 @@ import {
   WORKFLOW_KIND,
   type Workflow,
 } from "@agentswf/contract/workflow";
-import { type Harness, sandboxTokens } from "@agentswf/harness";
+import type { Harness } from "@agentswf/harness";
+import { SCRIPTED_HOMES } from "@agentswf/harness/testing";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { decideEnding, type Finished } from "../attempt-ending";
 import { continueCommand } from "../attempt-view";
@@ -710,11 +711,8 @@ export async function runTest<Result extends JsonValue>(
         },
         sandboxesDir: directory(),
         machineRoot: directory(),
-        // A sandbox here launches nothing, so no harness's login is needed: a stand-in for each.
-        environment: {
-          ...process.env,
-          ...Object.fromEntries(sandboxTokens().map((name) => [name, "workflow-test"])),
-        },
+        // An agent here launches nothing, so it needs no harness's executable or login.
+        homes: SCRIPTED_HOMES,
       },
       decisions: {
         providers: { scripted: decisions.provider },

@@ -21,7 +21,7 @@ export * from "./command";
 export { loginFailure } from "./harnesses/login";
 export { createPlacementHostFactory } from "./placement-host";
 export { effortRefusal, headlessRefusal, settingsRefusal } from "./refusals";
-export { hostHome, sandboxNeeds, sandboxTokens } from "./sandbox-needs";
+export { type HarnessHomes, OPERATOR_HOMES } from "./sandbox-needs";
 export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";
 export { harnessState } from "./state";

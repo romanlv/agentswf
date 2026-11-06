@@ -214,10 +214,14 @@ export function hostHome(
   home: string,
   environment: Environment = process.env,
 ): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
+  return ownHome(harness as Harness, hostHomed(harness), home, environment);
+}
+
+function hostHomed(harness: string): SandboxedHarness {
   const needs = sandboxed(harness);
   if (isAbsent(needs)) throw new Error(`${harness} cannot have a home of its own: ${needs.absent}`);
   if (isAbsent(needs.hostHome)) throw new Error(needs.hostHome.absent);
-  return ownHome(harness as Harness, needs, home, environment);
+  return needs;
 }
 
 function ownHome(
@@ -242,16 +246,15 @@ function ownHome(
   };
 }
 
-/** The variables a sandboxed harness's login is read from, every harness's. */
-export function sandboxTokens(): string[] {
-  return Object.values(SANDBOXED).flatMap((needs) =>
-    !isAbsent(needs) && needs.token ? [needs.token.env] : [],
-  );
-}
-
 /** Whether a harness can run in a sandbox at all. */
 export function sandboxable(harness: string): boolean {
   return !isAbsent(sandboxed(harness));
+}
+
+function sandboxedOrThrow(harness: string): SandboxedHarness {
+  const needs = sandboxed(harness);
+  if (isAbsent(needs)) throw new Error(`${harness} cannot run in a sandbox: ${needs.absent}`);
+  return needs;
 }
 
 /**
@@ -276,8 +279,7 @@ export async function sandboxNeeds(
   model: string | undefined,
   environment: Environment = process.env,
 ): Promise<HarnessSandboxNeeds> {
-  const needs = sandboxed(harness);
-  if (isAbsent(needs)) throw new Error(`${harness} cannot run in a sandbox: ${needs.absent}`);
+  const needs = sandboxedOrThrow(harness);
   const tokenValue = needs.token ? environment[needs.token.env]?.trim() : undefined;
   if (needs.token && !tokenValue) {
     throw new Error(
@@ -338,3 +340,40 @@ async function above(file: string, name: string): Promise<string | undefined> {
   }
   return undefined;
 }
+
+/**
+ * Where an agent's own home and its sandbox needs come from: the operator's installs and logins,
+ * or, for an agent a workflow's test scripts, which never launches, none of them.
+ */
+export type HarnessHomes = {
+  sandboxed: typeof sandboxNeeds;
+  host: typeof hostHome;
+};
+
+export const OPERATOR_HOMES: HarnessHomes = { sandboxed: sandboxNeeds, host: hostHome };
+
+/**
+ * A scripted agent's: the home, domains and first-run answers a real one gets, refused where a
+ * real one is, but no login copied or required and no executable looked up.
+ */
+export const SCRIPTED_HOMES: HarnessHomes = {
+  sandboxed: async (harness, home, model) => {
+    const needs = sandboxedOrThrow(harness);
+    const command = harnessSpec(harness as Harness).interactive().argv[0]!;
+    return {
+      ...ownHome(harness as Harness, needs, home, {}),
+      seed: [],
+      secrets: {},
+      domains: needs.domains(model),
+      ...(needs.shortDirectory ? { shortDirectory: needs.shortDirectory } : {}),
+      ...(needs.sharedWrites ? { sharedWrites: needs.sharedWrites() } : {}),
+      command,
+      executable: join("/scripted", command),
+      reads: [],
+    };
+  },
+  host: (harness, home) => ({
+    ...ownHome(harness as Harness, hostHomed(harness), home, {}),
+    seed: [],
+  }),
+};

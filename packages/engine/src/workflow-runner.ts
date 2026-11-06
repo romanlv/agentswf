@@ -103,7 +103,8 @@ import {
   findHarness,
   HARNESS_NAMES,
   type Harness,
-  hostHome,
+  type HarnessHomes,
+  OPERATOR_HOMES,
   settingsRefusal,
   skillsLayout,
 } from "@agentswf/harness";
@@ -682,6 +683,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     runDir,
     locks,
     environment,
+    ...(options.sandboxes?.homes ? { homes: options.sandboxes.homes } : {}),
     progress,
     recordTurn,
     stages,
@@ -982,6 +984,7 @@ class WorkflowOwner {
       defaultWindowMs?: number;
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
+      homes?: HarnessHomes;
       decisions: RunDecisions;
       ops: OpIds;
       allowance?: (harness: Harness) => Promise<HarnessAllowance>;
@@ -2303,7 +2306,11 @@ class WorkflowOwner {
     const seeded = await seedHome(
       ownHome,
       join(workDir(runDir), "staging", id),
-      hostHome(execution.harness, ownHome, this.options.environment),
+      (this.options.homes ?? OPERATOR_HOMES).host(
+        execution.harness,
+        ownHome,
+        this.options.environment,
+      ),
       realCwd,
       this.options.locks,
       async (staged) => {

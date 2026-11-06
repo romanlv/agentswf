@@ -24,19 +24,5 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
-      # A sandboxed agent resolves its harness's executable and seeds its login even when a test
-      # scripts it, though none runs: empty stand-ins for both.
-      - name: Stub the agent CLIs and their logins
-        run: |
-          mkdir -p "$RUNNER_TEMP/stubs" "$RUNNER_TEMP/codex" "$RUNNER_TEMP/pi"
-          for cli in claude codex pi cursor-agent; do
-            printf '#!/bin/sh\nexit 1\n' > "$RUNNER_TEMP/stubs/$cli"
-            chmod +x "$RUNNER_TEMP/stubs/$cli"
-          done
-          echo '{}' > "$RUNNER_TEMP/codex/auth.json"
-          echo '{}' > "$RUNNER_TEMP/pi/auth.json"
-          echo "$RUNNER_TEMP/stubs" >> "$GITHUB_PATH"
-          echo "CODEX_HOME=$RUNNER_TEMP/codex" >> "$GITHUB_ENV"
-          echo "PI_CODING_AGENT_DIR=$RUNNER_TEMP/pi" >> "$GITHUB_ENV"
       - run: bun run check
       - run: bun test

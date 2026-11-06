@@ -629,6 +629,61 @@ describe("testWorkflow", () => {
     );
   });
 
+  test("an agent needs no harness on PATH and no login, in a sandbox or in a home of its own", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "awf-test-cwd-"));
+    const skill = join(cwd, "skills", "notes");
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), "---\nname: notes\ndescription: Take notes.\n---\n");
+    const missing = join(cwd, "no-logins");
+    const names = ["PATH", "CODEX_HOME", "PI_CODING_AGENT_DIR", "CURSOR_CONFIG_DIR"];
+    const tokens = ["CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY"];
+    const saved = Object.fromEntries(
+      [...names, ...tokens].map((name) => [name, process.env[name]]),
+    );
+    Object.assign(process.env, {
+      PATH: "/usr/bin:/bin",
+      CODEX_HOME: missing,
+      PI_CODING_AGENT_DIR: missing,
+      CURSOR_CONFIG_DIR: missing,
+    });
+    for (const name of tokens) delete process.env[name];
+    try {
+      const harnesses = [
+        { harness: "codex", model: "m" },
+        { harness: "pi", model: "openai-codex/m" },
+        { harness: "claude", model: "m", metered: true },
+        { harness: "cursor", model: "m" },
+      ] as const;
+      const boxed = workflowOf<null, string>(async (workflow) => {
+        const host = await workflow.agents.open({
+          key: "host",
+          runtime: { harness: "codex", model: "m", placement: "headless" },
+          skills: [{ path: skill }],
+        });
+        await host.run({ prompt: "Hi." });
+        for (const runtime of harnesses) {
+          const agent = await workflow.agents.open({
+            key: runtime.harness,
+            runtime: { ...runtime, placement: "headless" },
+            sandbox: { srt: {} },
+          });
+          await agent.run({ prompt: "Hi." });
+        }
+        return "done";
+      });
+      const run = await runTest(boxed, { cwd, agents: { "*": answer("hello") } });
+      expect(run.value).toBe("done");
+      expect(run.agentOf("codex").sandbox!.domains).toContain("chatgpt.com");
+      expect(run.agentOf("claude").sandbox!.domains).toContain("api.anthropic.com");
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   describe("the hosts refuse what the real ones refuse", () => {
     test("headless claude without metered", async () => {
       const runtime = { harness: "claude", model: "m", placement: "headless" } as const;

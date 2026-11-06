@@ -13,6 +13,8 @@ import type {
 } from "../adapter";
 import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
 
+export { SCRIPTED_HOMES } from "../sandbox-needs";
+
 export type ManualClock = { now(): number; advance(ms: number): void };
 
 export function createManualClock(start = 0): ManualClock {
