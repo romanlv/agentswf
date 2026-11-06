@@ -124,7 +124,8 @@ refusal names its code and what to do instead; [`awf reply`](/reference/awf#repl
 ### What `awf inbox --json` prints
 
 One item per line, oldest first, each with `v`, `ref` (the run), `at`, `kind`, and outside `--open`
-a `cursor`:
+a `cursor`. When it fails, its last line is a [refusal](/reference/awf#json), `{v, code, error}`,
+not an item: on `cursor`, read again without `--after`.
 
 | `kind` | Fields |
 | --- | --- |

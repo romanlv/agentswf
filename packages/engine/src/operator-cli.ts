@@ -56,7 +56,7 @@ import {
   type RunSession,
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
-import { asksJson, printRefusal, refusalCode, refusalLine } from "./refusals";
+import { asksJson, printRefusal, readFailureCode, refusalCode, refusalLine } from "./refusals";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { runLockFile, withRunLock } from "./run-lock";
@@ -533,7 +533,7 @@ async function runAttempt(
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
-    return refuse(messageOf(error), refusalCode(error) ?? "internal-error");
+    return refuse(messageOf(error), readFailureCode(error));
   }
   const { id, cwd } = run.record;
   const locked = <T>(work: () => Promise<T>) =>

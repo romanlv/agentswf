@@ -6,3 +6,9 @@ export class RunUnreachable extends Error {
     this.name = "RunUnreachable";
   }
 }
+
+/** An error the system gave, `ENOENT`, `EACCES` and the like: a run's file that couldn't be read. */
+export function isSystemError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^E[A-Z]+$/.test(code);
+}

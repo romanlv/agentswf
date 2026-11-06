@@ -1,7 +1,7 @@
 ---
 id: "043"
 title: "Every --json command says why it failed, as a document"
-summary: "With --json, stdout always ends with one document: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
+summary: "With --json, stdout ends with one document, but from an awf inbox that reads nothing new: the result, or a refusal {v, code, error} whose code comes from one table shared with agentswf/client; a test across every command keeps it so."
 type: story
 status: awaiting-human-review
 depends_on: ["040"]
@@ -17,8 +17,9 @@ When the command worked, the document is its result. When it failed, the documen
 `{"v": …, "code": …, "error": …}`, whose `code` comes from a table the contract publishes. The
 exit codes stay as they are, and stderr stays for people.
 
-The refusal codes are the words `agentswf/client` throws as `ClientError.code`, so a program
-reaching runs by the CLI and one using the client handle the same failure the same way.
+Where the client meets the same failure, a refusal's code is the word `agentswf/client` throws as
+`ClientError.code`, so a program reaching runs by the CLI and one using the client handle it the
+same way.
 
 A test runs every `--json` command into failures its help documents and checks that each prints
 a refusal, and that every code each help lists is a published one. A new `--json` command without
@@ -84,7 +85,9 @@ In scope:
 
 Out of scope:
 
-- Human output without `--json`: unchanged.
+- Human output without `--json`: unchanged, but for a few sentences that now say more truly what
+  happened: `refused (no-run)`, a malformed run id's reason, and `awf run --continue` refusing a
+  run's file without the old, misleading `prepare: `.
 - A Bun too old to run awf, and an unknown command: refused on stderr before any command runs,
   so before any `--json` is read as a command's.
 - Exit codes: unchanged. A host may keep reading them.
@@ -206,7 +209,7 @@ Out of scope:
   | `ambiguous` | a name fits more than one: a run's id, or `--as`, an agent or `--to`, with `choices` | `emit`, the run readers, `reply`, `send` |
   | `id` | a run or event id the grammar refuses, one `id(args)` returns, or one another run has | `run`, `emit`, the run readers, `reply`, `send`; client |
   | `file` | the workflow file is missing, doesn't load, or doesn't export it | `run`, `emit`; client |
-  | `event` | an event name or data the workflow doesn't take, or it takes none | `emit`; client |
+  | `event` | an event name, data or source the workflow doesn't take, or it takes none | `emit`; client |
   | `prepare` | the workflow refuses its arguments or options | `run`, `emit`; client |
   | `no-id` | a start naming no run | `run`; client |
   | `other-args` | a run there, started with other args or options: `run --id`, `--continue` | `run`; client |
@@ -544,6 +547,17 @@ Manual or live evaluation:
   the Outcome, Design and status name `awf inbox`'s empty read; `not-started`'s gone run is one
   whose working folder is gone, as a run that is gone is `no-run`; the story's counts and its
   task 1 note on `ClientErrorCode`.
+
+- Round 4, correctness: `awf run --continue` refused a `run.jsonl` the system won't let it read
+  as `internal-error`: preparing and the claim read a run's files, so a system error there is
+  `unreachable`, by `readFailureCode`, as the readers' `failed()` has it; a row. `awf send --json`
+  printed `unreachable` for a message the run had delivered when reading who still awaits a reply
+  failed: that read only words the line, so it can't fail the command. The `prepare: ` prefix
+  dropped from a continue's failed read, recorded under Scope.
+- Round 4, design and docs: the people guide says an inbox line can be a refusal; the reference
+  and the Outcome say a code is the client's word only where the client meets the failure;
+  `no-id` glossed as a workflow that starts on events; `event` takes a bad `--source` too; the
+  summary, the index entry and the status entry name `awf inbox`'s empty read.
 
 ## Readiness
 

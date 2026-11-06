@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REFUSAL_CODES, type RefusalCode, type RefusalJson } from "@agentswf/contract/records";
 import {
@@ -130,6 +130,16 @@ beforeAll(async () => {
     sandbox: null,
   });
   writeFileSync(join(shapeless.dir, "run.jsonl"), "{}\n");
+  // And one whose run.jsonl the system won't let awf read.
+  const locked = await createRun(runRoot, {
+    id: "locked",
+    workflow: "plain",
+    argv: [],
+    cwd: fixture.root,
+    sandbox: null,
+  });
+  writeFileSync(join(locked.dir, "run.jsonl"), "");
+  chmodSync(join(locked.dir, "run.jsonl"), 0o000);
   // A run whose record this awf can't read: one made before `run.json` had a format.
   mkdirSync(join(runRoot, "dd-case", "old"), { recursive: true });
   writeFileSync(join(runRoot, "dd-case", "old", "run.json"), JSON.stringify({ id: "old" }));
@@ -513,6 +523,15 @@ const ROWS: Row[] = [
     exit: 2,
     v: 1,
     says: /run.jsonl line 1/,
+  },
+  {
+    command: "run",
+    failure: "a continue of a run whose run.jsonl the system won't let it read",
+    argv: (f) => [f.plain, "--id", "locked", "--continue"],
+    code: "unreachable",
+    exit: 2,
+    v: 1,
+    says: /EACCES/,
   },
   {
     command: "run",

@@ -44,8 +44,8 @@ refusal too, whenever `--json` is anywhere in the arguments before `--`. The exi
 command's own, as its help says. A project that installs an `agentswf` from before this rule runs
 on it, and prints what it printed: there, an empty stdout is a failure stderr explains.
 
-A code means the same in every command that prints it, and is the word
-[`ClientError`](/reference/client-api#clienterror) throws for the same failure:
+A code means the same in every command that prints it, and, where the client meets the same
+failure, is the word [`ClientError`](/reference/client-api#clienterror) throws for it:
 
 | `code` | The command failed because | Printed by |
 | --- | --- | --- |
@@ -54,9 +54,9 @@ A code means the same in every command that prints it, and is the word
 | `ambiguous` | a name fits more than one: a run's id runs of two workflows or projects, or `--as`, an agent or `--to` more than one of theirs, with `choices` | `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `id` | a run or event id the grammar refuses, one the workflow's `id(args)` returns, or one another run has | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |
 | `file` | the workflow file is missing, doesn't load, or doesn't export the workflow | `run`, `emit` |
-| `event` | the workflow doesn't take the event's name or data, or takes no events | `emit` |
+| `event` | the workflow doesn't take the event's name, data or source, or takes no events | `emit` |
 | `prepare` | the workflow refuses its arguments or options | `run`, `emit` |
-| `no-id` | a workflow with events, and no run named | `run` |
+| `no-id` | a workflow that starts on events, with no `--id` and no `id(args)` | `run` |
 | `other-args` | a run there, started with other arguments or options | `run` |
 | `not-started` | no attempt started: Ctrl-C, a session not taken, a claim given up, or a run that is running or completed, or whose working folder is gone | `run` |
 | `unreachable` | the run's files can't be read, or it doesn't answer | `run`, `emit`, `runs`, `logs`, `inbox`, `reply`, `send` |

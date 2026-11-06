@@ -5,7 +5,7 @@ import { EmitError } from "./emit";
 import { messageOf } from "./errors";
 import { EngineRefused } from "./project-engine";
 import { RunNotFound } from "./run-state";
-import { RunUnreachable } from "./run-unreachable";
+import { isSystemError, RunUnreachable } from "./run-unreachable";
 import { RunRefused } from "./runs";
 import { WorkflowFileError } from "./workflow-loader";
 
@@ -41,6 +41,14 @@ export function refusalCode(error: unknown): RefusalCode | undefined {
 export function clientCode(code: unknown): ClientErrorCode | undefined {
   const known = (REFUSAL_CODES as readonly unknown[]).includes(code);
   return known && !COMMAND_ONLY.has(code as RefusalCode) ? (code as ClientErrorCode) : undefined;
+}
+
+/**
+ * A failure while reading a run: the error's own code; else a system error, a file that couldn't
+ * be read, `unreachable`; else `internal-error`.
+ */
+export function readFailureCode(error: unknown): RefusalCode {
+  return refusalCode(error) ?? (isSystemError(error) ? "unreachable" : "internal-error");
 }
 
 /** An engine error that is the caller's mistake as a `ClientError`; anything else as it is. */

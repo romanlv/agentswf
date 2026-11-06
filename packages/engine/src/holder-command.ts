@@ -144,7 +144,8 @@ export async function holderCommand(
     if (result.code !== "delivered") return refused(result.code, result.error, result.choices);
     if (options.command === "reply") return delivered(result.id, `answered ${result.id}`);
     // Held for an agent awaiting this participant's answer: it comes with that answer.
-    const awaited = await awaitedBy(status, options.agent, options.as);
+    // Only the line's wording: the message is delivered, whatever reading this finds.
+    const awaited = await awaitedBy(status, options.agent, options.as).catch(() => undefined);
     return delivered(
       result.id,
       `delivered as ${result.id}${awaited ? `; ${options.agent} still awaits the reply to ${awaited}` : ""}`,

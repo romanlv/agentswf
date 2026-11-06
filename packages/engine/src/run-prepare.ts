@@ -18,7 +18,7 @@ import { projectOf, projectRunRoot, recordProject } from "./projects";
 import type { RunCommand } from "./run-command";
 import { claimRunLines, type RunLines, readRunLines } from "./run-lines";
 import { crashedRedo } from "./run-policy/stages";
-import { RunUnreachable } from "./run-unreachable";
+import { isSystemError, RunUnreachable } from "./run-unreachable";
 import {
   type Attempt,
   appendEvent,
@@ -157,9 +157,13 @@ export async function loadAndPrepare(
 
 /** A refusal while preparing: the run's own, or the workflow's `prepare` refusing its argv. */
 function prepareRefused(error: unknown): { refused: string; code: RefusalCode } {
+  // Preparing reads the run, when it is continued, and writes nothing: `readFailureCode`'s reading.
   if (error instanceof RunRefused || error instanceof RunUnreachable)
     return { refused: messageOf(error), code: error.code };
-  return { refused: messageOf(error), code: "internal-error" };
+  return {
+    refused: messageOf(error),
+    code: isSystemError(error) ? "unreachable" : "internal-error",
+  };
 }
 
 /** `prepareArgs`, its refusal of the argv a `RunRefused`, so a failure of awf's isn't one. */
