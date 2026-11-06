@@ -29,7 +29,9 @@ awf open review/r7 fixer --no-fork                          # fixer's session it
 `awf open` copies the agent's latest session without asking the model, in about half a second, and
 opens the copy where the agent worked: its home and skills, its cwd, its sandbox, on the model and
 effort it ran on, with the harness's own permission prompts. The run and its session are never
-touched, so it works on a finished run, a parked one and a live one.
+touched, so it works on a finished run, a parked one and a live one; a sandboxed agent's copy
+waits until no attempt runs and no other `awf open` has its sandbox open, as reopening it would
+break theirs.
 
 `--no-fork` opens the session itself, for when what the operator says should stay with the agent:
 steering a parked event run's agent by hand, say. awf then keeps every other writer out until the
@@ -45,7 +47,7 @@ operator talks to it is [[attended-agent]] and [[stopped-run-recovery]].
 ```text
 awf open <run> <agent> [--no-fork] [--session <id>] [-p <text>]
   │
-  ├─ readRun(run) ── sessions.latest[agent] ──▶ { harness, session, operation, home?, sandbox? }
+  ├─ readRun(run) ── sessions.latest[agent] ──▶ { harness, session, operation, home?, sandbox?, skills? }
   │                  (--session: that line in sessions.all, or a copy, opened as is)
   │                  ops/{operation}/op.json ─▶ { cwd, execution: { model, effort } }
   │
@@ -231,10 +233,11 @@ resume continues. Every file stays parseable, so `awf logs` shows both branches 
 - `src/harnesses/define.ts` — the spec: add `operatorResume(sessionId, settings)`, built or absent
   with a reason, as story 019 requires of every capability.
 - `src/harnesses/{claude,codex,pi,cursor}.ts` — each harness's attended resume: `claude --resume`,
-  `codex resume`, `pi --session`, `cursor-agent --resume`, with model and effort, without the
+  `codex resume`, `pi --session-id`, `cursor-agent --resume`, with model and effort, without the
   unattended flags (claude's `--allowed-tools Bash`, codex's `--ask-for-approval never`, cursor's
   `--force`). codex on the host takes its own config's sandbox and approvals; in awf's sandbox
-  `--sandbox danger-full-access --ask-for-approval on-request` (codex 0.167 has no `untrusted`).
+  `-c sandbox_mode="danger-full-access" --ask-for-approval on-request` (codex 0.167 has no
+  `untrusted`).
   The sandboxed arguments (`sandboxedArgs`) are added as for a run's turn.
 - `src/adapters/fork.ts` — `callingSession`: reused for the copy, likely lifted into one
   `forkRecordedSession(harness, session, cwd, home?)`; `forkSession` already takes the home.
@@ -255,14 +258,15 @@ resume continues. Every file stays parseable, so `awf logs` shows both branches 
   file claimed the same way, held for as long as its process lives.
 - `wake.ts` — `wake()`: a held `{id}.open` answers `none`, `opened`, before anything it would start.
   A nudge to a live attempt is unaffected: `--no-fork` refuses a live run.
-- `runs.ts` `checkContinue`, `run-command.ts` — `awf run --continue` refused while it is held.
+- `runs.ts` `openedRefusal`, in `claimAttempt` and `run-prepare.ts`'s early check — an attempt,
+  `awf run --continue` included, refused while it is held.
 - `commands.ts`, `help/` — the command, its usage and `awf help reference`, under "Look at runs".
 
 ### contract
 
 - `records.ts` — `WakeWhy` gains `opened`, a published type. The `session` line gains `sandbox?`:
-  the `SandboxRecord` fields that reopen it (`provider`, `spec`, `provided`), absent for an agent on
-  the host (Q6). An optional field on a public, stable record.
+  the `SandboxRecord` fields that reopen it (`provider`, `spec`, `directory`, `provided`), absent
+  for an agent on the host (Q6), and `skills?` (Q7). An optional field on a public, stable record.
 - `run-lines.ts` — the session line's `sandbox` checked as an optional object.
 
 ### sandbox
@@ -272,31 +276,17 @@ resume continues. Every file stays parseable, so `awf logs` shows both branches 
 
 ### Checked, no change
 
-- `workflow-runner.ts`, the author surface: an attempt that runs is unchanged but for the session
-  line's new field.
+- the author surface: an attempt that runs is unchanged but for the session line's new fields,
+  which `workflow-runner.ts` fills from the place it admitted the agent to and the skills it gave.
 
 ## Proposed design
 
-```text
-usage: awf open <run> <agent> [--no-fork] [--session <id>] [-p <text>]
-                [--cwd <directory>] [--run-root <directory>] [--json]
+The help is `packages/engine/src/help/open.txt`, as built.
 
-Opens a copy of an agent's latest session in its harness's own TUI, where the agent worked: its
-working directory, its home and skills, its sandbox, on the model it ran on, with the harness's own
-permission prompts. Or asks the copy one question with -p and prints the answer. The copy is yours:
-the run and the agent's session are unchanged, and awf keeps no record of it.
---no-fork opens the session itself: what you say stays with the agent, awf logs shows it, and the
-next attempt resumes it. It is refused while the run is live; while it is open, no attempt starts and
-an event waits, and once the harness exits the run is woken for it.
---session opens another session in the agent's place: a copy an earlier awf open made, whose id
-awf prints as the harness exits, as it is; or one of the agent's earlier sessions, as its latest.
--p asks one question headless and prints the answer; it runs as the agent's turns ran, without
-prompts, in its sandbox when it had one.
-```
 
 ```text
 $ awf open review/r7 fixer
-fixer · codex gpt-6-luna · srt · a copy of 01a1ac50…, 01a1ac51…
+fixer · codex gpt-6-luna · srt · a copy of 01a1ac50…
 … codex's TUI …
 again: awf open review/r7 fixer --session 01a1ac51-e207-7063-a515-8cdde3c02612
 
@@ -311,13 +301,13 @@ again: awf open review/r7 fixer --session 01a1ac52-…
 $ awf open triage/c41 investigator --no-fork
 investigator · claude claude-sonnet-5-5 · session 7f3e…, the run held until you exit
 … claude's TUI …
-woke triage/c41: 1 event waited
+woke triage/c41: started, for an event that waited
 again: awf open triage/c41 investigator --no-fork
 
 $ awf open review/r7 fixer --no-fork
-✗ review/r7 is running, and fixer's session may be written as you type: awf open review/r7 fixer
+✗ review/r7 is running, and fixer's session may be written as you type; a copy opens anyway: awf open review/r7 fixer
 $ awf open triage/c41 investigator --no-fork
-✗ triage/c41 is open in awf open --no-fork (pid 4121): awf open triage/c41 investigator
+✗ triage/c41 is open in awf open --no-fork (pid 4121); a copy opens anyway: awf open triage/c41 investigator
 ```
 
 - `--json` with `-p`: `{ v, session, forkedFrom?, reply, again }` (narrowed in review: the rest
@@ -405,7 +395,8 @@ All decided by the operator on 2026-11-05.
 - **Q4. Where a session opens.** Decided: exactly as the agent worked in the workflow: its home and
   skills, its cwd, and its sandbox when it had one; a copy too.
 - **Q6. Where the sandbox an agent ran in is recorded.** Decided, as recommended: the `session`
-  line in `run.jsonl` gains an optional `sandbox` (`provider`, `spec`, `provided`). That line already
+  line in `run.jsonl` gains an optional `sandbox` (`provider`, `spec`, `provided`, and `directory`,
+  added in implementation). That line already
   says where the session lives (`home`, a path inside the sandbox's directory), it is written once
   per session, after the sandbox is open, and `awf open` reads it first. `readRun` reads past a
   field it does not know, so this stays `format` 1. A session line written before it opens a
@@ -523,7 +514,7 @@ Execution:
 Work:
 
 - `{id}.open`, claimed as the run's lock is, under that lock, after the live-attempt check;
-- `wake()` answers `opened` while it is held; `checkContinue` refuses; `WakeWhy` gains `opened`;
+- `wake()` answers `opened` while it is held; `openedRefusal` refuses an attempt; `WakeWhy` gains `opened`;
 - the wake at exit, as `awf tick` does for one run.
 
 Done when:
@@ -575,7 +566,7 @@ Execution:
 
 Work:
 
-- the site's CLI reference and the page on looking at runs; the event-runs page on `opened`;
+- the site's CLI reference and the page on looking at runs; `opened` in the client API's wake results;
   `docs/status.md`;
 - an `*.eval.ts`: a `quick-check` run, then `awf open -p` and `awf open --no-fork -p` on each agent,
   asking for both answers.
@@ -674,7 +665,8 @@ The docs and the eval, checked by the site's build (every link resolves) and the
 
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
-- [ ] Evidence and research support the proposed design. (M1–M10 open)
+- [x] Evidence and research support the proposed design. (M1, M3, M4, M5 and M10 measured; M2,
+  M6, M7, M8 live and M9 not, as the implementation notes say)
 - [x] Expensive interface, record-format, and stage-gate decisions are settled. (Q6, the session line's
   `sandbox`; `WakeWhy`'s `opened` is a published addition, accepted with Q5)
 - [x] Tasks are ordered, coherent, and independently verifiable.
@@ -716,14 +708,28 @@ The docs and the eval, checked by the site's build (every link resolves) and the
     refuses the second writer (E4), so the attempt's turn fails rather than forks.
   - Not measured: M2 (a copy mid-turn), M6 (spend after `--no-fork`), M7 (claude and cursor with two
     writers), M8 live (covered by tests), M9 (kept panes).
+- **Review until clean (second pass).** Fixed:
+  - a sandboxed claude's home bypasses every prompt in its settings: its resume adds
+    `--permission-mode manual`, from `claude --help` (2.1.319); not run live;
+  - the CLI's cancel reaches a fork and a `-p` question (SIGTERM and SIGHUP ended neither), and
+    while a TUI has the terminal Ctrl-C is the TUI's, so a second one no longer ends awf with the
+    TUI still writing a held session;
+  - `runAttached` let go of its signal handlers when its command could not start;
+  - a sandboxed home is refused unless it is a real directory in `{directory}/homes`: the sandbox
+    can write `homes/`, and a home swapped for a link had the refresh write through it;
+  - the reopened spec is checked against the operator's machine and coordinator paths, as the
+    run's was;
+  - the help, the refusal codes' docs, the guide and the data reference brought in line.
+  Known gap: a TUI launched in srt is not its own process group, so what it leaves running when it
+  exits is not reaped at close (docker's is). It stays confined; the next attempt runs beside it.
 - **Open for review:** cursor's prompts cannot be turned on by a flag. Rewriting the copy's chat
   store (`isRunEverything: false`) would do it for a copy, at the price of writing cursor's private
   format; left as is, and the site says so.
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.

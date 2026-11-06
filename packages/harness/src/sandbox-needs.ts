@@ -71,6 +71,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     token: { env: "CLAUDE_CODE_OAUTH_TOKEN", from: "from `claude setup-token`" },
     domains: () => ["api.anthropic.com"],
     args: [],
+    // This home's settings bypass every prompt; a person's resume asks, as on the host (Q2).
+    operatorArgs: ["--permission-mode", "manual"],
     // One argument for the list, and never last: the flag takes every argument up to the next.
     // WebFetch was not measured past the allowlist; it goes with search until it is.
     webSearch: ["--disallowed-tools", "WebSearch,WebFetch"],

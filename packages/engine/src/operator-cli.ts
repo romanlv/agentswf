@@ -14,7 +14,7 @@ import type {
   TickResultJson,
 } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
-import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
+import { type Harness, handBack, type RunProcess, terminalAttached } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
 import { earlierSpent, unreadEarlier } from "./accounting/spent";
@@ -239,6 +239,7 @@ export async function runOperatorCli(
           home: wakes.home,
           environment: wakes.environment,
           ...openRuntime(wakes.environment),
+          ...(environment.signal ? { signal: environment.signal } : {}),
           ...(environment.stdin
             ? { stdin: environment.stdin }
             : { stdinIsTerminal: process.stdin.isTTY === true }),
@@ -855,16 +856,19 @@ const EXIT_GRACE_MS = 2_000;
  * Cancels `controller` at the first signal that asks the run to stop, and stops the process at
  * once at a second the operator sends, without the run's cleanup. Ctrl-C reaches the whole
  * process group and `bun awf` forwards it once more, so a repeat within `REPEAT_MS` is ignored:
- * taken as the second, it would kill the run mid-cleanup and leave its sandboxes behind. Returns
- * what removes the handlers.
+ * taken as the second, it would kill the run mid-cleanup and leave its sandboxes behind. While a
+ * person's TUI has the terminal, Ctrl-C is the TUI's: ending awf then would leave it writing a
+ * session nothing holds. Returns what removes the handlers.
  */
 export function cancelOnSignals(
   controller: AbortController,
   exit: (code: number) => void = (code) => process.exit(code),
   now: () => number = Date.now,
+  attached: () => boolean = terminalAttached,
 ): () => void {
   let first: number | undefined;
   const cancel = (signal: NodeJS.Signals) => {
+    if (signal === "SIGINT" && attached()) return;
     if (first === undefined) {
       first = now();
       controller.abort(signal);

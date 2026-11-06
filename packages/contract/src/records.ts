@@ -1311,9 +1311,10 @@ export type InboxRefusalJson = RefusalJson<InboxCode | RefusalCode, 2>;
  * workflow in no project; `no-engine` and `other-engine`, a project's `agentswf` missing or another
  * version; `internal-error`, a failure that is neither the caller's nor the run's, such as awf's
  * own record of projects not written, which `error` names; `no-session`, an agent `awf open` names
- * with no session recorded in the run, or a session that is another agent's; `live`, `awf open
- * --no-fork`, or a sandboxed agent's, on a run whose attempt is running; `opened`, a run another
- * `awf open --no-fork` holds, or a sandbox another `awf open` has open. `reply` and `send` also refuse with
+ * with no session or no operation recorded in the run, or a session that is another agent's;
+ * `live`, `awf open --no-fork`, or a sandboxed agent's, on a run whose attempt is running, or a
+ * `--no-fork` whose session changed as it held the run; `opened`, a run another `awf open
+ * --no-fork` holds, or a sandbox another `awf open` has open. `reply` and `send` also refuse with
  * `PARTICIPANT_CODES`, and `inbox` with `INBOX_CODES`.
  */
 export const REFUSAL_CODES = [

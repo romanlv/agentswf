@@ -28,6 +28,7 @@ import type { SandboxProviders } from "@agentswf/sandbox";
 import { installSandboxedDoor } from "./agent-launcher";
 import { messageOf } from "./errors";
 import help from "./help/open.txt" with { type: "text" };
+import { coordinatorDir } from "./machine";
 import { listOps, opFile } from "./ops";
 import { asksJson, printRefusal } from "./refusals";
 import { failed, type Out, parsePlace, type ReadPlace, shellLine } from "./run-commands";
@@ -73,6 +74,8 @@ export type OpenContext = {
   launch?: Launch;
   /** The operator's sandbox providers, which reopen a sandboxed agent's place. */
   providers?: () => Promise<SandboxProviders>;
+  /** The CLI's cancel, at SIGINT, SIGTERM or SIGHUP: ends a fork or a `-p` question. */
+  signal?: AbortSignal;
 };
 
 /** What a sandboxed agent's `wfa` does in a reopened place: nothing reaches the run. */
@@ -271,6 +274,8 @@ export async function openCommand(
                 Date.now() + (text === undefined ? TUI_TIMEOUT_MS : PRINT_TIMEOUT_MS + 10 * 60_000),
             },
             environment,
+            machineHome: home,
+            coordinatorRoot: coordinatorDir(home, environment),
           },
         ).catch((error: unknown) => {
           throw new OpenRefused(
@@ -302,6 +307,7 @@ export async function openCommand(
           session,
           { cwd: where.cwd, env, context: turnContext(session) },
           run,
+          context.signal ? { signal: context.signal } : {},
         ).catch((error: unknown) => {
           throw new OpenRefused(
             `${options.agent}'s session ${where.session} could not be copied: ${messageOf(error)}`,
@@ -321,22 +327,14 @@ export async function openCommand(
       ]);
       if (text !== undefined) {
         const plan = spec.resumeTurn!(text, session, turnContext(session));
-        const stop = new AbortController();
-        const interrupt = () => stop.abort();
-        process.on("SIGINT", interrupt);
-        let result: Awaited<ReturnType<RunProcess>>;
-        try {
-          result = await run({
-            argv: plan.argv,
-            cwd: where.cwd,
-            env,
-            ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
-            timeoutMs: PRINT_TIMEOUT_MS,
-            signal: stop.signal,
-          });
-        } finally {
-          process.off("SIGINT", interrupt);
-        }
+        const result = await run({
+          argv: plan.argv,
+          cwd: where.cwd,
+          env,
+          ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
+          timeoutMs: PRINT_TIMEOUT_MS,
+          signal: context.signal ?? new AbortController().signal,
+        });
         if (result.cancelled)
           throw new OpenRefused("the question was interrupted", "internal-error");
         if (result.timedOut)

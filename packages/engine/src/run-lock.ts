@@ -117,7 +117,11 @@ export async function releaseClaim(file: string, held: Holder): Promise<void> {
     await unlink(file).catch(() => undefined);
 }
 
-/** The live process holding `file`, read without taking it; none for a holder that is gone. */
+/**
+ * The live process holding `file`, read without taking it; none for a holder that is gone. A
+ * holder `ps` can't be asked about counts as live, as in `gone`: what it holds back waits for a
+ * later look, never runs beside it.
+ */
 export async function liveHolder(file: string): Promise<Holder | undefined> {
   const holder = await readHolder(file);
   return holder !== "gone" && holder !== undefined && !gone(holder) ? holder : undefined;
@@ -128,8 +132,7 @@ export async function liveHolder(file: string): Promise<Holder | undefined> {
  * a sender killed mid-launch, holds nothing; nor does a torn file, which `claim` takes over.
  */
 export async function lockHeld(file: string): Promise<boolean> {
-  const holder = await readHolder(file);
-  return holder !== "gone" && holder !== undefined && !gone(holder);
+  return (await liveHolder(file)) !== undefined;
 }
 
 /**

@@ -230,7 +230,7 @@ an earlier attempt adds after it is ignored.
 
 | Kind | Fields |
 | --- | --- |
-| `session` | an agent's native session, as soon as it is known: `agent`, `harness`, `session`, the `operation` it was seen in, and a sandboxed agent's `home` |
+| `session` | an agent's native session, as soon as it is known: `agent`, `harness`, `session`, the `operation` it was seen in, `home`, the agent's own harness home when it has one, `sandbox`, the sandbox it ran in, and `skills`, the skills its harness was given, as `awf open` reopens them |
 | `turn-started` | a turn `start()` began: `agent`, `turn`, `meta` and `execution` |
 | `turn-ended` | its end, which a wait takes as `agent:ended`: its `id`, `agent`, `turn`, `began`, the attempt that started it, and `end`, what the code was handed. The next attempt writes a failed end for a turn a crash left running |
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { SandboxRecord, SessionSandbox } from "@agentswf/contract/records";
 import type {
@@ -588,9 +588,20 @@ export async function reopenSandbox(
     door: AgentDoor;
     deadline: AbsoluteDeadline;
     environment: Readonly<Record<string, string | undefined>>;
-    coordinatorRoot?: string;
+    /** The operator's home, whose machine and coordinator paths a spec may not reach. */
+    machineHome: string;
+    coordinatorRoot: string;
   },
 ): Promise<ReopenedPlace> {
+  // The sandbox could write `homes/`: a home it swapped for a link would have the refresh and the
+  // admit write through it, outside. Nothing runs in it now, so a check before use holds.
+  const entry = await lstat(agent.home).catch(() => undefined);
+  if (
+    !entry?.isDirectory() ||
+    dirname(agent.home) !== join(recorded.directory, "homes") ||
+    (await realpath(agent.home)) !== agent.home
+  )
+    throw new Error(`${agent.home} is not a home in ${recorded.directory}: it was moved or linked`);
   const { provider } = recorded;
   const spec: Record<string, unknown> = structuredClone(recorded.spec);
   const image = recorded.provided?.image;
@@ -600,11 +611,11 @@ export async function reopenSandbox(
     key: "awf-open",
     cwd: recorded.spec.cwd,
     runRoot: await realpath(options.runRoot),
-    machineRoot: machinePaths(homedir()).root,
+    machineRoot: machinePaths(options.machineHome).root,
     providers: options.providers,
     harnessState: Object.values(harnessState(options.environment)),
     controlRoot: CONTROL_PLANE_ROOT,
-    ...(options.coordinatorRoot === undefined ? {} : { coordinatorRoot: options.coordinatorRoot }),
+    coordinatorRoot: options.coordinatorRoot,
     inline: false,
   });
   const installed = options.providers.installed[provider];

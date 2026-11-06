@@ -13,13 +13,16 @@ and an event waits, and once the harness exits a run with events is woken for it
 --session opens another session in the agent's place: a copy an earlier awf open made, as it is;
 or one of the agent's earlier sessions, as its latest would be.
 -p asks one question headless and prints the answer; the text is its argument, or stdin without
-one. It runs as the agent's turns ran, without prompts, in its sandbox when it had one.
+one. It runs as the agent's turns ran, without prompts, in its sandbox when it had one; on
+claude, billed per token headless, it is refused unless the agent ran metered.
 As the harness exits, awf prints the command that opens the same session again.
 
-With --json, -p prints {"v": 1, "agent", "harness", "session", "forkedFrom"?, "cwd", "model"?,
-"reply", "again"}, or a refusal whose code says why: usage, no-run, ambiguous, id, no-session,
-live, opened, unreachable, no-engine, other-engine or internal-error. no-session is an agent with
-no session to open; live, --no-fork, or a sandboxed agent, on a running run; opened, a run another
-awf open --no-fork holds, or a sandbox another awf open has open. A TUI has no JSON: --json without -p is a usage error. Exits with the TUI's exit code, or 0
-once -p printed its answer; 1 when refused, 2 on a usage error, 3 when the run or the agent's
-place could not be read.
+With --json, -p prints {"v": 1, "session", "forkedFrom"?, "reply", "again"}, or a refusal whose
+code says why: usage, no-run, ambiguous, id, no-session, live, opened, unreachable, no-engine,
+other-engine or internal-error. no-session is an agent with no session or operation to open;
+live, --no-fork, or a sandboxed agent, on a running run, or a --no-fork whose session changed as
+it held the run; opened, a run another awf open --no-fork holds, or a sandbox another awf open
+has open; internal-error, a copy or a -p question that failed. A TUI has no JSON: --json without
+-p is a usage error. Exits with the TUI's exit code, or 0 once -p printed its answer; 1 when
+refused or failed; 2 on a usage error, or a -p or a TUI the agent's harness can't give; 3 when
+the run or the agent's place could not be read, or awf itself failed.

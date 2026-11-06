@@ -39,6 +39,12 @@ test("codex in awf's sandbox runs with its own off, as an agent's turns do, and 
   ]);
   expect(args.slice(4)).toEqual([...sandboxedArgs("codex", false)]);
   expect(sandboxedOperatorArgs("pi", false)).toEqual(sandboxedArgs("pi", false));
+  // The sandboxed home's settings bypass claude's prompts; the person's resume turns them back on.
+  expect(sandboxedOperatorArgs("claude", false)).toEqual([
+    "--permission-mode",
+    "manual",
+    ...sandboxedArgs("claude", false),
+  ]);
 });
 
 test("a sandboxed agent's resume takes its sandboxed arguments, last", () => {

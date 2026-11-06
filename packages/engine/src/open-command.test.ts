@@ -7,8 +7,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
@@ -418,7 +420,8 @@ test("a held run is let go when the question fails, as when the harness exits", 
 
 /** A sandboxed claude agent `boxed`: its home under the sandbox's directory, as a run records it. */
 function boxed(f: Fixture) {
-  const directory = join(f.cwd, "sandbox");
+  // A run's sandbox directory is made under a resolved path; a home in it is compared to its own.
+  const directory = join(realpathSync(f.cwd), "sandbox");
   const home = join(directory, "homes", "h1");
   mkdirSync(home, { recursive: true });
   const bin = join(f.cwd, "bin");
@@ -476,12 +479,33 @@ test("a sandboxed agent opens in its sandbox, reopened where it ran, on the oper
     event.kind === "launch" ? [event.argv] : [],
   );
   expect(launched[0]!.slice(0, 3)).toEqual(["claude", "--resume", "copy-b"]);
+  // The sandboxed home's settings bypass claude's prompts; the person's TUI asks again.
+  expect(launched[0]!.join(" ")).toContain("--permission-mode manual");
   // Opened in the directory it ran in, the agent admitted with its home; all of it closed after.
   const kinds = box.fake.events.map((event) => event.kind);
   expect(kinds[0]).toBe("open");
   expect(box.fake.events.find((event) => event.kind === "admit")).toMatchObject({ home: box.home });
   expect(kinds.slice(-2)).toEqual(["release", "close"]);
   expect(existsSync(join(box.directory, "homes", "h1"))).toBe(true);
+});
+
+test("a sandboxed home the agent swapped for a link is refused, nothing written through it", async () => {
+  const f = await fixture();
+  const box = boxed(f);
+  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m" });
+  const outside = join(f.cwd, "outside");
+  mkdirSync(outside);
+  rmSync(box.home, { recursive: true });
+  symlinkSync(outside, box.home);
+  const { code, stderr } = await open(
+    f,
+    ["review/r7", "boxed", "--session", "copy-b"],
+    box.options,
+  );
+  expect(code).not.toBe(0);
+  expect(stderr.join("\n")).toContain("moved or linked");
+  expect(readdirSync(outside)).toEqual([]);
+  expect(box.fake.events.filter((event) => event.kind === "open")).toEqual([]);
 });
 
 test("a sandboxed agent's copy is made inside its sandbox, and -p asks it there", async () => {

@@ -273,6 +273,16 @@ function capture(
   return { text, stop: () => reader.cancel() };
 }
 
+let attachedCount = 0;
+
+/**
+ * Whether a person's TUI has this terminal now: an interrupt is its, and a process-wide handler
+ * that would end this process on one lets it pass.
+ */
+export function terminalAttached(): boolean {
+  return attachedCount > 0;
+}
+
 /**
  * A process on this terminal, a person's TUI: its stdio this process's, and this process deaf to
  * the keys that interrupt it, which are the child's while it runs. Its exit code once it ends.
@@ -288,20 +298,23 @@ export async function runAttached(
   // SIGTSTP is left alone: a suspend stops the whole job, this process with it, and `fg` resumes both.
   const ignored = ["SIGINT", "SIGQUIT"] as const;
   const ignore = () => undefined;
-  for (const signal of ignored) process.on(signal, ignore);
-  const child = Bun.spawn({
-    cmd: [...input.argv],
-    cwd: input.cwd,
-    env: merged,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
   // A closed terminal or a stop ends the child first, so the caller's own ending still runs.
   const forwarded = ["SIGHUP", "SIGTERM"] as const;
-  const forward = (signal: NodeJS.Signals) => child.kill(signal);
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  const forward = (signal: NodeJS.Signals) => child?.kill(signal);
+  for (const signal of ignored) process.on(signal, ignore);
   for (const signal of forwarded) process.on(signal, forward);
+  attachedCount += 1;
   try {
+    child = Bun.spawn({
+      cmd: [...input.argv],
+      cwd: input.cwd,
+      env: merged,
+      stdio: ["inherit", "inherit", "inherit"],
+    });
     return await child.exited;
   } finally {
+    attachedCount -= 1;
     for (const signal of ignored) process.off(signal, ignore);
     for (const signal of forwarded) process.off(signal, forward);
   }

@@ -1,6 +1,6 @@
 ---
 title: Following runs
-description: Watching a run while it goes and reading it after, from your terminal or from another agent, with awf run's progress, awf runs and awf logs.
+description: Watching a run while it goes and reading it after, from your terminal or from another agent, with awf run's progress, awf runs and awf logs, and asking an agent about its work with awf open.
 ---
 
 # Following runs
@@ -162,18 +162,20 @@ awf open review/r7 fixer --no-fork                          # fixer's session it
 harness's TUI where the agent worked: its working directory, its skills, its sandbox, on its model
 and effort. You ask what it read, why it did what it did, and it answers with its whole context.
 The run and the agent's session are untouched, so it works on a finished run, a parked one and a
-live one. The harness asks before it runs a command, as it would for you, except where it never
+live one, except for a sandboxed agent: its sandbox is reopened, so that waits until no attempt
+runs and no other `awf open` has it open. The harness asks before it runs a command, as it would for you, except where it never
 asks: pi; a cursor agent's chat, which keeps the run's "Run Everything"; and codex in a sandbox,
 where its own sandbox is off and the agent's sandbox is the boundary.
 
 As the harness exits, awf prints `again:`, the command that opens the same copy, `--session` and
 its id. `-p` asks one question headless and prints the answer; it runs as the agent's turns did,
-without prompts.
+without prompts. Headless claude is billed per token, so `-p` on a claude agent is refused unless
+it ran with `metered: true`.
 
 `--no-fork` opens the session itself, so what you say stays with the agent: the next attempt
 resumes it with your turns in it, and `awf logs` shows them. It is refused while an attempt runs.
-While it is open, no attempt starts and a second `--no-fork` is refused; an event that arrives
-waits, `awf emit` says `opened`, and once the harness exits a run of a workflow with events is
+While it is open, no attempt starts and a second `--no-fork` is refused; an event that would start
+or continue the run waits, `awf emit` says `opened`, and once the harness exits a run of a workflow with events is
 woken for it.
 
 ## Catches
@@ -191,5 +193,5 @@ woken for it.
 ## Next
 
 - [Runs](/guide/runs): statuses, exit codes, and going on from a stopped run.
-- [awf](/reference/awf): every option of `awf run`, `awf runs` and `awf logs`.
+- [awf](/reference/awf): every option of `awf run`, `awf runs`, `awf logs` and `awf open`.
 - [Data](/reference/data): what a run's folder holds.

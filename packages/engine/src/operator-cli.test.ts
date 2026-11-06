@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stderrLines } from "./operator-cli";
+import { cancelOnSignals, stderrLines } from "./operator-cli";
 
 describe("awf's stderr", () => {
   test("paints only its own failures, and only when asked", () => {
@@ -18,4 +18,33 @@ describe("awf's stderr", () => {
       "awf: run failed\n",
     ]);
   });
+});
+
+test("while a person's TUI has the terminal, Ctrl-C is its: awf neither cancels nor exits", () => {
+  const controller = new AbortController();
+  const exits: number[] = [];
+  let attached = true;
+  let now = 0;
+  const stop = cancelOnSignals(
+    controller,
+    (code) => exits.push(code),
+    () => now,
+    () => attached,
+  );
+  // A signal's listeners are called with its name, as the process delivers it.
+  const interrupt = () => {
+    for (const listener of process.listeners("SIGINT")) listener("SIGINT");
+  };
+  try {
+    interrupt();
+    now = 5_000;
+    interrupt();
+    expect(controller.signal.aborted).toBe(false);
+    expect(exits).toEqual([]);
+    attached = false;
+    interrupt();
+    expect(controller.signal.aborted).toBe(true);
+  } finally {
+    stop();
+  }
 });
