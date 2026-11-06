@@ -100,7 +100,13 @@ export function recorded(record: OutputRecord | undefined): {
  * Prints an eval's summary, the last JSON object on stdout, which `bun run eval` reads: `ok`, the
  * problems found, then `fields`. Any problem fails the process.
  */
-export function report(failed: readonly string[], fields: Record<string, unknown> = {}): void {
+export function report(
+  failed: readonly string[],
+  fields: Record<string, unknown> = {},
+  fail: () => void = () => {
+    process.exitCode = 1;
+  },
+): void {
   console.log(JSON.stringify({ ok: failed.length === 0, failed, ...fields }, null, 2));
-  if (failed.length > 0) process.exitCode = 1;
+  if (failed.length > 0) fail();
 }

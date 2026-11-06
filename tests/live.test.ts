@@ -1,11 +1,6 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { recorded, report } from "./live";
-
-const exitCode = process.exitCode;
-afterEach(() => {
-  process.exitCode = exitCode;
-});
 
 function printed(run: () => void): string {
   const log = spyOn(console, "log").mockImplementation(() => {});
@@ -22,7 +17,12 @@ test("a summary is one JSON object, ok and failed first, as bun run eval reads i
     artifacts: "/runs/1",
     accounting: { totals: { estimate: 0.12 } },
   } as unknown as OutputRecord;
-  const text = printed(() => report([], { checks: [1], ...recorded(record) }));
+  let failed = false;
+  const text = printed(() =>
+    report([], { checks: [1], ...recorded(record) }, () => {
+      failed = true;
+    }),
+  );
   expect(text.startsWith("{\n")).toBe(true);
   expect(Object.entries(JSON.parse(text))).toEqual([
     ["ok", true],
@@ -31,11 +31,16 @@ test("a summary is one JSON object, ok and failed first, as bun run eval reads i
     ["estimateUsd", 0.12],
     ["artifacts", "/runs/1"],
   ]);
-  expect(process.exitCode).toBe(exitCode);
+  expect(failed).toBe(false);
 });
 
 test("a problem fails the summary and the process", () => {
-  const text = printed(() => report(["codex: 1 of 2 right"], recorded(undefined)));
+  let failed = false;
+  const text = printed(() =>
+    report(["codex: 1 of 2 right"], recorded(undefined), () => {
+      failed = true;
+    }),
+  );
   expect(JSON.parse(text)).toEqual({ ok: false, failed: ["codex: 1 of 2 right"] });
-  expect(process.exitCode).toBe(1);
+  expect(failed).toBe(true);
 });
