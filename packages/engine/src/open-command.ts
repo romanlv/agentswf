@@ -557,15 +557,19 @@ type AgentPlace = {
   skills?: AgentSkills;
 };
 
-/** No agent was named: the run's agents with a session, and the command that opens the first. */
+/** No agent was named: the command that opens each of the run's agents with a session. */
 async function agentNeeded(status: RunStatus, place: ReadPlace): Promise<OpenRefused> {
   const { view } = await readRunLines(status.run.dir);
-  const [first, ...more] = Object.keys(view.sessions.latest);
-  if (!first) return new OpenRefused(`${status.ref} has no agent's session recorded`, "no-session");
-  const names =
-    more.length > 0 ? `${[first, ...more].slice(0, -1).join(", ")} and ${more.at(-1)}` : first;
-  const command = shellLine(["awf", "open", status.ref, first, ...place.repeat]);
-  return new OpenRefused(`open needs an agent: ${status.ref} has ${names}; ${command}`, "usage");
+  const agents = Object.keys(view.sessions.latest);
+  if (agents.length === 0)
+    return new OpenRefused(`${status.ref} has no agent's session recorded`, "no-session");
+  const commands = agents.map(
+    (agent) => `  ${shellLine(["awf", "open", status.ref, agent, ...place.repeat])}`,
+  );
+  return new OpenRefused(
+    `which agent? Open one of ${status.ref}'s:\n${commands.join("\n")}`,
+    "usage",
+  );
 }
 
 async function agentPlace(status: RunStatus, options: Options): Promise<AgentPlace> {
