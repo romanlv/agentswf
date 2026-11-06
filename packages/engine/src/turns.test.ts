@@ -1,10 +1,31 @@
 import { afterAll, expect, test } from "bun:test";
 import type { EventLine, RunLine } from "@agentswf/contract/records";
+import {
+  AgentEnded,
+  defineWorkflow,
+  type JsonValue,
+  type WorkflowContext,
+} from "@agentswf/contract/workflow";
 import { endIdOf } from "./event-ids";
 import { claimRunLines, readRunLines } from "./run-lines";
-import { caseRun, createTempRunDirs, startCase } from "./testing";
+import { caseEvents, createTempRunDirs, startCase } from "./testing";
 import { RunWaits, readWaits } from "./waits";
 import { answer, noAnswer, testWorkflow } from "./workflow-testing";
+
+const turnEvents = {
+  ...caseEvents,
+  "investigator:ended": AgentEnded,
+  "triage:ended": AgentEnded,
+};
+/** `testing`'s case run, declaring its two agents' ends. */
+const caseRun = (run: (workflow: WorkflowContext<typeof turnEvents>) => Promise<JsonValue>) =>
+  defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events: turnEvents,
+    starts: ["dd.changes"],
+    run,
+  });
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -96,7 +117,7 @@ test("an event during a turn is taken before the turn ends", async () => {
       await quick.start({ prompt: "glance" });
       for (;;) {
         for (const e of await workflow.receive()) {
-          if (e.name === "agent:ended") order.push(e.from);
+          if (e.name.endsWith(":ended")) order.push(e.from);
           if (slowOne.is(e)) return order;
         }
       }
@@ -267,7 +288,7 @@ test("after a crash, the code's first wait takes the turn's failed end, with its
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       const restored = agent.turn?.id ?? null;
       const taken = await workflow.receive();
-      const end = taken.find((e) => agent.is(e));
+      const end = taken.find((e) => e.name === "investigator:ended");
       return {
         restored,
         names: taken.map((e) => e.name),
@@ -302,7 +323,11 @@ test("after a crash, an agent opened after the wait took its end is free, and on
     { ...woken, earlier: crashed, agents: { investigator: answer("found") } },
   );
   // The event that woke it came first; the failed end was written as the attempt began.
-  expect(run.value).toEqual({ names: ["dd.changes", "agent:ended"], turn: null, ran: "answered" });
+  expect(run.value).toEqual({
+    names: ["dd.changes", "investigator:ended"],
+    turn: null,
+    ran: "answered",
+  });
 
   const held = await testWorkflow(
     caseRun(async (workflow) => {
@@ -318,25 +343,21 @@ test("after a crash, an agent opened after the wait took its end is free, and on
   expect(held.value).toBe(true);
 });
 
-test("a turn id is begun once in an attempt, and two starts at once startCase one turn", async () => {
+test("two starts at once start one turn", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       const both = await Promise.allSettled([
-        agent.start({ prompt: "a", id: "x" }),
-        agent.start({ prompt: "b", id: "y" }),
+        agent.start({ prompt: "a" }),
+        agent.start({ prompt: "b" }),
       ]);
       await workflow.receive();
-      const again = await agent.start({ prompt: "a", id: "x" }).then(
-        () => "started",
-        (error: unknown) => String(error).includes("began turn x already"),
-      );
-      return { both: both.map((r) => r.status), again };
+      return both.map((r) => r.status);
     }),
     { ...startCase, agents: { investigator: answer("done") } },
   );
-  expect(run.value).toEqual({ both: ["fulfilled", "rejected"], again: true });
+  expect(run.value).toEqual(["fulfilled", "rejected"]);
   expect(run.run.filter((line) => line.kind === "turn-started")).toHaveLength(1);
 });
 

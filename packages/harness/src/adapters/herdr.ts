@@ -91,11 +91,6 @@ export type HerdrConfig = {
    * tell its workspace from another of the same label.
    */
   onRunWorkspace?: (workspaceId: string) => Promise<void>;
-  /**
-   * Whether a session a layout names can be used: undefined when it can, else why not. Absent,
-   * none but the run's can.
-   */
-  sessionFor?: (session: string) => Promise<string | undefined>;
   /** The workspace `awf run` was typed in, and its session; why not, where it can't be used. */
   origin?: () => Promise<{ session: string; workspaceId: string } | string | undefined>;
   /** Held while a named workspace is looked for and made, so two runs make one. */
@@ -791,7 +786,7 @@ export function createHerdrRunHostFactory(
             : {}),
         });
       const runScreen = screenIn(config.session, runCommands);
-      /** The other sessions this run's panes open in, by name: named ones, and `"origin"`'s. */
+      /** The other sessions this run's panes open in, by name: `"origin"`'s. */
       const screens = new Map<string, PaneScreen>();
       const sessionScreen = (session: string) => {
         if (session === config.session) return runScreen;
@@ -802,24 +797,10 @@ export function createHerdrRunHostFactory(
         }
         return screen;
       };
-      /** Each named session's answer, asked once a run. */
-      const usable = new Map<string, Promise<string | undefined>>();
       let origin: Promise<{ screen: PaneScreen; workspaceId: string } | string> | undefined;
       const runLayout = createPaneLayout({
         run: runScreen,
         runId: runSpec.runId,
-        session: async (name) => {
-          if (name === config.session) return runScreen;
-          let answer = usable.get(name);
-          if (!answer) {
-            answer = config.sessionFor
-              ? config.sessionFor(name).catch((error: unknown) => asError(error).message)
-              : Promise.resolve(`session ${name} is not one this host can use`);
-            usable.set(name, answer);
-          }
-          const why = await answer;
-          return why === undefined ? sessionScreen(name) : `session ${name} can't be used: ${why}`;
-        },
         origin: () => {
           origin ??= (async () => {
             const found = await config.origin?.().catch((error: unknown) => asError(error).message);

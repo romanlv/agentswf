@@ -75,14 +75,10 @@ export async function runCli(
   switch (command) {
     case "waiting":
     case "send":
-    case "reply": {
-      const said: Said = {};
-      const outcome =
-        command === "waiting"
-          ? await runWaiting(endpoint, session, args, submit, said)
-          : await runMessage(endpoint, session, command, args, stdin, wfa, submit, said);
-      return noticed(outcome, said.notice);
-    }
+    case "reply":
+      return command === "waiting"
+        ? runWaiting(endpoint, session, args, submit)
+        : runMessage(endpoint, session, command, args, stdin, wfa, submit);
     case "result":
       return runResult(endpoint, session, args, stdin, submit);
     case "tool":
@@ -92,16 +88,6 @@ export async function runCli(
     default:
       return usageError(usage(wfa));
   }
-}
-
-/** What a command accepted in a deprecated form, said beside its outcome. */
-type Said = { notice?: string };
-
-/** Never beside a usage error: the form said was not taken then. */
-function noticed(outcome: CliOutcome, notice: string | undefined): CliOutcome {
-  return notice && outcome.exitCode !== 2
-    ? { ...outcome, stderr: outcome.stderr ? `${notice}\n${outcome.stderr}` : notice }
-    : outcome;
 }
 
 async function runResult(
@@ -224,7 +210,6 @@ async function runWaiting(
   session: string | undefined,
   args: readonly string[],
   submit: Submit,
-  said: Said,
 ): Promise<CliOutcome> {
   const [operationId, ...flags] = args;
   if (!operationId?.trim() || operationId.startsWith("--"))
@@ -244,9 +229,8 @@ async function runWaiting(
   let timeoutMs: number | undefined;
   if (duration !== undefined) {
     const read = durationOf(duration);
-    if (!read) return usageError(`wfa waiting --timeout ${DURATION_GRAMMAR}`);
-    timeoutMs = read.milliseconds;
-    said.notice = read.notice;
+    if (typeof read === "string") return usageError(`wfa waiting --timeout ${read}`);
+    timeoutMs = read;
   }
   let response: ControlResponse;
   try {
@@ -331,14 +315,12 @@ async function runMessage(
   stdin: string | null,
   wfa: string,
   submit: Submit,
-  said: Said,
 ): Promise<CliOutcome> {
   const parsed = messageArgs(args);
   const wrong = (problem: string) =>
     usageError(`wfa: ${command}: ${problem}\n\n${messageUsage(wfa).join("\n")}`);
   if ("error" in parsed) return wrong(parsed.error);
   const { peer, message, awaitReply, timeoutMs } = parsed;
-  said.notice = parsed.notice;
   // A heredoc ends with a newline the agent did not mean as part of the message.
   const text = message ?? stdin?.replace(/\r?\n$/, "") ?? null;
   if (text === null || text.trim() === "") return wrong("it needs a message");
@@ -384,12 +366,9 @@ async function runMessage(
  */
 function messageArgs(
   args: readonly string[],
-):
-  | { peer: string; message?: string; awaitReply: boolean; timeoutMs?: number; notice?: string }
-  | { error: string } {
+): { peer: string; message?: string; awaitReply: boolean; timeoutMs?: number } | { error: string } {
   let awaitReply = false;
   let timeoutMs: number | undefined;
-  let notice: string | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
@@ -401,8 +380,8 @@ function messageArgs(
     if (arg === "--await-reply" && !awaitReply) awaitReply = true;
     else if (arg === "--timeout" && timeoutMs === undefined) {
       const read = durationOf(args[i + 1] ?? "");
-      if (!read) return { error: `--timeout ${DURATION_GRAMMAR}` };
-      ({ milliseconds: timeoutMs, notice } = read);
+      if (typeof read === "string") return { error: `--timeout ${read}` };
+      timeoutMs = read;
       i += 1;
     } else if (positional.length === 1 && arg !== "--await-reply" && arg !== "--timeout") {
       return { error: `${arg} is not a flag; a message that starts with -- goes in a heredoc` };
@@ -418,32 +397,22 @@ function messageArgs(
     ...(rest[0] === undefined ? {} : { message: rest[0] }),
     awaitReply,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    ...(notice === undefined ? {} : { notice }),
   };
 }
 
 const DURATION_GRAMMAR = 'takes a duration, a decimal and s, m, h or d, such as "5m"';
-const LEGACY_MS = /^([0-9]+)ms$/;
 
-/**
- * The one grammar's, longer than none. A whole number of `ms` is read until 0.1.0, with the line
- * `wfa` says beside its outcome.
- */
-function durationOf(text: string): { milliseconds: number; notice?: string } | undefined {
-  const legacy = LEGACY_MS.exec(text);
+/** The one grammar's milliseconds, longer than none; else why not, `ms` named in `s`. */
+function durationOf(text: string): number | string {
+  const ms = /^([0-9]+)ms$/.exec(text);
+  if (ms && Number(ms[1]) > 0) return `${DURATION_GRAMMAR}: give ${Number(ms[1]) / 1000}s`;
   let milliseconds: number;
   try {
-    milliseconds = legacy ? Number(legacy[1]) : durationMilliseconds(text);
+    milliseconds = durationMilliseconds(text);
   } catch {
-    return undefined;
+    return DURATION_GRAMMAR;
   }
-  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) return undefined;
-  return legacy
-    ? {
-        milliseconds,
-        notice: `wfa: --timeout ${text} is deprecated; give ${milliseconds / 1000}s: a duration is a decimal and s, m, h or d`,
-      }
-    : { milliseconds };
+  return milliseconds > 0 ? milliseconds : DURATION_GRAMMAR;
 }
 
 /** What is owed leads, so it comes back after a harness compacts; then the acknowledgement. */

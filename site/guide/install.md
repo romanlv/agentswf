@@ -25,7 +25,7 @@ release.
 - **[Herdr](https://herdr.dev)**, for TUI agents. A TUI agent runs its harness's own interface in a terminal pane you can
   watch and type into, and that is the default. A headless agent runs as a plain process and needs
   no Herdr. awf is built for Herdr 0.9.1, and requires exactly that version for a docker
-  sandbox's own Herdr and for a Herdr session a deprecated `layout` names.
+  sandbox's own Herdr.
 
 A workflow can live in any folder and needs nothing installed there: `awf` serves it
 `agentswf/workflow`, `agentswf/typebox` and `typebox` from its own copies, and `awf test` serves

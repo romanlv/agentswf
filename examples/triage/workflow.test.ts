@@ -13,13 +13,13 @@ describe("triage", () => {
     const run = await testWorkflow(triage, {
       args: { tickets },
       decisions: {
-        "triage:1": {
+        "triage-1": {
           team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
           bug: 0.97,
           urgency: [0.1, 0.3, 0.6],
         },
-        "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
-        "triage:3": {
+        "triage-2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
+        "triage-3": {
           team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
           bug: 0.6,
           urgency: [0.05, 0.9, 0.05],
@@ -40,7 +40,7 @@ describe("triage", () => {
       ],
     });
     const asked = (key: string) => run.decisions.find((decision) => decision.key === key)?.state;
-    expect(tickets.map((_, index) => asked(`triage:${index + 1}`))).toEqual(
+    expect(tickets.map((_, index) => asked(`triage-${index + 1}`))).toEqual(
       tickets.map((ticket) => ({ ticket })),
     );
     expect(triage.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
@@ -56,7 +56,7 @@ describe("triage", () => {
     const run = await testWorkflow(triage, {
       args: { tickets: ["t"] },
       decisions: {
-        "triage:1": {
+        "triage-1": {
           team: { payments: 0.89, accounts: 0.11, frontend: 0 },
           bug: 0.9,
           urgency: [0, 0.1, 0.9],
@@ -75,7 +75,7 @@ describe("triage", () => {
   test("a decision that fails fails the triage", async () => {
     const run = await testWorkflow(triage, {
       args: { tickets: ["t"] },
-      decisions: { "triage:*": new Error("OpenRouter is down") },
+      decisions: { "triage-*": new Error("OpenRouter is down") },
     });
     expect(() => run.value).toThrow("OpenRouter is down");
   });

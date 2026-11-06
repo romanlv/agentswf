@@ -8,7 +8,6 @@ import type {
   CompactionId,
   Effort,
   HarnessKind,
-  JsonObject,
   JsonValue,
   KeepPane,
   NudgeOptions,
@@ -279,7 +278,6 @@ export interface HarnessActivation {
   deadline: AbsoluteDeadline;
   cwd: string;
   instructions?: string;
-  labels?: JsonObject;
   execution: AgentExecution;
   /**
    * The agent's place in a sandbox: every process it runs goes through `occupant.launch`. An
@@ -305,7 +303,7 @@ export interface HarnessActivation {
   home?: string;
   /**
    * Where a TUI agent's pane goes: the workflow's tab or neighbour, in the workspace the operator
-   * or a deprecated layout names. A host with no panes ignores it.
+   * names. A host with no panes ignores it.
    */
   layout?: PaneLayout;
   /**
@@ -324,8 +322,8 @@ export interface HarnessActivation {
    */
   layoutFallback?: string;
   /**
-   * The operator's `--keep-panes`, else a deprecated `keepPane`, for a host that records it; never
-   * decided on: the engine decides at close.
+   * The operator's `--keep-panes`, for a host that records it; never decided on: the engine
+   * decides at close.
    */
   keepPane?: KeepPane;
   /**

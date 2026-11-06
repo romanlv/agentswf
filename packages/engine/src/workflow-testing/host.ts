@@ -40,13 +40,10 @@ import {
   type FakeSet,
 } from "@agentswf/harness/testing";
 import { submitControl, submitResult, submitWaiting } from "../agent-cli/client";
-import type { Deprecated } from "../deprecations";
 import {
-  deprecatedAs,
   type Message,
   type MessageOutcome,
   type MessageScripts,
-  noAnswer,
   outcomeOf,
   type ReceivedMessage,
   type Scripts,
@@ -92,7 +89,6 @@ export type OpenedAgent = {
   key: string;
   execution: AgentExecution;
   instructions?: string;
-  labels?: JsonObject;
   /** The skills it was given by name; absent when the workflow named none. */
   skills?: readonly string[];
   /** The sandbox it ran in; absent on the host. */
@@ -107,10 +103,11 @@ export type OpenedAgent = {
    * host has no screen, so nothing says where a pane landed or whether a `beside` fell back.
    */
   pane?: PaneSpec;
-  /** What the host was asked, a deprecated `layout`'s session and workspace included. */
+  /** What the host was asked: the `pane`, in the workspace `panes.workspace` names. */
   layout?: PaneLayout;
   /** Why the engine already knew `layout` could not be used: a `beside` an agent with no pane. */
   layoutFallback?: string;
+  /** As `panes.keep` asked. */
   keepPane?: KeepPane;
   /** Its pane was kept when it was done: `keepPane` asked, and how its last operation ended let it. */
   keptPane?: true;
@@ -149,8 +146,6 @@ export function createScriptedHost(
     onActivity(): void;
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
-    /** A script ended a turn through a deprecated name, for the run to log. */
-    onDeprecated(name: Deprecated, subject?: string): void;
     /** A turn began, before its script answers: what a test sends during it goes now. */
     onTurnStarted?(turn: TestTurn): Promise<void>;
   },
@@ -222,13 +217,10 @@ export function createScriptedHost(
       failTest(why);
       throw new Error(why);
     }
-    if (options.timeout != null && options.timeoutMs != null)
-      throw new Error(`a ${command}'s timeout is given alone: timeoutMs is its deprecated form`);
     const timeoutMs =
       options.timeout == null
-        ? (options.timeoutMs ?? undefined)
+        ? undefined
         : positiveDurationMilliseconds(options.timeout, `a ${command}'s timeout`);
-    if (options.timeoutMs != null) events.onDeprecated("timeout-ms", `on a script's ${command}`);
     const call = submitControl(operation.binding.endpoint, {
       version: WIRE_VERSION,
       command,
@@ -361,8 +353,6 @@ export function createScriptedHost(
           reply: (text, options) => turn.reply(woke!.from, text, options),
           send: turn.send,
           tool: turn.tool,
-          silent: deprecatedAs("message-silent", noAnswer.silent),
-          fail: deprecatedAs("message-fail", noAnswer.failed),
         } satisfies ReceivedMessage,
         operation.message!,
       );
@@ -468,7 +458,6 @@ export function createScriptedHost(
       };
     }
     const { ending } = step;
-    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") {
       return {
         act: async () => {
@@ -568,7 +557,6 @@ export function createScriptedHost(
       return { summary: step.value };
     }
     const { ending } = step;
-    if (step.deprecated) events.onDeprecated(step.deprecated);
     if (ending.kind === "waiting") return failTest("compaction cannot report waiting");
     if (ending.kind === "hang") {
       return {
@@ -761,7 +749,6 @@ export function createScriptedHost(
               key: request.key,
               execution: request.execution,
               ...(request.instructions ? { instructions: request.instructions } : {}),
-              ...(request.labels ? { labels: request.labels } : {}),
               ...(request.skills ? { skills: request.skills.names } : {}),
               ...(request.continues && forks.has(request.continues.sessionRef)
                 ? { forkedFrom: forks.get(request.continues.sessionRef)! }

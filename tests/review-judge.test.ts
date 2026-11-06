@@ -65,7 +65,7 @@ function panel(script: Script) {
     harnesses: ["claude", "codex", "pi"],
     script: (context: FakeAdapterTurnContext) => ({
       act: async () => {
-        const who = context.activation.key.split(":")[0]!;
+        const who = context.activation.key.split("-")[0]!;
         const answer = script[who]?.[context.turn - 1];
         if (answer && answer !== "silent") await submit(context.binding!, answer);
       },
@@ -103,7 +103,7 @@ const read = [{ path: "src/app.ts", start: 1, end: 2 }];
 const wrongAt5: FindingLabel = { finding: 5, label: "wrong", refutes: "r", why: "w", read };
 const noiseAt5 = EXAMPLE_LABELS[5]!;
 const keys = (adapter: { turns: FakeAdapterTurnContext[] }) =>
-  adapter.turns.map((turn) => turn.activation.key.split(":")[0]).sort();
+  adapter.turns.map((turn) => turn.activation.key.split("-")[0]).sort();
 
 describe("the panel judge", () => {
   test("agreeing judges give their labels, with both votes and no tiebreak", async () => {

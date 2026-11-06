@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { type JsonValue, type OutputSchema, tool } from "@agentswf/contract/workflow";
-import { DEPRECATIONS } from "../deprecations";
 import type { RunnableWorkflow } from "../workflow-runner";
 import { answer, noAnswer } from "./index";
 import { runTest, type TestOptions } from "./run-test";
@@ -245,30 +244,6 @@ describe("scripted messaging", () => {
     ]);
   });
 
-  test("message.silent() and message.fail(), deprecated, end the turn as before, each logged once", async () => {
-    const said = (logs: { message: string }[], name: "message-silent" | "message-fail") => {
-      const { old, instead } = DEPRECATIONS[name];
-      return logs.filter((log) => log.message === `awf: ${old} is deprecated; ${instead}`).length;
-    };
-    const silent = await testAnywhere(reviewLoop, {
-      agents: { implementer: [answer("built"), answer("recorded")], reviewer: reviewer() },
-      messages: { implementer: (message) => message.silent() },
-    });
-    expect(silent.value).toEqual({ kind: "inconclusive", reason: "no revision: failed" });
-    // Reminded once: the script ran twice, and its run said so once.
-    expect(silent.turnsOf("implementer").filter((turn) => turn.cause)).toHaveLength(2);
-    expect(said(silent.logs, "message-silent")).toBe(1);
-
-    const failed = await testAnywhere(reviewLoop, {
-      agents: { implementer: answer("built"), reviewer: reviewer() },
-      messages: { implementer: (message) => message.fail("harness crashed") },
-    });
-    expect(() => failed.value).toThrow(
-      "agent implementer's message operation failed: harness crashed",
-    );
-    expect(said(failed.logs, "message-fail")).toBe(1);
-  });
-
   test("a script that answers while it owes a reply fails the test", async () => {
     // b's own run is open before a asks, so the question joins it rather than waking b.
     const working = Promise.withResolvers<void>();
@@ -435,7 +410,7 @@ describe("scripted messaging", () => {
         const slow = await workflow.agents.open({ key: "slow", runtime: "codex" });
         await workflow.messages.allow({ between: [asker, slow], purpose: "Ask." });
         // A timeout stops the asker: its session closes.
-        const { outcome } = await asker.run({ prompt: "Ask.", timeoutMs: 200 });
+        const { outcome } = await asker.run({ prompt: "Ask.", timeout: "0.2s" });
         return outcome.kind;
       },
     };

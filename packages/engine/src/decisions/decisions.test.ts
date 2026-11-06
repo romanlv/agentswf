@@ -52,7 +52,7 @@ describe("decisions.decide", () => {
     const runRoot = runDirs.tempRunDir();
     const result = await run(provider, runRoot, async (context) => {
       const { answers, record } = await context.decisions.decide({
-        key: "triage:1",
+        key: "triage-1",
         model: "jev",
         state: { ticket: "Checkout double-charges on retry" },
         questions: TRIAGE,
@@ -75,7 +75,7 @@ describe("decisions.decide", () => {
       expected: expect.closeTo(1.6, 10),
     });
     expect(provider.requests[0]).toEqual({
-      key: "triage:1",
+      key: "triage-1",
       model: "typesafe/jev-1.13",
       state: { ticket: "Checkout double-charges on retry" },
       questions: TRIAGE,
@@ -83,7 +83,7 @@ describe("decisions.decide", () => {
     const [record] = result.decisions!;
     expect(record).toMatchObject({
       callPath: [],
-      key: "triage:1",
+      key: "triage-1",
       alias: "jev",
       provider: "openrouter",
       model: "typesafe/jev-1.13",
@@ -99,7 +99,7 @@ describe("decisions.decide", () => {
       tokens: { input: 10_000, output: 8 },
       charged: { amount: 0.00042, currency: "USD" },
       requestId: "gen-1",
-      artifact: "ops/triage:1.1/decision.json",
+      artifact: "ops/triage-1.1/decision.json",
     });
     expect(record!.error).toBeUndefined();
 
@@ -138,7 +138,7 @@ describe("decisions.decide", () => {
       priced: 1,
     });
     expect(byStage.map(({ stage, decisions }) => [stage, decisions?.calls])).toEqual([
-      ["triage", 1],
+      ["triage-1", 1],
     ]);
     expect(byModel).toEqual([
       expect.objectContaining({ model: "typesafe/jev-1.13-20260917", agents: 0, decisionCalls: 1 }),
@@ -217,7 +217,7 @@ describe("decisions.decide", () => {
       ]);
       const failure = await run(provider, runDirs.tempRunDir(), async (context) => {
         await context.decisions.decide({
-          key: "triage:1",
+          key: "triage-1",
           model: "jev",
           state: "s",
           questions: TRIAGE,
@@ -299,7 +299,7 @@ describe("decisions.decide", () => {
     const provider = createFakeDecisionProvider([() => new Promise<never>(() => undefined)]);
     const result = await run(provider, runDirs.tempRunDir(), async (context) => {
       const failure = await context.decisions
-        .decide({ key: "slow", model: "jev", state: "s", questions: TRIAGE, deadline: future(100) })
+        .decide({ key: "slow", model: "jev", state: "s", questions: TRIAGE, timeout: "0.1s" })
         .catch((error: unknown) => error);
       return failure instanceof DeadlineExceededError;
     });
@@ -364,12 +364,12 @@ describe("decisions.decide", () => {
         [1, 2],
         (item) =>
           context.decisions.decide({
-            key: `batch:${item}`,
+            key: `batch-${item}`,
             model: "jev",
             state: "s",
             questions: TRIAGE,
           }),
-        { deadline: future(100) },
+        { timeout: "0.1s" },
       );
       return null;
     }).then(unexpected, failed);
@@ -430,6 +430,20 @@ describe("decisions.decide", () => {
       { runRoot: runDirs.tempRunDir(), runtime: emptyRuntime(), deadline: future() },
     );
     expect(none.value).toBe('no decision model alias "jev"; none is installed');
+  });
+
+  test("a key with a colon is refused before any request, naming the - key", async () => {
+    const provider = createFakeDecisionProvider();
+    const result = await run(provider, runDirs.tempRunDir(), (context) =>
+      context.decisions
+        .decide({ key: "triage:1", model: "jev", state: "s", questions: TRIAGE })
+        .then(
+          () => "answered",
+          (error: Error) => error.message,
+        ),
+    );
+    expect(result.value).toContain("such as triage-1");
+    expect(provider.requests).toEqual([]);
   });
 });
 
@@ -544,11 +558,11 @@ describe("RunDecisions", () => {
           model: "jev",
           state: "s",
           questions: TRIAGE,
-          deadline: { unixMilliseconds: Number.NaN },
+          timeout: new Date(Number.NaN),
         },
         { deadline: future() },
       ),
-    ).rejects.toThrow("non-negative safe integer");
+    ).rejects.toThrow("a timeout's Date is a valid time");
     expect(decisions.records()).toEqual([]);
   });
 
@@ -584,7 +598,7 @@ describe("RunDecisions", () => {
 describe("decision accounting", () => {
   const decision = (overrides: Partial<SettledDecision>): SettledDecision => ({
     callPath: [],
-    key: "match:f1",
+    key: "match-f1",
     alias: "jev",
     provider: "openrouter",
     model: "typesafe/jev-1.13",
@@ -596,7 +610,7 @@ describe("decision accounting", () => {
     outcome: "answered",
     attempts: 1,
     tokens: { input: 1_000_000, output: 5 },
-    artifact: "ops/match:f1.1/decision.json",
+    artifact: "ops/match-f1.1/decision.json",
     ...overrides,
   });
   const TIMES = { startedAt: "2026-09-23T10:00:00.000Z", finishedAt: "2026-09-23T10:00:05.000Z" };
@@ -606,7 +620,7 @@ describe("decision accounting", () => {
       [],
       PUBLISHED_PRICES,
       TIMES,
-      [decision({ stage: "triage" }), decision({ key: "match:f2" })],
+      [decision({ stage: "triage" }), decision({ key: "match-f2" })],
       [{ stage: "triage", spanMs: 0 }],
     );
     expect(summary.grouping).toBe("stages");
@@ -621,8 +635,8 @@ describe("decision accounting", () => {
   test("an unpriced decision model is named, and its calls are not priced", () => {
     const summary = summarizeRun([], PUBLISHED_PRICES, TIMES, [
       decision({}),
-      decision({ key: "grade:1", model: "other/model", snapshot: "other/model-v2" }),
-      decision({ key: "grade:2", outcome: "failed", tokens: undefined, snapshot: undefined }),
+      decision({ key: "grade-1", model: "other/model", snapshot: "other/model-v2" }),
+      decision({ key: "grade-2", outcome: "failed", tokens: undefined, snapshot: undefined }),
     ]);
     expect(summary.unpriced).toEqual(["other/model-v2"]);
     expect(summary.totals.decisions).toEqual({
@@ -633,20 +647,22 @@ describe("decision accounting", () => {
       known: 2,
       priced: 1,
     });
-    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["match", "grade"]);
+    expect(summary.grouping).toBe("agents");
+    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["match-f1", "grade-1", "grade-2"]);
     expect(summary.byAgent).toEqual([]);
     expect(describeAccounting(summary)).toEqual([
       "0 agents · 5s · unpriced: other/model-v2",
       "  3 decisions · 2.00M tokens · ~$0.04 at list prices · usage known 2/3 · priced 1/3",
-      "  match  1 decision · 0s · ~$0.04",
-      "  grade  2 decisions · 0s · usage known 1/2 · priced 0/2",
+      "  match-f1  1 decision · 0s · ~$0.04",
+      "  grade-1   1 decision · 0s · priced 0/1",
+      "  grade-2   1 decision · 0s · no usage known · usage known 0/1",
     ]);
   });
 
-  test("a stage with agents and decisions shows both, each with its own cost", () => {
+  test("a run without stages has a row per agent and per decision key, each with its own cost", () => {
     const agent: SettledOperation = {
       callPath: [],
-      agent: "review:lens",
+      agent: "review",
       operationId: "op-1",
       execution: { harness: "claude", model: "claude-sonnet-5" },
       deliveredAt: "2026-09-23T10:00:00.000Z",
@@ -661,24 +677,24 @@ describe("decision accounting", () => {
         },
       ],
     };
-    // A second stage, priced at nothing, so the stages are listed.
-    const idle: SettledOperation = { ...agent, agent: "lint:a", operationId: "op-2", spend: [] };
+    const idle: SettledOperation = { ...agent, agent: "lint", operationId: "op-2", spend: [] };
     const summary = summarizeRun([agent, idle], PUBLISHED_PRICES, TIMES, [
-      decision({ key: "review:match", settledAt: "2026-09-23T10:00:03.000Z" }),
+      decision({ key: "review-match", settledAt: "2026-09-23T10:00:03.000Z" }),
     ]);
-    const [stage] = summary.byStage;
-    expect(stage).toMatchObject({ stage: "review", agents: 1, estimate: 2, spanMs: 3_000 });
-    expect(stage?.decisions?.calls).toBe(1);
-    expect(stage?.decisions?.estimate).toBeCloseTo(0.042, 10);
+    expect(summary.grouping).toBe("agents");
+    const [review, lint, match] = summary.byStage;
+    expect(review).toMatchObject({ stage: "review", agents: 1, estimate: 2, spanMs: 2_000 });
+    expect(review).not.toHaveProperty("decisions");
+    expect(lint).toMatchObject({ stage: "lint", agents: 1 });
+    expect(match).toMatchObject({ stage: "review-match", agents: 0, decisions: { calls: 1 } });
+    expect(match?.decisions?.estimate).toBeCloseTo(0.042, 10);
     expect(summary.totals.estimate).toBe(2);
     expect(summary.byAgent[0]).not.toHaveProperty("decisions");
     expect(summary.byModel.map(({ model, decisionCalls }) => [model, decisionCalls])).toEqual([
       ["claude-sonnet-5", undefined],
       ["typesafe/jev-1.13-20260917", 1],
     ]);
-    expect(describeAccounting(summary)[2]).toBe(
-      "  review  1 agent, 1 decision · 3s · ~$2.00 · ~$0.04 in decisions",
-    );
+    expect(describeAccounting(summary)[2]).toBe("  review        1 agent · 2s · ~$2.00");
   });
 });
 

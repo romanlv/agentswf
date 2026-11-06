@@ -150,7 +150,7 @@ describe("taking and acknowledging", () => {
     expect(state.unacknowledged).toEqual(["a"]);
   });
 
-  test("a stage's took and a race acknowledge their own at once, and keep them", () => {
+  test("a stage's took, from before beta.6, and a race acknowledge their own at once", () => {
     const lines: RunLine[] = [
       { kind: "wait", attempt: 1, at, stage: "approve" },
       { kind: "took", attempt: 1, at, took: [{ id: "a" }], stage: "approve" },
@@ -160,7 +160,6 @@ describe("taking and acknowledging", () => {
     ];
     const state = fold(lines, [event("a"), event("b"), event("c")]);
     expect(state.unacknowledged).toEqual([]);
-    expect(state.batches.get("approve")).toEqual(["a"]);
     expect(state.races.get("r")).toEqual({ branch: "closed", ids: ["b"] });
   });
 

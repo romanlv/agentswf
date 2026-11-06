@@ -173,24 +173,6 @@ describe("set", () => {
     ]);
   });
 
-  test("a repeated id is the same switch; one reused with another spec is refused", async () => {
-    const adapter = settingAdapter();
-    const result = await run(adapter, async (context) => {
-      const agent = await context.agents.open({ key: "reviewer", runtime: "review" });
-      const once = agent.set({ id: "quiet", effort: "low" });
-      const again = agent.set({ id: "quiet", effort: "low" });
-      const other = await settled(agent.set({ id: "quiet", effort: "high" }));
-      await once;
-      return [once === again, other];
-    });
-
-    expect(result.value).toEqual([
-      true,
-      "settings id quiet was reused with a different specification",
-    ]);
-    expect(adapter.sets).toHaveLength(1);
-  });
-
   test("is refused before it is queued: another harness, nothing to set, a level the harness lacks, or a host that cannot switch", async () => {
     const adapter = settingAdapter();
     const fixed = settingAdapter({ sets: false });
@@ -244,7 +226,7 @@ describe("set, as it ends", () => {
     const result = await run(adapter, async (context) => {
       const agent = await context.agents.open({ key: "reviewer", runtime: "review" });
       await ask(agent);
-      const late = await agent.set({ effort: "low", timeoutMs: 50 });
+      const late = await agent.set({ effort: "low", timeout: "0.05s" });
       return [late.kind, late.usage.execution.effort ?? null, await settled(ask(agent))];
     });
 
@@ -281,7 +263,7 @@ describe("set, as it ends", () => {
     const result = await run(adapter, async (context) => {
       const agent = await context.agents.open({ key: "reviewer", runtime: "review" });
       const slow = agent.run({ prompt: "Go.", schema: ANSWER });
-      const late = agent.set({ effort: "low", deadline: { unixMilliseconds: Date.now() + 1 } });
+      const late = agent.set({ effort: "low", timeout: new Date(Date.now() + 1) });
       await slow;
       return [(await late).kind, (await ask(agent)).outcome.kind];
     });
@@ -337,8 +319,8 @@ describe("a fork's settings", () => {
       await ask(worker);
       void worker.set({ model: "sonnet", effort: "low" });
       const same = await worker.fork({ key: "same" });
-      const deeper = await worker.fork({ key: "deeper", effort: "max" });
-      const refused = await settled(worker.fork({ key: "bogus", effort: "huge" }));
+      const deeper = await worker.fork({ key: "deeper", runtime: { effort: "max" } });
+      const refused = await settled(worker.fork({ key: "bogus", runtime: { effort: "huge" } }));
       return [same.execution, deeper.execution, refused];
     });
 

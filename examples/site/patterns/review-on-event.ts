@@ -1,7 +1,7 @@
 // #region open
 
 import { typed } from "agentswf/typebox";
-import { defineWorkflow } from "agentswf/workflow";
+import { AgentEnded, defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 
 /** A merge request was opened or pushed to: the commit to review, against its base branch. */
@@ -37,18 +37,22 @@ export default defineWorkflow({
     description: "Review a merge request at each new head, until it closes.",
   },
   file: import.meta.path,
-  events: { "mr.changes": Changes, "mr.closed": Closed },
+  events: {
+    "mr.changes": Changes,
+    "mr.closed": Closed,
+    "reviewer:ended": AgentEnded,
+  },
   starts: ["mr.changes"],
   async run(wf) {
-    const openReviewer = (n: number) =>
-      wf.agents.open({
-        key: n === 1 ? "reviewer" : `reviewer-${n}`,
-        runtime: { alias: "codex", placement: "headless" },
-        instructions: "Review merge requests. Read the code; change nothing.",
-      });
-    let opened = 1;
-    let reviewer = await openReviewer(opened);
+    const reviewer = await wf.agents.open({
+      key: "reviewer",
+      runtime: { alias: "codex", placement: "headless" },
+      instructions: "Review merge requests. Read the code; change nothing.",
+    });
     let next: Change | null = null;
+    // A failed or timed-out turn closes its agent; the next push wakes the run,
+    // which opens it again.
+    let closed = false;
 
     for (;;) {
       const events = await wf.receive({
@@ -73,10 +77,8 @@ export default defineWorkflow({
               head: meta.head,
               reason: outcome.reason,
             });
-            // A failed or timed-out turn closes its agent, so the next push gets a new one.
-            if (outcome.kind === "failed" || outcome.kind === "timed-out") {
-              reviewer = await openReviewer(++opened);
-            }
+            if (outcome.kind === "failed" || outcome.kind === "timed-out")
+              closed = true;
             continue;
           }
           await wf.stage(
@@ -92,7 +94,7 @@ export default defineWorkflow({
       }
       // #endregion take
       // #region start
-      if (next && !reviewer.turn) {
+      if (next && !reviewer.turn && !closed) {
         await reviewer.start({
           prompt:
             `Review merge request !${next.mr}: ` +

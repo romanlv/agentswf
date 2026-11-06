@@ -89,7 +89,7 @@ export async function logsCommand(
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseLogs(parsed.rest, (line) => out.stderr(line));
+    options = parseLogs(parsed.rest);
     if (options.follow && json) throw new Error("--follow is for reading; --json takes --wait");
   } catch (error) {
     printRefusal(out, { json: asksJson(argv), v: 1 }, error, "usage", logsUsage);
@@ -134,7 +134,7 @@ export async function logsCommand(
   }
 }
 
-function parseLogs(rest: readonly string[], deprecated: (line: string) => void): LogsOptions {
+function parseLogs(rest: readonly string[]): LogsOptions {
   const options: LogsOptions = {
     limit: DEFAULT_LIMIT,
     waitSeconds: 0,
@@ -159,7 +159,7 @@ function parseLogs(rest: readonly string[], deprecated: (line: string) => void):
         throw new Error("--limit needs a whole number");
       options.limit = limit;
     } else if (arg === "--wait") {
-      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS, deprecated);
+      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS);
       waitGiven = true;
     } else if (arg === "--follow") options.follow = true;
     else if (arg === "--full") options.full = true;

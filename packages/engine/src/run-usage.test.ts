@@ -138,7 +138,7 @@ describe("usage read when the run ends", () => {
 
     const result = await run(adapter, files.accounting(), async (context) => {
       const agent = await open(context, "slow");
-      return (await agent.run({ prompt: "Wait.", timeoutMs: 30, nudge: false })).outcome.kind;
+      return (await agent.run({ prompt: "Wait.", timeout: "0.03s", nudge: false })).outcome.kind;
     });
 
     expect(result.value).toBe("timed-out");
@@ -193,7 +193,7 @@ describe("usage read when the run ends", () => {
         await (await open(context, key)).run({ prompt: "Go.", schema: ANSWER });
       }
       const logged = await open(context, "logged");
-      await logged.run({ prompt: "Late.", deadline: { unixMilliseconds: Date.now() - 1 } });
+      await logged.run({ prompt: "Late.", timeout: new Date(Date.now() - 1) });
       return null;
     });
 

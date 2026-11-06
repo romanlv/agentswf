@@ -36,8 +36,6 @@ export type DecisionScope = {
   add?(cancel: (reason: string) => Promise<unknown>): () => void;
   /** The workflow stage it is asked in. */
   stage?: string;
-  /** The spec gave a deprecated form of `timeout`. */
-  deprecated?(name: "timeout-ms" | "deadline-option", call: string): void;
 };
 
 type PreparedCall = {
@@ -132,12 +130,7 @@ export class RunDecisions {
       ? installed.providers[resolved.provider]
       : undefined;
     if (!provider) throw new Error(`decision provider "${resolved.provider}" is not installed`);
-    const deadline = boundedDeadline(
-      { timeout: spec.timeout, deadline: spec.deadline },
-      scope.deadline,
-      (name, call) => scope.deprecated?.(name, call),
-      "on decide",
-    );
+    const deadline = boundedDeadline(spec.timeout, scope.deadline);
     assertDeadline(deadline);
     // Last: a decision refused for anything else holds no key.
     this.options.ops.claim(spec.key, "decision");

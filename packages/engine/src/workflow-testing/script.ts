@@ -15,7 +15,6 @@ import type {
 } from "@agentswf/contract/workflow";
 import type Type from "typebox";
 import { canonical } from "../canonical-json";
-import type { Deprecated } from "../deprecations";
 import { messageOf } from "../errors";
 
 /** One turn of a scripted agent, as the workflow wrote it. */
@@ -84,8 +83,6 @@ export type SendOptions = {
   awaitReply?: boolean;
   /** How long an awaited reply is waited for, as `wfa send --timeout` gives it. */
   timeout?: Duration;
-  /** @deprecated Give `timeout`, a `Duration` such as `"30s"`. */
-  timeoutMs?: number;
 };
 
 /** How a send or reply ended; a refusal is a value to test, not a throw. */
@@ -106,10 +103,6 @@ export type ReceivedMessage = Message & {
   reply(text: string, options?: SendOptions): Promise<MessageOutcome>;
   send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
   tool(name: string, input?: JsonObject): Promise<ToolOutcome>;
-  /** @deprecated Return nothing, which ends the turn without a reply. */
-  silent(): NoAnswer;
-  /** @deprecated Return `noAnswer.failed(reason)`. */
-  fail(reason?: string): NoAnswer;
 };
 
 /**
@@ -185,7 +178,7 @@ type Ending =
 
 /** A turn ended without an answer. Made by `noAnswer`. */
 export type NoAnswer = {
-  readonly [ENTRY]: { kind: "no-answer"; ending: Ending; deprecated?: Deprecated };
+  readonly [ENTRY]: { kind: "no-answer"; ending: Ending };
 };
 
 /** Every turn the agent is asked, alike; or a list, one entry per turn in order. */
@@ -219,13 +212,7 @@ export function answer(...args: [unknown] | [unknown, unknown]): Answer {
   return { [ENTRY]: { kind: "answer", schema: schema as OutputSchema | undefined, respond } };
 }
 
-const ending = (value: Ending, deprecated?: Deprecated): NoAnswer => ({
-  [ENTRY]: {
-    kind: "no-answer",
-    ending: value,
-    ...(deprecated === undefined ? {} : { deprecated }),
-  },
-});
+const ending = (value: Ending): NoAnswer => ({ [ENTRY]: { kind: "no-answer", ending: value } });
 
 /** Ends a turn without an answer, so it takes no schema. */
 export const noAnswer = {
@@ -251,25 +238,6 @@ export const noAnswer = {
    * `cancelled`, is never nudged, and the session takes the next turn.
    */
   interrupted: (): NoAnswer => ending({ kind: "interrupted" }),
-};
-
-/** What `make` ends a turn with, marked as made through a deprecated name for the run to log. */
-export function deprecatedAs<A extends unknown[]>(
-  name: Deprecated,
-  make: (...args: A) => NoAnswer,
-): (...args: A) => NoAnswer {
-  return (...args) => ending(make(...args)[ENTRY].ending, name);
-}
-
-/** @deprecated Use `noAnswer`, the same calls: a reply answers, these end a turn without one. */
-export const reply: typeof noAnswer = {
-  silent: deprecatedAs("test-reply", noAnswer.silent),
-  blocked: deprecatedAs("test-reply", noAnswer.blocked),
-  failed: deprecatedAs("test-reply", noAnswer.failed),
-  needsLogin: deprecatedAs("test-reply", noAnswer.needsLogin),
-  timedOut: deprecatedAs("test-reply", noAnswer.timedOut),
-  hang: deprecatedAs("test-reply", noAnswer.hang),
-  interrupted: deprecatedAs("test-reply", noAnswer.interrupted),
 };
 
 /**
@@ -306,7 +274,7 @@ export function outcomeOf(kind: Exclude<Ending["kind"], "waiting">): TestTurnOut
 
 export type Step =
   | { kind: "answer"; value: JsonValue }
-  | { kind: "no-answer"; ending: Ending; deprecated?: Deprecated }
+  | { kind: "no-answer"; ending: Ending }
   /** The script cannot meet this turn: the test's mistake, not the workflow's. */
   | { kind: "script-error"; message: string };
 

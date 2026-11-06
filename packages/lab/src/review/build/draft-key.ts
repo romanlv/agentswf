@@ -143,7 +143,7 @@ export async function draftKey(
     let prompt = draftPrompt(fixture, versions, mr.author.username);
     let detail = "no attempt made";
     for (let attempt = 1; attempt <= options.attempts; attempt++) {
-      const { outcome } = await agent.run({ prompt, schema: KEY_BODY, timeoutMs: 40 * 60_000 });
+      const { outcome } = await agent.run({ prompt, schema: KEY_BODY, timeout: "40m" });
       if (!outcome.answered) {
         detail = `no key: ${outcome.kind}: ${outcome.reason}`;
         prompt = NO_KEY;
@@ -264,7 +264,7 @@ async function castVotes(
   let prompt = votePrompt(fixture, key);
   let detail = "";
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const { outcome } = await agent.run({ prompt, schema: VOTE_ANSWER, timeoutMs: 20 * 60_000 });
+    const { outcome } = await agent.run({ prompt, schema: VOTE_ANSWER, timeout: "20m" });
     if (!outcome.answered) {
       detail = `${outcome.kind}: ${outcome.reason}`;
       prompt = NO_VOTE;

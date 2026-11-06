@@ -1,9 +1,32 @@
 import { expect, test } from "bun:test";
-import { type AgentOpenSpec, defineWorkflow } from "@agentswf/contract/workflow";
-import { caseRun, startCase } from "./testing";
+import {
+  AgentEnded,
+  type AgentOpenSpec,
+  type Duration,
+  defineWorkflow,
+  type JsonValue,
+  type WorkflowContext,
+} from "@agentswf/contract/workflow";
+import { caseEvents, startCase } from "./testing";
 import { answer, noAnswer, testWorkflow } from "./workflow-testing";
 
 type KeepAlive = NonNullable<AgentOpenSpec["keepAlive"]>;
+
+const events = {
+  ...caseEvents,
+  "investigator:ended": AgentEnded,
+  "lens:ended": AgentEnded,
+};
+
+/** A case whose agents' started turns end as declared events. */
+const caseRun = (run: (workflow: WorkflowContext<typeof events>) => Promise<JsonValue>) =>
+  defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events,
+    starts: ["dd.changes"],
+    run,
+  });
 
 /** Starts a turn for each `dd.changes` it takes, its agent kept alive as given. */
 const watcher = (keepAlive: KeepAlive, taken: string[] = []) =>
@@ -24,7 +47,7 @@ test("an event in the window is taken by the same attempt; the run parks once it
   const started = Date.now();
   const run = await testWorkflow(
     watcher({
-      timeoutMs: 300,
+      window: "0.3s",
       onTimeout: async (agent) => {
         calls.push(Date.now() - started);
         await agent.compact({ prompt: "Keep the findings." });
@@ -71,7 +94,7 @@ test("a turn onTimeout runs, awaited or started, opens no window; a turn after i
         key: "investigator",
         runtime: "claude",
         keepAlive: {
-          timeoutMs: 200,
+          window: "0.2s",
           onTimeout: async (agent) => {
             calls.push(`handler at ${ended}`);
             if (calls.length > 1) return;
@@ -110,7 +133,7 @@ test("a handler's own turns, awaited and started, with nothing after them, leave
   const started = Date.now();
   const run = await testWorkflow(
     watcher({
-      timeoutMs: 150,
+      window: "0.15s",
       onTimeout: async (agent) => {
         calls.push(Date.now() - started);
         await agent.run({ prompt: "wrap up" });
@@ -134,7 +157,7 @@ test("an event during onTimeout is returned once it finishes, and its turn opens
         key: "investigator",
         runtime: "claude",
         keepAlive: {
-          timeoutMs: 150,
+          window: "0.15s",
           onTimeout: async (agent) => {
             order.push("handler");
             await agent.run({ prompt: "wrap up" });
@@ -166,19 +189,19 @@ test("a window that passes while another agent works is handled at the next idle
   let lensEnded = 0;
   const run = await testWorkflow(
     caseRun(async (workflow) => {
-      const open = (key: "investigator" | "lens", timeoutMs: number) =>
+      const open = (key: "investigator" | "lens", window: Duration) =>
         workflow.agents.open({
           key,
           runtime: "claude",
           keepAlive: {
-            timeoutMs,
+            window,
             onTimeout: async () => {
               calls[key].push(Date.now() - started);
             },
           },
         });
-      const investigator = await open("investigator", 100);
-      const lens = await open("lens", 100);
+      const investigator = await open("investigator", "0.1s");
+      const lens = await open("lens", "0.1s");
       await workflow.receive();
       await investigator.run({ prompt: "look" });
       // Its window passes while the lens works: nothing is called until that turn's end is taken.
@@ -210,19 +233,19 @@ test("two agents' windows pass each on its own clock; the run parks after the la
   const at: Record<string, number> = {};
   const run = await testWorkflow(
     caseRun(async (workflow) => {
-      const open = (key: string, timeoutMs: number) =>
+      const open = (key: string, window: Duration) =>
         workflow.agents.open({
           key,
           runtime: "claude",
           keepAlive: {
-            timeoutMs,
+            window,
             onTimeout: async () => {
               calls.push(key);
               at[key] = Date.now() - started;
             },
           },
         });
-      const [quick, slow] = await Promise.all([open("quick", 100), open("slow", 500)]);
+      const [quick, slow] = await Promise.all([open("quick", "0.1s"), open("slow", "0.5s")]);
       await workflow.receive();
       await Promise.all([quick.run({ prompt: "a" }), slow.run({ prompt: "b" })]);
       for (;;) await workflow.receive();
@@ -240,7 +263,7 @@ test("a turn that fails closes the agent: no window, no onTimeout, and the run p
   const started = Date.now();
   const run = await testWorkflow(
     watcher({
-      timeoutMs: 5_000,
+      window: "5s",
       onTimeout: async () => {
         calls.push("handler");
       },
@@ -255,7 +278,7 @@ test("a turn that fails closes the agent: no window, no onTimeout, and the run p
 test("a handler that throws is logged, and the run parks anyway", async () => {
   const run = await testWorkflow(
     watcher({
-      timeoutMs: 100,
+      window: "0.1s",
       onTimeout: async () => {
         throw new Error("no focus");
       },
@@ -274,15 +297,15 @@ test("a run that stops during a handler ends the wait without calling the next",
   await expect(
     testWorkflow(
       caseRun(async (workflow) => {
-        const open = (key: string, timeoutMs: number, onTimeout: () => Promise<void>) =>
-          workflow.agents.open({ key, runtime: "claude", keepAlive: { timeoutMs, onTimeout } });
+        const open = (key: string, window: Duration, onTimeout: () => Promise<void>) =>
+          workflow.agents.open({ key, runtime: "claude", keepAlive: { window, onTimeout } });
         const [hanging, next] = await Promise.all([
-          open("hanging", 50, async () => {
+          open("hanging", "0.05s", async () => {
             calls.push("hanging");
             // Returns after the stop: the wait no longer waits on it, and calls no next.
             await stopped.promise;
           }),
-          open("next", 60, async () => {
+          open("next", "0.06s", async () => {
             calls.push("next");
           }),
         ]);
@@ -296,7 +319,7 @@ test("a run that stops during a handler ends the wait without calling the next",
           throw error;
         }
       }),
-      { ...startCase, stallMs: 400, agents: { hanging: answer("a"), next: answer("b") } },
+      { ...startCase, stall: "0.4s", agents: { hanging: answer("a"), next: answer("b") } },
     ),
   ).rejects.toThrow("stalled");
   await Bun.sleep(100);
@@ -312,7 +335,7 @@ test("a peer's message that reaches the agent during its handler is the peer's t
         key: "investigator",
         runtime: "claude",
         keepAlive: {
-          timeoutMs: 100,
+          window: "0.1s",
           onTimeout: async () => {
             calls.push(calls.length);
             // The lens messages the investigator, idle while its handler awaits the lens.
@@ -350,7 +373,7 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
         key: "investigator",
         runtime: "claude",
         keepAlive: {
-          timeoutMs: 50,
+          window: "0.05s",
           onTimeout: async () => {
             calls.push("handler");
           },
@@ -381,19 +404,19 @@ test("a wake that runs no turn calls no handler, nor does a turn's end a crash's
   expect(calls).toEqual([]);
 });
 
-test("keepAlive outside a workflow with events, or with a timeoutMs that isn't positive, is refused at open", async () => {
+test("keepAlive outside a workflow with events, or with a window that isn't positive, is refused at open", async () => {
   const run = async (workflow: typeof plain) => (await testWorkflow(workflow)).value;
   const plain = defineWorkflow({
     meta: { name: "plain", description: "No events." },
     async run(workflow) {
-      const spec = { key: "a", runtime: "claude", keepAlive: { timeoutMs: 1_000 } } as const;
+      const spec = { key: "a", runtime: "claude", keepAlive: { window: "1s" } } as const;
       await workflow.agents.open(spec);
       return null;
     },
   });
   await expect(run(plain)).rejects.toThrow("keepAlive is for a workflow with events");
-  const zero = await testWorkflow(watcher({ timeoutMs: 0 }), startCase);
-  expect(() => zero.value).toThrow("keepAlive's timeoutMs is a positive number");
+  const zero = await testWorkflow(watcher({ window: "0s" }), startCase);
+  expect(() => zero.value).toThrow("keepAlive's window is a positive duration");
 });
 
 test("a reopen takes the new keepAlive; one that leaves it out keeps what the agent has", async () => {
@@ -406,9 +429,9 @@ test("a reopen takes the new keepAlive; one that leaves it out keeps what the ag
           runtime: "claude",
           ...(keepAlive ? { keepAlive } : {}),
         });
-      await open({ timeoutMs: 60_000 });
+      await open({ window: "60s" });
       await open({
-        timeoutMs: 100,
+        window: "0.1s",
         onTimeout: async () => {
           calls.push("second");
         },
@@ -424,7 +447,7 @@ test("a reopen takes the new keepAlive; one that leaves it out keeps what the ag
   expect(calls).toEqual(["second"]);
 });
 
-test("in a test, a window that gives no timeoutMs is short, not the hour, so the test doesn't stall", async () => {
+test("in a test, a keepAlive that gives no window is short, not the hour, so the test doesn't stall", async () => {
   const calls: string[] = [];
   const run = await testWorkflow(
     watcher({
@@ -440,9 +463,9 @@ test("in a test, a window that gives no timeoutMs is short, not the hour, so the
 
 test("a test whose run sits in a long window stalls, and says it waits live in one", async () => {
   await expect(
-    testWorkflow(watcher({ timeoutMs: 60_000 }), {
+    testWorkflow(watcher({ window: "60s" }), {
       ...startCase,
-      stallMs: 300,
+      stall: "0.3s",
       agents: { investigator: answer("looked") },
     }),
   ).rejects.toThrow("waits live in an agent's keepAlive window");

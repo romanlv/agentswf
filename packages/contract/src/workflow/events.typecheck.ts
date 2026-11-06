@@ -1,6 +1,8 @@
 import {
+  AgentEnded,
   defineWorkflow,
   type OutputSchema,
+  ParticipantReply,
   type Workflow,
   type WorkflowContext,
   type WorkflowInvocation,
@@ -15,16 +17,22 @@ type Given = { occurrences: number };
 const caseRun = defineWorkflow({
   meta: { name: "dd-case", description: "One case." },
   file: import.meta.path,
-  events: { "dd.changes": Changes, "dd.closed": Closed },
+  events: {
+    "dd.changes": Changes,
+    "dd.closed": Closed,
+    "thread:reply": ParticipantReply,
+    "investigator:ended": AgentEnded,
+    "triage:ended": AgentEnded,
+  },
   starts: ["dd.changes"],
   async run(wf) {
-    const thread = await wf.participants.connect({ key: "thread", to: "code" });
+    const thread = await wf.participants.connect({ key: "thread" });
     const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
     const triage = await wf.agents.open({
       key: "triage",
       runtime: "claude",
       keepAlive: {
-        timeoutMs: 60 * 60_000,
+        window: "1h",
         onTimeout: async (agent) => {
           void agent.turn;
           await agent.compact({ prompt: "Keep the findings." });
@@ -38,7 +46,7 @@ const caseRun = defineWorkflow({
           const given: Given = e.data.meta;
           if (e.data.outcome.answered) void given.occurrences;
         }
-        if (thread.is(e)) void e.data.text.length;
+        if (e.name === "thread:reply") void e.data.text.length;
         // A second agent's end is still possible after the first's guard said no.
         if (triage.is<{ seen: number }>(e)) void e.data.meta.seen.toFixed();
         if (e.name === "dd.closed") {
@@ -49,13 +57,15 @@ const caseRun = defineWorkflow({
         if (e.name === "dd.changes") void e.data.occurrences.toFixed();
         // @ts-expect-error A name the workflow doesn't declare never arrives.
         if (e.name === "dd.opened") void e;
-        // @ts-expect-error Nor does a misspelling of awf's own.
-        if (e.name === "agent:ende") void e;
-        if (e.name === "agent:ended") {
+        // @ts-expect-error Nor does a misspelling of a declared end.
+        if (e.name === "investigator:ende") void e;
+        // @ts-expect-error Nor awf's record name for an end, which a workflow never meets.
+        if (e.name === "agent:ended") void e;
+        if (e.name === "investigator:ended") {
           // @ts-expect-error An end has no text.
           void e.data.text;
         }
-        if (e.name === "participant:reply") {
+        if (e.name === "thread:reply") {
           // @ts-expect-error A reply has no meta.
           void e.data.meta;
         }
@@ -67,8 +77,17 @@ const caseRun = defineWorkflow({
   },
 });
 
-const typed: Workflow<null, never, { "dd.changes": typeof Changes; "dd.closed": typeof Closed }> =
-  caseRun;
+const typed: Workflow<
+  null,
+  never,
+  {
+    "dd.changes": typeof Changes;
+    "dd.closed": typeof Closed;
+    "thread:reply": typeof ParticipantReply;
+    "investigator:ended": typeof AgentEnded;
+    "triage:ended": typeof AgentEnded;
+  }
+> = caseRun;
 
 async function sender(): Promise<void> {
   const outcome: "accepted" | "duplicate" | "refused" = await context.emit(
@@ -209,14 +228,19 @@ declare function isApproval(text: string): boolean;
 defineWorkflow({
   meta: { name: "approval", description: "Reminders and an expiry." },
   file: import.meta.path,
-  events: { "doc.approved": Approved, "dd.closed": Closed },
+  events: { "doc.approved": Approved, "dd.closed": Closed, "approvals:reply": ParticipantReply },
   async run(wf) {
-    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    const approvals = await wf.participants.connect({ key: "approvals" });
     const expiry = wf.timer("doc-expires", "14d");
     for (let round = 1; ; round++) {
       const next = await wf.race(
         `approval-${round}`,
-        { reply: approvals, remind: "2d", expiry, closed: wf.signal("dd.closed") },
+        {
+          reply: wf.signal("approvals:reply"),
+          remind: "2d",
+          expiry,
+          closed: wf.signal("dd.closed"),
+        },
         { label: "awaiting approval" },
       );
       if (next.expiry) {
@@ -227,15 +251,15 @@ defineWorkflow({
       const notExpiry: "expiry" = next.key;
       void notExpiry;
       if (next.closed) return next.closed.data.by;
-      if (next.reply && isApproval(next.reply.text)) return next.reply.id;
+      if (next.reply && isApproval(next.reply.data.text)) return next.reply.id;
       if (next.remind) await approvals.post(`reminder ${next.remind.name}`);
       switch (next.key) {
         case "reply":
-          void next.reply.author;
+          void next.reply.data.author;
           break;
         case "remind":
           // @ts-expect-error A branch that didn't win is undefined.
-          void next.reply.text;
+          void next.reply.data;
           break;
       }
     }
@@ -245,9 +269,13 @@ defineWorkflow({
 defineWorkflow({
   meta: { name: "approval-loop", description: "The same, as a select." },
   file: import.meta.path,
-  events: { "doc.approved": Approved },
+  events: {
+    "doc.approved": Approved,
+    "approvals:reply": ParticipantReply,
+    "investigator:ended": AgentEnded,
+  },
   async run(wf) {
-    const approvals = await wf.participants.connect({ key: "approvals", to: "code" });
+    const approvals = wf.signal("approvals:reply");
     const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
     const expiry = wf.timer("doc-expires", new Date("2026-11-12T09:00:00Z"));
     const remind = wf.timer("remind", "2d");
@@ -272,15 +300,17 @@ defineWorkflow({
 defineWorkflow({
   meta: { name: "turn", description: "A turn a close cuts short." },
   file: import.meta.path,
-  events: { "dd.closed": Closed },
+  events: { "dd.closed": Closed, "investigator:ended": AgentEnded },
   async run(wf) {
     const investigator = await wf.agents.open({ key: "investigator", runtime: "claude" });
     const turn = await investigator.start({ prompt: "Look" });
     const next = await wf.race(`turn-${turn.id}`, {
-      done: turn,
+      done: investigator,
       closed: wf.signal("dd.closed"),
     });
     if (next.closed) await turn.cancel();
+    // @ts-expect-error A wait names the agent, not its started turn.
+    await wf.race("by-turn", { done: turn });
     // @ts-expect-error A turn that may not be running isn't a source.
     await wf.race("maybe", { done: investigator.turn });
     // @ts-expect-error A promise isn't a source.
@@ -297,8 +327,7 @@ defineWorkflow({
       const closed = wf.signal("dd.closed");
       if (closed.is(e)) void e.data.by;
       else if (e.name === "dd.closed") void e;
-      if (turn.is<{ n: number }>(e)) void e.data.meta.n;
-      else if (investigator.is(e)) void e.data.outcome;
+      if (investigator.is(e)) void e.data.outcome;
       if (investigator.is<{ n: number }>(e)) void e.data.meta.n;
       if (e.name === "timer:due") void e.data.name;
     }
@@ -320,9 +349,9 @@ defineWorkflow({
 defineWorkflow({
   meta: { name: "nudges", description: "A time read from state, moved by the loop." },
   file: import.meta.path,
-  events: { "doc.approved": Approved },
+  events: { "doc.approved": Approved, "engineer:reply": ParticipantReply },
   async run(wf) {
-    const engineer = await wf.participants.connect({ key: "engineer", to: "code" });
+    const engineer = wf.signal("engineer:reply");
     const ledger = { nextNudge: wf.after("4h") as Date | null };
     for await (const next of wf.select({
       reply: engineer,

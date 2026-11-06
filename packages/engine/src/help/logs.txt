@@ -6,9 +6,9 @@ What a run did and is doing: its events and what its agents did, read from their
 files, merged by time. With no run, the newest here. Without --after, the last 40 events; with
 it, what came after, oldest first. Every answer ends with the command that gets only what is
 new. --wait: with nothing to show yet, wait for the first event, at most that long, up to 5m,
-such as 90s (a bare number, seconds, is deprecated); --follow prints each event as it comes until
-the run ends. @<handle> names one event, and --full prints its text, with common credential
-shapes masked; --json carries it always.
+such as 90s; --follow prints each event as it comes until the run ends. @<handle> names one
+event, and --full prints its text, with common credential shapes masked; --json carries it
+always.
 
 With --json, a failure prints a refusal whose code says why: usage, no-run, ambiguous, id,
 cursor, unreachable, no-engine, other-engine or internal-error. Exits 0 on any read that worked,

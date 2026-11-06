@@ -17,7 +17,7 @@ function expectType<T extends true>(_proof?: T): void {}
 
 async function inline(): Promise<void> {
   const { answers, record } = await context.decisions.decide({
-    key: "triage:1",
+    key: "triage-1",
     model: "jev",
     state: { ticket: "Checkout double-charges on retry" },
     questions: {
@@ -46,7 +46,7 @@ async function inline(): Promise<void> {
 function matchIssue(text: string) {
   const options = Object.fromEntries(issues.map((issue) => [issue.id, issue.mechanism]));
   return {
-    key: "match:fixture",
+    key: "match-fixture",
     model: "jev",
     state: { finding: text },
     questions: { issue: choice("Which known problem does `finding` raise?", options) },
@@ -60,14 +60,14 @@ async function reused(): Promise<void> {
   // Options only known at run time widen to `string`.
   expectType<Equal<typeof answers.issue.choice, string>>();
   const graded = await context.decisions.decide({
-    key: "grade:1",
+    key: "grade-1",
     model: "jev",
     state: "an issue",
     questions: { severity: SEVERITY },
   });
   expectType<Equal<typeof graded.answers.severity.level, 0 | 1 | 2 | 3>>();
   const dynamic = await context.decisions.decide({
-    key: "grade:2",
+    key: "grade-2",
     model: "jev",
     state: "an issue",
     questions: {
