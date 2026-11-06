@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /** The live evals' consent to spend, which `bun run eval` gives. */
-export const LIVE_EVAL = "AWF_LIVE_EVAL";
+const LIVE_EVAL = "AWF_LIVE_EVAL";
 
 /** Throws unless the runner gave that consent; `what` says what it is for. */
 export function assertLiveOptIn(

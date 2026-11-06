@@ -66,7 +66,7 @@ function incompleteBeta(x: number, a: number, b: number): number {
 }
 
 /** Student's t CDF with `df` degrees of freedom. */
-export function tCdf(t: number, df: number): number {
+function tCdf(t: number, df: number): number {
   const tail = incompleteBeta(df / (df + t * t), df / 2, 0.5) / 2;
   return t >= 0 ? 1 - tail : tail;
 }
