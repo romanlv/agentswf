@@ -3,7 +3,7 @@ id: "039"
 title: "An author learns one way to do each thing"
 summary: "One context type for every workflow, participants routed to the code declared in events, one duration grammar, one testWorkflow signature, one word per state, and what is unbuilt or unused removed, each through a deprecation that ends before 0.1.0."
 type: story
-status: awaiting-human-review
+status: done
 priority: P0
 epic: authoring
 discovered_in: "a review of the workflow API while running the Datadog watcher, 2026-10-26"
@@ -1620,6 +1620,8 @@ Each costs model turns, so each is left for a person. The commands are in the ta
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here: accepted as built on
+  2026-11-06, the live checks above still not run.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+  None were.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
