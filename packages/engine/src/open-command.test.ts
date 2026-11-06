@@ -251,6 +251,13 @@ test("each place the session can't be opened from is refused, naming why", async
     /no session of nobody's recorded; agents with one: fixer/,
   );
   await refused(["review/r9", "fixer"], 1, /review\/r9/);
+  // No agent named: the run's agents, and the command for one.
+  session(f.run, { agent: "coder", session: "c-1", operation: "coder.1" });
+  await refused(
+    ["review/r7"],
+    2,
+    /open needs an agent: review\/r7 has fixer and coder; awf open review\/r7 fixer --run-root /,
+  );
   await refused(["review/r7", "fixer", "--json"], 2, /a TUI has no JSON/);
   await refused(["review/r7", "fixer", "extra"], 2, /-p takes the question/);
   // claude headless bills per token: an agent that did not run metered is not asked headless.

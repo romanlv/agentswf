@@ -2,6 +2,7 @@ usage: awf open <run> <agent> [--no-fork] [--session <id>] [-p [<text>]]
                 [--cwd <directory>] [--run-root <directory>] [--json]
 
 A run is <workflow>/<id>, or an <id> only one workflow has, here or in a project awf knows.
+Without an agent, it names the run's agents that have a session.
 Opens a copy of an agent's latest session in its harness's own TUI, where the agent worked: its
 working directory, its home and skills, its sandbox, on the model and effort it ran on, with the
 harness's own permission prompts. The copy is made without asking the model, and is yours: the

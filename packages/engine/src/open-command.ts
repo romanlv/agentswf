@@ -129,13 +129,13 @@ export async function openCommand(
 ): Promise<number> {
   let place: ReadPlace;
   let json: boolean;
-  let options: Options;
+  let asked: Asked;
   try {
     const parsed = parsePlace(argv, shellCwd);
     place = parsed.place;
     json = parsed.json;
-    options = parseOpen(parsed.rest);
-    if (json && options.print === undefined)
+    asked = parseOpen(parsed.rest);
+    if (json && asked.print === undefined)
       throw new Error("a TUI has no JSON: --json goes with -p");
   } catch (error) {
     printRefusal(out, { json: asksJson(argv), v: OPEN_V }, error, "usage", openUsage);
@@ -149,18 +149,20 @@ export async function openCommand(
   const environment = context.environment ?? process.env;
   try {
     if (
-      options.print === "" &&
+      asked.print === "" &&
       (context.stdinIsTerminal ?? (context.stdin === undefined && process.stdin.isTTY === true))
     )
       throw new OpenRefused("nothing to ask: give -p its text, or pipe it in", "usage");
     let status: RunStatus;
     try {
-      status = await findRunByRef(options.ref, place, home);
+      status = await findRunByRef(asked.ref, place, home);
     } catch (error) {
       if (error instanceof RunNotFound)
         return failed(error, place, out, error.message, { json, v: OPEN_V });
       throw error;
     }
+    if (asked.agent === undefined) throw await agentNeeded(status, place);
+    const options: Options = { ...asked, agent: asked.agent };
     const where = await agentPlace(status, options);
     const spec = HARNESSES[where.harness];
     const settings = launchSettings(where.execution);
@@ -555,6 +557,17 @@ type AgentPlace = {
   skills?: AgentSkills;
 };
 
+/** No agent was named: the run's agents with a session, and the command that opens the first. */
+async function agentNeeded(status: RunStatus, place: ReadPlace): Promise<OpenRefused> {
+  const { view } = await readRunLines(status.run.dir);
+  const [first, ...more] = Object.keys(view.sessions.latest);
+  if (!first) return new OpenRefused(`${status.ref} has no agent's session recorded`, "no-session");
+  const names =
+    more.length > 0 ? `${[first, ...more].slice(0, -1).join(", ")} and ${more.at(-1)}` : first;
+  const command = shellLine(["awf", "open", status.ref, first, ...place.repeat]);
+  return new OpenRefused(`open needs an agent: ${status.ref} has ${names}; ${command}`, "usage");
+}
+
 async function agentPlace(status: RunStatus, options: Options): Promise<AgentPlace> {
   const { view } = await readRunLines(status.run.dir);
   const { agent } = options;
@@ -709,7 +722,10 @@ async function within(directory: string, path: string): Promise<boolean> {
 /** The options `parseOpen` takes, which `-p` never reads as its text. */
 const OPTIONS = new Set(["--no-fork", "--session", "--"]);
 
-function parseOpen(rest: readonly string[]): Options {
+/** The command line as given: the agent may be left out, for awf to say which there are. */
+type Asked = Omit<Options, "agent"> & { agent?: string };
+
+function parseOpen(rest: readonly string[]): Asked {
   const words: string[] = [];
   let session: string | undefined;
   let print: string | undefined;
@@ -735,13 +751,13 @@ function parseOpen(rest: readonly string[]): Options {
     else words.push(arg);
   }
   const [ref, agent, ...extra] = words;
-  if (!ref || !agent?.trim())
-    throw new Error("open needs a run, <workflow>/<id> or <id>, and an agent");
+  if (!ref) throw new Error("open needs a run, <workflow>/<id> or <id>, and an agent");
+  if (agent !== undefined && !agent.trim()) throw new Error("open needs an agent's name");
   if (extra.length > 0)
     throw new Error(`open takes a run and an agent; ${extra[0]} is neither: -p takes the question`);
   return {
     ref,
-    agent,
+    ...(agent === undefined ? {} : { agent }),
     noFork,
     ...(session === undefined ? {} : { session }),
     ...(print === undefined ? {} : { print }),
