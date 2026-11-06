@@ -127,7 +127,7 @@ export class ParticipantScripts implements CoordinatorPort {
   async #outcome(result: Promise<HolderResult>): Promise<ParticipantOutcome> {
     const settled = await result;
     return settled.code === "delivered"
-      ? { code: "delivered", id: this.#id(settled.message) }
+      ? { id: this.#id(settled.message) }
       : { code: settled.code };
   }
 

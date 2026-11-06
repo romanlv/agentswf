@@ -267,11 +267,6 @@ Alternatives rejected:
   documents already. Raised in task 4; to settle before the branch merges, as the reference
   states the rule.
 
-- Q7. `agentswf/testing`'s `ParticipantOutcome`, what a scripted participant's `reply` or `send`
-  resolves to, still says `{ code: "delivered", id }`, where `awf reply --json` now prints
-  `{v: 3, id}` and only a refusal has a code. It isn't `--json` output; aligning it to
-  `{ id } | { code }` changes the shipped testing API. Raised in task 5.
-
 Decided with the human on 2026-11-05:
 
 - Q1. `no-run` replaces `not-found`.
@@ -282,6 +277,9 @@ Decided with the human on 2026-11-05:
 - Q4. `code` marks a refusal, and no result carries it; `reply`/`send`'s success drops
   `code: "delivered"`.
 - Q5. A refusal carries its command's `v`.
+- Q7. `agentswf/testing`'s `ParticipantOutcome`, what a scripted participant's `reply` or `send`
+  resolves to, is `{ id } | { code }`, `awf reply --json`'s document without the `v`: the right
+  shape now, no compatibility kept. Was `{ code: "delivered", id }`.
 
 ## To measure
 

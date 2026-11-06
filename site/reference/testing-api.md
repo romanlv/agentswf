@@ -235,7 +235,7 @@ expect(run.value).toBe("Keep two, and link them.");
   `awf reply --to` would, and **`send(agent, text)`** messages an agent, as `awf send` would.
 - **A `route` event** has `agent`, `direction` (`both`, `to-participant` or `from-participant`)
   and `purpose`; **`send(text)`** messages that agent first. Each call resolves to
-  `{ code: "delivered", id }` or a refusal's `code`.
+  `{ id }` once delivered, or `{ code }` refused, as `awf reply --json` prints them without the `v`.
 - **When no turn runs, no script is still working, and everything left waits on a participant
   question with no `until`,** the attempt ends and its open questions expire `attempt-ended`, so
   the test ends rather than hangs; `run.value` throws if the workflow hadn't returned. While a

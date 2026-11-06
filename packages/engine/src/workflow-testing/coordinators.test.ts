@@ -62,10 +62,7 @@ describe("a coordinator in a workflow's test", () => {
               : `${event.id} ${event.from}${event.asks ? " asks" : ""}`,
           );
           if (event.kind === "message" && event.asks) {
-            expect(await event.reply("Keep two, and link them.")).toEqual({
-              code: "delivered",
-              id: event.id,
-            });
+            expect(await event.reply("Keep two, and link them.")).toEqual({ id: event.id });
           }
         },
       },
@@ -210,8 +207,8 @@ describe("a coordinator in a workflow's test", () => {
       participants: {
         coordinator: async (event) => {
           if (event.kind === "message")
-            expect(await event.send("investigator", "Also check the 09:12 deploy.")).toMatchObject({
-              code: "delivered",
+            expect(await event.send("investigator", "Also check the 09:12 deploy.")).toEqual({
+              id: expect.any(String),
             });
         },
       },

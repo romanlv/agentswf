@@ -45,7 +45,7 @@ export async function story(): Promise<string> {
 export const sendsFirst: ParticipantScript = async (event) => {
   if (event.kind !== "route") return;
   const sent = await event.send("Also check the 09:12 deploy.");
-  if (sent.code !== "delivered") throw new Error(sent.code);
+  if ("code" in sent) throw new Error(sent.code);
 };
 
 export async function refused(wf: WorkflowContext): Promise<void> {

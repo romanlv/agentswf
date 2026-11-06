@@ -124,10 +124,10 @@ export type MessageScript = (
 ) => void | NoAnswer | MessageOutcome | Promise<void | NoAnswer | MessageOutcome>;
 
 /**
- * How a participant's script's `reply` or `send` ended: delivered, a reply's `id` the question's
- * and a send's the new message's, or refused with the `code` `awf reply --json` would print.
+ * How a participant's script's `reply` or `send` ended, as `awf reply --json` prints it without the
+ * `v`: delivered, `id` a reply's question or a send's new message, or refused with its `code`.
  */
-export type ParticipantOutcome = { code: "delivered"; id: string } | { code: ParticipantCode };
+export type ParticipantOutcome = { id: string } | { code: ParticipantCode };
 
 /**
  * A message an agent sent a participant, and what the participant's script may do about it, as
