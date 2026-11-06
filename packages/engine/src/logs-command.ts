@@ -1,8 +1,9 @@
 import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
+import { duration } from "./accounting/format";
 import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
-import { formatDuration, parseWait } from "./duration";
+import { parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
@@ -75,10 +76,6 @@ export async function logsCommand(
   clock: LogsClock = REAL_CLOCK,
   home: string = homedir(),
 ): Promise<number> {
-  if (argv.includes("-h") || argv.includes("--help")) {
-    out.stdout(logsUsage);
-    return 0;
-  }
   let place: ReadPlace;
   let json: boolean;
   let options: LogsOptions;
@@ -554,7 +551,7 @@ function trailer(
     return `run interrupted${go ? ` · continue: ${go}` : ""}`;
   }
   const { ended, started } = span(status, Date.now());
-  const took = ended === undefined ? "" : ` in ${formatDuration(ended - started)}`;
+  const took = ended === undefined ? "" : ` in ${duration(ended - started)}`;
   return `run ended: ${status.state}${took} · result: ${shellLine(command(place, "awf", "runs", status.ref))}`;
 }
 
@@ -618,7 +615,7 @@ async function keptScreens(runDir: string, events: readonly ReadEvent[]): Promis
   return screens;
 }
 
-/** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
+/** `@e216 09:27:02 fix  fixer  turn ended  answered  1m 48s`. */
 function describeEvent(event: ReadEvent, stages: Places, screens: Screens): string {
   const agent = agentOf(event, stages);
   const where = [stageOf(event, stages), agent && said(agent, 60)].filter(Boolean).join("  ");
@@ -653,7 +650,7 @@ function describeLine(line: RunLogLine, places: Places): string {
     case "compact": {
       const took =
         line.deliveredAt && line.settledAt
-          ? `  ${formatDuration(Date.parse(line.settledAt) - Date.parse(line.deliveredAt))}`
+          ? `  ${duration(Date.parse(line.settledAt) - Date.parse(line.deliveredAt))}`
           : "";
       return `${operation(line.kind)} ended  ${line.outcome}${took}`;
     }
@@ -675,9 +672,7 @@ function describeLine(line: RunLogLine, places: Places): string {
       return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
     case "route-opened":
       return `route ${routeEnds(line)} opened  "${said(line.purpose)}"  ${line.maxMessages} messages${
-        line.timeoutMs === undefined
-          ? ""
-          : `, a question closes after ${formatDuration(line.timeoutMs)}`
+        line.timeoutMs === undefined ? "" : `, a question closes after ${duration(line.timeoutMs)}`
       }`;
     case "route-closed":
       return `route ${routeEnds(line)} closed  ${line.reason}`;
@@ -726,9 +721,7 @@ function describeLine(line: RunLogLine, places: Places): string {
         line.tool,
         places.calls.get(line.call)?.input,
         // Most calls take under a second; a duration says something only past one.
-        line.durationMs < 1000
-          ? line.outcome
-          : `${line.outcome}  ${formatDuration(line.durationMs)}`,
+        line.durationMs < 1000 ? line.outcome : `${line.outcome}  ${duration(line.durationMs)}`,
         answered,
       );
     }

@@ -360,7 +360,7 @@ describe("awf logs", () => {
     await writeScreen(f.run.dir, "op-1", "Allow this edit?\n");
     const { stdout } = await awfLogs(f, []);
     expect(strip(stdout).split("\n")).toContain(
-      `@e4 hh:mm:ss fix  fixer  turn ended  blocked  3m00s  screen: ${screen}`,
+      `@e4 hh:mm:ss fix  fixer  turn ended  blocked  3m 00s  screen: ${screen}`,
     );
     const json = JSON.parse((await awfLogs(f, ["--json"])).stdout);
     expect(json.events.at(-1)).toMatchObject({
@@ -425,7 +425,7 @@ describe("awf logs", () => {
     expect(json.run).toMatchObject({ state: "completed", duration: 6 * 60_000 });
     expect(json).not.toHaveProperty("next");
     expect((await awfLogs(ended, [])).stdout.split("\n").at(-1)).toBe(
-      "run ended: completed in 6m00s · result: awf runs review/r1",
+      "run ended: completed in 6m 00s · result: awf runs review/r1",
     );
     const gone = await fixture({ pid: Bun.spawnSync(["true"]).pid, processStart: T(0) });
     expect((await awfLogs(gone, [])).stdout.split("\n").at(-1)).toBe(
@@ -486,8 +486,8 @@ describe("awf logs", () => {
     });
     const followed = strip((await awfLogs(f, ["--follow"], clock)).stdout).split("\n");
     expect(followed[0]).toBe("review/r1  running  stage fix");
-    expect(followed).toContain("@e4 hh:mm:ss fix  fixer  turn ended  answered  2m00s");
-    expect(followed.at(-1)).toBe("run ended: completed in 4m00s · result: awf runs review/r1");
+    expect(followed).toContain("@e4 hh:mm:ss fix  fixer  turn ended  answered  2m 00s");
+    expect(followed.at(-1)).toBe("run ended: completed in 4m 00s · result: awf runs review/r1");
     const staged = await awfLogs(f, ["--stage", "elsewhere", "--json"]);
     expect(JSON.parse(staged.stdout).events).toEqual([]);
   });
@@ -552,7 +552,7 @@ describe("awf logs", () => {
     );
     expect(slept).toBe(1);
     expect(waited.stdout.split("\n").at(-1)).toBe(
-      "run ended: completed in 5m00s · result: awf runs review/r1",
+      "run ended: completed in 5m 00s · result: awf runs review/r1",
     );
   });
 

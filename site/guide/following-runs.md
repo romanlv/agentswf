@@ -58,8 +58,8 @@ shows them. Run it in another terminal to watch the agents work, or to type into
 ```text
 $ awf runs
 check-readme/20261101-0930-a1b2  running      11-01 09:30  14s
-check-readme/20261031-1712-0c4e  completed    10-31 17:12  41s     $0.03
-check-readme/20261031-1650-9d1f  stopped      10-31 16:50  2m05s   $0.06
+check-readme/20261031-1712-0c4e  completed    10-31 17:12  41s      $0.03
+check-readme/20261031-1650-9d1f  stopped      10-31 16:50  2m 05s   $0.06
 ```
 
 A row per run, newest first: its name, its status, when it started, how long it took, and an

@@ -14,13 +14,12 @@ export const ALLOWANCE_V = 1 satisfies AllowanceReport["v"];
 
 export const allowanceUsage = help.trimEnd();
 
-type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
+type AllowanceCommand = { harnesses: Harness[]; json: boolean };
 
 export function parseAllowanceCommand(argv: readonly string[]): AllowanceCommand {
   const harnesses: Harness[] = [];
   let json = false;
   for (const arg of argv) {
-    if (arg === "-h" || arg === "--help") return "help";
     if (arg === "--json") json = true;
     else if ((HARNESS_NAMES as readonly string[]).includes(arg)) {
       if (!harnesses.includes(arg as Harness)) harnesses.push(arg as Harness);
@@ -40,10 +39,6 @@ export async function allowanceCommand(
   } catch (error) {
     printRefusal(io, { json: asksJson(argv), v: ALLOWANCE_V }, error, "usage", allowanceUsage);
     return 2;
-  }
-  if (command === "help") {
-    io.stdout(allowanceUsage);
-    return 0;
   }
   const report = await readReport(command.harnesses, io.read, io.now());
   io.stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));

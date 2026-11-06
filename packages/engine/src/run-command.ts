@@ -50,11 +50,8 @@ export type RunCommand = {
   session?: string;
 };
 
-/** `awf run`'s options and workflow; `"help"` for a `-h` or `--help` anywhere before `--`. */
-export function parseCommand(argv: readonly string[], cwd: string): RunCommand | "help" {
-  const end = argv.indexOf("--");
-  const own = end < 0 ? argv : argv.slice(0, end);
-  if (own.includes("-h") || own.includes("--help")) return "help";
+/** `awf run`'s options and workflow. */
+export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   let timeout: string | undefined;
   let timeoutMilliseconds: number | undefined;
   let runRoot: string | undefined;

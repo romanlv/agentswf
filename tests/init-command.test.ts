@@ -167,7 +167,6 @@ describe("awf init", () => {
   });
 
   test("usage errors", () => {
-    expect(parseInitCommand(["-h"], "/tmp")).toBe("help");
     expect(() => parseInitCommand(["--force"], "/tmp")).toThrow("unknown option: --force");
     expect(() => parseInitCommand(["a", "b"], "/tmp")).toThrow("one directory only");
   });

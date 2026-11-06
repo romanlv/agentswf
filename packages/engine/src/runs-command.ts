@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import type { JsonValue } from "@agentswf/contract/workflow";
+import { duration } from "./accounting/format";
 import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
-import { formatDuration } from "./duration";
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
@@ -28,10 +28,6 @@ export async function runsCommand(
   now: number = Date.now(),
   home: string = homedir(),
 ): Promise<number> {
-  if (argv.includes("-h") || argv.includes("--help")) {
-    out.stdout(runsUsage);
-    return 0;
-  }
   let parsed: ReturnType<typeof parsePlace>;
   let limit: number | undefined;
   let ref: string | undefined;
@@ -143,7 +139,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
       status.ref.padEnd(width),
       states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
-      formatDuration(ms).padEnd(8),
+      duration(ms).padEnd(9),
       money(estimate, unknown)
         .join("")
         .concat(waiting ? "  " : ""),
@@ -196,7 +192,7 @@ function agentLine(agent: AgentView, indent: string, now: number, width: number)
             `from ${said(live.peer, 60)}${live.until ? ` (until ${clockTime(live.until).slice(0, 5)})` : ""}`,
           ]
         : []),
-    ...(agent.since && inTurn(agent) ? [formatDuration(now - agent.since)] : []),
+    ...(agent.since && inTurn(agent) ? [duration(now - agent.since)] : []),
     ...(agent.last
       ? [`last: ${describeActivity(agent.last.activity)} (${clockTime(agent.last.at)})`]
       : []),
@@ -248,7 +244,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       ...(view.stage ? [`stage ${view.stage}`] : []),
       status.state === "interrupted" && view.lastEventAt
         ? `last event ${clockTime(view.lastEventAt)}`
-        : formatDuration(span(status, now).ms),
+        : duration(span(status, now).ms),
       ...money(view.estimate, view.unknownCost),
     ].join("  "),
   ];
@@ -256,7 +252,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
   for (const earlier of status.files) {
     if (earlier.attempt === attempt?.attempt) continue;
     const took = earlier.ended
-      ? `  ${formatDuration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
+      ? `  ${duration(Date.parse(earlier.ended) - Date.parse(earlier.started))}`
       : "";
     const stage = isClaimed(earlier) ? earlier.stage : undefined;
     const how = isClaimed(earlier)
@@ -271,7 +267,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     const took =
       stage.state === "reused" || stage.state === "provided" || stage.startedAt === undefined
         ? ""
-        : formatDuration((stage.endedAt ?? now) - stage.startedAt);
+        : duration((stage.endedAt ?? now) - stage.startedAt);
     lines.push(
       `${indent}  stage ${stage.stage.padEnd(8)} ${stage.state.padEnd(10)} ${took}`.trimEnd(),
     );

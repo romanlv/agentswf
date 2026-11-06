@@ -119,10 +119,10 @@ describe("awf runs", () => {
     const { exitCode, stdout } = await awfRuns(cwd, "review/r1");
     expect(exitCode).toBe(0);
     const lines = stdout.split("\n");
-    expect(lines[0]).toBe("review/r1  running  stage fix  14m00s");
-    expect(lines).toContain("  stage review   succeeded  6m00s");
+    expect(lines[0]).toBe("review/r1  running  stage fix  14m 00s");
+    expect(lines).toContain("  stage review   succeeded  6m 00s");
     expect(lines.some((line) => /^ {4}review:codex +answered +1 turn$/.test(line))).toBe(true);
-    expect(lines.some((line) => /^ {4}fixer +working +turn 1 +2m00s$/.test(line))).toBe(true);
+    expect(lines.some((line) => /^ {4}fixer +working +turn 1 +2m 00s$/.test(line))).toBe(true);
     expect(lines).toContain(
       '    decision "merge?"  asked 09:13, open'.replace(
         "09:13",
@@ -158,7 +158,7 @@ describe("awf runs", () => {
     );
     const { stdout } = await awfRuns(cwd, "r2");
     const lines = stdout.split("\n");
-    expect(lines[0]).toBe("implement-ticket/r2  failed  stage review  9m00s");
+    expect(lines[0]).toBe("implement-ticket/r2  failed  stage review  9m 00s");
     expect(lines).toContain("reason: turn deadline exceeded (worker, turn 6)");
     expect(
       lines.some(
@@ -247,7 +247,7 @@ describe("awf runs", () => {
     expect(listed[0]).toMatch(/^review\/new {2}running {6}\d\d-\d\d \d\d:\d\d {2}\S+/);
     expect(listed[0]).toMatch(/\$2\.00$/);
     expect(listed[1]).toMatch(
-      /^review\/old {2}completed {4}\d\d-\d\d \d\d:\d\d {2}5m00s {3}\$6\.10$/,
+      /^review\/old {2}completed {4}\d\d-\d\d \d\d:\d\d {2}5m 00s {3}\$6\.10$/,
     );
     // An operation whose usage isn't known makes the estimate a floor, marked so.
     mkdirSync(join(old.dir, "ops", "fixer.2"), { recursive: true });
@@ -262,7 +262,7 @@ describe("awf runs", () => {
     expect((await awfRuns(cwd, "review/old")).stdout.split("\n")[0]).toContain("$6.10?");
     // Nothing known: no figure, and no bare mark.
     rmSync(join(old.dir, "ops", "fixer.1", "spend.json"));
-    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ 5m00s$/);
+    expect((await awfRuns(cwd)).stdout.split("\n")[1]).toMatch(/ 5m 00s$/);
     const missing = await awfRuns(cwd, "nope");
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toBe(
@@ -376,11 +376,11 @@ describe("awf runs", () => {
       ],
     );
     const lines = (await awfRuns(cwd, "review/c1")).stdout.split("\n");
-    expect(lines[0]).toBe("review/c1  running  attempt 2 (from stage fix)  stage fix  14m00s");
+    expect(lines[0]).toBe("review/c1  running  attempt 2 (from stage fix)  stage fix  14m 00s");
     expect(lines[1]).toBe("  attempt 1  interrupted");
     expect(lines[2]).toBe("  attempt 2");
     expect(lines[3]).toBe("    stage review   reused");
-    expect(lines[4]).toMatch(/^ {4}stage fix +running +3m00s$/);
+    expect(lines[4]).toMatch(/^ {4}stage fix +running +3m 00s$/);
     expect(lines[5]).toBe("      fix:lens-1 … fix:lens-8   8 agents: 6 answered, 2 working");
     expect(lines[6]).toMatch(/^ {6}fixer +working +turn 1/);
   });

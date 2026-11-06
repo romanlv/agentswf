@@ -30,10 +30,6 @@ export async function tickCommand(
     now?: () => number;
   },
 ): Promise<number> {
-  if (argv.includes("-h") || argv.includes("--help")) {
-    out.stdout(tickUsage);
-    return 0;
-  }
   let parsed: ReturnType<typeof parsePlace>;
   try {
     parsed = parsePlace(argv, shellCwd);

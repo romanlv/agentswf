@@ -23,6 +23,9 @@ awf help reference   # every command's usage lines, on one page
 awf --version
 ```
 
+Every command takes `-h` or `--help` anywhere before `--`, and prints its help whatever else is
+given. A word that must be `-h` itself, such as a message's text, goes after `--`.
+
 An unknown command exits 2 and names the commands it is closest to; a workflow file given as a
 command gets the `awf run` line it meant.
 

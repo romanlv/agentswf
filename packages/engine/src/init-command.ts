@@ -16,16 +16,12 @@ export async function initCommand(
   cwd: string,
   io: Out & { install?: (dir: string) => Promise<number> },
 ): Promise<number> {
-  let command: InitCommand | "help";
+  let command: InitCommand;
   try {
     command = parseInitCommand(argv, cwd);
   } catch (error) {
     printRefusal(io, NO_JSON, error, "usage", initUsage);
     return 2;
-  }
-  if (command === "help") {
-    io.stdout(initUsage);
-    return 0;
   }
   try {
     return await runInit(command, cwd, io, io.install);
@@ -35,11 +31,10 @@ export async function initCommand(
   }
 }
 
-export function parseInitCommand(argv: readonly string[], cwd: string): InitCommand | "help" {
+export function parseInitCommand(argv: readonly string[], cwd: string): InitCommand {
   let dir: string | undefined;
   let install = true;
   for (const option of argv) {
-    if (option === "-h" || option === "--help") return "help";
     if (option === "--no-install") install = false;
     else if (option.startsWith("-")) throw new Error(`unknown option: ${option}`);
     else if (dir !== undefined) throw new Error(`one directory only, not ${dir} and ${option}`);
