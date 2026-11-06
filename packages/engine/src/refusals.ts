@@ -21,6 +21,9 @@ const COMMAND_ONLY = new Set<RefusalCode>(
     "not-started": true,
     unreachable: true,
     "internal-error": true,
+    "no-session": true,
+    live: true,
+    opened: true,
     // Every code a client doesn't throw, so a new one is either a client's or listed here.
   } satisfies Record<Exclude<RefusalCode, ClientErrorCode>, true>) as RefusalCode[],
 );

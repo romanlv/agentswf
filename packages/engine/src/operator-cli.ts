@@ -48,7 +48,9 @@ import { inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
 import { logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
+import { openCommand } from "./open-command";
 import {
+  agentWithheldEnvironment,
   allowanceReader,
   herdrConfig,
   installOperatorRuntime,
@@ -228,6 +230,20 @@ export async function runOperatorCli(
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, Date.now(), wakes.home),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }, undefined, wakes.home),
+    open: () =>
+      openCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        {
+          home: wakes.home,
+          environment: wakes.environment,
+          withheld: agentWithheldEnvironment(),
+          ...(environment.stdin
+            ? { stdin: environment.stdin }
+            : { stdinIsTerminal: process.stdin.isTTY === true }),
+        },
+      ),
     inbox: () =>
       inboxCommand(
         argv.slice(1),

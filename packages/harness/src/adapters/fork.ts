@@ -6,7 +6,7 @@ import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract
 import type { CallingSession, NativeFork, SessionCopy } from "../adapter";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { record, text } from "../json";
-import { type ForkPlan, harnessSpec } from "../spec";
+import { type ForkPlan, harnessSpec, type TurnContext } from "../spec";
 import { harnessState } from "../state";
 import type { Harness } from "../types";
 
@@ -68,6 +68,32 @@ export async function forkResult(
     sessionRef: read.sessionId,
     ...(read.costTotal === undefined ? {} : { costTotal: read.costTotal }),
   };
+}
+
+/**
+ * Forks a session a run recorded, with no model turn, where the agent's turns ran: its cwd, its
+ * settings, home and launch arguments in `context`, `env` for its process, and `place` to run the
+ * fork inside the agent's sandbox, where it had one (story 042). The new session's reference.
+ */
+export async function forkRecordedSession(
+  harness: Harness,
+  session: string,
+  where: {
+    cwd: string;
+    env: Record<string, string>;
+    context: TurnContext;
+    place?: (input: ProcessInput & { env: Record<string, string> }) => Parameters<RunProcess>[0];
+  },
+  run: RunProcess,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<string> {
+  const spec = harnessSpec(harness);
+  if (!spec.forkSession) throw new Error(`${harness} cannot fork: ${spec.absent.forkSession}`);
+  const deadline = { unixMilliseconds: Date.now() + FORK_ACTIVATION_MS };
+  const plan = await spec.forkSession(session, randomUUID(), where.context);
+  const command = forkCommand(plan, { cwd: where.cwd, env: where.env, deadline, signal });
+  const result = await run(where.place ? where.place(command) : command);
+  return (await forkResult(harness, plan, result, deadline)).sessionRef;
 }
 
 /**

@@ -4,6 +4,7 @@ import { replyUsage } from "./holder-command";
 import { inboxUsage } from "./inbox-command";
 import { initUsage } from "./init-command";
 import { logsUsage } from "./logs-command";
+import { openUsage } from "./open-command";
 import { usage as runUsage } from "./run-command";
 import { shellLine } from "./run-commands";
 import { runsUsage } from "./runs-command";
@@ -45,6 +46,11 @@ export const COMMANDS = [
     group: "Look at runs",
     commands: { logs: "What a run did and is doing, merged by time" },
     help: logsUsage,
+  },
+  {
+    group: "Look at runs",
+    commands: { open: "Open a copy of an agent's session in its harness, or ask it one question" },
+    help: openUsage,
   },
   {
     group: "Coordinate a run from outside",

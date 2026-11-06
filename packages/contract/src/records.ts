@@ -1240,6 +1240,26 @@ export function emitOk(outcome: EmitOutcome, why: WakeWhy | undefined): boolean 
   );
 }
 
+/**
+ * `awf open -p --json`: the answer to one question, asked of a copy of an agent's session or of
+ * the session itself.
+ */
+export type OpenResultJson = {
+  v: 1;
+  agent: string;
+  harness: HarnessKind;
+  /** The session asked: the copy, or with `--no-fork` the agent's own. */
+  session: string;
+  /** The agent's session the copy was made from; absent when none was made. */
+  forkedFrom?: string;
+  cwd: string;
+  /** Absent where the agent ran on its harness's default. */
+  model?: string;
+  reply: string;
+  /** The command that asks the same session again. */
+  again: string;
+};
+
 /** `awf tick --json`: each run it woke, in the order woken. */
 export type TickResultJson = {
   v: 1;
@@ -1295,6 +1315,9 @@ export const REFUSAL_CODES = [
   "no-engine",
   "other-engine",
   "internal-error",
+  "no-session",
+  "live",
+  "opened",
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

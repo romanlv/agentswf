@@ -424,6 +424,11 @@ const WITHHELD_ENVIRONMENT = [
   "AWF_CALLER_SESSIONS",
 ];
 
+/** What `awf open` withholds from the harness it opens, as from every agent's. */
+export function agentWithheldEnvironment(): readonly string[] {
+  return WITHHELD_ENVIRONMENT;
+}
+
 /**
  * Unset in a run's panes besides: the config the run session's server starts with, which a `herdr`
  * started in a pane would otherwise read in place of the operator's.
