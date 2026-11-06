@@ -246,8 +246,14 @@ export async function openCommand(
           "live",
         );
       // A home of its own on the host holds the login copied when the run started: refreshed from
-      // the operator's now, and a refresh handed back at the end, as a run's turns do.
-      if (where.home && !where.sandbox)
+      // the operator's now, and a refresh handed back at the end, as a run's turns do. A live
+      // attempt owns it: its rotated login, not yet handed back, would be overwritten. An attempt
+      // that starts meanwhile seats a new home.
+      if (
+        where.home &&
+        !where.sandbox &&
+        !(await readAttempts(status.run)).some((attempt) => isLive(attempt))
+      )
         ownHome = await refreshHome(
           where.home,
           hostHome(where.harness, where.home, environment),

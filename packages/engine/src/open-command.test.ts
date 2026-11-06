@@ -419,6 +419,16 @@ test("an agent's own home is its harness's, for the fork and the TUI alike", asy
   });
   expect(gone.code).toBe(3);
   expect(gone.stderr.join("\n")).toContain("log the harness in first");
+  // A live attempt owns the home's login, rotated or not: the open takes it as it is.
+  writeFileSync(join(operator, "auth.json"), login("after"));
+  await writeAttempt(f.run, { ...ALIVE });
+  writeFileSync(join(f.home, "auth.json"), login("rotated-live"));
+  const live = await open(f, ["review/r7", "coder", "--session", "copy-c"], {
+    environment: { CODEX_HOME: operator },
+  });
+  expect(live.code).toBe(7);
+  expect(readFileSync(join(f.home, "auth.json"), "utf8")).toBe(login("rotated-live"));
+  expect(readFileSync(join(operator, "auth.json"), "utf8")).toBe(login("after"));
 });
 
 test("a copy reopens in the home it was made in, not the agent's latest", async () => {

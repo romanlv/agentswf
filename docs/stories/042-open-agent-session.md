@@ -723,7 +723,7 @@ The docs and the eval, checked by the site's build (every link resolves) and the
   Third pass:
   - a host agent's home of its own (codex with skills) opened on the login the run left in it: it
     is refreshed from the operator's first, and a refresh handed back at exit, as a sandboxed
-    home's is;
+    home's is; not while an attempt is live, which owns that login and may have rotated it;
   - `--session` on a copy placed it by the agent's latest line: a copy is now placed by the line
     whose home holds a file named for it, as an agent with a home of its own gets a new one each
     attempt;
