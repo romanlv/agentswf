@@ -1,10 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import type { FanOutAnswer } from "./fixtures/fan-out";
-import { assertLiveOptIn, interruption } from "./live";
+import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Twelve codex, six claude and four cursor TUI agents prompted at once, twice each (story concurrent-agents):
@@ -37,42 +34,12 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const workDir = await mkdtemp(join(tmpdir(), "awf-fan-out-"));
-  const output: string[] = [];
   const startedAt = Date.now();
-  const exitCode = await runOperatorCli(
-    [
-      "run",
-      "--run-root",
-      join(workDir, "runs"),
-      "--timeout",
-      "10m",
-      "--json",
-      FAN_OUT,
-      "--",
-      ...process.argv.slice(2),
-    ],
-    {
-      cwd: workDir,
-      signal: interruption(),
-      stdout: (text) => output.push(text),
-      stderr: (text) => console.error(text),
-    },
-  );
-  const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-  const failed = problems(exitCode, record);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        failed,
-        seconds: Math.round((Date.now() - startedAt) / 1000),
-        estimateUsd: record?.accounting.totals.estimate,
-        artifacts: record?.artifacts,
-      },
-      null,
-      2,
-    ),
-  );
-  if (failed.length > 0) process.exitCode = 1;
+  const { exitCode, record } = await runLive("fan-out", FAN_OUT, process.argv.slice(2), {
+    timeout: "10m",
+  });
+  report(problems(exitCode, record), {
+    seconds: Math.round((Date.now() - startedAt) / 1000),
+    ...recorded(record),
+  });
 }
