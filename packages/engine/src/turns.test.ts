@@ -312,7 +312,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
       const taken = await workflow.receive();
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       return {
-        names: taken.map((e) => e.name),
+        names: taken.map((e) => e.name).sort(),
         turn: agent.turn?.id ?? null,
         ran: await agent.run({ prompt: "look" }).then(
           ({ outcome }) => outcome.kind,
@@ -322,7 +322,8 @@ test("after a crash, an agent opened after the wait took its end is free, and on
     }),
     { ...woken, earlier: crashed, agents: { investigator: answer("found") } },
   );
-  // The event that woke it came first; the failed end was written as the attempt began.
+  // The waking event and the end the claim writes are taken together, in either order: in one
+  // millisecond the end goes first.
   expect(run.value).toEqual({
     names: ["dd.changes", "investigator:ended"],
     turn: null,
