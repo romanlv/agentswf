@@ -18,7 +18,7 @@ import type { SrtEnvironment } from "@agentswf/contract/workflow";
 import { protectedPaths } from "../git";
 import { LaunchedGroups } from "../groups";
 import { onceUnlessFailed } from "../once";
-import { panePrelude } from "../pane";
+import { AGENT_SHELL, panePrelude } from "../pane";
 import { contains, DOORS_PREFIX, repositoryOf } from "../resolve";
 import type {
   OpenedSandbox,
@@ -143,12 +143,11 @@ function openSandbox(
         HOME: options.home,
         PATH: [...options.path, ...SYSTEM_PATH].join(":"),
         CLAUDE_CODE_TMPDIR: temp,
-        // The `wfa result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file. zsh
-        // writes it under `TMPPREFIX`, `/tmp/zsh` by default, which is denied; macOS's bash 3.2
-        // writes it in `/var/tmp` whatever `TMPDIR` says, which is denied too (X22). So the
-        // harnesses' shell is zsh, its heredocs in the sandbox's temp.
-        SHELL: "/bin/zsh",
-        TMPPREFIX: join(temp, "zsh"),
+        // The `wfa result <<'WF_JSON'` every prompt asks for needs a heredoc's temp file: zsh
+        // writes it under `TMPPREFIX`, `/tmp/zsh` by default, which is denied, so it is moved into
+        // the sandbox's temp; bash writes it in `TMPDIR`, which srt sets there (X22).
+        SHELL: AGENT_SHELL,
+        ...(AGENT_SHELL === "/bin/zsh" ? { TMPPREFIX: join(temp, "zsh") } : {}),
         GIT_CONFIG_GLOBAL: gitconfig,
         npm_config_cache: join(temp, "npm"),
         ...agent.harness.env,
@@ -194,8 +193,8 @@ function openSandbox(
           unread.push(secretsFile);
           return {
             herdr: "run",
-            // zsh, as srt's bash drops `PS1`.
             ...panePrelude({
+              shell: AGENT_SHELL,
               environment: {
                 ...environment,
                 PATH: [bin, ...options.path, ...SYSTEM_PATH].join(":"),

@@ -36,16 +36,22 @@ export type SrtHost = {
   xcrunCache?: string;
 };
 
-/** Regions no agent reads, besides `~`, before a sandbox re-allows its own paths inside them. */
-export const DENIED = [
-  "/Users",
-  "/home",
-  "/Volumes",
-  "/tmp",
-  "/private/tmp",
-  "/private/var/folders",
-  "/private/var/tmp",
-];
+/**
+ * Regions no agent reads, besides `~`, before a sandbox re-allows its own paths inside them: on
+ * Linux, `/run/user` too, where a login's sockets are, its ssh agent's and its session bus.
+ */
+export const DENIED =
+  process.platform === "darwin"
+    ? [
+        "/Users",
+        "/home",
+        "/Volumes",
+        "/tmp",
+        "/private/tmp",
+        "/private/var/folders",
+        "/private/var/tmp",
+      ]
+    : ["/home", "/root", "/mnt", "/media", "/tmp", "/var/tmp", "/run/user"];
 
 /**
  * A sandbox's base: reach and the toolchain readable, `write`, homes and its temp writable, and

@@ -540,6 +540,7 @@ async function admitAgent(
       return {
         herdr: panes.herdr,
         ...panePrelude({
+          shell: "/bin/zsh",
           environment: { ...panes.proxy, PATH: path, SHELL: "/bin/bash", ...env },
           pidFile: `${pids}/${randomUUID()}`,
           secretsFile,
