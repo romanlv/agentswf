@@ -480,7 +480,10 @@ async function runAttempt(
   environment: Resolved,
   output: Output,
 ): Promise<number> {
-  const { stdout, stderr, notice, terminal, now } = output;
+  const { stdout, stderr, notice, now } = output;
+  const { quiet } = command;
+  // --quiet draws no block, and asks a person's questions as a line saying how to answer.
+  const terminal = quiet ? undefined : output.terminal;
   const { home } = environment;
   const { workflow } = loaded;
   const { meta } = workflow;
@@ -586,6 +589,7 @@ async function runAttempt(
       earlier,
       ...(spentBefore ? { spentBefore } : {}),
       json: command.json,
+      quiet,
       fromStage: command.fromStage !== undefined,
       now: now(),
       shellCwd: command.shellCwd,
@@ -657,9 +661,10 @@ async function runAttempt(
   }
 
   // Before any agent starts; in a terminal, the progress block's header names the run instead.
-  if (!terminal) notice(startedLine(meta.name, id, command));
+  if (!terminal && !quiet) notice(startedLine(meta.name, id, command));
   const progress = watchProgress(`${meta.name}/${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
-    stderr,
+    // Quiet, only awf's own problems among the progress's lines.
+    stderr: quiet ? (line) => line.startsWith("awf: ") && stderr(line) : stderr,
     terminal,
     now,
   });
@@ -678,7 +683,10 @@ async function runAttempt(
   // Without a prompt, each question says how to answer it, so the run does not look stuck.
   const asked =
     prompt ??
-    replyHints(`${meta.name}/${id}`, placeFlags(command), n, (line) => progress.log(line));
+    replyHints(`${meta.name}/${id}`, placeFlags(command), n, (line) =>
+      // A question waits on someone, which even a quiet run says.
+      quiet ? stderr(line) : progress.log(line),
+    );
   progress.showsMessages((message) => asked.shows(message));
   const { events } = run.record;
   let nudge: (() => void) | undefined;

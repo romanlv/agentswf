@@ -38,6 +38,8 @@ export function printEnding(
     /** What the attempts before this one spent, from their operations, priced now. */
     spentBefore?: EarlierSpent;
     json: boolean;
+    /** `--quiet`: no closing block for an attempt that completed or parked. */
+    quiet?: boolean;
     /** Whether the attempt redid from a stage, which no repeated stop then hints at. */
     fromStage: boolean;
     now: number;
@@ -81,7 +83,10 @@ export function printEnding(
     runWorkspace: `awf ${context.workflow.meta.name} ${context.run.id} #${context.n}`,
     paint: context.terminal?.color ? ANSI : PLAIN,
   });
-  for (const line of ["", ...lines]) stderr(line);
+  // Quiet, there is no progress above the block to set it apart from.
+  if (!context.quiet) for (const line of ["", ...lines]) stderr(line);
+  else if (ending.kind !== "completed" && ending.kind !== "parked")
+    for (const line of lines) stderr(line);
   if (ending.kind === "completed") stdout(presented ?? kept.json ?? JSON.stringify(ending.value));
   else if (context.json && kept.json !== undefined) stdout(kept.json);
   return end.exitCode;

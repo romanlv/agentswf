@@ -40,6 +40,8 @@ export type RunCommand = {
   json: boolean;
   /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
   watch: boolean;
+  /** `--quiet`: no progress, so a run that completes or parks writes nothing to stderr. */
+  quiet: boolean;
   /** The sandbox every agent runs in, as `--sandbox`'s file gave it. */
   sandbox?: unknown;
   /** `--workspace` and `--keep-panes`, which the run records; absent, neither was given. */
@@ -62,6 +64,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   let cwdGiven = false;
   let json = false;
   let watch = true;
+  let quiet = false;
   let workCwd = cwd;
   let sandbox: unknown;
   let here = false;
@@ -83,6 +86,10 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     }
     if (option === "--no-watch") {
       watch = false;
+      continue;
+    }
+    if (option === "--quiet") {
+      quiet = true;
       continue;
     }
     if (option === "--here") {
@@ -152,6 +159,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     throw new Error(
       "--here prints what the calling agent does next, no document: leave out --json",
     );
+  if (here && quiet)
+    throw new Error("--here prints what the calling agent does next: leave out --quiet");
   if (continuing && named === undefined)
     throw new Error("--continue goes on with the run --id names");
   const id = continuing ? undefined : named;
@@ -176,6 +185,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     ...(values === undefined ? {} : { values }),
     json,
     watch,
+    quiet,
     here,
     ...(session === undefined ? {} : { session }),
     ...(sandbox === undefined ? {} : { sandbox }),

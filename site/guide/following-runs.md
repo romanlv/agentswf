@@ -46,6 +46,7 @@ verdict as its `value`, and none of the progress.
 | Flag | What it changes |
 | --- | --- |
 | `--json` | Standard output gets the run's whole record, its `out.json`, even when the workflow has `present`. A run that doesn't complete prints its record too, once its agents have started. Questions for [a person](/guide/people) are not asked at the terminal. |
+| `--quiet` | Leaves out the progress and the `wf.log` lines, for a run a scheduler or supervisor starts, which reads anything on standard error as a problem. A run that completes or parks writes nothing there; one that fails, stops or is cancelled writes only how it ended. A question for a person still prints how to answer it, and `awf logs` reads everything left out. |
 | `--no-watch` | Leaves out the tab a docker sandbox's panes get in the run's workspace ([Sandboxes](/guide/sandboxes)). |
 
 When a run has TUI agents, `awf run` prints once, as the first one opens, a line starting
