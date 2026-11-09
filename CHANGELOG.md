@@ -9,6 +9,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+## 0.1.1 — 2026-11-09
+
 ### Added
 
 - `awf run --quiet` leaves out the progress and the workflow's log, so a run a scheduler or
