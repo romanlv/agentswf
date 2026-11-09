@@ -291,6 +291,19 @@ test("a prompt pasted after its typed lead is the delivery, and other words befo
   );
 });
 
+test("claude may persist the lead without its trailing space", () => {
+  const lead = "Do what the pasted text below asks. ";
+  const pasted = `\n\n<pasted_content id="be6e">\n${marker} prompt\n</pasted_content id="be6e">\n`;
+  const reader = createClaudeReceiptReducer(marker, lead);
+  expect(
+    reader.push({ ...user(), message: { content: `${lead.trimEnd()}${pasted}` } }).accepted,
+  ).toBe(true);
+  const inline = createClaudeReceiptReducer(marker, lead);
+  expect(
+    inline.push({ ...user(), message: { content: `${lead.trimEnd()}${marker} prompt` } }).accepted,
+  ).toBe(true);
+});
+
 test("historical cwd sessions do not exhaust the live receipt file budget", async () => {
   const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
   const directory = join(home, "projects", "-probe");

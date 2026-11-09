@@ -33,9 +33,12 @@ export function createClaudeReceiptReducer(marker: string, lead?: string) {
   /** claude compacted on its own after the prompt: its answer's ancestry starts anew. */
   let restarted = false;
   let ended: TurnReading["ended"];
+  // Claude may persist the lead without its trailing space.
+  const typed = lead?.trimEnd();
   const matches = (value: unknown) => {
     if (typeof value !== "string") return false;
-    const prompt = lead && value.startsWith(lead) ? value.slice(lead.length) : value;
+    const prompt =
+      typed && value.startsWith(typed) ? value.slice(typed.length).replace(/^[ \t]+/, "") : value;
     if (prompt.startsWith(marker)) return true;
     // Claude wraps terminal bracketed pastes before persisting the human input.
     const paste = /^\n\n<pasted_content id="[A-Za-z0-9]+">\n/.exec(prompt);
