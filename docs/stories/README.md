@@ -180,6 +180,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   that reads nothing new, the result or a refusal from a published code set, the word
   `agentswf/client` throws where it meets the same failure; a test across every command keeps it
   so.
+- [[044-cases-for-a-workflow|044 — Try a workflow on cases you wrote, and see what it does]] —
+  `draft` — a person writes a case, an input and what a good result looks like; `awf-lab` runs
+  the workflow as it is now on every case and shows, case by case, what passed, how long it took
+  and what it cost; a run can be set beside an earlier one.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
