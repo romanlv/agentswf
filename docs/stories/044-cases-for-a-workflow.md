@@ -15,7 +15,29 @@ depends_on: ["008", "010", "011"]
 1. The review lab was an experiment. It should be refactored to use this approach, not kept
    beside it. Everything below that says "beside `review/`" or "reviews untouched" is out of date.
 2. Graders can be code, or another workflow. `expect` and the criteria judge are then the two
-   built-in graders, and a dataset (reviews, with their scorer) can bring its own. %%
+   built-in graders, and a dataset (reviews, with their scorer) can bring its own.
+
+What a read of `packages/lab/src/review` found reviews need from this design (2026-11-10):
+- A trial's setup fits: a `setup.ts` can restore the frozen code as `fixtures/git.ts` does, with
+  `input.json` holding base and head, and `files/` holding `request.md` and the bundle.
+- Grading does not fit as written. Reviews label every returned finding (hit, new, wrong, noise,
+  duplicate), which gives precision and the wrong share; this design has one verdict per key
+  criterion and scalar fields from `read`. A dataset's own grader (point 2) is what covers it.
+- A grader must be able to return numbers, not only pass or fail: a review trial never "passes",
+  it has weighted recall and precision. The report needs rows for a dataset's numbers.
+- A review grader reads the frozen code, and `score` runs it after the scratch folder is gone. So
+  a grader needs the setup run again for it, or the trial lifecycle changes.
+- The review judge's procedure (match by code, two voters, a tiebreak) differs from "three voters,
+  all agree". That belongs to the grader, not to the lab.
+- The key is more than one file there (`key/evidence/`, `fixes.bundle`). Either those leave the
+  dataset or "copy everything but `key.md`" becomes a hidden folder.
+- The `"lab"` sandbox must let agents reach their model; `sandbox` may need to name a provider
+  (reviews used a container).
+- Generic and worth carrying over: plan, estimate and asking before spending (`execute.ts`
+  `planRun`), waiting for a subscription window (`allowance.ts`), `runner.ts`, and `src/compare`
+  if the verdict stays. About 3,000 lines go (reuse by version, `loop/`, sealing, `check`,
+  `where`, `show`); `build/` (collect, draft-key) is how review cases get made and is not
+  `capture`. %%
 
 This story holds the current design. [[workflow-cases]] is the earlier thinking behind it; where
 the two differ, this story is right. Every command, file and number below is a sketch to react to.
