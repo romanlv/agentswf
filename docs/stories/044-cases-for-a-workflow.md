@@ -1,7 +1,7 @@
 ---
 id: "044"
-title: "Try a workflow on cases you wrote, and see what it does"
-summary: "A person writes a case (an input and what a good result looks like), before a workflow exists or after a run went wrong; awf-lab runs the workflow as it is now on every case, as many times as you ask, and shows case by case what passed, how long it took and what it cost. A run can be set beside an earlier one."
+title: "Run a workflow on cases you wrote, with its services faked, and get a score"
+summary: "A person writes cases (an input and what a good result looks like); awf-lab runs the workflow, with outside services swapped for the case, and says case by case what passed. A case that must pass and fails is a regression, and the command exits non-zero. The same cases can run on code in another folder, such as a worktree of main, side by side."
 type: story
 status: draft
 epic: loop
@@ -9,349 +9,532 @@ discovered_in: "a conversation about evals built from runs, 2026-11-09"
 depends_on: ["008", "010", "011"]
 ---
 
-# Try a workflow on cases you wrote, and see what it does
+# Run a workflow on cases you wrote, with its services faked, and get a score
 
-This story holds the current design. [[workflow-cases]] is the earlier thinking behind it; where
-the two differ, this story is right. The commands and example reports are sketches to react to;
-the formats, the rules and what is marked settled or costly to change are the design.
-
-To decide whether this is what you want, read Outcome, How it works and Scope. The rest is for
-whoever builds it.
+**How to read this.** Outcome and How it works say what is planned and how you would use it;
+read those two to decide whether it is right. Proposed design holds the exact rules for whoever
+builds it. Commands and reports are sketches to react to; the file formats and the rules are the
+design. [[workflow-cases]] is the earlier thinking; where the two differ, this story wins.
 
 ## Outcome
 
 Today, when a workflow gets something wrong, you fix the prompt, run it again on whatever is at
-hand, and hope. Nothing remembers the email it misjudged last week, and nothing shows you, case
-by case, what your change or a cheaper model did differently.
+hand, and hope. Nothing remembers the email it misjudged last week, and nothing tells you that
+your fix broke an email it used to get right.
 
-After this story there is a way to give a workflow a made-up input in place of the real one, check
-what it returns, and do that for many inputs at once. Three parts, as in any eval:
+The story has two angles. The first is most of the work; the second is small once the first
+exists.
 
-- **The variant**: a small piece of your own code that feeds a case to the workflow in place of
-  the real inbox or the real request, and picks what stays real, such as the model.
-- **The cases**: an input and a *key*, which says what a good result looks like, one folder
-  each. A workflow's cases together are its *dataset*.
-- **The grading**: graders, which are code or another workflow. Two are built in: exact checks
-  done by code, and written criteria judged by an agent. A dataset can bring its own, such as a
-  review scorer that gives recall and precision. Whether an agent judges criteria well enough is
-  tested first (task 1); if it doesn't, the criteria judge does not ship. A case can run several
-  times (`--trials`), since agents don't answer the same way twice.
+**1. Run and score: the regression loop.**
 
-**The basic thing: run the workflow as it is now, and check it.** Like a test run, on the code in
-your checkout:
+- You write **cases**: an input (an email, a request) and a **key** that says what a good result
+  looks like. Often a case starts as a run that went wrong.
+- A small file of your own per dataset, the **environment** (`env.ts`), sets up each case's world
+  the way a unit test's setup does: `bun:test` mocks in place of the inbox, `fetch` routes in
+  place of a site, the clock set to the case's day. Then it says what to read off once the run is over.
+  The workflow runs as it ships; its settings, such as the model, are its code.
+- `awf-lab run` runs the workflow, as it is in your checkout, on every case, as many times as you
+  ask, each trial in a throwaway folder, and grades each result against the key.
+- Each case says whether it **must pass** (the default) or is **known failing** (a problem you
+  have written down but not fixed). The report lists what failed and why, and `run` exits
+  non-zero when a case that must pass failed.
+- The loop: add a case for what went wrong; it fails; fix the workflow; run that case until it
+  passes reliably; run them all to see nothing else broke.
 
-```sh
-awf-lab case new mail/trip-form        # make a case folder, then fill it in (the first time,
-                                       # also awf-lab.json and the dataset's dataset.json)
-awf-lab run haiku --trials 3           # the workflow as it is here, on every case, three times
-                                       # (keys with criteria need a judgeAgent, in awf-lab.json or dataset.json)
-```
+**2. Compare: the same cases on other code.**
 
-```text
-mail · 12 cases · 3 trials each · variant haiku · branch shorter-prompt (a1b2c3d, uncommitted changes 5e6f)
-sandbox: the workflow's own · judge claude-sonnet-5-5, same family as the variant
+- `awf-lab run --against ../worktrees/app-main` runs the same cases, in the same run, on the code
+  in another folder: a worktree of `main`, another branch, an experiment. The change can be
+  anything (a prompt, a tool, a stage), since each side is a whole folder of code.
+- The report puts the two side by side and lists the cases that came out differently. It does not
+  say which side is better.
 
-passed every decided trial   10 cases
-passed some                  1 case
-passed none                  1 case
-too few trials decided       0 cases
-trials that errored          0 of 36
-trials whose grading errored 0 of 36
-trials undecided             1 of 36
-time per trial, median       8s
-est. cost per trial, median  $0.004
-est. cost, all trials        $0.15
-grading, all trials          $0.80
-criteria left unsettled      1 of 90   (criteria judged: 30 × 3 trials)
+Also here: `awf-lab capture {run id}` turns a past run into a new case.
 
-not passing, or undecided
-  no-school-friday    short    1/3    expected false, got true twice
-  trip-form           k2       2/2, 1 undecided    Judge split on k2 once
-  grade-3-only        k3       0/3    violated. Judge: "lists the grade 3 trip as an action"
-```
-
-That is the whole of it for most days: what the workflow does now, case by case, against what you
-said good looks like. With one dataset and one variant, `run` needs neither name. Without `--trials`, a case runs once.
-
-**How a trial passes.** In the report above, `short` is a field your variant reads from the
-result and the lab compares exactly. `k2` and `k3` are criteria from the case's key: a `must` is
-something that should be true of the result, a `must-not` something that should never be.
-Three agents vote on each criterion.
-
-Each trial ends one of three ways:
-
-- **Passed**: every exact check matched and every criterion was judged the right way.
-- **Failed**: at least one check or criterion went the wrong way.
-- **Not decided**: something other than the workflow's answer got in the way. The judges split
-  on a criterion (*undecided*), the run timed out or crashed (*errored*), grading itself broke,
-  or the key leaked to the agents. These are counted on their own rows, never as failures.
-
-A case is counted in the "passed" rows when at least two of its three trials were decided, and
-its line says what happened to the rest ("2/2, 1 undecided"). A case with fewer decided trials
-goes in "too few trials decided". A case with no key yet is counted only under "cases with no
-key".
-
-**Reading the report.**
-
-- **Cost** is an estimate from list prices, not a bill. If some usage had no known price, the
-  cell says "partly unpriced", so a model without a price never looks cheap.
-- **Per trial** figures are the workflow's own; what the judge cost is on its own line.
-- **Medians** of time and cost leave out errored trials, so one timeout doesn't skew them. A
-  variant that often times out can then look fast; the errored row is where that shows, and
-  "est. cost, all trials" includes every trial.
-- **sandbox** says what kept the agents in: here, the sandboxes the workflow opens itself.
-- `awf-lab report --case trip-form` prints one case in full, with each trial's workflow run, so
-  `awf logs` shows what the agents did.
-
-A case can also come from a run that already happened:
-`awf-lab capture {run id} --needs-work "{note}"` rebuilds its input from what the run left (an
-email's id, a request) into a new case for you to write the key of. With `--good` in place of
-`--needs-work`, it also drafts `expect` from what the run returned, for you to check: a run you
-call good is not proof. It is the last task here; until it is built, you make the case by hand.
-
-**Comparing is one run set beside another.** Every `awf-lab run` is kept under a label, which is
-the branch's name unless `--label` gives another (the short commit on a detached checkout), with
-the commit it ran on. To see what your change did, set this run beside the comparable run
-labelled `main`, picked as the rules below say:
-
-```sh
-awf-lab report --beside main
-```
-
-```text
-mail · 12 cases in both · 3 trials each  main (9f8e7d6)     shorter-prompt (a1b2c3d, uncommitted 5e6f)
-variant                                  haiku              haiku
-sandbox                                  workflow's own     workflow's own
-judge's family                           same               same
-passed every decided trial               12 cases           10 cases
-passed some                              0 cases            1 case
-passed none                              0 cases            1 case
-too few trials decided                   0 cases            0 cases
-trials that errored                      1 of 36            0 of 36
-trials whose grading errored             0 of 36            0 of 36
-trials undecided                         0 of 36            1 of 36
-time per trial, median                   9s                 8s
-est. cost per trial, median              $0.004             $0.004
-est. cost, all trials                    $0.16              $0.15
-grading, all trials                      $0.77              $0.80
-criteria left unsettled                  0 of 87            1 of 90
-
-cases whose passes differ by 2 or more   main               shorter-prompt
-  no-school-friday    short              3/3                1/3
-  grade-3-only        k3                 3/3                0/3
-
-The lab does not say which is better. Read the cases.
-```
-
-The last line is printed under every comparison of more than one trial, by design: the lab
-never says which is better. At one trial each it reads "One trial each: these are examples, not
-rates." instead.
-
-The rules, in order. T is the trials asked for per case, and the **threshold** is max(2,
-ceil(T/3)): 2 at 3 trials, 4 at 10. The list's heading names the threshold it used.
-
-1. **Pick.** `--beside {label}` takes, under that label, the finished run of the same dataset
-   with the same T that shares the most (case, variant) pairs with the current run, the newest
-   among equals. The header says which run it took, and whether it skipped a newer one and why.
-   If a current variant has no partner in that run, the header names a run of the label that
-   has it. `--beside {label}:{n}`
-   takes that run. Runs are never combined.
-2. **Refuse.** `--beside {label}:{n}` naming a run of another T, or a label with no run of the
-   same T, refuses, naming the counts.
-3. **Each case**, the first that applies. At one trial each, each column lists its own "not
-   passing, or undecided", each line naming its variant, and the order is:
-   - ungraded on either side: left out;
-   - leaked, input changed, in one run only, or the dataset's error or grading errored on either
-     side: could not compare;
-   - one side errored (the variant's error) or undecided and the other not: **differ (errored)**
-     or **differ (undecided)**;
-   - passed on one side and failed on the other: listed under "differ, one trial each".
-
-   From two trials up:
-   - ungraded on either side (no key, a draft, or numbers only): left out, shown only in
-     `--case`;
-   - leaked on either side, input not the same (both runs' case folders as built, and the
-     current case, must have one digest), or in only
-     one run (by case name: "not in {label}'s run"): **could not compare**;
-   - the variant's own errors (below), or the undecided trials, differ in count by the threshold:
-     **differ (errored)** or **differ (undecided)**, listed apart from pass-rate changes, so a
-     variant that times out on the hard cases, or pushes outputs to where the judge splits, does
-     not look better than one that answers them wrongly. One split is noise; a gap in splits of
-     the threshold's size is a signal about the outputs, and is shown as such, not as a pass or
-     fail;
-   - fewer than two thirds of its trials decided on either side, leaving out errored (the
-     dataset's errors included, which are never differ (errored)), grading errored
-     and undecided ones (a site that was down or a judge that split is not a change), or
-     fewer trials of it in a partial run: **could not compare**, with the reason;
-   - passes differ by the threshold even counting every trial not decided the way that narrows
-     the gap: each side has lo = its passes and hi = its passes plus its trials not decided, and
-     the case **differs** when one side's lo minus the other's hi reaches the threshold,
-     naming the check that failed. 3 passes against 1 is listed (3−1 = 2); 3 against 0 passes
-     with one undecided is listed (3−1 = 2); 2 passes with one undecided against 0 with one
-     undecided is not (2−1 = 1).
-
-At 3 trials a case that passes two times in three can show 3/3 on one side and 1/3 on the other
-by chance, so the list is of cases to read, not of changes found. The header says how many cases
-are in both runs, and when the picked run covered fewer of the dataset's cases. Every row of a
-side-by-side report, the summary rows and a grader's pooled numbers included, counts only those
-cases; a line under the header gives how many each side had outside them, left out when both
-are zero.
-
-The same rules set two variants of one run side by side, as two columns with a "differs" list
-between them: same commit, same inputs, same trials, the cleanest comparison there is. Across
-runs, columns pair by variant name, variant by variant, the earlier run first; a variant in only
-one run is shown alone, so renaming a variant's file, or a dataset's folder, stops it comparing
-with its kept runs.
-
-**Your first run on `main`.** The run on `main` is one you made there: before you started the
-change, or in another checkout of `main`. The first time, `main` has no `evals/` folder yet.
-Either commit `evals/` to `main` and run there, or run `awf-lab run --label main` on your branch
-before editing anything. (A committed key is within reach of agents that work inside the
-repository; "How the key stays out of reach" below says what that means for you.) Runs of one
-project are kept in one place, whichever checkout made them. The same goes for every case you
-add later: run the dataset again under `main`'s label (`awf-lab run --label main`) before you
-change the workflow, or the new case shows only as "not in main's run". When the dataset is too
-costly to run again whole, `--cases {new}` makes a run of its own, which `--beside main` does not
-pick over a fuller one; set it beside with `--beside main:{n}`. A run records the branch it was
-made on, and a column whose label is not that branch says so: "main (made on shorter-prompt,
-a1b2c3d)".
-
-**What counts as the same case.** Only cases whose input is the same in both runs are compared,
-and the input includes the files a dataset's cases share: edit those and no case compares until
-both sides have run again. Every run costs its full price again; nothing is reused from an
-earlier one. If you edit a key between two runs, `report --beside` asks you to run
-`awf-lab score` first: it grades both runs' kept trials again against the keys in your checkout,
-and pays the judge again, without running the workflow. A trial keeps every score it was given;
-the report reads the one made against the current key and graders.
-
-**Two variants in one run are two columns.** A variant is a file that wires your workflow to a
-case; a second one with another model or other settings is a second variant. `awf-lab run haiku sonnet` runs both and reports them side by
-side, the same way.
-
-**Before you start:**
-
-- It needs git: a run is kept under its branch and commit.
-- The lab is not published. A project uses it by linking `@agentswf/lab` from a checkout of this
-  repository (`bun link`), which also gives it `awf-lab`.
-- Your workflow has to take the services it talks to, and things like today's date, as
-  arguments, or there is nothing to swap.
-- Put your model's login (such as `CLAUDE_CODE_OAUTH_TOKEN`) in the environment before
-  `awf-lab run`, and the login of the judge's harness too when it is another provider's. The lab does not read the files your own launcher reads.
-- Anything you forget to fake stays real. The lab does not stop it.
-- Criteria are judged by three agent votes per criterion per trial, on your credentials. That
-  costs apart from the trial, at the rates the report uses, and the report shows its total. On a cheap workflow, judging can
-  cost more than the trials.
-- The project's own `agentswf` runs the trials. If it is too far from the lab's to be read, `run`
-  stops and says so.
-- One `run` or `score` of a project at a time, whatever the dataset; a long run holds up the
-  others. Judging adds one judge run per trial, about as long as the trial again for cheap
-  workflows.
-- Trials run one at a time, round by round: trial 1 of every case and variant, then trial 2, so
-  a live site that changes during a long run does not fall on one variant.
-- A key you commit can be read by an agent that works inside your repository, as the mail
-  triage's do until task 2 moves them out. The lab notices a key copied word for word, not one
-  put in other words.
-- Nothing here is stable yet. Kept runs and your variant files may need redoing after you update
-  the lab.
-- A variant, and a dataset's optional `setup.ts`, `graders.ts` and `capture.ts` (the dataset's
-  own code), are your own trusted code. They run on your machine with your whole environment,
-  credentials included, outside any sandbox. A `check` that runs what the agents built, as
-  web-to-cli's does, runs code agents wrote: give that command only the environment it needs,
-  as the example below does; the lab does not sandbox it.
-- A trial of web-to-cli's build (below) acts on a live site. A `must-not` is graded after the act; it prevents
-  nothing.
-- Cases and results can hold private text, such as real email. Results are kept outside the
-  repository, under `~/.awf/lab/`, with a full copy of each trial's input and result; delete a
-  run's folder there to be rid of it. A cases folder with real mail belongs in a private
-  repository.
-- What is kept in `~/.awf/lab/` can hold a key: a judge's reasons quote it in other words, and
-  the record of a grader that is a workflow holds it word for word, without its marker. An
-  agent whose sandbox can read your home folder could read them, and the tripwire would see
-  neither.
-  A `"workflow"` dataset trusts its workflow's sandboxes to keep agents out of your home folder,
-  and out of your repository's `evals/`, where the keys sit; tasks 2 and 5 check both for the
-  two workflows here.
-
-The lab is tried on two workflows that pull in opposite directions:
-
-- **A mail triage.** A scheduled workflow reads new mail and has one agent per email decide
-  whether it matters and summarize it. The question: given this email, what would it produce? A
-  trial takes seconds and costs cents, the answer is structured, and nothing real is touched.
+It is built and tried on two workflows that pull in opposite directions:
+%% make sure to clone those repos locally and story outcome should be a working evals in those repos , they might be already cloned, search in ~/dev/ %%
+- **A mail triage.** A scheduled workflow reads new mail; one agent per email decides whether it
+  matters and summarizes it. A trial takes seconds, costs cents, and touches nothing real.
 - **web-to-cli's build** ([`core/workflows/build.ts`](https://github.com/romanlv/web-to-cli)).
-  From one sentence, agents explore a live site, write a command for it, check it and merge it.
-  The question: can it be faster or better, and on which models? A trial takes half an hour and
-  costs dollars, it writes code, and it needs the real site.
+  From one sentence, agents explore a live site, write a command for it, check it and merge it. A
+  trial takes half an hour, costs dollars, writes code and needs the real site.
+
+Reviews, today the lab's only kind of case, move onto this design in the next story. Scope lists
+what is left out.
 
 ## How it works
 
+### The parts
+
+| Part | What it is | Who writes it |
+| --- | --- | --- |
+| **Case** | One folder: the input (files, small facts) and the key | you, by hand or with `capture` |
+| **Environment** | `env.ts`: a code file that sets up one case's world (mocks, `fetch` routes, a prepared folder, stages given), runs the workflow as it ships, and returns the facts to grade | you |
+| **Grader** | Turns a trial's result and the key into passed, failed or undecided. Two are built in: exact checks done by code (`expect`) and written criteria judged by agents (`criteria`). A dataset can add its own | built in, or you |
+
+A workflow's cases, environment and settings together are its **dataset**. One run of the
+workflow on one case is a **trial**. One `awf-lab run`, with all its trials, is a **run**. Each
+folder of code, your checkout and with angle 2 each other folder, is a **column** of the report.
+
 ```text
 evals/                              in your project, beside your workflows
-  awf-lab.json                      marks the folder: { "kind": "awf.lab-workspace/0",
-                                    "datasets": "datasets",
-                                    "judgeAgent": { "harness": "claude",
-                                                    "model": "claude-sonnet-5-5" } }; may say where
-                                    results are kept ("store")
-  datasets/mail/
-    dataset.json                    which sandbox a trial runs under
-    setup.ts                        optional: prepares a trial
+  awf-lab.json                      marks the folder; names the judge's model
+  mail/                             a dataset: a folder holding dataset.json
+    dataset.json                    the sandbox setting, agents' reach, other settings
+    files/                          what every case shares, such as the priorities
+    env.ts                          each case's world, and what to read off after the run
     graders.ts                      optional: the dataset's own graders
     capture.ts                      optional: turns a past run into a case
-    files/                          what every case shares: the priorities
-    variants/haiku.variant.ts       your workflow, wired to a case
     cases/trip-form/
       input.json                    optional: small facts, such as today's date
-      files/                        optional: what the workflow reads, such as the email
+      files/                        optional: what the environment reads, such as the email
       key.md                        what a good result looks like
-      key/                          optional: files a grader needs, such as a review's evidence
-
-  awf-lab run
-     for each case, for each trial, in temporary folders outside your repository
-     (this hides the key only from agents that work in those folders; see below):
-       1. make the case folder: the dataset's files/, then the case's files/ over them, then
-          input.json. Never key.md or key/.
-       2. make an empty scratch folder. Run the setup in it, if the dataset has one.
-       3. look for the key's marker in both folders; if found, the trial ends as leaked
-       4. awf run the variant, told where the case folder is               ─▶ a result
-       5. call the setup's check; then look for the marker in what the run and the check left
-       6. run each grader on the result and the key, while the scratch
-          folder still exists                                              ─▶ a score
-  awf-lab report                    reads the stored scores; runs nothing
+      key/                          optional: files a grader needs
 ```
 
-The words used below:
+A dataset is a folder directly in `evals/` that holds a `dataset.json`, so the mail cases are
+`evals/mail/` and the dataset's name is `mail`; there is no `datasets/` level to remember.
 
-- **Dataset**: the cases for one workflow, with its variants and its settings.
-- **Case**: an input and a key, one folder.
-- **Key**: what a good result looks like: `key.md`, and `key/` when a grader needs files. It is
-  never copied to where the workflow works.
-- **Grader**: code, or another workflow, that turns a trial's result and the key into a score: a
-  verdict, numbers, or both. `expect` and the criteria judge are the two built in.
-- **Variant**: a file that runs your workflow on one case.
-- **Setup**: the default export of `setup.ts`, code that prepares a trial before the workflow
-  starts. Nothing else is called setup. The dataset's graders live in `graders.ts` and its
-  `capture` in `capture.ts`, each a file of its own so that editing one never makes the others'
-  scores stale.
-- **Trial**: one run of one variant on one case.
-- **Run**: one `awf-lab run`: every trial it made, kept together under a label. (A trial's own
-  `awf run` is called "the workflow's run" where the two could be confused.)
-- **Case folder**: the copy of a case a trial may read. **Scratch folder**: an empty folder a
-  trial may write in. Both are made per trial and deleted after.
+### The environment: a case's world, set up in code
 
-Why it is laid out this way:
+A case runs the workflow as it ships, in a world the case makes up: an inbox holding one email, a
+clock reading a Tuesday, a site that answers with two pages. That world is written once per
+dataset, in `env.ts`, the way a unit test's setup is written, and with the same tools: `bun:test`'s
+mocks as an agent or a person already writes them in tests, and the web's own `Request` and
+`Response` for a site. The lab adds no package for your project to install, and adds only what a test
+runner would otherwise do: it reads the case, stands in for `fetch`, and starts each trial in a
+fresh process.
 
-- **A folder per dataset**, because the sandbox, the setup and the shared files belong to one
-  workflow's cases.
-- **A folder per case**, because a case can hold any file (an attachment), and a diff shows
-  whether its input or its key changed.
-- **The key in a file of its own.** The lab copies every file except `key.md` and the `key/`
-  folder beside it. Skipping two fixed names is simple and easy to test. If the answer sat inside another file, the lab would have to cut it out, and a mistake
-  there would show the agent the answer.
-- **Variants inside the dataset**, because a variant imports one workflow and so belongs to one.
+```ts
+// evals/mail/env.ts
+import { defineEnv } from "@agentswf/lab/cases";
+import * as clock from "../../mail-triage/clock";
+import * as mail from "../../mail-triage/mail";
+import * as notes from "../../mail-triage/notes";
 
-**A case** can be written before any workflow exists. For the mail triage:
+export default defineEnv({
+  workflow: () => import("../../mail-triage/workflow"),
+
+  setup(c) {
+    const raw = c.json("email.json");
+    const email: mail.Email = { ...raw, date: new Date(raw.date) };
+
+    const inbox = c.mock(mail, {
+      listNew: async () => [email],
+      read: async () => email,
+      markDone: async () => {},
+      reply: async () => {},                 // recorded; the key says it must not happen
+    });                                      // anything else of mail.ts: no fake, the trial errors
+    c.mock(notes, { recent: async () => "" });
+    c.mock(clock, { today: () => new Date(c.input.today) });
+
+    return {
+      observe: (result) => {
+        const item = result?.items?.[0];     // a result of the wrong shape is a fact, not a throw
+        return {
+          relevant: item?.relevant ?? null,  // null: the workflow returned no item, a fail
+          short: item?.short ?? null,
+          markedDone: inbox.markDone.mock.calls.length > 0,
+          replied: inbox.reply.mock.calls.length > 0,
+          error: item?.error ?? "",          // non-empty: the workflow failed on this case
+        };
+      },
+    };
+  },
+});
+```
+
+`defineEnv` takes two things:
+
+- **`workflow(c)`**: the workflow as it ships, imported lazily so the mocks exist before it loads.
+  It may import from a copy `setup` made in `c.scratch`, for a workflow that finds its project
+  from where its code is (web-to-cli's build does); a module to mock is then imported from the
+  same copy, inside `setup`, typed from your checkout so `c.mock` still checks it:
+  ``const mail: typeof import("../../core/mail") = await import(`${c.scratch}/core/mail.ts`)``.
+  Mocking your checkout's file instead misses: the copy is another module, and the workflow
+  calls its real function. So after the import, a mocked module under `c.root` whose file at the
+  same path is also loaded from `c.scratch` errors the trial as the dataset's ("mocked
+  core/mail.ts in your checkout; the workflow loads the copy").
+- **`setup(c)`**: builds the world, a test's arrange step, and returns what the run needs:
+  - **`observe(result, { stages })`**, required: called once the body returned or reached `until`, it returns the
+    **facts** the key's `expect` checks, read from the workflow's result, the stages' values, and
+    what the mocks recorded. It never asserts: to check that no reply went out, return
+    `replied: inbox.reply.mock.calls.length > 0` and put `replied: false` in the key. The key is the
+    assertion, so a fact that fails is reported beside the others, and editing a key never means
+    editing code. A body that failed fails the trial as the workflow's; one broken by `setup`
+    errors it as the dataset's, and `observe` is not called; a refused call errors it as the
+    dataset's whether or not the body went on;
+  - `argv`, when the workflow takes arguments;
+  - `stages` and `until`, to give a stage its value or stop after one (below): `stages` maps a
+    stage's name to a function returning its value, called when the stage is entered.
+
+Settings that are data live in `dataset.json` (see "Settings files"): among them the body's
+`timeout` and `setupTimeout`, `keep` (the files saved from the scratch folder for the judge),
+and `realHosts`.
+
+`c` is the case:
+
+| Call | What it does |
+| --- | --- |
+| `c.json(name)`, `c.text(name)` | read the case's files, the dataset's shared ones and its own; synchronous |
+| `c.input`, `c.dir` | `input.json`; the built case folder: the dataset's shared `files/` and the case's own merged at its root, the case's winning, plus `input.json` |
+| `c.scratch`, `c.root` | the trial's empty working folder; the code folder |
+| `c.mock(module, fakes)` | replaces a module's functions with `bun:test` mocks, strictly |
+| `c.fake<T>(fakes)` | a strict typed object, for a client a factory returns (`connect()`) |
+| `c.http(routes)` | answers the workflow's `fetch` calls from routes; strict for a host a route names, and any other host refused unless the engine's own or in `realHosts` |
+| `c.cleanup(fn)` | teardown, run after `observe` even when the run fails |
+
+`bun:test`'s `spyOn`, `mock` and `mock.module` work as they do in a test. Two things from tests
+don't belong here: `expect` (see `observe`), and `setSystemTime`, which outside `bun test` freezes
+`Date.now` for the whole process, the engine's deadlines and timings included. The case's day
+reaches the workflow through a function of the workflow's own, `clock.today()` here, which the
+case mocks. Each trial is its own `awf run` process, so nothing a mock or the lab's `fetch` changed outlives it,
+and there is nothing to restore.
+
+#### Where a workflow touches the world
+
+| The call is made by | It runs in | Faked with |
+| --- | --- | --- |
+| the workflow's own code | the trial's process | `c.mock`, `c.http` |
+| a tool the workflow gives its agents (`tools`) | the trial's process: the control plane calls the handler there | the same: a handler that calls `mail.markDone` gets the mock |
+| a command the workflow's own code starts (`Bun.spawn`, `$`: `gh`, `git push`) | a child process | nothing directly: wrap the command in a module of the workflow's own and `c.mock` that |
+| an agent's own commands: `curl`, `gh`, the project's CLI | the agent's process, in a sandbox (a trial requires one) | not in this story; its reach is checked against `agentReach`: see "What agents call themselves" |
+
+The model is never faked: it is what a case measures. A workflow's wiring is tested with scripted
+agents in its unit tests (`agentswf/testing`), at no cost; a case is the live step above that.
+
+So the advice for a workflow that wants its cases cheap to write: **give agents a service as
+tools, not as a command.** A tool's handler runs in the trial's process, where every mock reaches
+it.
+
+#### `c.mock`: faking a module
+
+```ts
+const inbox = c.mock(mail, { listNew: async () => [email], markDone: async () => {} });
+
+inbox.markDone.mock.calls                    // [["m1"]], as any bun:test or Jest mock
+inbox.listNew.mockResolvedValueOnce([])      // the usual mock methods, for a second call
+```
+
+`c.mock` takes the imported module, not a path: unlike `vi.mock`, `jest.mock` and `mock.module`,
+it isn't hoisted and doesn't replace the module, it works like `spyOn` on every function export,
+and the trial's process ending undoes it. `c.mock(mail, fakes)` is
+`spyOn(mail, name).mockImplementation(fake)` for each fake, plus three things a case needs and
+`bun:test` doesn't do:
+
+- **Typed by the module.** `import * as mail` gives `c.mock` the functions and their types, so a
+  fake of the wrong shape (sync where the function is async, a wrong parameter), or an export the
+  module doesn't have, is a type error before any trial. (`spyOn` on a misspelled export silently
+  does nothing; `c.mock` refuses one at run time too.)
+- **Strict.** Every plain function export not listed is mocked too, and throws "no fake for
+  mail.delete in this case" when called. The lab records the call on its own side, so the trial
+  errors with that reason, as the dataset's, even when the workflow catches the throw and carries
+  on: the case is missing a fake, so add one (and a fact, when the call must not happen, as
+  `reply` above). A call the workflow reaches through the patched module never reaches the real
+  service.
+  Classes stay real unless faked by name (`instanceof MailError` keeps working), and a pure helper
+  stays real when named: `c.mock(mail, fakes, { real: ["parseHeaders"] })`.
+- **Reported when unused.** A fake the case gave that was never called is listed first on the
+  case's report line, even when it passed ("mail.listNew was mocked but never called"), one sign
+  of the one thing it cannot reach (below), where the real function runs. Refusing stand-ins
+  aren't listed, nor is a mock whose calls `observe` read (`reply` above, meant never to be
+  called).
+- **Objects too.** An exported object with function members (`export const client = { reply }`)
+  is part of the strict surface: its methods refuse unless faked with `c.mock(mail.client, …)` or
+  named in `real`.
+- **Not for builtins.** `c.mock` refuses `node:*` modules and `bun`: the engine shares the
+  process and calls them too. Mock the workflow's own module that wraps them.
+
+The type check covers a fake written in the call; a set of fakes built elsewhere, like
+`fakeMail` below, is checked for shape but not for a misspelled extra key, which the runtime
+refuses when `c.mock` is called.
+
+It returns the mocks, by name: plain `bun:test` mocks with `.mock.calls`, `mockResolvedValueOnce`
+and the rest, so `observe` checks what the workflow *did*, not only what it returned.
+
+A set of fakes can live beside the module and serve the workflow's own tests too:
+
+```ts
+// mail-triage/mail.fake.ts
+import type * as mail from "./mail";
+export const fakeMail = (emails: mail.Email[]) => ({
+  listNew: async () => emails,
+  read: async (id: string) => emails.find((e) => e.id === id)!,
+  markDone: async (_id: string) => {},
+});
+
+// in env.ts, or in mail-triage/workflow.test.ts with spyOn
+const inbox = c.mock(mail, fakeMail([email]));
+```
+
+A client a factory returns is not an export to mock. `c.fake<T>(fakes)` makes a strict typed
+stand-in for it, refusing and reporting like `c.mock`:
+
+```ts
+const db = c.fake<store.Client>({ query: async () => rows });
+c.mock(store, { connect: async () => db });
+```
+
+A default-exported function is `{ default: fn }`; a default-exported object is
+`c.mock(mod.default, fakes)`. A class's methods are `c.mock(MailClient.prototype, fakes)`, which
+leaves its constructor real; when the constructor connects, mock the factory instead.
+
+How it works, and the one rule that follows. Bun patches a module's export in place (`spyOn` on
+the module's namespace), and every module that imported it sees the mock: default exports,
+`const` and `let` exports, re-exports through an index file, class methods, npm packages, and one
+function of the module calling another. A copy of a function taken when a module loads keeps
+whatever it took then. The workflow loads after `setup`, so its copies take the mocks. A module
+`env.ts` itself imports loads before `setup`, and its copies stay real. So the rule is: **`env.ts`
+reaches the workflow only through `workflow: () => import(…)`**, and imports its types with
+`import type`; it imports a service module only to mock it. A module loaded before `setup`,
+directly or through what `env.ts` imports (a `notes.ts` that took `clock.today` at load), keeps
+any copy it took, and nothing reports it when other callers use the mock. Where that can happen,
+`mock.module(path, factory)` in `setup` replaces the module before it loads, as in a test. A mock
+reported unused is one sign of a copy, not a proof there is none. A module that does something
+when it loads (a client that connects, a setting it reads and throws without) is never imported
+statically by `env.ts`: `setup` calls `mock.module` for it and then `await import`s it, or leaves
+it alone.
+
+#### `c.http`: faking a service on the network
+
+Routes keyed by method and URL, answered with the web's own `Response`:
+
+```ts
+c.http({
+  "GET https://school.example/posts/:id": (req, { params }) =>
+    Response.json(c.json(`posts/${params.id}.json`)),
+  "POST https://school.example/forms": () => new Response(null, { status: 201 }),
+});
+c.http.requests                              // every request seen, method, URL and body
+```
+
+The URL is a `URLPattern` (built into Bun), so `:id` and `*` match as in a router; routed hosts
+compare by hostname, so a route's port and scheme don't widen or split it. The lab replaces `globalThis.fetch` on every trial, with or without
+`c.http`, before anything else in the trial's process loads (a preload, see "Running a trial"),
+so a client that keeps a reference to `fetch` when it is imported keeps the lab's. It sees every
+request the workflow's process sends with `fetch`:
+
+- **A host a route names** is strict, as a module `c.mock` names is: a request no route matches
+  is refused and recorded on the lab's side, so the trial errors as the dataset's (a missing
+  route) even when the workflow catches it.
+- **Any other host** is refused the same way ("reached api.example.com: add a route, or list it
+  in realHosts"), unless it is the engine's own (`wf.decisions` calls its provider with `fetch` in
+  the same process, a real model call on every trial, not an agent) or `dataset.json`'s `realHosts` lists it; those go to the real `fetch`. A real
+  call nobody faked never passes quietly.
+- **Every route names a literal host** (`https://school.example/…`): a relative path, or a
+  hostname holding any of `* : { } ( ) ? + \`, is refused at `c.http`.
+- **A `fetch` over a unix socket** (Bun's `unix` option, as web-to-cli's check that its browser is up) names no
+  host: it goes to the real `fetch` and is recorded in `c.http.requests`.
+
+The lab assumes a workflow reaches its services with `fetch`, as Bun code does. A client built on
+Node's `http` (axios in its Node mode, an older SDK), or one that calls `Bun.fetch`, which goes
+past a replaced `globalThis.fetch`, is not seen by `c.http`, nor refused: mock
+the module that wraps it with `c.mock`, or install a tool of your own, such as msw, in the
+project and start it in `setup`. `env.ts` is your code and may import any of the project's
+dependencies. Use `c.http` for a client you didn't write, an SDK or a plain `fetch`, where there is
+no module of your own to mock. Where there is one, `c.mock` is shorter.
+
+#### What agents call themselves
+
+An agent's own commands run in its process, and in a sandbox that process starts from nothing:
+srt and docker build its environment from scratch and allow only named domains, so neither a
+proxy setting, a fake command first on `PATH`, nor a preload reaches it, and the host's
+`127.0.0.1` is out of reach. Faking those calls is out of this story (Q9). What this story does
+instead is make sure an agent's reach is known:
+
+- **Every agent of a trial runs in a sandbox**, and the sandboxes reach no more than
+  `dataset.json`'s `agentReach` lists: its `network` domains (each agent's model domains, which
+  its harness adds, are always allowed), `webSearch` and `sockets`. The lab checks it after each trial from
+  the run's own records, the `agent-opened` and `sandbox-opened` lines and the run record's
+  `sandboxes`, which name each agent's
+  sandbox and each sandbox's `spec`. An agent with no sandbox, or a sandbox wider than the list,
+  errors the trial as `reach` (the dataset's), naming the agent and the domain: either the
+  workflow widened its reach or the list is behind, and either way the trial's result may come
+  from a real service. It is a check after the fact, not a wall: the engine opened the sandbox
+  as the workflow asked. A ceiling the engine enforces before an agent starts is a later story.
+- A workflow whose agents reach a service through `tools` doesn't have the gap (above): give an
+  agent a tool rather than a domain, and the case fakes it.
+- A case for a workflow whose agents call a service directly keeps that service off its list
+  (`"agentReach": { "network": [] }` for the mail triage), so the agent's call fails instead of
+  reaching it, and the case tests the workflow without it.
+
+How faking them would fit later: the world `env.ts` sets up gains agents' side, and nothing else in
+a case changes. The same `c.http` routes would answer an agent's `curl` as they answer the
+workflow's `fetch`, with the same refusals and the same blame. Two routes in:
+
+- **The engine's**: a socket into the sandbox, as the `wfa` door has, with the proxy setting
+  pointing at it, and the lab serving the routes from the trial's process. Plain HTTP works with
+  what was tried; HTTPS needs the agent's tools to trust a certificate the lab makes, set per
+  tool (`curl`, `gh`, Node and Bun each read a different setting).
+- **Outside tools, today**: a service's own test account (a test inbox, a sandbox tenant) listed
+  in `agentReach`, or, with docker, a mock server (WireMock, Prism from an OpenAPI file) beside
+  the agent's container. They work without awf's help, but are shared across trials and
+  cases, not built per case, so a case can't say what they answer; fine for a smoke test, weak
+  for a key.
+
+What was proven for later, unsandboxed: a fake HTTP service reached through `HTTPS_PROXY` (Bun,
+curl, git, gh and Claude Code honor it; Node needs `NODE_USE_ENV_PROXY=1`), and a module fake in a
+child Bun process through `BUN_OPTIONS="--preload=…"`, answering over a unix socket from the
+trial's process, with calls recorded in order across processes.
+
+#### One stage of a multi-stage workflow
+
+A workflow's stages are its `wf.stage(name, options, work)` calls, and the lab hands the workflow
+its `wf`. So a case can say, per stage, what happens:
+
+```ts
+// evals/specs/env.ts: the build's spec stage alone, from a past run's intake and explore
+import { $ } from "bun";
+import { defineEnv } from "@agentswf/lab/cases";
+import { prepareCli, recordOp } from "../builds/prepare";
+
+export default defineEnv({
+  // The copy, not your checkout; typed from your checkout, since a template import is `any`.
+  workflow: (c) =>
+    import(`${c.scratch}/core/workflows/build.ts`) as Promise<typeof import("../../core/workflows/build")>,
+
+  async setup(c) {
+    const { intake, explore } = c.json("stages.json");    // copied from a past run's run.jsonl
+    // The builds env.ts's setup, factored into a helper: configure the CLI into c.scratch (it
+    // must be empty) and file the request.
+    const { request } = await prepareCli(c);
+    // A given intake runs none of its work, so record the op it would have put in the ledger.
+    await recordOp(c, request, intake);
+    // What explore wrote, committed where the build branches its worktree from (main):
+    // the build works in a worktree of its own, never in uncommitted files.
+    await $`cp -R ${c.dir}/site/. ${c.scratch}/site/`;
+    await $`git add -A && git -c user.name=lab -c user.email=lab@localhost commit -qm explored`.cwd(c.scratch);
+
+    return {
+      argv: [request.id],                                        // the build takes a request id
+      stages: { intake: () => intake, explore: () => explore },  // given: their work is not run
+      until: "spec",                                             // stop once spec has returned
+      observe: (_result, { stages }) => ({ specced: stages.spec !== undefined }),
+    };
+  },
+});
+```
+
+- **Given.** A stage named in `stages` runs with work that returns the given value instead of its
+  own. None of the stage's own work runs, its side effects included, so `setup` recreates what
+  later code reads (a given web-to-cli `intake` records no `op` in the request's ledger; `setup`
+  writes it). It is still the engine's stage: its `result` schema checks the value and the run records it,
+  so a value of the wrong shape errors the trial as the dataset's. Any stage can be given, not only
+  the first ones. Stages not named run live, against the mocks.
+- **`until`.** Once that stage returns, the workflow stops there: the lab's `wf` ends the
+  workflow's body, the run completes, and `observe` gets the stages' values (`result` is `null`).
+  No engine change, and no new ending. A stage is entered at most once per attempt, so "once it
+  returns" is never ambiguous.
+- **Names are checked, and an early end is graded.** A name in `stages`, or `until`, that appears
+  nowhere in the workflow's source (a misspelling) errors the trial as the dataset's
+  (`stage-missing`) after the workflow is imported and before its body runs, a check of the
+  dataset's own. A real name the run never entered is the workflow's
+  doing: a live `intake` that decided there was nothing to build ends the run early. Then
+  `observe` runs on the real result with the stages it reached, the key grades it, and the report
+  notes "never reached spec".
+- **A value names things.** A review stage's value names a branch; `setup` rebuilds it, as any
+  setup would. A value that names nothing real fails the stage live, as it would on a continue.
+- **From a past run.** A stage's value is in the run's `run.jsonl`; copied into the case, it makes
+  one stage of a real run into a case.
+- **What stays live.** Code between stages runs. A live stage's work runs whole; inside it, the
+  mocks are how to fake a part.
+
+#### Running cases in it
+
+For each case, and each trial of it:
+
+```text
+1. the lab builds the case folder (shared files + the case's files + input.json, never the key)
+   and an empty scratch folder, both outside your repository
+2. it starts the code folder's own `awf`, in the code folder, as
+   `bun --no-env-file --preload {fetch} {awf bin} run --json --quiet --cwd {scratch} --run-root {store} --timeout {backstop}
+   evals/{dataset}/env.ts` (the backstop under "Timeouts"), told where the case folder is
+3. inside that one process: setup → the workflow is imported and run → observe → `c.cleanup`'s
+   teardown; as they happen, the phase, the refused calls, the mocks never called and at the end
+   the facts and stages' values go to the trial file, which the lab reads whatever the ending
+4. the lab checks from the run's `agent-opened` and `sandbox-opened` lines and the run record's
+   `sandboxes` that every agent was
+   sandboxed within `agentReach`, looks for the key's marker (scratch folder, result, saved
+   files, agents' logs), saves `keep`'s files, grades the facts and the result against the key, deletes both folders.
+   The marker is looked for here and before the process starts, never between `setup` and the
+   workflow: a key `setup` copied in is found here, and the trial is leaked
+```
+
+- **One process.** `setup`, the workflow and `observe` share it, so a mock is a plain function
+  and `observe` reads what it recorded directly. Only the run's result and the trial file leave.
+- **Fresh every trial.** `setup` runs again for each trial, so nothing carries over and there is
+  no reset to forget.
+- **Trusted code, unsandboxed.** `env.ts` is your code, as the workflow is. Only the agents the
+  workflow starts are sandboxed, by the workflow's own sandboxes.
+- **Try one case by hand**: `awf-lab run --cases trip-form` runs it once and prints the result,
+  the facts, any mock never called, and the grade.
+
+When the world is a folder rather than functions, `setup` prepares it with plain code: web-to-cli's
+build, under "A second example", copies the CLI into the scratch folder and files the request, and
+its `observe` runs the command the agents built.
+
+#### Other ways to fake, and why this one
+
+| | Fakes as arguments | Module and in-process fakes (this) | Network fakes for agents | Record and replay | Real services, throwaway | agent-env |
+| --- | --- | --- | --- | --- | --- | --- |
+| Workflow changes | every service becomes a parameter | none; call services through their import | none | none | config only | services rewritten as MCP envs |
+| Reaches agents | no | through `tools` | yes, unsandboxed only today | through the same proxy | yes | MCP tools only |
+| New agent behaviour | fine | fine | fine | an unrecorded request misses | fine | fine |
+| Per trial | free | free | free | free | slow, leftover state | needs reset hooks |
+
+Fakes as arguments was an earlier draft of this story: it can't reach anything an agent does, and
+it bends every workflow around being tested. Record and replay assumes the same code sends the
+same requests, which agents don't; a recording is still good raw material for a fake's data, and
+`capture` turns a past run into a case. Real services fit what is cheap to start (a git repository,
+a database in a container) and go in `setup` like any other setup.
+
+**Taken from agent-env, and left there.** agent-env (`agentenv-framework`) gives each service two
+faces: tools the agent sees, and a control side the harness uses to reset, seed and read it. Here
+that is a fake and what it recorded. Its run loop gives each run a fresh world and tears down what
+the run made even after a crash, as `setup` and `c.cleanup` do. Left out: tasks as JSON step lists,
+checks loaded as files at run time, stores and versioned entities, a gateway and database in front
+of every fake, and a shared context with rollback. Two ideas wait for workflows that need them:
+scripted world events on the clock ("on day 2, a reply arrives"), and a simulated person who
+answers the workflow's questions.
+
+#### What was tried
+
+On Bun 1.4.0, outside `bun test`, 2026-11-15:
+
+- `spyOn` on a module's namespace reaches a workflow that imported the function, even after it
+  loaded, and records calls; covers default, `const`/`let`, re-exports, prototypes, npm ESM, and
+  calls within the module. Fails for copies taken at load. CJS needs both the named export and
+  `default` patched. `spyOn` doesn't check the export exists, so `c.mock` does.
+- `mock.module` and `Bun.plugin` (`onLoad` returning `exports`) also work outside tests. A
+  `mock.module` survives `mock.restore()`, one reason each trial gets a process of its own.
+- `setSystemTime` sets `Date` and `Date.now()` outside tests, for the whole process: inside
+  `awf run` it froze the engine's clock (a run that started on 2026-11-15 finished on 2020-01-07,
+  in 0 ms). So a case fakes the day through the workflow's own clock function.
+- A hand-written `defineEnv` ran a three-stage workflow's body with a wrapped `wf`
+  (`Object.create(wf, { stage })`, since `wf` has a getter): its `prepare`, stage schemas, `wf.cwd`
+  and a mocked module all worked; `until` left only the stages up to it recorded and the run
+  `completed`; a given value of the wrong shape failed the run in that stage.
+- Replacing `globalThis.fetch` in a plain Bun process answered every `fetch`, an imported
+  module's included; Node's `https.get` went past it, and patching `https.get` on the module
+  missed a caller that imported `get` by name (2026-11-15). `URLPattern` matched `:id` paths.
+  `expect(mock).toHaveBeenCalledWith(…)` works outside tests and throws a plain
+  error.
+- A typed `c.mock(ns, fakes)` prototype refused a wrong field type, a wrong parameter, and an unknown
+  export at type-check time.
+- Across processes: a Bun child and grandchild answered by the trial's fake over a unix socket;
+  `BUN_OPTIONS` must use `--preload=path`; values cross as JSON (a `Date` becomes a string).
+- Sandboxes: srt and docker build agents' environment from scratch, `network` takes domains only,
+  srt reaches host unix sockets only through `sockets`, docker none; Herdr panes start from an
+  allowlist. No per-run MCP option exists.
+- `awf run --from-stage b --values v.json` on a fresh run gave stage `a` the value
+  (`provided: true`) and ran `b`.
+
+### Angle 1, walkthrough: the mail triage
+
+**1. Write a case.** The input is the email, as the workflow would read it:
 
 ```json
-// cases/trip-form/files/email.json
+// evals/mail/cases/trip-form/files/email.json
 {
   "id": "m1",
   "from": "Office <office@school.example>",
@@ -363,14 +546,24 @@ Why it is laid out this way:
 }
 ```
 
+and the day it arrives, as a small fact:
+
+```json
+// evals/mail/cases/trip-form/input.json
+{ "today": "2026-10-27" }
+```
+
+The key says what a good result looks like:
+
 ```markdown
-<!-- cases/trip-form/key.md -->
+<!-- evals/mail/cases/trip-form/key.md -->
 ---
 kind: awf.case-key/0
 marker: lantern-copper-walrus-tangerine
 expect:
   relevant: true
   short: false
+  replied: false
 criteria:
   - id: k1
     kind: must
@@ -386,179 +579,232 @@ criteria:
 Two dates in one email, and a paragraph for another grade.
 ```
 
-A key made by `capture` (task 6) also has `captured: { run: {run id}, mark: good | needs-work,
-note: "{note}" }` in its frontmatter (no `note` with `--good`), and `draft: true` until the
-person has written it.
+- `expect` lists facts `observe` returns and the values they must have. Code checks them: free
+  and exact.
+- `criteria` are sentences an agent judges. A `must` should be true of a good result; a
+  `must-not` should never be. Three agents vote on each one; the majority decides.
+- `marker` is a few random words that `awf-lab case new` writes: a tripwire. If they ever show up
+  where the workflow's agents work, the key leaked (see "How the key stays hidden").
+- The text below the frontmatter is your note on why the case exists.
+- Why two formats: `email.json` is the workflow's own data, in whatever shape the environment reads
+  (JSON here, since the mail API returns JSON; a case's files can be anything). `key.md` is written
+  and read by people, a few fields and a note, so it is Markdown with YAML frontmatter.
+- Two optional lines: `known-failing: true` for a problem you have written down but not fixed,
+  and `pass: 2/3` when this case may pass less often than every time.
 
-**The key has two parts.** `expect` lists fields and the values they must have; code checks it, so
-it is free and exact. `criteria` are sentences an agent judges: a `must` should be true of a good
-result, a `must-not` should never be. A criterion's `id` is how two runs and two scores pair it,
-so keep it once the criterion has been scored: a renumbered criterion reads as a new one and is
-judged again. The text under the frontmatter is your own note on why the
-case exists. `marker` is a few random words `case new` writes; the lab uses it to notice a key that
-got out (below).
+`awf-lab case new mail/trip-form` makes the folder and the key's marker. The first time, it also
+writes `awf-lab.json`, the dataset's `dataset.json` (agents reaching nothing outside:
+`"agentReach": { "network": [] }`) and a stub `env.ts` whose `workflow` is left for you to fill in; `run` refuses the stub, naming `env.ts`, until you do.
 
-**A variant** is a small file that runs your workflow on one case. Both workflows already take
-the outside world as arguments (an inbox, git, the site), so their tests can pass fakes. A variant
-does the same, in ordinary code of your own: where the workflow would talk to the real inbox, the
-variant hands it one built from the case. You choose there what is fake, what is real, and what
-throws. The lab gives it two things: `defineVariant`, and `trialCase()`, which says where this
-trial's case folder is.
+**2. Write the environment.** The mail dataset's `env.ts` is the one under "The environment"
+above: a strict mock of `mail.ts` holding the case's email, `notes.ts` returning nothing,
+`clock.today()` returning the case's day, and `observe` returning `relevant`, `short`,
+`markedDone`, `replied` and `error`. One file serves every case of the dataset; a case differs only in its files and input.
 
-```ts
-// evals/datasets/mail/variants/triage.ts
-import { defineVariant, trialCase } from "@agentswf/lab/cases";
-import type { Email, Mailbox } from "../../../../mail-triage/mail";
-import { mailTriage } from "../../../../mail-triage/workflow";
+The workflow needs no change for it: it calls its mail module as it does in production, and the
+mock answers. No `--dry-run` either: `markDone` and `reply` are mocks that record, and the key
+says `replied: false`. What the environment doesn't mock (the model, a module it
+doesn't name) stays real.
 
-const notAllowed = (what: string) => async (): Promise<never> => {
-  throw new Error(`not allowed in a trial: ${what}`);
-};
+**3. Run it.**
 
-export function triage(choice: { model: string }) {
-  // Read the case only inside functions. The lab also loads this file just to read its
-  // settings, and there is no case then.
-  const file = (name: string) => Bun.file(`${trialCase().dir}/${name}`);
-  const email = async (): Promise<Email> => {
-    const raw = await file("email.json").json();
-    return { ...raw, date: new Date(raw.date) };
-  };
-  const inbox: Mailbox = {
-    inbox: "case",
-    listNew: async () => [await email()],
-    read: email,                                                 // faked: the case's one email
-    markDone: notAllowed("labelling an email"),
-    reply: notAllowed("sending a reply"),
-  };
-
-  return defineVariant({
-    workflow: mailTriage({
-      env: { ...process.env, MAIL_API_KEY: "unused", TRIAGE_MODEL: choice.model }, // the model is real
-      connect: async () => inbox,
-      priorities: () => file("priorities.md").text(),            // faked
-      notes: { recent: async () => "", add: notAllowed("writing notes") },
-      posts: notAllowed("reading a class post"),
-      today: () => new Date(trialCase<{ today: string }>().input.today),
-    }),
-    argv: ["--dry-run"],
-    timeout: "10m",
-    // What `expect` is compared with. A non-empty `error` makes the trial errored: the workflow
-    // catches a failure per email and still completes, so the lab would not see it otherwise.
-    read: ({ items: [item] }) => ({ relevant: item.relevant, short: item.short, error: item.error }),
-  });
-}
+```sh
+awf-lab run --trials 3          # every case, three times each, on the code in your checkout
 ```
 
-```ts
-// evals/datasets/mail/variants/haiku.variant.ts
-import { triage } from "./triage";
+Agents don't answer the same way twice, so a case can run several times. Without `--trials` it
+runs once; with `--failed`, each case runs as many trials as the run that gave it its verdict. With one dataset you don't name it. `--cases trip-form,fundraiser` runs
+only those cases; `--failed` runs only the cases that last came out failed, flaky or unclear.
+Before starting, `run` prints how many trials it will run and, from earlier runs, about what they
+will cost and take, and asks.
 
-export default triage({ model: "claude-haiku-5-5" });
+Each trial: the lab builds a case folder outside your repository (the shared and the case's
+files, never the key), makes an empty scratch folder for the workflow to work in, runs `env.ts`
+with `awf run`, the scratch folder as the run's working folder, checks the agents' reach, looks for the marker, grades the facts and the result against the key, and
+deletes both folders.
+
+```text
+mail · 12 cases · 3 trials each · run 14
+code: this checkout, branch shorter-prompt, commit a1b2c3d, with uncommitted changes
+
+failed, must pass
+  grade-3-only        0/3   k3 violated. Judge: "lists the grade 3 trip as an action"   history ✓✓✗
+flaky
+  trip-form           2/3   k2 unmet once (judges split 2–1)                             history ✓✓✓
+known failing, now passing
+  no-school-friday    3/3   remove known-failing from its key?
+
+passed 9 · failed 1 · flaky 1 · unclear 0 · known failing 1 (1 now passing)
+trials 36 · errored 0 · criteria split 2–1: 3 of 90
+time per trial, median 8s · est. cost per trial, median $0.004 · all trials $0.15 · grading $0.80
+judge claude-sonnet-5-5, the same family as the workflow's model
+
+exit 1: a case that must pass failed
 ```
 
-A second file, `sonnet.variant.ts`, with another model is a second variant. A variant's name is
-its file's, without `.variant.ts`; other files in the folder, like `triage.ts`, are ordinary
-code. A workflow that needs nothing faked still needs a variant file, of a few lines. With one
-variant in a dataset you never name it; with more, `awf-lab run` without a name stops and lists
-them. Datasets are the same: with one you never name it, with more `run` and `report` take
-`--dataset {name}`. `case new` takes `{dataset}/{case}`, or `{case}` alone when there is one
-dataset. `--cases trip-form,fundraiser` runs only those.
+**4. Read the report.**
 
-**What is fake, what is real, and what fails.** The lab does not make a service fail because you
-forgot to fake it. Your variant does, by handing the workflow a function that throws. The
-workflow's types make you supply every argument it requires, but anything the workflow reaches on
-its own (a default it fills in, a call it makes directly) stays real. The lab cuts nothing off. To use the real thing,
-pass the real thing.
+- A case **passed** when all its trials passed (or as many as its `pass` bar asks); **failed**
+  when most of them failed; **flaky** when it passed some and failed some; **unclear** when too
+  many trials could not be graded to say. A workflow that crashes or times out on a case fails
+  it; anything not the workflow's doing (setup, a refused call, an agent's reach, a grader, the
+  provider) makes it unclear.
+- `history` shows the case's last verdicts in earlier runs, so a case that was already flaky is
+  told apart from one your change broke.
+- The exit code: 0 when everything that must pass passed; 1 when a case that must pass failed;
+  otherwise 5 when a trial errored by the dataset or grading, or leaked, and 3 when some
+  were flaky or unclear (or the run is partial, or nothing was graded). 2 and 4 are refusals and lab failures; the
+  full list is under "A case's verdict, and the exit code". A known-failing case never changes it by
+  failing, but a trial of it that errored by the dataset or grading, or leaked, still gives 5.
+- Cost is an estimate from list prices, not a bill; grading is shown apart, since on a cheap
+  workflow judging can cost more than the trials.
 
-**Writing good cases.** When comparing models, judge with a model from another family than
-either: a judge tends to favour its own family's output, and the report marks a column whose
-model shares the judge's family. A model's family is its provider, read from its id by a small
-table in the lab; an id the table does not know is marked "family unknown". The models are the
-trial's recorded "models used", every one of them. Mix in cases where the right answer is "no" (not relevant, declined), or
-a workflow that always says yes passes. Before trusting a new key, run its case once and read
-why each criterion got its verdict. A case that fails in every column is usually a wrong key, or
-a site that changed.
+`awf-lab report` shows the last run again; `awf-lab report --case trip-form` prints one case in
+full, with each trial's result, each criterion's votes and reasons, and the command that opens
+the agents' logs.
 
-**A dataset says which sandbox its trials run under**, in `dataset.json`:
+**5. Fix, and run again.** Fix the workflow, run the failing case with
+`--cases grade-3-only --trials 3` until it passes every time, then run everything once more to see
+nothing else broke.
 
-- `"sandbox": "workflow"` trusts the sandboxes the workflow opens itself. The mail triage puts
-  each reader in one that reaches nothing but its model, so this is its setting.
+**6. Edit a key without running again.** When you only change a key, `awf-lab score` grades the
+last run's trials again against the keys in your checkout, paying the judge but not the workflow.
+The report says when a key changed since its run was graded.
 
-It is the only value this story accepts. The setting is still required, with no default to grow
-used to, so a second value can come without breaking a dataset file: `"lab"`, one sandbox the lab
-controls around every agent of the trial, which reaches nothing but the model. Neither workflow
-here could use it, since both open sandboxes of their own; reviews will, so it comes with the
-move. The report says which setting a run used.
+**7. Turn a past run into a case.** `awf-lab capture {run id} --needs-work "{note}"` rebuilds a
+case from what the run left: the email's id, so the dataset's `capture.ts` fetches the email again.
+You then write the key. With `--good`, it also drafts `expect` from the run's facts, for you
+to check: a run you call good is not proof. A captured key stays a draft, and is not graded, until
+you remove `draft: true`.
 
-**For web-to-cli, a case is a sentence, and the dataset sets up the rest.** Each trial needs a
-fresh copy of the CLI, set up for the site, with the request filed. That takes the project's own
-commands, so the dataset has a `setup.ts`. It runs in the lab before the trial, and returns how
-to start the workflow's run and how to check what was built:
+### Angle 2: compare with code in another folder
+
+```sh
+git worktree add ../worktrees/app-main main     # once; then bun install and bun link there
+awf-lab run --against ../worktrees/app-main --trials 3
+```
+
+The same run then has a column for each folder. Both sides run the same case folders, graded by
+the same graders, trial by trial in turn, so a live site that changes during the run falls on both.
+
+- **From your checkout**, one copy for both sides: the cases, the keys, the shared files,
+  `dataset.json`, the graders and `capture.ts`. What counts as a pass comes from one place,
+  except the facts, which each folder's `env.ts` returns: a column whose `env.ts` differs says so.
+- **From each folder**: the workflow and everything it imports, the dataset's `env.ts` (at the
+  same path under `evals/`), and its own installed `awf`. A change of prompt, model, tool, stage or
+  mock is just a difference between the folders.
+- The other folder needs `env.ts`. The first time, copy it there, or commit it to `main` first;
+  uncommitted is fine, and the column says so.
+- The lab makes no checkout and installs nothing; it stops before the first trial when a folder
+  lacks what it needs, and says what.
+
+```text
+mail · 12 cases · 3 trials each · run 15
+                      this checkout: shorter-prompt (a1b2c3d, uncommitted)   app-main: main (9f8e7d6)
+passed                10                                                     10
+failed                1                                                      0
+flaky                 1                                                      2
+trials errored        0 of 36                                                1 of 36
+time per trial        8s                                                     9s
+est. cost per trial   $0.004                                                 $0.004
+grading               $1.60, both sides
+
+came out differently, largest difference first
+  grade-3-only        failed 0/3                                             passed 3/3
+  late-pickup         passed 3/3                                             flaky 2/3
+more passes here on 2 cases, fewer on 3, the same on 7
+
+The lab does not say which is better. A case that passes 2 times in 3 can show 3/3 once and 1/3
+the next. Read the cases.
+
+exit 1: a case that must pass failed in this checkout
+```
+
+A case is listed when its verdicts differ or its passes differ by 2 or more. Each column's own
+failed and flaky cases are listed as in a single run, with "also fails in app-main" where that is
+so: the answer to "did my change break this, or was it broken already?" The exit code is your
+checkout's alone. Comparing models is the same: the other model in a worktree's code, run with
+`--against`.
+
+### A second example: web-to-cli's build
+
+Here a case is one sentence ("a command that lists the front page"), and each trial needs a fresh
+copy of the CLI, configured for the site, with the request filed. That is a folder, not a module to
+mock, so `setup` prepares it with the project's own commands, and `observe` checks what was built
+by running it:
 
 ```ts
-// evals/datasets/builds/setup.ts
+// evals/builds/env.ts
 import { $ } from "bun";
-import { defineSetup } from "@agentswf/lab/cases";
+import { defineEnv } from "@agentswf/lab/cases";
 
-type Input = { site: string; request: string };
-type Options = { agents?: Record<string, unknown> }; // what a variant may change
+export default defineEnv({
+  // The copy, not your checkout; typed from your checkout, since a template import is `any`.
+  workflow: (c) =>
+    import(`${c.scratch}/core/workflows/build.ts`) as Promise<typeof import("../../core/workflows/build")>,
 
-export default defineSetup<Input, Options>(async ({ root, scratch, input, options }) => {
-  // root: the folder that holds evals/. scratch: this trial's empty folder.
-  await $`bun run configure hn --url ${input.site} --public --yes --prefix WEBCLI_ --into ${scratch}`.cwd(root);
-  // configure copies the whole checkout, keys and git history included: start a fresh history.
-  await $`rm -rf ${scratch}/evals ${scratch}/.git`;
-  await Bun.write(`${scratch}/workflows.json`, JSON.stringify({ sandbox: true, agents: options.agents ?? {} }));
-  await $`git init -q -b main && git add -A && git commit -qm base`.cwd(scratch);
+  async setup(c) {
+    await $`bun run configure hn --url ${c.input.site} --public --yes --prefix WEBCLI_ --into ${c.scratch}`.cwd(c.root);
+    // configure copies the checkout (not .git or node_modules), installs, and commits the copy,
+    // evals/ and its keys included: drop both and start a fresh history.
+    await $`rm -rf ${c.scratch}/evals ${c.scratch}/.git`;
+    // workflows.json also names the models per role: keep the folder's, and insist on the sandbox.
+    const config = Bun.file(`${c.scratch}/workflows.json`);
+    const workflows = (await config.exists()) ? await config.json() : {};
+    if (workflows.sandbox === false) throw new Error("this dataset runs only with the build's sandbox");
+    // An object there is the sandbox's extra reach: keep it; absent means none in the build.
+    await Bun.write(config, JSON.stringify({ ...workflows, sandbox: workflows.sandbox ?? true }));
+    await $`git init -q -b main && git add -A && git -c user.name=lab -c user.email=lab@localhost commit -qm base`.cwd(c.scratch);
+    const state = { WEBCLI_HOME: `${c.scratch}/.state`, WEBCLI_NO_WORKER: "1" };
+    Object.assign(process.env, state);                    // the trial's process alone: the build's code reads it
+    const cli = new $.Shell().cwd(c.scratch).env({ ...process.env });
+    await cli`bin/hn context:add me --url ${c.input.site}`;
+    await cli`bin/hn context:login me`;
+    await cli`bin/hn request ${c.input.request}`.nothrow(); // filing exits non-zero by design
+    const { data: [request] } = await cli`bin/hn requests --json`.json();
 
-  // A shell of its own: `$.cwd()` would change the default for every later trial.
-  const cli = new $.Shell().cwd(scratch).env({ ...process.env, WEBCLI_HOME: `${scratch}/.state`, WEBCLI_NO_WORKER: "1" });
-  await cli`bin/hn context:add me --url ${input.site}`;
-  await cli`bin/hn context:login me`;
-  await cli`bin/hn request ${input.request}`.nothrow(); // filing exits non-zero by design
-  const { data: [request] } = await cli`bin/hn requests --json`.json();
+    // The CLI in c.scratch is the agents' work after the run: bounded, and a failure is a fact.
+    // It runs on your machine unsandboxed, with only the scratch folder's state.
+    const hn = (...args: string[]) => {
+      const run = Bun.spawnSync(["bin/hn", ...args, "--json"], {
+        cwd: c.scratch, env: { PATH: process.env.PATH, ...state }, timeout: 60_000,
+      });
+      try { return JSON.parse(run.stdout.toString()); } catch { return null; }
+    };
 
-  return {
-    cwd: scratch,
-    env: { WEBCLI_HOME: `${scratch}/.state` },
-    argv: [request.id],
-    // Runs after the trial, before the scratch folder is deleted. Its fields join `read`'s for
-    // `expect`: this is how "does the built command work" gets checked by running it.
-    check: async () => {
-      // The build names the op itself, so ask the CLI what it was called.
-      const { data: [done] } = await cli`bin/hn requests --json`.json();
-      if (!done.op) return { runs: false, stories: false };
-      // The op is code the agents wrote: run it with the scratch folder's state and nothing of yours.
-      const op = new $.Shell().cwd(scratch).env({ PATH: process.env.PATH, WEBCLI_HOME: `${scratch}/.state`, WEBCLI_NO_WORKER: "1" });
-      const out = await op`bin/hn ${done.op} --json`.nothrow().json().catch(() => null);
-      return { runs: out?.ok === true, stories: Array.isArray(out?.data) && out.data.length > 0 };
-    },
-  };
+    return {
+      argv: [request.id],
+      observe: (result) => {
+        const done = hn("requests")?.data?.[0];
+        if (!done?.op) return { state: result.state, runs: false, stories: false };
+        const out = hn(done.op);
+        return { state: result.state, runs: out?.ok === true, stories: Array.isArray(out?.data) && out.data.length > 0 };
+      },
+    };
+  },
 });
 ```
 
 ```json
-// evals/datasets/builds/dataset.json
-{ "kind": "awf.case-dataset/0", "sandbox": "workflow", "keep": ["site/ops/**", "site/knowledge/**"] }
+// evals/builds/dataset.json
+{ "kind": "awf.case-dataset/0", "sandbox": "workflow", "agentReach": { "network": [], "sockets": true }, "timeout": "90m", "setupTimeout": "15m", "keep": ["site/ops/**", "site/knowledge/**"] }
 ```
 
-```ts
-// evals/datasets/builds/variants/haiku-builder.variant.ts
-import { defineVariant } from "@agentswf/lab/cases";
-import build from "../../../../core/workflows/build";
-
-export default defineVariant({
-  workflow: build,
-  options: { agents: { builder: { harness: "claude", model: "claude-haiku-5-5" } } }, // handed to setup.ts
-  timeout: "90m",
-  read: (result) => ({ state: result.state }),
-});
-```
-
-`build.variant.ts` is the same file without `options`: the build as it ships.
+`keep` names the files saved from the scratch folder before it is deleted, so the judge can read
+the code the agents wrote. `workflow` imports the build from the copy in the scratch folder: the
+build takes its project root from where its code is (`site/domain.ts`), so importing it from your
+checkout would build, branch and land in your checkout. The build's sandboxed agents don't inherit `process.env`; the build's
+own code hands them their `WEBCLI_HOME` (`cliEnv` in `core/workflows/deps.ts`, a sub-folder of
+the build's own home), which comes from that variable or `{root}/.state`, both the scratch
+folder's state here. The site itself stays real: the build's
+agents reach it through the browser socket their sandbox opens, not a domain, so `agentReach`
+lists no domain and allows sockets (task 5's plan checks this): the browser behind the socket
+reaches whatever site the case names, which is the known outreach here. That is out of a mock's reach (see "What agents call
+themselves"), and a public read-only site is a fair thing for a case to touch. The build runs with the model its code names; trying another
+model is another folder.
 
 ```markdown
-<!-- cases/front-page/key.md -->
+<!-- evals/builds/cases/front-page/key.md -->
 ---
 kind: awf.case-key/0
 marker: harbor-violet-pepper-anvil
@@ -576,710 +822,934 @@ criteria:
 ---
 ```
 
-`expect` covers what running the built command can show. The agent judges the criteria here by
-reading the saved code, not by running it. The report marks them that way.
+`expect` covers what running the built command shows (`runs` and `stories` come from `observe`).
+The judge decides the criteria by reading the saved code, not by running it, and the report marks
+them "read, not run". At half an hour and dollars a trial, this dataset runs one trial per case,
+and `--failed` runs again only what did not pass. The report adds the time each stage took, read
+from the workflow's run record.
 
-```text
-builds · 2 cases · 1 trial each · branch main (4c5d6e7) · sandbox: the workflow's own
-judge claude-sonnet-5-5 (same family as both: models are compared here, so judge with
-another family's model before trusting the criteria rows)
-                                         build              haiku-builder
-models                                   other models than the column beside
-judge's family                           same               same
-passed every decided trial               2 cases            1 case
-passed some                              0 cases            0 cases
-passed none                              0 cases            1 case
-too few trials decided                   0 cases            0 cases
-trials that errored                      0 of 2             0 of 2
-trials whose grading errored             0 of 2             0 of 2
-trials undecided                         0 of 2             0 of 2
-time per trial, median                   29m                41m
-est. cost per trial, median              $4.80              $2.10
-est. cost, all trials                    $9.60              $4.20
-grading, all trials                      $0.30              $0.30
-criteria left unsettled                  0 of 4             0 of 4
-criteria read, not run                   4 of 4             4 of 4
+### Writing good cases
 
-time by stage, median                    build              haiku-builder
-  explore                                9m                 12m
-  write                                  7m                 9m
-  check                                  9m                 16m
+- **Mix in "no" cases** (not relevant, declined), or a workflow that always says yes passes.
+- **Run a new case once and read why** each criterion got its verdict before trusting the key.
+- **A case that never passes** is usually a wrong key, or a site that changed. Before calling it a
+  workflow problem, check that a good answer would pass it.
+- **Judge with another family's model** when comparing models: a judge tends to favour its own
+  family's output. The report says when a column's model shares the judge's family.
+- **Mark it known failing, don't delete it**, when you can't fix it yet; the report tells you when
+  it starts passing.
 
-not passing, or undecided
-  haiku-builder  search   0/1   expect state, runs, stories: got deferred ("no way to do it")
+### How the key stays hidden, and how far
 
-differ, one trial each
-  search          build passed · haiku-builder failed (expect state)
+The case folder and the scratch folder are made outside your repository, and `key.md` and `key/`
+are never copied into either. That is enough for a workflow whose agents work in those folders.
 
-One trial each: these are examples, not rates.
-```
+It is not enough for one whose agents work inside your repository: a sandbox lets an agent read
+the git history of the repository it works in, and a committed key is in that history. The mail
+triage is like that today, so its readers' folder moves out of the repository, which is right
+anyway, since they read mail from strangers.
 
-Time by stage comes from the record of the workflow's run; the workflow adds nothing for it. Time
-and cost per trial are the workflow's run alone. Setup time and what each grader cost are recorded
-apart, and the report gives grading's total in one line.
+So every key carries a marker, and the lab looks for it before and after the workflow runs: in
+both folders, git history included, then in the result, the saved files and the agents' logs. A
+trial where it turns up is marked leaked and not counted. The marker is a tripwire, not a wall: it
+catches a key that was copied, not one that was read and put in other words.
 
-**How the key stays out of reach, and how far.** The case folder and the scratch folder are made
-outside your repository, and neither `key.md` nor `key/` is ever copied into either. That is enough for a workflow
-whose agents work in the scratch folder. It is not enough for one whose agents work inside your
-repository: a sandbox lets an agent read the git history of the repository it works in, and a
-committed key is in that history. The mail triage is the second kind today: its readers work in
-a folder inside the project. Task 2 moves that folder out of the repository, which is right for
-the workflow anyway, since its readers handle mail from strangers. (An `evals/` folder you never
-commit has no history to read, and comparing still works, since runs are kept outside the
-repository.) Because a key can be within reach, every key carries a marker, and the lab looks for it in the
-case folder and the scratch folder before the workflow runs, and in the result, the saved files
-and what the agents wrote (`awf logs`) after. A git repository in either folder is searched
-through its whole history, where a committed key is stored compressed and a plain search would
-miss it. A file of `key/` carries no marker, so the lab looks for a copy of it by its digest,
-in the same places. A trial where it turns up is marked leaked and not
-counted as passed; one found before the workflow runs ends the trial there. The marker is a
-tripwire, not a wall: it catches a key that was copied, not one that was read and put in other
-words, not part of a `key/` file, and not one written where `awf logs` hides what looks like a
-credential.
+### Before you start
 
-**Does it tell me which one is better?** No. It shows each case, over a few trials, and you read
-it. A handful of cases can't carry a "better" you could trust, and the report says so.
+- git, and the lab linked from a checkout of this repository (`bun link` `@agentswf/lab`, which
+  also gives `awf-lab`), in every folder you run. It is not published, and its checkout must read
+  the run records of the `agentswf` each folder has installed; `run` checks this first.
+- A workflow that calls its services through modules it imports or through `fetch`, as most do,
+  and reads the date through a function of its own (a `clock.ts`), so a case can set its day.
+- A workflow whose network calls use `fetch` where a case fakes them by host; a client built on
+  Node's `http` is mocked by its module, or faked with a tool you install yourself.
+- A workflow that opens a sandbox for every agent it starts; an agent outside one errors the
+  trial as `reach`.
+- `typescript` installed in every folder you run, for the check of `env.ts` before the first
+  trial; a folder without `tsc` stops `run` with exit 2.
+- Your model's login (such as `CLAUDE_CODE_OAUTH_TOKEN`) in the environment, and the judge's
+  harness login when it is another provider's. The lab does not read the files your own launcher
+  reads.
+- A `judgeAgent` (harness and model) in `awf-lab.json` or `dataset.json` when keys have criteria.
+- Nothing here is stable yet: kept runs and `env.ts` may need redoing after a lab update.
+
+Safety and privacy:
+
+- A module `c.mock` names refuses anything not faked, and so does every host the workflow's code
+  reaches with `fetch` that no route serves and `realHosts` doesn't list (the trial errors, so you add the
+  fake). Anything else stays real: a module you didn't mock, the hosts in `realHosts`, and whatever
+  an agent reaches by its own commands within `agentReach`.
+- `env.ts` and the dataset's `graders.ts` and `capture.ts` are your own trusted code. They run on
+  your machine with your whole environment, outside any sandbox. An `observe` that runs what agents
+  built runs code agents wrote: give it only the environment it needs, as the example does.
+- A trial of web-to-cli's build acts on a live site. A `must-not` is graded after the act; it
+  prevents nothing.
+- Results, with a copy of each trial's input and result, are kept outside the repository, under
+  `~/.awf/lab/`. They can hold private text such as real email. Delete a run's folder to be rid of
+  it. A cases folder with real mail belongs in a private repository.
+- A dataset with `"sandbox": "workflow"` trusts the workflow's own sandboxes to keep agents out of
+  your home folder, where results are kept, and out of `evals/`, where the keys are. Both workflows
+  here are checked for it. What they reach outside is checked on every trial: every agent
+  sandboxed, no domain, web search or socket beyond `agentReach`.
 
 ## Scope
 
 In scope:
 
-- Cases written by hand: `input.json`, `files/`, `key.md` with `expect` and `criteria`; files a
-  dataset's cases share. `case new`, which makes the folder and the key's marker.
-- `defineVariant`, `trialCase`, `defineSetup`, `defineGrader` and `gradeCase`, from
-  `@agentswf/lab/cases`;
-  `dataset.json`.
-- Trials of the whole workflow, repeated, each given a case folder without the key.
-- Grading: `expect` by code, against what `read` and the setup's `check` return; `criteria` by a
-  judge. Both are graders behind one interface a dataset can bring its own to, as code or as a
-  workflow, shaped against what the review scorer needs, though no review grader ships here.
-- `run`, which keeps every run under a label; `report`, for one run, one case, or one run beside
-  another; `runs`, which lists them; `score`, which grades a kept run again.
-- A past run of the workflow turned into a case, marked as good or as needing work (`capture`).
+- Cases written by hand: `input.json`, `files/`, `key.md` with `expect`, `criteria`,
+  `known-failing` and `pass`, and files a dataset's cases share. `case new`.
+- `defineEnv` and its `c` (`json`, `text`, `input`, `dir`, `scratch`, `root`, `mock`, `fake`,
+  `http` with `http.requests`, the lab's `fetch` on every trial, `cleanup`),
+  `setup`'s `observe`, `argv`, `stages` and `until`; `defineGrader` and `gradeCase`; all from
+  `@agentswf/lab/cases`. `dataset.json`.
+- Trials of the whole workflow, or of part of it from given stages, repeated, each in a fresh
+  process with a case folder without the key.
+- The reach check after each trial against `dataset.json`'s `agentReach`.
+- Grading: `expect` by code, `criteria` by a judge, both behind one grader interface a dataset can
+  add its own to, as code or as a workflow. The interface is shaped against what the review scorer
+  needs; no review grader ships here.
+- A verdict per case, its history, known-failing cases, and the exit code.
+- `run` (with `--dataset`, `--cases`, `--failed`, `--trials`, `--against`, `--yes`), `report`,
+  `runs` and `score`.
+- `capture`: a past run turned into a case, marked good or needing work.
 - Both workflows working end to end, with their datasets in their own repositories.
 
 Out of scope:
 
-- Any change to `engine` or `contract`.
-- Moving reviews onto the new kind. The review lab was an experiment; it is replaced by this
-  design in the next story ([[second-case-kind]], rewritten for it), not kept beside it. Here
-  reviews are the testing ground for the design: every interface below is checked against what
-  they would need, and `review/` keeps running, with only its import paths changed, until the
-  move.
-- The `"lab"` sandbox setting, one sandbox around every agent of a trial. It comes with the move,
-  since only reviews use it.
-- Running another branch for you (`--baseline {branch}`): the lab making a checkout of old code,
-  installing it and laying today's cases over it. Until then a run on another branch is one you
-  make there.
-- Reusing trials across runs. Every run stands alone and runs what it is asked; `--cases` and
-  `--trials` keep a long dataset affordable.
-- Faking a stage or an agent's answer, to tune one part alone. A recorded answer goes stale as
-  soon as an earlier step changes, so what this story lets you fake is the outside services a
-  workflow takes as arguments. Starting from a later stage with `awf run --from-stage` is the
-  next step ([[workflow-cases]]).
-- A verdict, the loop, and holdouts for these cases.
-- A ceiling on what a workflow's own sandboxes may allow. It is needed before an agent writes
-  variants for you (the loop), because a variant could loosen its own sandbox.
-- Keys kept outside the repository. Wanted once a dataset's key must be hidden from agents that
-  work inside the repository.
-- A shadow: a variant that runs beside the real workflow on each real input, with nothing sent,
-  so the two results can be compared and the ones that differ become cases. It needs `capture`
-  and a variant that touches nothing real, both of which this story builds; the shadow itself is
-  the story after.
+- Any change to `engine` or `contract`: given stages and `until` are the lab's own `wf`, not
+  engine options.
+- Moving reviews onto this design. That is the next story ([[second-case-kind]], rewritten for
+  it); the old review lab is replaced then, not kept beside it. Here reviews are the testing ground
+  on paper: every interface is checked against what they need, and `review/` keeps running with
+  only its import paths changed.
+- The `"lab"` sandbox setting, one sandbox around every agent of a trial, and a grader that
+  rebuilds the scratch folder at `score` time. Only reviews need them; they come with the move.
+- Comparing against a run kept from earlier, and reusing any trial: every run costs its full
+  price, and each comparison runs both sides. The store keeps enough to add it later.
+- Statistics beyond counts.
+- The lab making a checkout or installing dependencies for `--against`.
+- Faking an agent's answer inside a stage: a recorded answer goes stale as soon as an earlier step
+  changes. A whole stage can be given (`stages`).
+- A stage run live once and its value reused by the case's other trials: cheaper, but every trial
+  then shares one sample of that stage. If it comes, it is a named option, never the default.
+- Faking what an agent's own commands reach inside a sandbox (Q9), and mocks shared with child
+  processes, which the same route would carry. Their reach is checked here (`agentReach`).
+- The improvement loop and holdouts.
+- A ceiling the engine enforces on what a workflow's own sandboxes may allow, before an agent
+  starts. Needed before an agent edits workflows in the loop, since an edit could loosen its own
+  sandbox. This story checks reach after each trial (`agentReach`), which catches it but doesn't
+  prevent it.
+- Keys kept outside the repository.
+- A shadow: another folder's workflow run beside the real one on each real input, with
+  differences becoming cases. It builds on `capture`; it is the story after.
 - Workflows with events.
 
 ## Context and evidence
 
-- Fact: of the lab's 13,000 lines, about 700 (`src/compare`) know nothing of reviews. Almost all the
-rest is
-  under `src/review`, the command line included: a trial is stored as `findings.json`, a score is
-  a label per finding, a variant's `read` returns review findings, and `awf-lab.json` requires a
-  git clone and holds one sandbox setting for every dataset.
-- Fact, from a read of `packages/lab/src/review` against this design (2026-11-10):
-  - A review trial's setup fits: a `setup.ts` can restore the frozen code as `fixtures/git.ts`
-    does, with `input.json` holding base and head and `files/` holding `request.md` and the
-    bundle.
-  - Its grading does not fit `expect` and criteria. Reviews label every returned finding (hit,
-    new, wrong, noise, duplicate). A review trial never "passes"; it has weighted recall and
-    precision. The judge matches by code, with two voters and a tiebreak, not three that must
-    agree.
-  - Its grader reads the frozen code, which is gone once the trial's scratch folder is deleted.
-  - Its key is more than one file (`key/evidence/`, `fixes.bundle`).
-  - Its `"lab"` sandbox must let agents reach their model; reviews used a container.
-  - Generic and worth carrying over at the move: plan, estimate and ask before spending
-    (`execute.ts` `planRun`), waiting for a subscription window (`allowance.ts`), `runner.ts`,
-    and `src/compare` if the verdict stays. About 3,000 lines go then (reuse by version, `loop/`,
-    sealing, `check`, `where`, `show`). `build/` (collect, draft-key) is how review cases are
-    made, and is not `capture`.
+- Practice (2025–2026; Anthropic's "Demystifying evals for AI agents" and its statistics paper,
+  OpenAI's evaluation best practices, promptfoo, Braintrust, LangSmith, Inspect, SWE-bench, Hamel
+  Husain's evals FAQ): two modes are told apart. A **regression suite** holds cases that should
+  pass nearly always, gates on a fixed bar from one run (promptfoo exits non-zero on a failure),
+  counts errors apart from failures (SWE-bench), and re-runs only failures (promptfoo
+  `--filter-failing`, Inspect `eval-retry`). A **capability or comparison experiment** holds cases
+  expected to fail at first, needs several trials, and reads per-case differences. Running both
+  sides in one session gives paired data, a free reduction in variance; a stored baseline drifts
+  with time and infrastructure. All recommend grading the outcome, not the path, a fresh
+  environment per trial, cheap graders before costly ones, and reading transcripts.
+- Fact: at 95% per trial, 12 cases at three trials each pass a bar of "every trial" together only
+  about 16% of the time (0.95^36). Hence a separate **flaky** verdict, which does not fail the run,
+  and a case's history beside it.
+- Fact: three voters on one model and prompt are correlated, so requiring all three to agree turns
+  sampling noise into undecided trials: at 3% per criterion, a run of 108 judgments has an
+  unsettled one about 96% of the time. Hence a majority, with splits shown.
+- Fact: of the lab's 13,000 lines, about 700 (`src/compare`) know nothing of reviews; this story
+  does not use them. The rest, the command line included, is under `src/review`.
+- Fact, from reading `packages/lab/src/review` against this design: a review trial's setup fits
+  `env.ts`'s `setup`; its grading (a label per finding, recall and precision, two voters and a tiebreak)
+  and its multi-file key are what M2 checks the grader interface against.
 - Fact: neither workflow's argv is its input (one reads an inbox, the other a ledger by id), so
-  both need code between a case and a run. [[evaluation]] named this `defineEnvironment` and left
-  it for a second kind of case; here it is the variant and `setup.ts`.
-- Fact: `awf run --sandbox`, which the lab puts every review trial in
-  ([[010-eval-isolation|story 010]]), refuses a workflow that opens a sandbox of its own, and it
-  refuses when the workflow opens it, mid-run ([[permissions]], The model). The mail triage opens
-  one per reader, with no paths and no network. web-to-cli's build opens one when its
-  `workflows.json` says so, and its browser is reached only through a socket that sandbox opens.
-  With `"workflow"`, the lab no longer puts every agent in a sandbox of its own, as story 010
-  promised.
+  both need code between a case and a run. [[evaluation]] called this `defineEnvironment`; here it
+  is `env.ts`.
+- Fact: `awf run --sandbox`, which the lab puts every review trial in 
+  ([[010-eval-isolation|story 010]]), refuses a workflow that opens a sandbox of its own (`help/run.txt`; [[permissions]], The
+  model). The mail triage opens one per reader, with no paths and no network. web-to-cli's build
+  opens one when its `workflows.json` says so, and reaches its browser only through a socket that
+  sandbox opens. With `"workflow"`, the lab no longer puts every agent in a sandbox of its own, as
+  story 010 promised.
 - Fact: a sandbox lets an agent read the `.git` of the repository its working folder is in
-  (`packages/sandbox/src/resolve.ts`, `srt/profile.ts`). The mail readers work inside the
-  project.
-- Fact: the lab imports a variant file into its own process to read its settings
-  (`packages/lab/src/review/lab/load.ts`), so the variant's imports load there too. `awf run`
-  loads it again, in a process that has the lab's environment.
-- Fact: the lab starts the `awf` of its own checkout (`runner.ts`), which refuses a project whose
-  installed `agentswf` is another version. Both projects have their own.
-- Fact: the lab's runner gives every run the lab's environment, less the calling session's
-  variables; it has no way to add to it for one run (`runner.ts`).
-- Fact: `awf` finds the sandbox program on `PATH`, and both projects put their own
-  `node_modules/.bin` there before running it.
-- Fact: the record of a workflow's run has the time of each stage. It has no count of a stage's
-  rounds.
-- Fact: the mail result has `relevant`, `short`, `why` and `preview` for each email, and an
-  email that fails inside the workflow leaves an `error` there while the run completes.
-- Fact: the lab's own numbers say a few cases rarely settle a comparison: 16 review cases ended
-  undecided ([[011-compare-variants|story 011]]).
-- Fact: the lab's variants ([[008-review-scorer|story 008]]) carry a version raised by hand, and
-  results belong to it. This kind has none; a run's label and commit say what ran.
-- Constraint: the lab runs workflows only through `awf run` (boundary 5).
+  (`packages/sandbox/src/resolve.ts`, `srt/profile.ts`). The mail readers work inside the project.
+- Fact: a sandbox may not be granted a path inside `~/.awf` (`packages/sandbox/src/resolve.ts`),
+  so agents cannot reach the store, and the case, scratch and grade folders cannot live there.
+- Fact: the review lab imports a variant file into its own process to read its settings
+  (`packages/lab/src/review/lab/load.ts`); `awf run` loads it again. The new kind reads its
+  settings from `dataset.json` instead, and loads `env.ts` only inside the trial's `awf run`.
+- Fact (tried on Bun 1.4.0, listed under "What was tried"): `bun:test`'s `spyOn`, `mock`,
+  `mock.module` and `setSystemTime`, and a replaced `globalThis.fetch`, all work in a plain Bun
+  process.
+- Fact: a sandboxed agent's environment is built from scratch (srt `srt/index.ts`, docker
+  `docker/index.ts`), `network` takes domains only (`resolve.ts` `isDomain`), and no agent option
+  adds env or an MCP server. An agent's `tools` are served by the control plane, so their handlers
+  run in the workflow's process.
+- Fact: `wf.stage(name, options?, work)` is the only way into a stage (`contract`'s
+  `workflow.ts`); a stage's `result` schema checks what its work returns.
+- Fact: the lab's runner runs its own checkout's engine source (`runner.ts`, `AWF` is
+  `engine/src/operator-cli.ts`), with no `cwd`, the lab's environment less the calling session's
+  variables, and no way to add to it for one run. It already passes `--run-root`.
+- Fact: an installed `awf` hands a run over to the engine of the project in its working folder,
+  found from `process.cwd()`, not from `--cwd` (`agentswf/src/awf.ts`, `hand-over.ts`). The engine
+  refuses a workflow file of another project's engine (`workflow-loader.ts`), and `awf logs`
+  refuses a run of another version (`run-state.ts` `checkRunEngine`) and finds a run outside known
+  projects only through `--run-root`.
+- Fact: `awf run` refuses a workflow whose `file` is not the file it loaded (`workflow-loader.ts`),
+  and a spread workflow keeps its `file`.
+- Fact: the lab's command line exits 2 on a usage error and 1 on any thrown error (`cli.ts`), and
+  the review kind exits 3 on a budget stop (`execute.ts`). Its `--cases {n}` means n cases of a
+  seeded order.
+- Fact: a workflow's run record has each stage's time.
+- Fact: the mail result has `relevant`, `short`, `why` and `preview` per email; an email that
+  fails inside the workflow leaves an `error` there while the run completes.
+- Constraint: the lab runs workflows only through `awf run` (boundary 5), so it cannot import the
+  engine's lock or its engine lookup.
 - Constraint: [[0003-autoresearch-tools-here-project-data-there|ADR 0003]] keeps evaluation data
   in a repository of its own. This story keeps cases in the project's repository, so the ADR is
   amended first.
-- Constraint: `@agentswf/lab` is private and linked, with no promise that its exports stay
-  (`packages/lab/AGENTS.md`). `@agentswf/lab/cases` is one more such export.
+- Constraint: `@agentswf/lab` is private and linked, with no promise its exports stay
+  (`packages/lab/AGENTS.md`). A project gets `@agentswf/lab/cases` the way it gets `awf-lab`, by
+  `bun link`, as in "Before you start".
 - Assumption: an agent judging prose criteria agrees with the person who wrote them often enough
   to be useful. Task 1 tests this before anything is built.
-- Assumption: the mail workflow can take today's date as an argument, as it takes its inbox.
+- Assumption: the mail workflow calls its mail and notes modules through their imports. Checked
+  in task 2's plan.
 
 ## Code map
 
 ### `packages/lab`
 
-- Paths and symbols: `src/review/lab/execute.ts`, `runner.ts`, `store.ts`, `load.ts`,
-  `workspace.ts`; `src/review/format/variant.ts`, `records.ts`, `workspace.ts` (the schema and
-  `RENAMED_CONFIG_KEYS`); `src/review/judge/`;
-  `src/compare/`.
-- Relevance: everything a trial does lives under `review/`. The new kind is built in a folder of
-  its own, and `review/` keeps working as it is until the next story moves it over. The two share
-  what is already general: starting `awf run` and reading its result (`runner.ts`, once its one
-  review type moves out), and `compare/`, which the new kind may import as it stands. What they
-  share moves to a neutral folder, so the new
-  kind never imports from `review/`. The command line, now `src/review/lab/cli.ts`, moves up to
-  a neutral entry that hands a dataset to the new kind or to `review/`; `package.json`'s `bin`
-  follows it and gains a `./cases` export for `@agentswf/lab/cases`. `awf-lab.json`'s schema,
-  serving both kinds, moves to the shared folder with the part of its loader,
-  `src/review/lab/workspace.ts`, that reads the common fields, and with `validate.ts`'s generic
-  `checkSchema` and `describeProblems`. The review defaults (`match-first.scorer.ts`,
-  `default.compare.ts`) and the checks that need `format/grading` stay in `review/`.
+- Paths: `src/review/lab/execute.ts` (`planRun`), `runner.ts`, `store.ts`, `load.ts`,
+  `workspace.ts`, `cli.ts`; `src/review/format/variant.ts`, `records.ts`, `workspace.ts` (the
+  schema and `RENAMED_CONFIG_KEYS`), `validate.ts`; `src/review/judge/`.
+- Everything a trial does lives under `review/`. The new kind gets a folder of its own; `review/`
+  keeps working as it is until the next story. What both share moves to a neutral folder, so the
+  new kind never imports `review/`: `runner.ts` (once its one review type moves out),
+  `awf-lab.json`'s schema and the loader of its common fields, and `validate.ts`'s `checkSchema`
+  and `describeProblems`.
+- The runner's request gains an environment to add and the folder's `awf` bin, started as
+  `bun --no-env-file --preload {fetch} {awf bin}`, with its working folder. Its contained mode, which mounts the lab's checkout, stays review-only.
+- The command line moves to a neutral entry that hands a dataset to the new kind or to `review/`;
+  each kind keeps its own flags and help (`--cases` differs). `package.json`'s `bin` follows it
+  and gains `./cases` and `./cases/fetch` exports.
 
 ### `packages/engine`, `packages/contract`
 
-- `awf run --run-root` already exists; the lab uses it to keep the workflows' run records in the
-  store.
-
-- Checked, no change planned. The lab reads a workflow's run through `awf run --json`,
-  `awf logs --json` and `contract`'s `readRun`.
+- Checked, no change. The lab reads a run through `awf run --json` and `awf logs --json`, and the
+  run folder through its layout, as `execute.ts` does today, parsing lines with `contract`'s
+  `readRun`.
 
 ### `scripts/check-boundaries.ts`
 
-- Gains the rules that keep the new folder apart from `review/`: the new folder imports the
-  shared folder, `compare/` and contract only, among the lab's own folders (third-party imports,
-  `typebox` and `yaml`, are not policed by the script); `review/` may now import the shared
-  folder; the shared folder imports neither; only the command-line entry imports both. The new
-  kind's loader imports variants, `setup.ts`, `graders.ts` and `capture.ts` by computed path, so it joins
-  `allowsComputedWorkflowImport` in `scripts/boundary-paths.ts`, as `review/lab/load.ts` is. A
-  new rule refuses the words `mail`, `review` and `finding` in the new folder's identifiers,
-  strings, file names and record names; comments are not checked. The new folder and the shared
-  folder each get `review/`'s `pure` rule, with their own I/O files named: `runner.ts` and the
-  workspace loader in the shared one; in the new one, the loader, the key reader, the store, the
-  trial's folders, the marker search, `case new` and `trialCase()`, which task 2's plan lists by
-  file; `gradeCase()` and the judge's workflow file, which task 3 adds; and `capture`, which
-  task 6 adds.
+- Among the lab's folders, the new folder imports only the shared folder and contract. `review/`
+  may import the shared folder. The shared folder imports neither. Only the command-line entry
+  imports both.
+- The new kind's helper, which imports `graders.ts` and `capture.ts` by computed path, joins
+  `allowsComputedWorkflowImport` in `scripts/boundary-paths.ts`.
+- `defineEnv` returns a workflow made with `agentswf/workflow`'s `defineWorkflow`, the surface the
+  engine serves to every workflow file it loads, so its `kind` and `meta` come from there and not
+  from a copy of `contract`. `cases` imports `agentswf/workflow` as an example workflow does; the
+  engine's loader plugin serves that name to every importer in the run, the linked `cases`
+  included, so it is the trial folder's engine and never the lab checkout's copy (M4 confirms it
+  under `bun link`).
+- `@agentswf/lab/cases` runs inside a trial's `awf run`, in the project's process: it imports
+  `bun:test` (outside a test file) and `agentswf/workflow`, and no package a project must
+  install: `c.http` is the lab's own `fetch`. The checker already allows both (`bun:test` is skipped, any non-`@agentswf/`
+  package is allowed); AGENTS.md's boundary 5 is reworded to say "contract only" means `@agentswf`
+  packages, with `cases` as the entry that runs in a project. `cases` reads files (`c.json`), so it
+  joins the I/O files exempt from the `pure` rule.
+- The words `mail`, `review` and `finding` are refused in the new folder's identifiers, strings,
+  file names and record names (not comments).
+- The new and shared folders get `review/`'s `pure` rule, naming their I/O files (task 2's plan
+  lists them). `@agentswf/lab/cases` is stateless: no runtime imports from `contract`, so two
+  copies of it never disagree.
 
 ### The two workflows, in their own repositories
 
-- The mail triage: takes `today` as an argument; its readers' working folder moves out of the
-  repository. Its `evals/` folder is new.
-- web-to-cli: no change to `core/`. Its `evals/` folder is new.
+- The mail triage: its readers' working folder moves out of the repository; today's date through
+  a function of its own; a new `evals/` folder. No change to how it reaches mail: the environment
+  mocks its modules.
+- web-to-cli: no change to `core/`; a new `evals/` folder. Its build runs from the copy `setup`
+  makes, since it finds its root from its own code's folder.
 
 ## Proposed design
 
-Your code runs in two places. `setup.ts` (with `check`), `graders.ts`, `capture.ts` and a
-variant's `read` run inside the lab. The variant's workflow, and a grader that is a workflow, run
-inside `awf run`, and `trialCase()` works only in the variant's.
+### Where your code runs
 
-- **`defineSetup`** (in `setup.ts`, optional) gets the checkout being tried (`root`), an empty
-  scratch folder, the case folder as built (`caseDir`), the case's input and the variant's
-  `options` (an empty object when the variant
-  gives none). It returns `cwd`, `env` and
-  `argv` for the workflow's run, and optionally `check`, a function the lab calls after that run
-  and before the scratch folder is deleted. It is `setup.ts`'s default export; without one, the
-  workflow runs in the scratch folder with the variant's `argv`.
-- **`defineVariant`** wraps the workflow, as `defineReviewVariant` does: `argv`, `timeout`,
-  `read`, and `options`, plain data handed to `setup.ts`. When both give an `argv`, the setup's
-  comes after the variant's.
-- **`trialCase()`** returns the case folder and the input (an empty object when the case has no
-  `input.json`). The lab sets `AWF_LAB_CASE` for the workflow's run; without it the call throws
-  and says to call it inside a function. Nothing else reads the variable.
-- **`dataset.json`** holds what is plain data: `kind: awf.case-dataset/0`; `sandbox`, required;
-  `keep`, the paths saved from the scratch folder; `graders`, the dataset's own; and `judgeAgent`, the
-  judge's model, when it is not the workspace's.
-- **`awf-lab.json`** serves both kinds until the move. `datasets` (the folder) is shared, and the
-  new kind adds `judgeAgent`, the workspace's judge as `{ harness, model }`, so a judge from
-  another provider can be named (not `judge`, which the review loader
-  refuses as the old name of `scorer`), and an optional `store`, which replaces
-  `~/.awf/lab/{project}/`; `run` refuses a `store` inside the repository, which holds keys and
-  private input that agents working there could read. The review fields (`clone`, `dataset`, `results`, `runs`, `variants`,
-  `scorers`) become optional, and are checked only when a review dataset is used; the new kind
-  never reads them, `dataset` included, so its results never land in a review `results` folder.
-  Without `--dataset`, a command picks a dataset only when the workspace has one dataset, or
-  only review datasets and a review `dataset` default; otherwise it asks for `--dataset`.
-- **One set of commands.** A dataset folder with a `dataset.json` of `kind`
-  `awf.case-dataset/0` is the new kind; one without is a review dataset, as every dataset is
-  today. `run`, `score` and `report` hand it to the code for
-  its kind, so reviews keep their commands until they move.
-- **`capture.ts`** exports, by default, the function that turns a past run into a case (task
-  6); **`graders.ts`** exports the dataset's graders by name (below).
-- **The project's own `awf` runs the trial** (`node_modules/.bin/awf` under `root`), not the
-  lab's, so the engine is the one the workflow was written for. The lab puts that folder first
-  on `PATH` for the workflow's run; the criteria judge, on the lab's own `awf`, gets the lab
-  checkout's `node_modules/.bin` instead. Before the first trial, `run` runs that `awf` once on a
-  workflow that does nothing, written into a temporary folder with no `agentswf` installed above
-  it (the engine is found from the `agentswf` above a file, so any `awf` runs this one; the
-  binary started is what is checked; a file under the project would bind to the project's),
-  and stops, naming both versions, when the record
-  version `awf run --json` prints is not the `OUTPUT_RECORD_VERSION` the lab reads, the check
-  `runner.ts` already makes after each run.
-- **The folders** are made under the system's temporary folder and deleted when the trial ends.
-  Each holds an owner file with its run's id and process id. At its start, `run` removes only
-  folders whose process is gone. Only one `run` or `score` of a project goes at a time, every
-  dataset included, so a two-hour builds run holds up the mail dataset ("Before you start"), under
-  an exclusive lock in the store. A grade folder, which holds a key without its marker, is made
-  only after its trial's workflow has ended, so with one run at a time no workflow is alive to
-  read it.
+- **Inside the trial's `awf run`**: `env.ts`, the workflow it imports, and its `setup`, `observe`
+  and teardown, in one process per trial, started by that folder's own `awf`. A grader that is a
+  workflow runs in its own `awf run`. `c` works only in a trial's run; `gradeCase()` only in a
+  grader workflow's.
+- **In a helper process, your checkout's only**: a Bun process the lab starts with your checkout
+  as its working folder, exchanging JSON with the lab, that runs `graders.ts` and `capture.ts`.
+- The lab's own process loads no dataset code, and two folders' code never shares a process.
 
-**Grading.**
+### The code surface, from `@agentswf/lab/cases`
 
-- A **grader** is given the case (its folder, input and key, `key/` included), the workflow's
-  whole result, what `read` and `check` returned, the saved files (`keep`), and the scratch
-  folder. It returns `{ verdict?, numbers?, reasons }`: `passed`, `failed` or `undecided`
-  (the grader could not tell, as when the judge's voters split); numbers by name, each a
-  count out of a total (`recall: { count: 7, of: 10 }`) or a plain value; and why, as a list of
-  `{ about, text }`, `about` naming the field, criterion or finding it explains. A grader may
-  also return `parts`: one per thing it judged (a criterion, a finding), each with its own key
-  digest, verdict and raw `votes`, and give `settle(votes)`, its rule for turning votes into a
-  verdict. The lab stores parts and votes for any grader and knows nothing of what they mean;
-  how a grader votes (three that must agree, or two and a tiebreak) is its own business. Whether
-  this fits the review scorer is part of M2.
-- **Code**: `defineGrader({ grade, settle?, rebuild?, readsFields? })`, a named export of `graders.ts`, named in
-  `dataset.json`'s `graders`: `"graders": ["recall"]`.
-- **A workflow**: `"graders": [{ "workflow": "graders/judge.ts", "settle": "twoAndTiebreak",
-  "rebuild": true, "readsFields": true }]`, a path inside the dataset; `settle` names an export
-  of `graders.ts` (a function cannot travel in a workflow's JSON result), and the other two are
-  flags, all optional.
-  The lab starts it with the project's own `awf run`, under its own sandboxes, as a `"workflow"`
-  dataset's trial runs, with `AWF_LAB_GRADE` naming a grade folder, which `gradeCase()` (from
-  `@agentswf/lab/cases`, as `trialCase()` is) reads. The lab makes that folder
-  beside the trial's other temporary folders, outside the repository, and deletes it after. It
-  holds the case with its key (written without `marker`, so no grader is ever given it; for the
-  criteria judge, only the criteria to judge, never `expect` or `key/`),
-  `result.json`, `fields.json` (what `read` and `check` returned),
-  `kept/`, and `grade.json` (`kind: awf.case-grade/0`), which names the scratch folder's path
-  when there is one; the
-  scratch folder is named, not copied, so the grader's own sandboxes must allow reading it. The
-  grader's run is recorded with the trials' runs, in the results folder, never in the project's
-  `.awf/runs`. Its result must have the shape above. Its run's cost is grading's cost.
-- `expect` and the criteria judge are graders like any other, stored under the names `expect`
-  and `criteria`, which are reserved: the loader refuses a dataset grader of either name. A
-  dataset uses them by having `expect` or `criteria` in its keys.
-- A trial passes when at least one grader gives a verdict and every one that does passed it,
-  fails when any failed it, and
-  is otherwise undecided. A trial no grader gives a verdict on is neither: its case is "no key"
-  when no grader applies, and has only numbers when only numbers were given. Counts are pooled over trials
-  and cases before they are divided, so recall over a dataset is weighted as the review scorer
-  weights it; a plain value is shown as a median. A dataset whose graders give no verdict has no
-  "passed" rows. This shape is a first guess: it is settled by trying it (M2), not argued.
-- Graders run inside the trial, after `check` and while the scratch folder holds what the
-  workflow left. `score` grades a kept trial again from what was stored: the result, `check`'s
-  stored fields (it never calls `check` again) and the saved files. It keeps the stored `read`
-  fields unless the variant's `read` digest (below) changed; then it applies the current `read`
-  to the stored result, which costs nothing, and the column is marked as below. There is no scratch folder
-  then (its path is absent), unless the grader sets `rebuild`: it is then given one the setup
-  makes again, from the current checkout and the variant's current `options`: the state before
-  the workflow ran, such as a review's frozen code. `rebuild` is designed here and sketched in
-  M2 but built with the reviews' move, the first grader to need it; until then the loader
-  refuses it, and the score record's rebuilt fields are optional and absent. A grader that needs what the workflow wrote
-  names it in `keep`. The score records whether the folder was rebuilt, and from which commit.
-- **One outcome per trial.** When several apply, the first in this order counts: leaked,
-  input changed, errored, grading errored, needs score, failed, undecided, passed, ungraded. A
-  trial whose stored input no longer matches the current case is **input changed**: not
-  decided, never graded again, and its case goes under "too few trials decided" in a single
-  run. A trial **needs
-  score** when a grader that now applies has no entry for it; it is not decided, and a
-  single-run report counts it in a row of that name. A trial is **ungraded** when no
-  grader gave it a verdict (a draft key, no key, or numbers only); it is not decided, and its
-  case is left out of comparisons, listed under its own reason only in `--case`. A known fail is
-  therefore shown as grading errored until `score` succeeds, so that a grader that broke is never
-  read as a verdict. `score` runs again only the grader that errored, and the trial's outcome is
-  worked out again from the entries the report reads (below).
-- **What a grader's digest covers**, so a score says when it is out of date:
-  - code: `graders.ts` and the files in the dataset folder it imports (the inputs `Bun.build`
-    reports for it); editing a code grader's `settle` therefore runs it again, which costs
-    nothing. A `settle` also has a digest of its own, `settle.toString()`, which is what lets a
-    workflow grader, the judge among them, settle stored votes again without running. Editing the
-    setup or `capture` never asks for `score`. A file imported from
-    outside the dataset folder is not covered: after editing one, run `score` yourself;
-  - a variant's `read`: its own `.variant.ts` file and the files in `variants/` that are not
-    variants (such as `triage.ts`). Every grader that reads `read`'s fields (`expect`, a grader
-    with `readsFields`) records the `read` digest it graded, so editing `triage.ts` makes those
-    stale, and editing `sonnet.variant.ts` touches only
-    sonnet's;
-  - a workflow: its file and the dataset files it imports, with its `dataset.json` entry's flags;
-  - `expect`: nothing beyond the key's values and the `read` digest; its rule, exact equality,
-    is part of the score record's format: before the reviews move it is a `/0` change, after it
-    a new `kind`;
-  - the criteria judge: only what changes a vote: its model, its number of voters, and its
-    prompt, meaning the template and the code that assembles each voter's input from the case,
-    the result and the saved files. Its `settle` rule (all three agree, today) has a digest of its own, as every
-    grader's has: when only that changed, `score` settles the stored votes again, for a
-    workflow grader with parts, without running it, so changing the rule, or refactoring the judge's code, never pays to judge old
-    trials again.
-- A grader that throws, or a grader workflow whose run fails, leaves the trial's score
-  **grading errored**: counted in a row of its own, which always appears, not decided, and graded
-  again by `score` without running the workflow.
-- A trial is **errored** when the setup fails, the workflow's run does not complete, `read` or
-  `check` throws, or `read` returns a non-empty `error`. `error` is reserved: a key's `expect`
-  cannot name it. An errored trial is counted and shown in a row of its own, and is not
-  decided. The stage it errored in says whose it was: the workflow's run failing or timing out,
-  `read` throwing and `read`'s `error` are the variant's; setup, `check`, `fields-collide` and
-  `fields-missing` are the dataset's. The variant's errors, and undecided trials, are weighed first when two runs are
-  compared (the Outcome's rule). Graders do not run on an errored trial, so it costs no
-  grading. A run that finishes with the wrong
-  answer, like the build's "deferred", is a fail, not an error.
-- A **leaked** trial, one where the key's marker turned up, is shown in a row of its own,
-  "trials where the key leaked". It is not decided, and a case with a leaked trial on either
-  side is left out of a comparison whole and listed under "could not compare". The row appears
-  only
-  when a trial leaked; "cases with no key", "cases graded by numbers only", "trials that need
-  score" and "trials whose input changed" appear when there are any; the three passed rows and
-  "too few trials decided" always appear when any grader gives a verdict; the errored,
-  grading-errored and undecided rows always appear, the unsettled row
-  whenever the dataset has criteria, and "criteria read, not run" whenever a criterion was
-  judged from saved files.
-- **`expect`** is checked by code against `read`'s fields joined with `check`'s, by flat name,
-  `error` reserved, and names starting with `_` reserved for the lab, so a later name it needs
-  never collides with a key's. The flat names are costly to change, as `key.md` is: every named
-  field must equal the key's value. Values are strings, numbers and booleans only, and `expect`'s
-  values are read strictly, with the `yaml` package (YAML 1.2's core schema, a new dependency of
-  the lab), in the key reader, one of the new folder's I/O files; it keeps each value's style,
-  so a string value under `expect` must be quoted, only `true` and `false` are booleans,
-  so `no` is refused rather than read as false. A field that both `read` and `check` return makes
-  the trial errored at stage `fields-collide`; a field `expect` names that neither returns, at
-  stage `fields-missing`; on `score`, a field the current `expect` names that the stored or
-  re-read fields lack makes the new score grading errored at stage `fields-missing`. Both are
-  the dataset's, since its key and code disagree, and a wiring
-  mistake never reads as the workflow's fail.
-- A case row gives its passes out of its decided trials, and how many were not decided and why
-  ("2/2, 1 undecided", "2/2, 1 errored").
-- **The criteria judge** is a grader workflow in the new folder, run on the lab's own `awf` (the
-  project's would refuse a file of another engine), one run per trial, a part per criterion. It is
-  given the trial's stored copy of the case folder as built (`input.json` and `files/`, such as
-  the email), never a rebuild, the workflow's
-  whole result, the saved files, and the criterion's text.
-  It is never given the marker or the agents' logs (`awf logs`). The result and the saved files, which
-  agents wrote, and which can carry a stranger's email, are data to it, never
-  instructions. Three voters each give a verdict, each recorded with its reason, so a later
-  change of the rule that settles them reads old scores again without paying for them:
-  `met` or `unmet` for a `must`, `violated` or
-  `not violated` for a `must-not`. Unless all three agree the criterion is `unsettled`, and the
-  judge's verdict is `undecided` unless another criterion failed. "Criteria left unsettled" is
-  the report's row for the judge's undecided parts; a dataset's own grader with parts gets the
-  same row under its name. A `judgeAgent` or prompt other than the one task 1 checked against
-  the person (recorded in Implementation notes) makes the report mark the judge "not checked
-  against a person". Its harness and model are `judgeAgent`, set once for the workspace, in `awf-lab.json`, and a dataset may set
-  another in `dataset.json`. A dataset with criteria and no `judgeAgent` in either file stops
-  `run` before the first trial, naming both files; there is no default model.
-- Each voter says whether its verdict rests on the saved files; a criterion any voter judged
-  from them is marked "read, not run".
-- A case no grader applies to (no `expect`, no `criteria`, and no grader of the dataset's own),
-  or whose key says `draft: true`, runs with no grader, and the report counts it under "cases
-  with no key", with its time and cost only, and leaves it out of every passed count. A key
-  `capture` writes is a draft until the person writes or checks it and removes the line, so no
-  grader runs on a key no one has read. Whether a grader also needs to say "does not apply" for
-  a case is for M2.
+- **`defineEnv<Input>({ workflow, setup })`**, the default export of `env.ts`. Its types name
+  nothing from the lab's own `agentswf` or `contract`: `workflow` is typed structurally (a
+  module whose default export has a `run`), and `observe`'s `result` is inferred from that
+  `run`'s return. A project's `agentswf` is another copy than the linked lab's, and the brands in
+  `contract`'s types (`unique symbol`) never match across copies, so naming them would make
+  every `env.ts` fail its type check. `Input` types
+  `c.input` (`any` when not given); `c.json<T>(name)` returns `T` (`any` by default). It makes the workflow `awf
+  run` starts: it leaves `file` unset (it can't see `env.ts`'s path, and the loader allows none),
+  and its name is `case-env-{dataset}`. Its body: build `c`, run
+  `setup(c)`, import `workflow(c)` and take its default export, refuse one with `events`, run its `prepare` on the argv (a
+  refusal errors the trial as the dataset's), run its body with the lab's `wf`, call `observe`, run
+  teardown. Its result is `{ workflow: { name, version }, result, facts, stages, given, unused,
+  refused }`, read by the lab through `awf run --json --quiet`; `result` is `null` under `until`.
+  The workflow's own `present` and `report` are not called.
+- **`setup(c)`**, sync or async, returns `{ observe, argv?, stages?, until? }`. A throw errors the
+  trial as the dataset's. `setup` may set `process.env`, which the trial's process alone sees; the workflow reads
+  it, and a sandboxed agent gets only what the workflow hands its sandbox.
+- **`observe(result, { stages })`**, sync or async, returns (or resolves to) the facts: a flat
+  object of strings, numbers, booleans and `null`; a fact whose value is `undefined` (a typo, a
+  missing field) counts as missing, the dataset's (`facts-missing`); only an explicit `null` says
+  the workflow returned nothing there. It runs only after the workflow's body returned (or reached `until`). `result` is the
+  workflow's result, typed from its import: `Result` when `setup` returns no `until`, and
+  `Result | null` when it may (`null` under `until`); `stages` holds every stage's
+  value by name, given or live, `Partial` under `until`. A throw errors the trial as the dataset's.
+- **`c`**: `json(name)`, `text(name)`, synchronous (the case folder, the case's own files over the
+  dataset's shared ones), `input` (`{}` without `input.json`), `dir`, `scratch`, `root`, `mock`,
+  `fake`, `http`, `cleanup(fn)`. `cleanup` is the one teardown. The lab sets `AWF_LAB_CASE` for the run; `defineEnv` refuses to run without it.
+- **`c.mock(module, fakes, { real? })`**: for each function export of `module` (a namespace, an
+  object or a class's prototype) that is not a class, and never `constructor`, and for each
+  function member of an exported plain object, `spyOn` with the
+  fake, or, unless named in `real`, with a function that records the call as refused and throws
+  "no fake for {module}.{name} in this case". A class is replaced only when faked by name. A
+  `node:*` module or `bun` is refused: the engine shares the process. Returns
+  the spies by name. A key the module doesn't export, or
+  that isn't a function, is refused at once; the type is `Partial` over the module's functions,
+  so it is a type error first. A CommonJS module is patched on its named export and on
+  `default`.
+- **`c.fake<T>(fakes)`**: a Proxy typed as `T` (a type alone lists no members at run time): a
+  member given is a spy; any other member, when called, refuses as above, while reading `then`,
+  `toJSON` or a symbol gives `undefined`, so the fake can be awaited and logged. It joins `unused`
+  and `refused`.
+- **`c.http(routes)`**: routes keyed `"{METHOD} {URLPattern}"`, each a function from the
+  `Request` and the pattern's `params` to a `Response`. The lab's `fetch`, in place of
+  `globalThis.fetch` on every trial from a preload module the lab gives the trial's process (it
+  keeps its routes on a `globalThis` symbol, so the preload's copy and `cases`' share them), records every request and refuses, recording as refused, a
+  request to a hostname any route names that no route matches, and a request to any other hostname
+  unless it is the engine's own or in `realHosts`, which go to the real `fetch`, as does a
+  `fetch` with `unix`. The engine's own are the hosts of the decision provider it
+  ships (`openrouter.ai`, from `OPENROUTER_DECISIONS` in `engine/src/decisions/openrouter.ts`),
+  kept in a list in the lab beside the model-family table; a list that falls behind refuses a
+  decision, which errors the trial as the dataset's and names the host. The engine's decision
+  provider takes `globalThis.fetch` once, when the runtime is installed, after the preload, so
+  its calls go through the lab's `fetch`; that is why the list is needed.
+  `c.http.requests` lists every request, whether given a URL and `init` or a `Request`. A route whose pattern has no literal host, or a key that
+  doesn't parse, throws in `setup`.
+- **The lab's `wf`**: the engine's, with `stage` wrapped (`Object.create(wf, { stage })`, keeping
+  the engine's getters). For a stage `stages` names, it calls the engine's `stage` with work that
+  returns the given value. After the `until` stage returns, it sets a flag and throws a signal of
+  the lab's own.
+  - **Before the flag**, every error is the workflow's own and is rethrown, and a `wf.stop` is
+    the stopped outcome; except a given value its schema refused and a refused call, which the
+    lab's `wf` and mocks record in the trial file as the dataset's.
+  - **Once the flag is set**, the case has what it came for, so any ending of the body counts as
+    reaching `until`: the signal caught by `defineEnv`, swallowed by the workflow (which gets it
+    again at its next stage), or wrapped in another error by a helper of the workflow's. Then
+    `observe` runs and the run completes. The one exception is a `wf.stop`, which is never
+    swallowed (the engine fails an attempt whose stop was caught): `defineEnv` runs `observe`,
+    writes the facts to the trial file, and lets the stop through; the lab grades the trial from
+    the file, as reaching `until`.
+  - **Names** in `stages`, or `until`, are looked for as string literals in the workflow's
+    source files (the folder of the module `workflow(c)` imported, and what it imports from the
+    same project) right after the import: one found nowhere errors the trial as the dataset's
+    (`stage-missing`). A name that exists but the body never entered is no error: a body that
+    returned early has `observe` run on its result with `Partial` stages and is graded by the
+    key, noted "never reached {stage}"; one that threw or stopped first is the workflow's fail.
+- **Unused mocks**: every fake the case gave, and every route, never called is listed in
+  `unused`, and in the report beside the case, except a mock whose `.mock` `observe` read (the
+  spies `c.mock` returns track that read). Never graded.
+- **The trial file.** `defineEnv` appends to a file the lab names in `AWF_LAB_TRIAL`, under
+  `~/.awf/lab/` whatever `store` says (a sandbox may not be granted a path there), outside the case and scratch
+  folders: each change of phase, each refused call (function or host), the unused mocks and
+  routes, and at the end the facts and the stages' values. The lab reads it whatever the run's ending, since `awf run
+  --json` carries a result only for a run that completed.
+- **The phase.** `setup`, the workflow's body, `observe`, or teardown; `after`, for what the lab
+  checks once the run has ended (`reach`), the lab's own and never in the trial file. A run that dies before
+  the trial file's first line (a module `env.ts` imports statically throws as it loads) is the
+  dataset's, with the run's stderr as the reason: even when the throwing file is the workflow's,
+  the fix is in `env.ts`, importing it lazily. Importing the workflow and
+  its `prepare` belong to the body, so a change that breaks the import is the workflow's; a
+  `prepare` refusal of the argv is the dataset's, and so is a module `workflow(c)` names that
+  doesn't exist (a wrong path, which `tsc` can't see in a template string). An error or a timeout is
+  the workflow's only inside the body; in `setup`, `observe` or teardown it is the dataset's. An
+  `observe` that runs code agents wrote (the built command) bounds it with a timeout and reports
+  its failure or hang as a fact, never as a throw or a wait for the trial's deadline.
+- **Refused calls**: every call to a function or host the case doesn't fake, with its phase.
+  Any refused call errors the trial as the dataset's ("no fake for mail.delete in this case"), with the first
+  one as its reason, whether or not the workflow caught the throw. A call that must not happen is
+  a recording fake and a fact, never a refusal.
+- **Timeouts**: `dataset.json`'s `timeout` is the body's alone, timed by `defineEnv` from when the
+  body starts; `setupTimeout` (`"10m"` by default) bounds `setup` and, again, `observe` with
+  teardown. The lab passes `timeout` plus twice `setupTimeout` plus a minute as `awf run
+  --timeout`, a backstop the engine
+  records as `timed-out`. The engine abandons a timed-out body rather than stopping it, so
+  `defineEnv` arms its own timer per phase and a SIGTERM handler: at a phase's limit it writes
+  "timed out in {phase}" to the trial file, skips every later phase but teardown, writes no
+  facts, and runs `c.cleanup`'s teardown. On its own timer the run is still going, so teardown
+  is bounded by the backstop; on the engine's backstop or a SIGTERM, only by the engine's exit
+  grace (2 s). The lab reads nothing after
+  that line, and deletes the trial's folders itself whatever teardown managed. An engine
+  `timed-out` with no such line is blamed by the last phase the trial file recorded.
+- **`defineGrader({ grade, readsFacts? })`**: a dataset's own code grader, a named export of
+  `graders.ts`. `readsFacts: true` gives it the facts and the stages' values; without it, only the
+  case, the result and the saved files. A grader workflow takes the same flag in `dataset.json`.
+- **`gradeCase()`**: what a grader workflow reads its input from.
+- **`capture`**: the default export of `capture.ts` (task 6).
 
-**What is kept.** Each `awf-lab run` is one stored run, under a label that is the branch's name
-unless `--label` gives another, or the short commit on a detached checkout. `report` shows the
-newest run of the current branch's label, `report --label {label}` or `report {label}:{n}` another;
-`--beside {label}` adds the finished run of the same dataset under that label with the same
-trials per case and the most (case, variant) pairs shared with the current run (the Outcome's
-rule), and `--beside {label}:{n}` a given one, as the Outcome says. A lab run's id is
-`{label}:{n}`; no git branch name holds a `:`, and `--label` refuses one, so an id is never read
-as a label; `awf-lab runs` lists what is
-kept. A
-run that was interrupted keeps the trials that finished and is marked partial. Nothing is reused from one run to the
-next. Results live outside the repository, in one folder per project
-(`~/.awf/lab/{project}/`, unless `awf-lab.json` says elsewhere), so every checkout of a project
-shares them and none commits them. `{project}` is the hash of the repository's root commit,
-recorded in the store on the first run; later the store is found by any root commit the
-repository has, so merging an unrelated history never moves it. Every full clone and worktree
-shares it, and renaming or moving the folder does not change it; `run` refuses a shallow clone,
-whose root differs;
-the folder also holds the repository's name, for people. Two unrelated repositories never share
-it. This is costly to change once runs are kept: changing it orphans them. The records of the workflows' runs are
-kept there too, so `awf logs` still opens one after its trial's folders are gone, with the
-`awf` version the trial recorded; after the project upgrades `agentswf`, an older trial's logs
-may be refused, though its stored result and scores still read. The marker search reads them
-through the project's `awf`, at the time of the trial.
+### Settings files
 
-- A **run** records: `kind: awf.case-run/0`, its label and `n`, the branch it was made on (or
-  "detached"), the commit it started on and
-  whether there were uncommitted changes, the dataset, the variants, cases and trials asked for,
-  when it started and when it finished. A run with no finish is partial. `n` counts from 1 per
-  label. A label is stored as one folder name, escaped, so `feat/1` never nests inside `feat`,
-  with the label itself in each run record. Beside a label's runs sits a counter file; `run`
-  takes the next `n` from it under an exclusive lock, so two checkouts sharing the store never
-  clash, and deleting a run's folder never frees its number. `awf-lab runs` lists newest first.
-  This layout is costly to change once runs are kept, as the project's identity is.
-- A **trial** records: `kind: awf.case-trial/0`, the label and run, the dataset, the case and a
-  copy of its case folder as built (the shared files and `input.json` included, never the key),
-  with its digest, a digest of the
-  setup (`setup.ts` and the files in the dataset folder it imports), the variant and a digest
-  of its code (its `.variant.ts` and the non-variant files in `variants/`, the same files as its
-  `read` digest), the
-  commit, whether there were uncommitted changes and a digest of them (the diff against the
-  commit, with untracked files, but not the workspace's `evals/`, whose cases and keys carry
-  digests of their own), the sandbox setting, the models used, the `awf`
-  version, when it ran, the id and outcome of the workflow's run, its time and cost (the
-  accounting's `estimate`, with its `known` and `priced` counts), the setup's
-  time, the workflow's
-  whole result, what `read` and `check` returned with the digest of the `read` that ran, the
-  saved files, whether the marker was found, and, for a trial that errored, where and why
-  (`errored: { stage, reason }`, the stage being setup, the workflow's run, `read`, `check`,
-  `read`'s `error`, `fields-collide` or `fields-missing`).
-- A run whose trials ran on different uncommitted changes (a file edited during a long run) is
-  flagged in its report, and a column's header shows the digest whenever there were uncommitted
-  changes, so two runs on one commit with different edits are told apart.
-- A **score** records: `kind: awf.case-score/0`, the trial, when it was made, and one entry per
-  grader: its name, a digest of the part of the key it reads (`expect`'s values for `expect`,
-  each criterion for the judge, keyed by its `id`, the whole key with `key/` for a dataset's
-  own), a digest of its
-  code (or of its workflow file, with the grader run's id), for a grader that reads `read`'s
-  fields (`expect`, and a dataset's own that sets `readsFields: true` in `defineGrader`, or in `dataset.json` for a workflow) the
-  digest of that `read` and the
-  commit it came from, so the judge, which reads the whole result, does not go stale when a
-  variant's model changes, its verdict, numbers with their counts,
-  reasons, model, what it cost (as a trial's), a digest of its `settle`, where and why it errored (`errored: { stage, reason }`, as a
-  trial's), and whether its scratch folder was rebuilt
-  and from which commit, and its parts, if any, each with its key digest, verdict and votes.
-  For `expect`, the reasons are each field's outcome; for the judge, the parts are its criteria,
-  with a digest of its prompt and the id of the judge run that judged them (one run judges every
-  criterion of a trial, each by its own three voters, given that criterion alone, as task 1
-  tested; `score` judges the changed criteria again in one new run). A trial keeps every score it is given.
-- **Which entry the report reads**, per grader (per part, for a grader with parts), the one rule.
-  A trial with no entry at all for a grader that now applies is not decided ("needs score")
-  until `score` runs, and the report names the command. A case compares, and a trial is graded
-  again, only when its stored input digest equals the current case's (and, beside another run,
-  that run's); otherwise it shows "input changed", its case goes under "could not compare", and
-  no `score` is asked for. Otherwise, the
-  newest entry whose digests match the current ones and that did not error; when every matching
-  entry errored, the newest errored one, and the trial counts as grading errored. When the
-  current `read` errors on a column's stored results, its graders that read `read`'s fields fall
-  back to the newest entry made with that column's own `read`. Whenever the code that graded a
-  column's entries (a `read`, or a rebuilt folder) is from a commit other than the one the
-  column ran on, the column says so in one mark, "graded with {commit}'s code". With no entry
-  whose digests match, a single run's report shows the newest entry, marked "graded against
-  older keys or graders", and names the exact `score` command; `report --beside` refuses until
-  `score` has run, and names it. It refuses the same way when a grader that now applies has no
-  entry on one run or both, such as criteria added to a key that had only `expect`.
-- **`awf-lab score [{label}:{n} | --label {label}] [--beside {label} | --beside {label}:{n}] [--dataset {name}]`**, the
-  current branch's newest run unless told, with the `--beside` run too when given, grades again
-  only the graders whose digests no longer match, whose newest entry errored, or that have no
-  entry at all (a draft key made final, criteria added to a key, a grader added to
-  `dataset.json`), so editing the
-  note under a key's frontmatter costs nothing for `expect` and the judge (a dataset's own
-  grader reads the whole key). Graders are given the trial's stored case folder and the current
-  key. A trial whose stored case digest no longer matches the current case is not graded again;
-  it shows as "input changed", and its case cannot be compared until it runs again. When the
-  current `read`, applied again, throws, returns `error` or collides with `check`'s fields, the
-  trial's new score is grading errored at stage `read`, and the report reads the fallback above,
-  so a change of the result's shape never leaves the other side unreadable.
-- **What may change, and what may not.**
-  - `/0` on what the lab writes means the format may change without a way to read old files.
-    The formats people write by hand start at `/0` too, but the converter rule below covers
-    them from the first release: their next incompatible change makes them `/1`, with a
-    converter.
-    Every record the lab writes, run, trial, score and `grade.json`, stays `/0` until the
-    reviews move: reviews will bring what the records have not met yet (the `"lab"` sandbox,
-    `rebuild`'s frozen code, a `key/` of several files, a grader's own parts), and the move is
-    where they become `/1`. The score record keeps
-    each judge voter's verdict, so a changed voting rule never needs old runs judged again.
-  - Costly to change, and not covered by the `/0` waiver: a change ships with a converter in the
-    lab, or the lab keeps reading the old form.
-    - The project's identity, by which kept runs are found, and the store's layout: the escaped
-      label folder, its counter file, and `{label}:{n}`.
-    - The names that pair kept runs and scores: a case's folder name, a variant's file name, a
-      dataset's folder name, a grader's name (a workflow grader's is its path inside the
-      dataset) and a criterion's `id`.
-    - What each digest covers and how it is computed. The input digest is recomputed from each
-      trial's stored copy of its case folder when its rule changes, so no kept run reads as
-      "input changed" for it; a change to a code digest only asks for `score`.
-    - The case and dataset layout and its reserved names: `cases/`, `files/`, `input.json`,
-      `key.md`, `key/`, `variants/*.variant.ts`, `setup.ts`, `graders.ts` and `capture.ts`.
-    - The formats people write by hand and commit: `key.md`, `dataset.json` and `awf-lab.json`.
-      `awf-lab.json` gains `kind: awf.lab-workspace/0`, optional until a new-kind dataset is
-      used, so review workspaces load as they are; the review loader accepts `kind`,
-      `judgeAgent` and `store`. `dataset.json`'s `graders` field is exempt until the reviews
-      move.
-  - Unstable, with no converter, as "Before you start" says: the code shapes people write
-    against, variants, `defineSetup`'s return and a grader's result.
+- **`dataset.json`**: `kind: awf.case-dataset/0`; `sandbox` and `agentReach`, required; `timeout`, a trial's limit
+  for the workflow's body (`"30m"` by default), and `setupTimeout` for `setup` and `observe`
+  (`"10m"`), see "Timeouts";
+  `realHosts`, the hosts the workflow's own code may reach for real (the engine's own are
+  always allowed); `pass`, the bar for every case (`"all"` by default, or a fraction such as
+  `"2/3"`); `keep`, the
+  paths saved from the scratch folder; `graders`, the dataset's own; `judgeAgent`, when not the
+  workspace's.
+- **`sandbox`** accepts only `"workflow"` in this story: trust the sandboxes the workflow opens
+  itself. It is required, with no default to grow used to, so `"lab"` can come with the reviews'
+  move without breaking a dataset file. The report says which setting a run used.
+- **`agentReach`**: `{ "network": [domains], "webSearch": false, "sockets": false }` (`webSearch`
+  and `sockets` optional, `false` by default; a cursor agent counts as web search, since its
+  harness keeps its web tools), what the workflow's agents may
+  reach outside, beyond their model domains; required, so a dataset says it even when it is
+  nothing (`{ "network": [] }`). Checked after every trial (see "What agents call themselves").
+  `sockets` is outreach too: a host process behind a socket, such as web-to-cli's browser, can
+  reach anything, so a sandbox with sockets needs `"sockets": true`, and the report names them.
+  Paths stay the workflow's, checked in each workflow's task (2 and 5) to keep agents out of the
+  home folder, the store and `evals/`.
+- **`key.md`** frontmatter: `kind: awf.case-key/0`, `marker`, and optionally `expect`, `criteria`,
+  `known-failing: true`, `pass` (this case's bar), `draft: true` and `captured` (task 6). It is read
+  strictly with the `yaml` package (YAML 1.2 core schema, a new dependency), and an unknown field
+  (`expects:`) is refused: only `true` and
+  `false` are booleans, and an `expect` value that is a string must be quoted, so `no` is refused
+  rather than read as a string or false.
+- **`awf-lab.json`** serves both kinds until the move: `kind: awf.lab-workspace/0`, optional until
+  a new-kind dataset is used; `datasets`, the review kind's folder (a new-kind dataset is a folder of `evals/` itself); `judgeAgent: { harness, model }` (not
+  `judge`, which the review loader refuses as the old name of `scorer`); `store`, optional, in
+  place of the default store, refused inside the repository. The review fields (`clone`,
+  `dataset`, `results`, `runs`, `variants`, `scorers`) become optional, checked only when a review
+  dataset is used.
+- **One set of commands.** A new-kind dataset is a folder of `evals/` holding a `dataset.json`
+  with `kind: awf.case-dataset/0`; a review dataset is found as today, through `awf-lab.json`'s
+  `datasets`. `run`, `score` and `report` hand it to the code for its kind. With one dataset you
+  never name it; with more, commands take `--dataset {name}`. `case new` takes `{dataset}/{case}`,
+  or `{case}` with one dataset.
 
-**What a report may set side by side.** Two runs are compared only on cases with the same input,
-and only when they asked for the same trials per case. Columns pair by variant name.
-If their keys or graders differ from the current checkout's, the report asks you to run `score`
-first, which grades both runs' trials against the current ones. A column says its
-label, commit and variant. A column that started more than 30 days before the one beside it, on other models than the one beside
-it, or whose model shares the judge's family, says so, and so does a column whose trials ran a different setup (`setup.ts` and the files in the dataset folder it
-imports, by digest) from the other's, or different variant code (the variant's
-digest, above). Which cases are compared, and how, is the Outcome's numbered rules, stated only
-there; the report prints the "differs" list as "cases whose passes differ by {threshold} or
-more".
-A grader's numbers are shown pooled per column, side by side, with no "differs" list of their
-own; M2 checks that the stored per-trial counts are enough for a per-case comparison when
-reviews move.
+### Running a trial
 
-**The marker search** reads the case folder and the scratch folder before the workflow runs, and
-after it the result, the saved files, and everything `awf logs` has for the workflow's run, read
-to the end. In a git repository inside either folder it also searches every commit
-(`git grep` over `git rev-list --all`). For `key/`, it looks for a file whose digest matches one
-of the key's files, and, in a git repository, for each `key/` file's blob id (`git hash-object`)
-among `git rev-list --all --objects`. The marker is a few plain words, a shape `awf logs` does not take for a credential and
-hide.
+- **Each folder's own `awf` runs its trials**, found by walking up from the folder to
+  `node_modules/agentswf/package.json` and its `bin`, and started with the folder as its working
+  folder, since an installed `awf` hands the run to the engine of the folder it starts in; the
+  run's working folder is the scratch folder, through `--cwd`. Every
+  later read of a trial's run (`awf logs`, the marker search, stage times) uses the same `awf`
+  with `--run-root` in the store. The trial record names that `awf` and its version.
+- **Before the first trial**, `run` checks each folder: the dataset's `env.ts` at the same path,
+  type-checked by that folder's `tsc --noEmit` with a temporary tsconfig written in the folder's
+  root beside its own (which it extends, so `types` resolve there), including only `env.ts`, and
+  removed afterwards; only errors in `env.ts` and the files it imports from its own dataset
+  folder stop `run`, never one in the workflow's code, which Bun would run anyway; `tsc` resolving there;
+  `@agentswf/lab/cases` and `@agentswf/lab/cases/fetch` resolving there; its `awf`, started once on a do-nothing workflow in a temporary folder inside it, printing
+  the record version the lab reads (checked before any record is filtered by version); the
+  `judgeAgent` when keys have criteria. Any miss stops `run` with exit 2, naming it.
+- **The preload**: the lab starts the folder's `awf` bin as `bun --no-env-file --preload {fetch} {awf bin} run …`,
+  as `awf` starts itself (its shebang skips the folder's `.env`, which can hold a login that changes
+  how every agent signs in), where `{fetch}` is `@agentswf/lab/cases/fetch` resolved from the
+  folder, so the lab's `fetch` is in place before the engine, `env.ts` or anything they import
+  loads. No hand-over happens, since the bin is the one the engine finds from the folder, which is
+  also the working folder (`engine/src/hand-over.ts`), so the workflow runs in the preloaded
+  process (tried, 2026-11-15). A hand-over or a `wake` relaunch would start a new Bun without the
+  preload, so the lab starts the folder's own bin directly, never through a launcher that hands
+  the run over. Not `BUN_OPTIONS`: it would reach every Bun child the
+  workflow or `setup` starts, and refuse their real calls.
+- **Reach**: after the run, whatever its ending, the lab reads the run's `agent-opened` and
+  `sandbox-opened` lines and the run record's `sandboxes` with the column's `awf`. The trial errors
+  as `reach`, the dataset's, for:
+  - an agent with no `sandbox` on its `agent-opened` line, or an agent named in the run's sessions
+    or turns with no `agent-opened` line at all (its reach unknown);
+  - a sandbox's `spec.network` domain not in `agentReach.network` and not among the model domains
+    of the agents it admitted (an absent `network` is `[]`; `*.x` in `agentReach` covers `a.x`
+    and a spec's `*.a.x`, not `x`);
+  - web search that `agentReach` doesn't allow: `spec.webSearch` (absent is `false`), or an
+    admitted agent whose harness keeps its web tools whatever the sandbox says (cursor today,
+    from `agent-opened`'s `harness`);
+  - a non-empty `spec.sockets` unless `agentReach.sockets` is `true`; the report lists the socket
+    paths.
+  The lab never passes `--session`, so no calling agent joins a trial. It covers the agents the
+  engine opens: a harness CLI the workflow's own code or a tool starts itself is not seen, and
+  is out of scope.
+- **The trial's environment**: the lab's own, less the calling session's variables, with the
+  folder's `node_modules/.bin` first on `PATH`, `AWF_LAB_CASE` and `AWF_LAB_TRIAL`; `setup` adds
+  to it in its process. The criteria judge, on the lab's own `awf`, gets the lab checkout's
+  `node_modules/.bin` instead.
+- **Folders** are made under the system's temporary folder, in a parent folder per trial that
+  holds the case folder and the empty scratch folder, and are deleted when the trial ends. The
+  parent holds an owner file with its run's id and process id; at its start, `run` removes only folders
+  whose process is gone.
+- **Order**: trial 1 of every case and column, then trial 2, and so on.
+- **The plan**: before the first trial, `run` prints the trials it will run and, when the store has
+  earlier trials of the same cases, their median time and cost times the count. It
+  asks before starting when at a terminal, unless `--yes`.
+- **One `run` or `score` at a time on a machine**, under a lockfile of the lab's own that always
+  lives in `~/.awf/lab/`, whatever `store` says, freed when its process is gone. This keeps a grade
+  folder (which holds a key) from any live agent: it is made only after its trial's workflow has
+  ended. Running trials in parallel would first need grade folders the running agents cannot
+  reach.
 
-Settled:
+### `--against {folder}`
 
-- **Keys live beside their cases**, and the marker says when one leaked.
-  [[0003-autoresearch-tools-here-project-data-there|ADR 0003]] is amended for this kind of case
-  before task 2's code.
-- **Grade the result, not the path.** A key is about what the workflow produced. Which stages ran
-  and how long they took are shown, never graded.
-- **A run on current code is the main thing.** Comparing is a second report over kept runs.
-- **Reviews move over in the next story, not this one** (owner, 2026-11-14). Getting the design
-  right matters more than moving early; reviews are where it is tested on paper first.
+- Repeatable; each folder is a column, beside your checkout's. Each folder's `env.ts` decides
+  its facts, so the run record keeps each column's `env.ts` digest, and a column whose `env.ts`
+  differs from your checkout's is marked "env.ts differs" in its header. The folder supplies
+  only its code: its cases, keys, graders and `dataset.json` are never read.
+- A column's header gives its folder, branch (or "detached"), commit and whether it had
+  uncommitted changes. The run record keeps the same per folder.
+- `score`, `report` and `capture` work on such a run as on any other.
+
+### Grading
+
+**A grader** is given the case (folder, input and key, `key/` included), the workflow's whole
+result, the facts and the stages' values when it `readsFacts`, the saved files (`keep`), and,
+during the trial only, the scratch folder. It returns:
+
+- `verdict`, optional: `passed`, `failed` or `undecided` (it could not tell);
+- `numbers`, optional, by name: a count out of a total (`recall: { count: 7, of: 10 }`) or a plain
+  value, shown pooled per column;
+- `reasons`: a list of `{ about, text }`, `about` naming the field, criterion or finding;
+- `parts`, optional: one per thing judged (a criterion, a finding), each with its verdict and raw
+  `votes`.
+
+The lab stores parts and votes without knowing what they mean. Whether this fits the review
+scorer is M2; the shape is a first guess, settled by trying it.
+
+**Two forms:**
+
+- **Code**: a `defineGrader` export of `graders.ts`, named in `dataset.json`:
+  `"graders": ["recall"]`.
+- **A workflow**: `"graders": [{ "workflow": "graders/judge.ts", "readsFacts": true }]`, a path
+  inside the dataset. The lab starts it with your checkout's `awf run`, under its own sandboxes,
+  with `AWF_LAB_GRADE` naming a **grade folder** that `gradeCase()` reads. The grade folder is made
+  outside the repository, beside the trial's other folders, and deleted after. It holds the case
+  with its key (without `marker`), `result.json`, `facts.json` (the facts and the stages' values,
+  only when the grader `readsFacts`), `kept/`, and `grade.json` (`kind: awf.case-grade/0`), which
+  names the scratch folder during the trial and none under `score`. Its run is recorded in the store; its cost is grading's
+  cost. The criteria judge is the one grader workflow that runs on the lab's own `awf`, since it
+  ships with the lab.
+
+**Built in.** `expect` and the criteria judge are graders like any other, stored under the names
+`expect` and `criteria`, which a dataset grader may not take. A dataset uses them by having
+`expect` or `criteria` in its keys.
+
+**Order, cheap first**: `expect`, then the dataset's code graders, then grader workflows and the
+judge. When a grader has failed the trial, the costly ones are skipped and their criteria show
+"not judged"; `score` judges them if a key edit later lets the trial pass the cheap ones.
+
+**A trial's verdict across graders**: failed when any grader failed it; passed when at least one
+gave a verdict and every one that did passed it; otherwise undecided. When no grader gives a
+verdict (only numbers), the trial is graded by numbers only.
+
+**When graders run**: during the trial, after its `awf run` ends, while the scratch folder still
+holds what the workflow left. Not on an errored trial, or one failed because the workflow erred. Not on a case no grader applies to
+(no `expect`, no `criteria`, no dataset grader), or whose key says `draft: true`.
+
+### `expect`
+
+- Checked by code against the facts `observe` returned, by flat name. Every named fact must equal
+  the key's value exactly. Values are strings, numbers, booleans and `null`; a fact of any other
+  type (an object, an array, a `Date`) errors the trial as the dataset's (`fact-type`), whether or
+  not the key names it. A fact that is `null`
+  where the key wants a value, or a value where the key says `null`, fails the trial as the
+  workflow's; two values of different types, neither `null` (`true` against `"true"`), error it
+  as the dataset's (`fact-type`).
+- `error` is reserved, and so are names starting with `_`. A non-empty `error` fails the trial as
+  the workflow's error, checked on every trial right after `observe`, before any grader and
+  whatever the key holds.
+- A fact `expect` names that `observe` doesn't return, or any fact whose value is `undefined`,
+  errors the trial as the dataset's error (`facts-missing`). A wiring mistake never reads as the workflow's fail.
+
+### The criteria judge
+
+- A grader workflow that ships with the lab, one run per trial, one part per criterion.
+- Its voters are given the trial's case folder, the workflow's whole result, the saved files, and
+  each criterion's text; never the marker, `expect`, `key/` or the agents' logs, though the
+  judge's workflow reads the key from the grade folder to build their prompts. The result
+  and saved files, written by agents and possibly holding a stranger's email, are data to it,
+  never instructions.
+- Three voters per criterion, each given that criterion alone, each giving a verdict and a reason:
+  `met` or `unmet` for a `must`, `violated` or `not violated` for a `must-not`. The majority
+  decides, and a 2–1 split is marked on the criterion and counted in the report. When a voter
+  gives no answer, the other two decide if they agree; otherwise the criterion is `unsettled` and
+  the judge's verdict is `undecided` unless another criterion failed. Every vote is stored.
+- Each voter says whether its verdict rests on the saved files; a criterion any voter judged from
+  them is marked "read, not run".
+- Its harness and model are `judgeAgent`, from `awf-lab.json` or, per dataset, `dataset.json`.
+- A `judgeAgent` or prompt other than the one task 1 checked against the person (recorded in
+  Implementation notes) makes the report mark the judge "not checked against a person".
+- **Model family**: a model's provider, read from its id by a small table in the lab; an unknown
+  id is "family unknown". A column is marked when any of its models shares the judge's family.
+
+### Trial outcomes
+
+When several apply, the first in this order counts:
+
+| Outcome | When |
+| --- | --- |
+| **leaked** | the key's marker, or a copy of a `key/` file, turned up |
+| **errored** | not the workflow's doing: the **dataset's** (`setup`, `observe` or teardown threw or timed out, a call was refused (a function or host the case has no fake for), `reach` (an agent with no sandbox, or a sandbox reaching past `agentReach`), the workflow's `prepare` refused the argv, a fact of another type than the key's value or of no flat type at all (`fact-type`), a given stage value its schema refused, `stage-missing`, `facts-missing`), **grading's** (a grader threw or its run failed), or the **provider's** (the run stopped on a rate limit, an overload or a lost login, where the run record tells: M3) |
+| **failed** | a grader failed it, or **the workflow erred**: its body failed or timed out, or `observe` returned an `error`. The report says "failed: the workflow erred" |
+| **stopped** | counted as failed (the workflow erred): its body called `wf.stop` before any `until` was reached, with the stop's reason. A provider's stop is errored, above, never stopped. `defineEnv` never swallows a stop |
+| **undecided** | a grader could not tell |
+| **passed** | every grader with a verdict passed it |
+| **graded by numbers** | the graders give numbers only, no verdict: shown with its numbers, counted as graded |
+| **not graded** | no grader applies, or the key is a draft |
+
+A trial errored by the provider is tried once more at the end of its round. A broken grader is
+never read as a verdict: a known fail with a grader that errored shows as errored until `score`
+succeeds. A run that finishes with the wrong answer, like the build's "deferred", is a fail.
+
+### A case's verdict, and the exit code
+
+With T trials asked, a bar b (the key's `pass`, else the dataset's, else all), need = ceil(b × T),
+and p passed and f failed trials:
+
+- **passed** when p ≥ need;
+- **failed** when f > T / 2: most trials failed;
+- **flaky** when p ≥ 1 and f ≥ 1 otherwise;
+- **unclear** otherwise: too many trials errored, undecided or leaked. The line says why.
+- A case whose trials are all not graded, or all graded by numbers, has no verdict and is
+  listed apart; only the second counts as graded for the exit code.
+
+So at three trials and the default bar: 3/3 passed, 2/3 with one fail flaky, 1/3 or 0/3 with the rest failed, failed,
+2/3 with one undecided unclear. At one trial, pass or fail. A `pass: 2/3` bar at one or two trials
+rounds up to every trial, and the report says so.
+
+**History**: each listed case shows its verdicts in this store's earlier runs of the same column
+(your checkout, or another folder by its path), newest last, up to five.
+
+**Known failing**: a case whose key says `known-failing: true` is listed under "known failing".
+When it passes at three trials or more, it is listed as "now passing", with the suggestion to
+remove the flag; a pass at fewer trials says to confirm with `--trials 3`.
+
+**`--failed`**: the cases whose newest verdict in your checkout's column, in this store, is
+failed, flaky or unclear. `--trials` defaults, per case, to the trials of the run that gave that case's verdict.
+
+**The exit code**, for `run`, `report` and `score` of the new kind, from your checkout's column
+alone:
+
+- **0**: every case that must pass passed;
+- **1**: a case that must pass failed;
+- **5**: none failed, but a trial errored by the dataset or by grading, or leaked: the
+  environment, a grader or the key's hiding is broken, which a CI that tolerates 3 must not pass;
+- **3**: none failed, errored so or leaked, but one was flaky or unclear, the run is partial, or
+  no case was graded at all (neither a verdict nor numbers);
+- **2**: refused before any trial: a usage error, or a folder or dataset missing what it needs;
+- **4**: the lab itself broke during the run.
+
+Known-failing cases and cases with no verdict never change it by their verdict (an errored or
+leaked trial of one still gives 5), except that a run in which no
+case was graded at all, by a verdict or by numbers, exits 3. A dataset graded by numbers only
+counts as graded. Review datasets keep their codes
+until the move.
+
+### Report rows
+
+- One line per case that did not pass (failed, flaky, unclear, then known failing and now
+  passing), with its passes out of its trials, what kept the rest from passing, the first failing
+  check or criterion with its reason, and its history. A case that passed with a mock never
+  called, or a stage never reached, also gets a line, under "passed, with notes", the note first.
+- One summary line of case verdicts; one of trials (errored, by whom; undecided; leaked; criteria
+  split 2–1); one of time and cost per trial (medians, errored trials left out) with grading's
+  total apart. Cost is the accounting's estimate; "partly unpriced" when some usage had no price.
+- "read, not run" whenever a criterion was judged from saved files; a dataset grader's numbers,
+  pooled per column; the median time per stage under `--case` and for a dataset with one trial
+  per case.
+- Marks: a key or grader changed since the run was graded (with the `score` command); a case
+  edited since the run (run it again); a column whose model shares the judge's family; a judge not
+  checked against a person; the sandbox setting.
+- With more than one column: the columns side by side; the cases that came out differently
+  (verdicts differ, or passes differ by 2 or more), largest difference first; the count of cases
+  with more passes on each side; "also fails in {column}" on a column's failing lines. Then "The
+  lab does not say which is better. Read the cases.", or at one trial each "One trial each: these
+  are examples, not rates."
+
+### What is kept
+
+**The store**: `~/.awf/lab/{name}-{hash}/`, one per checkout, named from its folder and a hash of
+its absolute path, unless `awf-lab.json`'s `store` says otherwise. A moved checkout or a new
+worktree starts with an empty store, so only history and `--failed` start over.
+
+- A run's id is a number, the next one in the store, taken under the lock. `report` shows the last
+  run; `report {n}` another; `awf-lab runs` lists them, newest first.
+- The workflows' run records are kept there too, through `--run-root`.
+
+**A run record** (`kind: awf.case-run/0`): its number, the dataset, the folders (for
+each: path, branch or "detached", starting commit, whether there were uncommitted changes), the
+cases and trials asked for, start and finish times. No finish means partial.
+
+**A trial record** (`kind: awf.case-trial/0`):
+
+- which: run, dataset, case, folder, and the `awf` it ran on with its version;
+- the input: a copy of the built case folder (shared files and `input.json`, never the key) with
+  its digest;
+- the conditions: the sandbox setting, `agentReach`, the models used, when it ran;
+- what happened: the workflow run's id and outcome, its time and cost (the accounting's
+  `estimate`, with its `known` and `priced` counts), the setup's time, the whole result, the
+  facts, the stages' values (which were given), the unused mocks, the refused
+  calls each with its phase, the saved files, whether the marker was found, the outcome, and
+  the agents' sandboxes and the reach check's result, and `errored: { by, phase, reason }`
+  (phase `after` for `reach`) or the workflow's error when there was one.
+
+**A score record** (`kind: awf.case-score/0`): the trial, when it was made, and one entry per
+grader. A trial keeps every score it is given; the report reads each grader's newest entry, and an
+errored one shows the trial as errored by grading until a later `score` succeeds.
+Each entry has the grader's name and a digest of its code (a workflow grader: its file, with its
+run's id), a digest of the part of the key it reads (`expect`'s values for `expect`, each
+criterion by `id` for the judge, the whole key with `key/` for a dataset's own), its verdict,
+numbers, reasons, model and cost, its parts with their votes, and `errored` when it errored.
+
+### Grading again: `score`
+
+`awf-lab score [{n}]` grades the last run (or run n) again. It never runs `env.ts`: not `setup`,
+the workflow, or `observe`.
+
+- **What it grades again**: a grader whose key digest or code digest no longer matches, whose
+  newest entry errored, or that has no entry (a draft key made final, criteria added, a grader
+  added, a criterion skipped as "not judged"). Editing the note under a key's frontmatter costs
+  nothing for `expect` and the judge. The judge judges only a trial's changed criteria.
+- **What it grades from**: the trial's stored case folder, the current key, the stored result, the
+  stored facts and stages' values, and the saved files. There is no scratch folder: `grade.json`
+  names none, a code grader is given none, and a grader that needs one errors as grading's error.
+  A trial whose case input changed since it ran is not graded again; the report says to run that
+  case again.
+- **The digests**: a code grader's covers `graders.ts` and the dataset files it imports; a grader
+  workflow's, its file and the dataset files it imports; the criteria judge's, its model, its
+  number of voters and its prompt. A file imported from outside the dataset folder is not covered.
+
+### The marker search
+
+- **Before the trial's process starts**: the case folder, files and, in any git repository inside
+  it, every commit (`git grep` over `git rev-list --all`), where a committed key is stored
+  compressed. Found: the trial ends as leaked, without running. What `setup` puts in the scratch
+  folder is searched after the run, with the rest.
+- **After it runs, before grading**: the scratch folder again, the result, the saved files, and
+  everything the column's `awf logs` has for the workflow's run. Found: leaked.
+- **`key/` files** carry no marker, so the search looks for a file whose digest matches one of
+  them (an empty `key/` file is refused when keys are read, since it matches every empty file), and, in a git repository, for each one's blob id among `git rev-list --all --objects`.
+- **The marker** is a few plain words, a shape `awf logs` does not take for a credential and hide.
+
+### What may change, and what may not
+
+- **`/0` means "may change without a way to read old files"** for what the lab writes: run, trial,
+  score and `grade.json` stay `/0` until the reviews move, where they become `/1`.
+- **Costly to change**: the names that pair kept results (a case's folder name, a dataset's
+  folder name, a grader's name, a criterion's `id`), the case and dataset layout and its reserved
+  names (`cases/`, `files/`, `input.json`, `key.md`, `key/`, `env.ts`, `graders.ts`,
+  `capture.ts`), the exit codes, and the
+  formats people write by hand and commit (`key.md`, `dataset.json`, `awf-lab.json`). These start
+  at `/0`; their next incompatible change makes them `/1`, with a converter in the lab.
+  `dataset.json`'s `graders` is exempt until the reviews move.
+- **Unstable, no converter**: the code shapes people write against (`defineEnv`, `setup`'s
+  return, `c`, a grader's result).
+
+### Decisions
+
+Settled by the owner:
+
+- **Run and score first; compare second.** A case says whether it must pass; a run gives a
+  verdict and an exit code from its own trials. Comparing is the same run on more folders
+  (2026-11-14).
+- **The unit of change is a folder of code** (2026-11-14). There are no variants: a setting such
+  as the model is code too, and comparing one is comparing folders (2026-11-15).
+- **A case's world is set up in code, as a unit test's is** (2026-11-15): one `env.ts` per
+  dataset, with `bun:test`'s mocks as agents and people already write them; the
+  workflow runs as it ships, with no fakes passed in as arguments.
+- **A stage is given or stopped after through the lab's `wf`** (Q8, 2026-11-15): `stages` and
+  `until`, no engine change, no new ending, no `--to-stage`.
+- **Agents' own commands are not faked in this story; their reach is checked** (Q9,
+  2026-11-15): every agent of a trial runs in a sandbox reaching no more than `agentReach`, checked
+  from the run's records. Faking them, through an engine route into the sandbox, is a later story.
+- **HTTP is faked through the lab's own `fetch`, with no msw** (2026-11-15): routes keyed by method
+  and `URLPattern`, answered with `Response`; the lab depends on nothing a project must install. A
+  workflow is assumed to reach its services with `fetch`; one that uses another client mocks it
+  by module, or installs and starts its own tool (msw, say) in `setup`.
 - **Grading is pluggable**: graders are code or a workflow, and the two built in are graders like
-  any other (owner, 2026-11-10, confirmed 2026-11-14). Their exact shape is settled by trying it (M2).
-- **A past run becomes a case from its traces.** A run leaves enough (an email's id, a request's
-  id) for the dataset's own code to rebuild the case in the variant's fake world; nothing records
-  more for it, and the engine does not change (owner, 2026-11-14).
+  any other (2026-11-10, confirmed 2026-11-14). Their exact shape is settled by trying it (M2).
+- **Reviews move over in the next story** (2026-11-14).
+- **A past run becomes a case from its traces**: the dataset's own code rebuilds it; the engine
+  does not change (2026-11-14).
+
+Settled in the design:
+
+- **Both sides run in one run.** Paired: same cases, graders, time and machine. A kept run is not
+  a baseline.
+- **Keys live beside their cases**, and the marker says when one leaked. ADR 0003 is amended for
+  this kind of case before task 2's code.
+- **Grade the result, not the path.** Which stages ran and how long they took are shown, never
+  graded.
+- **The workflow's own errors fail the case; everything else's make it unclear.** A prompt change
+  that makes the workflow crash is a regression, a rate limit is not.
+- **A mixed result is flaky, not failed**, with history beside it, so the gate stays meaningful at
+  several trials.
+- **The judge decides by majority**, with splits counted, since its three voters are correlated.
+- **Mocks are strict, and a refusal is the case's to fix**: a mocked module's functions not
+  given, requests to a routed host that no route matches, and requests to any other host not
+  the engine's own or in `realHosts`, throw, and the trial errors as
+  the dataset's, so a forgotten fake never reads as a regression. A call that must not happen is
+  a recording fake and a fact the key checks (`replied: false`), so it fails as the workflow's.
+- **One process per trial**, so a mock is a plain function `observe` reads, and nothing needs
+  restoring.
+- **Facts, not assertions**: `observe` returns values and the key judges them, so every failing
+  fact is reported and a key edit is graded again by `score` without code.
 
 What must hold:
 
-- One `run` or `score` of a project at a time. The lock is what keeps a grade folder, which holds
-  a key without its marker, from any live agent; trials in parallel first need grade folders
-  the running agents cannot reach.
-- The lab never copies `key.md` or `key/` into a case folder or a scratch folder, and no trial
-  record holds them; a grader workflow's run record, kept in the store, does, as "Before you
-  start" says. A marker found in either before the workflow runs ends the trial as leaked, without
-  running the workflow.
-- A trial that errors is shown, never counted as passed, and its stage says whether it was the
-  variant's.
-- A trial where the marker turns up is marked leaked and not counted as passed.
-- A captured case is never graded against the run it came from. Only the lab's own trials are
-  compared.
-- A changed key is graded again by `score`, without running the workflow.
+- The lab never copies `key.md` or `key/` into a case or scratch folder, and no trial record holds
+  them. (A grader workflow's run record, in the store, does.)
+- A trial that errors is shown and says whose error it was; only the workflow's own errors fail
+  it.
+- A trial where the marker turns up is marked leaked and not counted.
+- A known-failing case never changes the exit code by its verdict; an errored or leaked trial of
+  one still gives 5.
+- A captured case is never graded against the run it came from; only the lab's own trials are.
 - Nothing under `review/` is imported by the new kind, and nothing in the new kind names a
-  workflow. (The move to come deletes `review/`; it does not import it either.)
+  workflow.
 
 How "done properly" is checked:
 
 1. `scripts/check-boundaries.ts`: the new folder never imports `review/`, and the shared folder
    imports neither.
-2. The same script: no word of a domain (`mail`, `review`, `finding`) in the new folder's
-   identifiers, strings, file names or record names; comments are not checked.
-3. Every record the new kind writes (run, trial, score, and a grade folder's `grade.json`), and
-   every `key.md`, `dataset.json` and new-kind `awf-lab.json` it writes or reads, has a schema with a versioned `kind`, checked before writing and on
-   reading. A case's `input.json` and `files/` are the dataset's own and have none.
-4. A test: a trial whose scratch folder holds a key's marker, in a file or only in a commit of a
-   git repository there, or a copy of a `key/` file, is caught.
-5. A test: an errored trial is in the report's count.
+2. The same script: no domain word (`mail`, `review`, `finding`) in the new folder's identifiers,
+   strings, file names or record names.
+3. Every record the new kind writes, and every `key.md`, `dataset.json` and new-kind
+   `awf-lab.json` it reads, has a schema with a versioned `kind`, checked before writing and on
+   reading.
+4. A test: a marker in a scratch-folder file, or only in a commit of a git repository there, or a
+   copy of a `key/` file, is caught.
+5. A test: each case verdict and each exit code.
 
 Alternatives rejected:
 
+- **Comparing against a kept run of `main`** (the previous draft): it needed `main` run first, a
+  picker for which kept run to use, refusal on different trial counts, and rules for cases and
+  keys edited between the two runs; and the baseline drifted with time and the site. Running both
+  sides costs the baseline again, which `--failed`, `--cases` and one trial per case keep down.
+- **A variant as the way to compare a change to code**: it cannot hold a change to a prompt, a
+  tool or a stage without the workflow exposing every part someone might change.
+- **Fakes passed to the workflow as arguments**, through a **variant** (a file per setting that
+  wrapped the workflow, the earlier draft): it reaches nothing an agent does, bends every workflow
+  around being tested, and a setting such as the model is code anyway.
+- **Network fakes for agents' own commands** (a proxy, `PATH` shims, a preload in child
+  processes): proven unsandboxed, but a sandbox starts agents' processes from nothing; it needs an
+  engine route into the sandbox (Q9). This story checks agents' reach instead.
+- **Record and replay** (VCR, Polly): an agent doesn't send the same requests twice. A recording
+  is still raw material for a case's files.
+- **agent-env's environments**: a gateway, a database and MCP servers in front of every fake, and
+  tasks as JSON step lists.
+- **`--from-stage` with `--values`** for a stage case: works today, but gives only the stages
+  before the start point, and the run goes on to the end. **`--to-stage`** in the engine: a new
+  `paused` ending, a record-format change, for what the lab's `wf` does alone.
+- **`observe` asserting with `expect`**: stops at the first failure, and a key edit would mean a
+  code edit.
+- **Every trial must pass, or the case fails**: at several trials, an unchanged flaky case fails
+  most runs.
+- **All three voters must agree**: correlated voters split by chance, and most runs would be
+  unclear.
+- **Statistical thresholds for "came out differently"**: a few cases at a few trials settle
+  nothing; the list is for reading.
+- **The lab making the other checkout**: its dependencies, its link to the lab, and cleanup, for
+  what `git worktree add` already does.
+- **Loading every folder's dataset code into the lab's own process**: two folders' modules, and
+  two copies of the lab's, in one process.
 - Reusing a trial when the code is unchanged: if "the code" includes the cases, editing a note
-  runs everything again. If it doesn't, editing a variant runs nothing again.
-- A version number in the variant file, raised by hand, as reviews have: easy to forget.
-- The lab checking out another branch to run it: a second checkout, its dependencies, today's
-  cases laid over old code, old code run with today's credentials. Deferred, not refused.
+  runs everything again; if not, editing `env.ts` runs nothing again.
 - A larger setup surface (`defineEnvironment` with `prepare`, `network` and `capture`; file
-  helpers; a variant's `files` and `measures`; placeholders in `argv`): about 25 names where the
-  two workflows need 8.
-- A grader kind that runs a command: `check` in `setup.ts` does it with your own code and no new
-  kind.
-- The changed prompt as something a variant passes in: clean, but a workflow would have to expose
-  every part someone might change.
-- One markdown file per case: easiest by hand, but it holds no attachment and hiding the key
-  becomes parsing.
-- One table per dataset, as most eval tools have: good for many small text cases, poor for a long
-  email and for a case made from a run.
-- Faking outside services in the engine: the workflows already take them as arguments.
-- Making the lab's review code general first: thousands of working lines and a stored format
-  reworked before the new kind has shown any value, and a shared part guessed from one example.
-- One sandbox setting for the whole workspace, as `awf-lab.json` has now: datasets differ.
+  helpers; placeholders in `argv`): about 25 names, many of them configuration, where `env.ts`
+  is code with a dozen.
+- A grader kind that runs a command: `observe` does it with your own code.
+- One markdown file per case: holds no attachment, and hiding the key becomes parsing.
+- One table per dataset, as most eval tools have: poor for a long email and for a case made from a
+  run.
+- Faking outside services in the engine: `env.ts`'s mocks do it in the trial's process.
+- Making the lab's review code general first: thousands of working lines reworked before the new
+  kind has shown value, and a shared part guessed from one example.
 - Turning a workflow's own sandbox off for every trial: the mail triage's is stricter than the
   lab's, web-to-cli's browser is reached only through its own, and a trial should run what ships.
 - The whole trial in a container: the workflow's own sandbox would have to run inside it.
 
 ## Tasks at a glance
 
+0. [ ] %% define evals for mini-workflows/mail triage, ask me to review , it should be readable and easy to follow and understand and designed api surface should allow do to what we want %%
+
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
-- [ ] 2. The mail triage runs on cases, graded by `expect`
+- [ ] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
 - [ ] 3. Criteria are judged, and a changed key is graded again
-- [ ] 4. One run set beside another
+- [ ] 4. The same cases on code in another folder
 - [ ] 5. web-to-cli's build runs on cases
 - [ ] 6. A past run becomes a case
 
 ## Open questions
 
-None open. Answered (owner, 2026-11-14), and written into the design above:
+None open. The owner's answers, Q8 and Q9 among them, are under Decisions. Smaller ones,
+settled in the design:
 
-- Q1. When reviews move onto the new kind: in the next story. Here they shape the design only.
-- Q2. What a grader is: code or a workflow, returning a verdict, numbers or both; graded while
-  the scratch folder exists, and `score` can rebuild the scratch folder for a grader that needs
-  it (`rebuild`), designed here and built with the reviews' move; a
-  `key/` folder for a key of more than one file. Settled by trying it (M2).
-- Q3. How a past run becomes a case: the dataset's own `capture`, in `capture.ts`, rebuilds it from
-  what the run left (the email fetched again by its id). No engine change.
-- Q4. One set of commands for both kinds: yes; a `dataset.json` of the new `kind` marks the new
-  kind.
-- Q5. `awf-lab.json`'s git clone: optional, with the other review fields, until the move.
-- Q6. YAML in `key.md`: read strictly; `expect` stays in the frontmatter.
-- Q7. The judge's model: once for the workspace, a dataset may override it.
-- Q8. The age warning on a column: 30 days.
-- Q9. A setup that runs the project's own commands: accepted; a case does not carry a prepared
+- Q1. The default bar: every trial passes; a mixed result is flaky, not failed.
+- Q2. The judge: three voters, majority; splits counted.
+- Q3. Exit codes: 0 clean, 1 a must-pass case failed, 2 refused, 3 flaky, unclear, partial or
+  nothing graded, 4
+  the lab broke, 5 a trial errored by the dataset or grading, or leaked.
+- Q4. Where runs are kept: one store per checkout, numbered runs; one `run` or `score` per machine
+  at a time.
+- Q5. One set of commands for both kinds: yes; `dataset.json`'s `kind` marks the new one.
+- Q6. The judge's model: once for the workspace; a dataset may override it.
+- Q7. A setup that runs the project's own commands: accepted; a case does not carry a prepared
   checkout.
 
 ## To measure
 
-- M1. Whether web-to-cli's build minds that its run's id is the lab's, not the request's. Its
-  notes say the run carries the request's id. Checked in task 5's plan.
-- M2. Whether the grader interface carries the review scorer: in task 2's plan, before the score
-  record is built, write the review grader
-  against it as a sketch that does not ship (per-finding labels, recall and precision, reading
-  the frozen code through `rebuild`, `key/evidence/`), once as code and once with its judge as a
-  grader workflow, so both forms have a consumer before they are built. It checks that `parts`,
-  `votes` and `settle` carry per-finding labels and a two-voters-and-a-tiebreak rule, and writes
-  a review trial against the trial and run records, which stay `/0` until the move. It also
-  settles whether
-  a grader needs to say "does not apply" for a case, and whether the stored per-trial counts are
-  enough for a per-case comparison of numbers. What does not fit changes the interface before
-  it is built.
+- M1. Whether web-to-cli's build minds that its run's id is the lab's, not the request's (its notes
+  say the run carries the request's id). Checked in task 5's plan.
+- M2. Whether the grader interface carries the review scorer. In task 2's plan, before the score
+  record is built, write the review grader against it as a sketch that does not ship (per-finding
+  labels, recall and precision, `key/evidence/`), once as code and once with its judge as a grader
+  workflow. It checks that `parts` and `votes` carry per-finding labels and a two-voters-and-a-
+  tiebreak rule, writes a review trial against the trial and run records, and settles whether a
+  grader needs to say "does not apply". What does not fit changes the interface before it is built.
+- M3. Whether a workflow's run record tells a provider's stop (rate limit, overload, lost login)
+  from the workflow's own failure. In task 2's plan, from both workflows' records. Until it does,
+  every failed run is the workflow's.
+- M4. Whether `defineEnv` runs another workflow's body with the lab's `wf` as a hand-written one
+  did on a no-agent workflow (`prepare` on the argv, stages recorded and schema-checked, `until`,
+  a given value refused by its schema): now with agents and their sandboxes opened through the
+  wrapped `wf`, and on web-to-cli's build, whose stages go through a helper of its own; and
+  whether `defineEnv` can run its teardown when the engine cancels or times out the run, and
+  whether a workflow imported from a copy in the scratch folder (web-to-cli's build) loads there
+  with its dependencies, the copy's own `node_modules/agentswf` included. In task
+  2's plan, before `defineEnv` is built.
+- M5. Whether the folder's own bin, started in the code folder with `--cwd` the scratch folder,
+  runs the trial without a hand-over at another `agentswf` version than the lab's, and records it
+  under `--run-root`. A run with the repo's own engine was recorded there, and the lab's
+  `--preload` was tried on the real bin: the workflow's `fetch` and the decision provider's both
+  went through it. In task 2's plan.
 
 ## Task execution rule
 
 Process one task at a time, with one exception: task 2 may start before task 1's decision is
-recorded, since task 1 is the person's work and no code. Every task repeats the checklist shown under its details. Do not begin
-the next task because the current implementation merely compiles: its design must be recorded, its
-diff reviewed by subagents, findings resolved, and focused verification complete.
+recorded, since task 1 is the person's work and no code. Every task repeats the checklist shown
+under its details. Do not begin the next task because the current implementation merely compiles:
+its design must be recorded, its diff reviewed by subagents, findings resolved, and focused
+verification complete.
 
 After all tasks are complete, run story-level verification and request human review of the complete
 deliverable.
@@ -1292,100 +1762,76 @@ Outcome: a yes or no on whether prose criteria are worth building, before any co
 
 Execution:
 
-- [ ] Plan: pick the emails; write the bar below into Implementation notes before looking at any
+- [ ] Plan: pick the emails; write the bars below into Implementation notes before looking at any
   result.
-- [ ] Implement: no code in this repository. Runs with the workflow's own `--dry-run --again`,
-  which reads the real inbox, so a case is an email already there or one forwarded to it. A
-  judge prompt run by hand, given exactly what the built judge will be: the case folder, the
-  whole result and one criterion per call, voted three times.
-- [ ] Review: one subagent checks the counting. There is no diff for a second to read.
-- [ ] Resolve: record the numbers and the decision here, and keep each email as a case folder
-  (`files/email.json`), with every output that was judged (each run and each broken output, as
-  a `result.json`), the person's verdicts and the hand-run judge's per criterion,
-  as fixtures, which task 3's live check reads. They hold real mail, so they live in the
-  mail project's own private repository, beside its `evals/`, never in this one.
+- [ ] Implement: no code in this repository. Runs use the workflow's own `--dry-run --again`,
+  which reads the real inbox, so a case is an email already there or forwarded to it. A judge
+  prompt run by hand, given exactly what the built judge will be: the case folder, the whole
+  result and one criterion per call, voted three times.
+- [ ] Review: one subagent checks the counting.
+- [ ] Resolve: record the numbers and the decision here. Keep each email as a case folder, with
+  every judged output as a `result.json`, the person's verdicts and the hand-run judge's, as
+  fixtures for task 3's live check. They hold real mail, so they live in the mail project's
+  private repository, never here.
 - [ ] Verify: the `Done when` items.
 
 Work:
 
-- About ten emails with about thirty criteria, some of them ones the workflow got wrong. At
-  least three where the right answer is "not relevant" or "short", so "always relevant" does not
-  pass.
-- Each email run three times: about 90 verdicts to give on real outputs (thirty criteria, three
-  runs each). Three runs of one email are alike, so this is nearer thirty independent ones than
-  ninety.
-- On top of those, outputs that should fail, taken from real misses or made by breaking a good
-  summary by hand, so a judge that always says `met` is caught: at least fifteen verdicts where a
-  `must` is unmet, and at least fifteen where a `must-not` is violated. About 120 verdicts in
-  all.
+- About ten emails, about thirty criteria, some the workflow got wrong. At least three where the
+  right answer is "not relevant" or "short".
+- Each email run three times: about 90 verdicts on real outputs, nearer thirty independent ones.
+- Outputs that should fail, from real misses or good summaries broken by hand, so a judge that
+  always says `met` is caught: at least fifteen with an unmet `must`, and fifteen with a violated
+  `must-not`. About 120 verdicts in all.
 - Before any result is seen, a third of the emails, with at least five broken outputs of each
-  kind, is set aside.
-  The judge's prompt is written and tried on the other two thirds; task 3's live check uses
-  only the third set aside.
+  kind, is set aside. The prompt is written and tried on the other two thirds. Before the held-out
+  third is judged, both the prompt and the criteria's text are frozen.
 - The person gives every verdict before seeing the judge's. Then the judge does, as it will be
-  built: three voters, and `unsettled` unless all three agree.
+  built: three voters, the majority deciding.
 
-The bar, over all verdicts in the part tried (real and broken together), with `unsettled`
-counted as disagreeing with the person. The samples are small (about 30 independent real
-criteria, 15 broken outputs of each kind), so Implementation notes give each bar as a count
-out of its sample ("2 good results failed, of 61") beside the percentage, and a bar missed or
-met by one verdict is said to be:
+**The bars**, over all verdicts in the tuned two thirds. That part is small (about 20 independent
+real criteria and about 10 broken outputs of each kind), so Implementation notes give the
+real-miss numbers first, each bar as a count beside the percentage, say that it is in-sample, and
+say when a bar was missed or met by one verdict.
 
-- The judge calls a violated `must-not` not violated in at most 10% of the `must-not`s the person
-  called violated.
+- On real misses alone, the judge finds at least 80% of `unmet`s and violated `must-not`s, over at
+  least five. With fewer than five, Implementation notes say this was not measured.
+- The judge misses at most 10% of the `must-not`s the person called violated.
 - The judge finds at least 80% of what the person called `unmet`.
-- On real misses alone (the workflow's own wrong outputs, not broken by hand), the judge finds at
-  least 80% of `unmet`s and violated `must-not`s, over at least five of them. With fewer than
-  five real misses, Implementation notes say the judge's catch of real misses was not measured.
-- The judge and the person agree on at least 85% of verdicts overall.
-- Of the verdicts the person called `met` or `not violated`, the judge calls at most 5% `unmet`
-  or `violated`, so good results are not failed.
-- At most 3% of verdicts are `unsettled`. An unsettled criterion leaves its trial undecided. At
-  3%, with about nine verdicts per case over three trials, about one trial in ten is undecided,
-  and a case drops out of a comparison, or is listed as differ (undecided), only when two of its
-  three are, which is rare.
+- The judge and the person agree on at least 85% of verdicts.
+- Of the verdicts the person called `met` or `not violated`, the judge calls at most 5% `unmet` or
+  `violated`, so good results are not failed.
+- The share of 2–1 splits is recorded; above 10%, the prompt is reworked before the held-out third.
 
-The bars are measured on the two thirds the prompt was written on: they are in-sample, and
-Implementation notes say so wherever they quote them; the held-out tolerance below is what
-guards against a prompt fitted to its examples. An `unsettled` verdict on a criterion the
-person called `met` or `not violated` counts against the 5% bar, as a good result not passed. The third set aside, which
-holds at least five broken outputs of each kind, about 40 verdicts in all, which Implementation
-notes give beside the result, is too small to measure a rate; it is a check
-that the prompt was not fitted to its examples, with a fixed tolerance: at most one violated
-`must-not` missed, at most one `unmet` missed, at most one good result failed, and agreement
-within 10 points of the tuned part. It is run once, by hand, at the end of task 1, with the
-prompt frozen, and is part of task 1's decision; the prompt is not tuned again on it. Task 3
-then checks only that the built judge gives the hand-run judge's verdicts on that part.
+**The held-out third** (about 40 verdicts) checks that the prompt was not fitted to its examples.
+Run once, by hand, at the end of task 1: at most one violated `must-not` missed, at most one
+`unmet` missed, at most one good result failed, and agreement within 10 points of the tuned part.
+Task 3 then checks only that the built judge gives the hand-run judge's verdicts on that part.
 
-Below the bar, criteria leave this story: keys hold `expect` alone, and the key reader refuses
-`criteria`, and task 3 builds the grader
-interface with `expect` behind it, a dataset's own graders, the key's digest and `score`, with no
-judge. Task 3 is then done when its `Done when` items hold, but for the six that need the
-judge or its path (editing a criterion, what the judge is given, the grader workflow's test,
-the live mail run with criteria judged, the live check on task 1's held-out part, and the
-model-family table and column mark); editing an `expect` value and running `score` must then change the report
-without a new trial, so a changed key is still graded again; and task 5 drops
-"read, not run" and the person's check of the judge's verdicts. With no judge, the grader
-workflow path (the grade folder, `gradeCase()`, `grade.json`) has no user that ships, so it is
-not built, `gradeCase` leaves Scope, the Verification item on the built judge and the
-model-family table are dropped, and
-check 3 does not cover `grade.json`; it comes with the reviews' move, and `dataset.json`'s `graders` takes names of code
-graders only until then.
+**If the judge misses a bar**, criteria leave this story: keys hold `expect` alone and the key
+reader refuses `criteria`; task 3 builds the grader interface with `expect` and a dataset's own
+code graders behind it, the key digest and `score`, with no judge and no grader-workflow path
+(`gradeCase`, the grade folder and `grade.json` come with the reviews' move); its `Done when` items
+that need the judge are dropped, and so are task 5's "read, not run" and the person's check of the
+judge.
 
 Done when:
 
 - The numbers and the decision are in Implementation notes.
 
-### 2. The mail triage runs on cases, graded by `expect`
+### 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
 
-Outcome: `awf-lab run` and `report` work for the mail dataset, with two variants. It does not
-wait for task 1.
+Outcome: `awf-lab run` and `report` work for the mail dataset, set up by its `env.ts`; each case
+gets a verdict and `run` exits by it. It does not wait for task 1.
 
 Execution:
 
-- [ ] Plan: amend ADR 0003 and rewrite [[second-case-kind]] as "move reviews onto the case kind",
-  first. Do M2, so the score record and its grader entries are shaped once. Then inspect the lab's run, store and load code; settle the new kind's folder, which
-  shared files move to a neutral one, the trial and score records, and the commands.
+- [ ] Plan: first, amend ADR 0003 and rewrite [[second-case-kind]] as "move reviews onto the case
+  kind". Do M2, so the score record and its grader entries are shaped once, M3, M4 and M5. Check
+  the mail workflow's assumption (its services through imported modules, its day through a clock
+  function, every agent in a sandbox, and what its sandboxes reach, for its `agentReach`). Then inspect
+  the lab's run, store and load code; settle the new kind's folder, which shared files move, the
+  helper process, the records and the commands.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -1393,84 +1839,109 @@ Execution:
 
 Work:
 
-- The docs and schemas the move changes: `packages/lab/AGENTS.md` (layout, I/O files, layer
-  order, `bin`), the root `AGENTS.md` (boundary 5 and the `packages/lab` row), and
-  `packages/lab/schema/`, written again with `bun packages/lab/src/write-schemas.ts`.
-- The structural moves in the Code map: the neutral command-line entry, which hands a dataset to
-  its kind by `dataset.json`; `package.json`'s `bin` and its `./cases` export; `runner.ts` and
-  `awf-lab.json`'s schema (`review/format/workspace.ts`), the common part of its loader
-  (`review/lab/workspace.ts`) and the generic schema check to the shared folder, the review
-  fields made optional and the review defaults left behind; the version check's do-nothing
-  workflow, written at run time (`review/lab/nop.workflow.ts` is the review's zero baseline, not
-  that, and stays); the boundary
-  rules.
-- `@agentswf/lab/cases`: `defineVariant`, `trialCase`; `dataset.json`; the case and key formats
-  and their checker; `case new`, which the first time also writes `awf-lab.json` (its `kind`
-  and `datasets`) and the dataset's `dataset.json` (`sandbox: "workflow"`), for the person to
-  check.
-- The case folder and the scratch folder, outside the repository; the marker and the search for
-  it.
-- The runner passes a run its environment, and starts the project's own `awf`.
-- The lock on `run` and `score`, and the owner files that let a start clean only dead trials'
-  folders.
-- A stored run under a label, with its number from the label's counter, marked partial when it
-  has no finish; the flag on a run whose trials ran on different uncommitted changes; the trial and score
-  records; the `expect` score; errored trials.
-- `run` (with `--dataset`, `--cases`, `--trials`, `--label`; one trial unless told) and `report`,
-  for a run (a column per variant) and for one case (`--case`).
-- `defineSetup` without `check` or `options`, so the marker search has a scratch folder with
-  something in it, a git repository included; task 5 adds `check` and `options`.
-- The checks under How "done properly" is checked, but for check 3's `grade.json`, which comes
-  with the grade folder in task 3.
-- The key reader reads and checks `criteria`, but they are not graded until task 3; the
-  `judgeAgent` check comes with the judge.
-- In the mail project: `today` becomes an argument; the readers' working folder moves out of the
-  repository; the `evals/` folder. Check that the readers' sandboxes cannot read the home folder,
-  where results are kept, nor the project's `evals/`, where the keys are.
+- Docs and schemas the move changes: `packages/lab/AGENTS.md`, the root `AGENTS.md` (boundary 5
+  and the `packages/lab` row), and `packages/lab/schema/`, regenerated with
+  `bun packages/lab/src/write-schemas.ts`.
+- The structural moves in the Code map: the neutral command-line entry with each kind's flags;
+  `bin` and the `./cases` and `./cases/fetch` exports; the shared folder; the runner's
+  environment, the preloaded `awf` bin and working folder; the boundary rules.
+- `@agentswf/lab/cases`: `defineEnv`, `c` with `mock`, `fake`, `http` and `cleanup`, the phase
+  and the trial file (`AWF_LAB_TRIAL`), `observe` and the
+  facts, unused mocks, the lab's `wf` (given stages and `until`, though only task 5's dataset uses
+  them live); `dataset.json` with `sandbox`, `agentReach`, `pass`, `timeout`, `setupTimeout`, `keep` and `realHosts`; the case and key formats with `known-failing` and `pass`, and their
+  checker; `case new`, which the first time also writes `awf-lab.json`, `dataset.json` and a stub
+  `env.ts` for the person to fill in.
+- The helper process for your checkout; the checks before the first trial; the plan and `--yes`.
+- The case folder and the scratch folder, outside the repository; the marker and its search.
+- The lock, the owner files, the store, numbered runs, `awf-lab runs`, partial runs.
+- The trial and score records; the `expect` grader; trial outcomes, whose errors they are, and
+  the provider retry as M3 allows.
+- The case verdict, history, known-failing cases, `--failed`, the exit codes.
+- `run` (`--dataset`, `--cases`, `--failed`, `--trials`; one trial unless told) and `report`, for a
+  run and for one case (`--case`).
+- The key reader reads and checks `criteria`, but they are not graded until task 3.
+- In the mail project: the readers' working folder moves out of the repository; today's date
+  through a `clock.ts` if it isn't already a function of its own; the `evals/` folder with
+  `env.ts`.
 
 Done when:
 
-- M2's sketch is in Implementation notes, with what it changed in the score record and the
-  grader interface.
+- M2's sketch and M3's to M5's answers are in Implementation notes, with what they
+  changed.
 - A test runs a small dataset end to end on scripted agents and gets the expected report.
-- Tests of the costly parts: two worktrees of one repository share the store, found by root
-  commit, and a shallow clone is refused; a run's `n` comes from the label's counter under the
-  lock, and deleting a run's folder never frees it; a label with `/` is stored as one escaped
-  folder; `--label` refuses a `:`.
-- The review lab's tests pass, with only their import paths changed, and `awf-lab` still runs a
+- Tests of each case verdict and exit code: all passed (0); a must-pass case failed (1); 2 of 3
+  passed with one failed, flaky (3); one undecided through a grader hook internal to the lab's tests (task 3 builds the real
+  interface), unclear (3); a workflow error on every trial,
+  failed (1); a setup error on every trial (5); a stopped run, failed (1); a known-failing case failed (0), and one with a trial errored by the dataset (5), and passing at three
+  trials (0, now passing); a `pass: 2/3` case with one failed trial passes; a missing `env.ts`
+  refused (2).
+- A test: `--failed` runs the cases whose newest verdict was failed, flaky or unclear, across
+  runs, with that run's trial count.
+- A test: `defineEnv` runs a workflow that has its own `file`; one with `events` is refused.
+- A type test: an `env.ts` in a project whose installed `agentswf` is another copy than the
+  lab's type-checks against its own workflow.
+- A test on scripted agents: a strict mock refuses an export not given, and the trial errors as
+  the dataset's, even when the workflow catches the throw; a `fetch` to a routed host that no
+  route matches does the same, as does one to a host no route names, while one to a host in
+  `realHosts` or the engine's own passes; a `c.fake` member not given is
+  refused the same way; a mock or fake member never called is listed as unused; `observe` reads a
+  mock's `.mock.calls`.
+- A type test: `c.mock` with an export the module doesn't have, or a fake of the wrong shape, does
+  not compile.
+- A test on scripted agents: a two-stage workflow with the first stage given runs only the second;
+  a given value its schema refuses errors the trial as the dataset's; `until` on the first stage
+  completes the run with `observe` given that stage's value; a workflow that swallows the signal
+  gets it again at its next stage and the run completes at `until`; a `wf.stop` after `until` is
+  graded from the trial file; a misspelled stage name errors as `stage-missing` before the body
+  runs; a body that returns early before `until` is graded on its result, noted "never reached".
+- A test: a tool handler the workflow gives its agents calls a mocked module and gets the fake.
+- A test: an error or a timeout in `setup` errors the trial as the dataset's, and in the body fails
+  it as the workflow's; the trial file gives the lab the phase and the refused calls on a run that
+  failed or timed out; a workflow that throws before `until` fails as the workflow's; a timed-out trial still runs `c.cleanup`; a strict-mocked module's class
+  still works with `instanceof`; `c.mock` of a `node:*` module is refused; a `c.fake` returned from
+  `async () => db` can be awaited; a type error in `env.ts` stops `run` with exit 2 before any
+  trial; a grader that throws on every trial exits 5; the lab breaking mid-run exits 4; a fact
+  `null` where the key wants a value fails, an `undefined` one errors as `facts-missing`, and one of another type
+  errors as `fact-type`, as does an object, array or `Date` fact; facts written after a timeout are ignored; a key with an unknown
+  field is refused; a run where no case is graded exits 3.
+- A test: the lab starts the folder's own `awf` in that folder, and reads its runs back with
+  `--run-root`.
+- The review lab's tests pass with only their import paths changed, and `awf-lab` still runs a
   review dataset.
-- A test shows the lab copies neither `key.md` nor `key/` into either folder, and that a trial whose scratch folder
-  holds the marker ends as leaked without running the workflow.
-- A test: `case new` in a project with no `evals/` writes `awf-lab.json`, `dataset.json` and the
-  case folder, and `run` then runs it.
-- A test shows a variant that calls `trialCase()` while its file loads is refused with a message
-  that says what to do.
-- A test shows an errored trial is counted and shown.
-- A test shows a dataset whose `sandbox` is anything but `"workflow"` is refused, and a
-  `"workflow"` dataset runs a workflow that opens its own sandbox.
-- The mail readers' sandboxes are checked to keep agents out of the home folder and the
+- A test: the lab copies neither `key.md` nor `key/` into either folder, a case folder holding the
+  marker ends as leaked without running, and a scratch folder holding it after the run is leaked.
+- A test: `case new` in a project with no `evals/` writes `awf-lab.json`, `dataset.json`, the stub
+  `env.ts` and the case folder; `run` refuses the stub with exit 2, naming `env.ts`, and runs the
+  case once the test fills in `workflow`.
+- A test: `env.ts` run without the lab (no `AWF_LAB_CASE`) is refused with a message that says
+  how to run it.
+- A test: a dataset whose `sandbox` is anything but `"workflow"` is refused, and a `"workflow"`
+  dataset runs a workflow that opens its own sandbox.
+- A test: an agent opened with no sandbox, a sandbox whose `network` lists a domain `agentReach`
+  doesn't, one with `webSearch` or sockets not allowed, and an agent in the run's turns with no
+  `agent-opened` line, and a cursor agent where `webSearch` is false, each error the trial as
+  `reach` (exit 5); a model domain the harness adds passes, and `*.x` covers `a.x`, not `x`. A dataset without `agentReach` is refused (2).
+- The mail readers' sandboxes are checked to keep agents out of the home folder, the store and the
   project's `evals/`.
-- Live: `awf-lab run haiku sonnet --trials 3` on the mail dataset. The operator's environment
-  carries the model's login (`CLAUDE_CODE_OAUTH_TOKEN`), which the project's own launcher reads
-  from a file the lab does not load.
+- Live: the mail dataset, three trials each, with the model's login
+  (`CLAUDE_CODE_OAUTH_TOKEN`) in the operator's environment. Then a case added for a known miss
+  fails the run (exit 1); after the workflow is fixed, `--failed` passes it and a full run exits 0
+  or 3, with any flaky case read.
 
 ### 3. Criteria are judged, and a changed key is graded again
 
-Outcome: `criteria` appear in the report; `score` runs the judge alone on a kept run.
+Outcome: `criteria` count in each case's verdict; `score` grades a kept run again after a key
+changes.
 
 Execution:
 
-- [ ] Plan: the grader interface as M2 left it; the judge's prompt, from task 1's working part.
-  The review judge's voting (`review/judge/voting.ts`) is built around finding labels, so the
-  criteria judge's three voters are written fresh in the new folder, reusing only the shared
-  runner; the review voting moves with reviews. The judge is a workflow of the lab's that reads
-  its input through the grade folder and `gradeCase()`, as a dataset's grader workflow does, so
-  that path has a user that ships. The judge workflow reads the folder with `gradeCase()` in its
-  own process and puts what the voters need into their prompts; the voters read no files, so
-  "read, not run" means a voter's verdict cites saved-file content. It runs on the lab's own `awf` (the project's would refuse a file of another engine), under its own
-  sandbox, which reaches nothing but its model, with its records in the store and its cost on
-  the score entry. The runner takes the `awf` to start as an argument: the project's for trials
-  and a dataset's grader workflows, the lab's for the judge.
+- [ ] Plan: the grader interface as M2 left it; the judge's prompt, from task 1's tuned part. The
+  review judge's voting (`review/judge/voting.ts`) is built around finding labels, so the three
+  voters are written fresh in the new folder, reusing only the shared runner. The judge is a lab
+  workflow that reads its input through the grade folder and `gradeCase()`, so that path has a
+  shipping user; it puts what the voters need into their prompts. It runs on the lab's own `awf`,
+  under a sandbox that reaches only its model, with its records in the store and its cost on the
+  score entry. The reach check is for trials only: a grader's run is the lab's own, not graded.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -1478,52 +1949,45 @@ Execution:
 
 Work:
 
-- Finding a run: `{label}:{n}`, `--label`, and `--beside`'s choice, for `score` here and for
-  `report` in task 4; and `awf-lab runs`, which shows each run's `n`. `{label}:{n}` names one
-  run, and so one dataset; `--dataset` is needed only with a bare label.
-- The grader interface: `defineGrader` and `gradeCase`, as code and as a workflow, a workflow
-  grader named by its path inside the dataset; `expect` moved behind it; the criteria judge,
-  its three voters and what it is given; `unsettled`; pooled counts in the report; grading
-  errors; the key's and graders' digests on a score; `score`; the "graded with {commit}'s code"
-  mark and the single-run "trials whose input changed" row.
-- For the live check, a script calls the criteria judge directly on each of task 1's fixtures
-  (its case folder and `result.json`); fixtures are not imported as a run.
+- The grader interface: `defineGrader` and `gradeCase`, as code and as a workflow; `expect` moved
+  behind it; the order, cheap first; the criteria judge, its voters, majority and splits, and what
+  it is given; pooled numbers; grading errors; the key's and graders' digests on a score; `score`.
+- The report marks `score` brings: keys changed since grading, a case edited since the run.
+- For the live check, a script calls the judge directly on each of task 1's fixtures.
 
 Done when:
 
-- Editing a criterion and running `score` changes the report without a new trial.
-- A test of Pick: `score --beside {label}` takes the run sharing the most (case, variant) pairs,
-  the newest among equals, and prints which run it took and any newer one it skipped and why;
-  the report's header is task 4's.
-- Live: `awf-lab run haiku sonnet --trials 3` on the mail dataset with criteria judged.
-- A test shows the judge is given neither the marker nor the agents' logs.
-- A test: a dataset's own code grader, named in `dataset.json`, returns counts that are pooled
-  into rows of the report, and a dataset whose graders give no verdict has no "passed" rows.
-- A test on scripted agents: a grader that is a workflow is given its folder, and its result
-  and cost reach the score.
-- A test: `score` never runs the setup or calls `check`; a grader that sets `rebuild` is refused
-  until the reviews' move.
-- A test: a trial whose case was edited after it ran shows "input changed" and is not graded
-  again; a column graded with another commit's `read` carries the mark.
-- A test: a grader that throws leaves the trial grading errored, and `score` grades it again.
+- Editing a criterion and running `score` changes the report without a new trial, and judges only
+  that criterion.
+- A test: a trial `expect` failed skips the judge, shows its criteria "not judged", and `score`
+  judges them after the key's `expect` is changed to pass.
+- A test: no voter's prompt holds the marker, `expect`, `key/` or the agents' logs.
+- A test: a 2–1 split decides by majority and is counted; a voter with no answer and the other two
+  split leaves the criterion unsettled.
+- A test: a dataset's own code grader returns counts that are pooled into report rows, and a
+  dataset whose graders give no verdict shows its cases as graded by numbers only.
+- A test on scripted agents: a grader workflow is given its folder, and its result and cost reach
+  the score.
+- A test: `score` never runs `env.ts`; a grader is given no scratch
+  folder there; a trial whose case was edited since it ran is not graded again and is reported as
+  edited.
+- A test: a grader that throws leaves the trial errored by grading, and `score` grades it again.
+- A test pins the outcome order: a failed `expect` with a grader that errored reads as errored; a
+  leaked trial that also errored reads as leaked.
 - The model-family table and the column mark.
-- Tests: only `settle` changed re-settles stored votes without running the grader; a changed
-  `read` is applied again at no cost, with the fallback when it errors; `score` grades only the
-  stale, errored or missing graders.
-- A test pins the one-outcome order: a failed `expect` with a grader that errored reads as
-  grading errored; a leaked trial that also errored reads as leaked.
 - The interface built is the one M2 left, or Implementation notes say what changed and why.
-- Live: on task 1's held-out part, the built judge gives the verdicts the hand-run judge gave,
-  but where the voters split; a difference beyond that is a bug in the built judge, fixed before
-  the task is done.
+- Live: the mail dataset, three trials each, with criteria judged.
+- Live: on task 1's held-out part, the built judge gives the hand-run judge's verdicts, except
+  where voters split; any other difference is a bug, fixed before the task is done.
 
-### 4. One run set beside another
+### 4. The same cases on code in another folder
 
-Outcome: `awf-lab report --beside {label}` shows two kept runs in two columns.
+Outcome: `awf-lab run --against {folder}` runs both folders in one run and reports them side by
+side.
 
 Execution:
 
-- [ ] Plan: what makes two columns comparable; finding a run is task 3's.
+- [ ] Plan: the folder checks, as task 2 built them for one folder; the run record's folders.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -1531,33 +1995,31 @@ Execution:
 
 Work:
 
-- A second run as a column (`--beside`); `report {label}:{n}` and `report --label`
-  (task 2's `report` shows the current branch's newest run only); the rules for what may be set side by side, and
-  the notes when a column is old, on other models or on a different setup; two variants of one
-  run compared as two runs are; the variant's errors and undecided trials
-  weighed first; "cases whose passes differ by" the threshold or more.
+- `--against`, repeatable; trials in turn across folders; a column per folder; "also fails in";
+  the exit code from your checkout alone.
 
 Done when:
 
-- A test sets two stored runs side by side and compares only the cases whose input is the same.
-- A test shows a run whose scores do not match the current keys or graders asks for `score`,
-  naming the command, and so does one where criteria were added to a key after both runs.
-- A test shows two runs that asked for different trials per case are refused, naming both
-  counts, and that a case with too few decided trials on one side is listed under "could not
-  compare".
-- A test: a case that times out twice on one side and never on the other is listed as differ
-  (errored), apart from pass-rate differences, not under "could not compare"; one undecided twice on one side
-  and never on the other is listed as differ (undecided).
-- Live: the mail dataset on `main` and on a branch with a changed prompt.
+- A test on scripted agents: two folders whose workflows answer differently give two columns and
+  list the case that came out differently; the other folder's cases, keys and graders are never
+  read.
+- A test: a folder without the dataset's `env.ts`, or without `@agentswf/lab/cases` or `@agentswf/lab/cases/fetch`, or an `awf` whose records the lab cannot read stops
+  `run` before the first trial with exit 2, saying what is missing.
+- A test: each folder's trials run on that folder's `awf`, started in that folder, at a different
+  `agentswf` version from your checkout's.
+- A test: a failing case in the other folder alone leaves the exit code 0.
+- Live: the mail dataset in your checkout with a changed prompt, against a worktree of `main`.
 
 ### 5. web-to-cli's build runs on cases
 
-Outcome: the builds report above, from real trials. It is the second real use of the formats;
-reviews, the third, come before they become `/1`.
+Outcome: the builds dataset runs from real trials, one per case. It is the second real use of the
+formats; reviews, the third, come before they become `/1`.
 
 Execution:
 
-- [ ] Plan: what `setup.ts` returns; how `keep` reaches the judge; M1.
+- [ ] Plan: the build's `env.ts`; how `keep` reaches the judge; which of the build's stages a
+  stage case gives; which hosts the build's own code reaches in its process (its `realHosts`),
+  and which domains its sandbox opens (its `agentReach`); M1.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -1565,28 +2027,28 @@ Execution:
 
 Work:
 
-- `defineSetup` with `check`; a variant's `options`; `keep`; time by stage in the report;
-  "read, not run" beside criteria judged from saved files.
+- A `setup` that prepares a folder and an `observe` that runs what was built; `keep`; time by
+  stage in the report; "read, not run" beside criteria judged from saved files.
+- A second builds dataset of stage cases: an earlier stage given from a past run's value, `until`
+  the stage under test.
 
 Done when:
 
-- A test: a criterion any voter judged from saved files is marked "read, not run" in the report.
-- A test on scripted agents: a setup's `cwd`, `env` and `argv` start the workflow's run,
-  `check`'s fields are graded by `expect`, and `keep`'s files are saved.
-- A test shows a setup that copies a key into the scratch folder is caught before the workflow
-  runs.
-- Live: two cases, two variants, one trial each. About two hours and twenty dollars. The person
+- A test: a criterion any voter judged from saved files is marked "read, not run".
+- A test on scripted agents: `setup`'s `argv` and `process.env` reach the workflow, `observe`'s
+  facts are graded by `expect`, and `keep`'s files are saved.
+- A test: a `setup` that copies a key into the scratch folder makes the trial leaked.
+- Live: two cases, one trial each, against a worktree with another builder model; about two hours
+  and twenty dollars. One stage case, one trial. The person
   checks the judge's verdicts on these trials, since task 1 tested it on mail only, and the
-  agreement is recorded in Implementation notes. More than one disagreement is recorded there,
-  and the builds dataset's criteria are not used to compare variants until a larger check
-  passes; nothing in the lab stores it.
-- The build's sandbox is checked to keep agents out of the home folder, where results are kept,
-  and out of the project's `evals/`, where the keys are.
+  agreement is recorded in Implementation notes.
+- The build's sandbox is checked to keep agents out of the home folder, the store and the
+  project's `evals/`.
 
 ### 6. A past run becomes a case
 
-Outcome: `awf-lab capture {run id} --good` or `--needs-work "{note}"` makes a case from a past
-run of the workflow, whether a trial's or a real one.
+Outcome: `awf-lab capture {run id} --good` or `--needs-work "{note}"` makes a case from a past run
+of the workflow, a trial's or a real one.
 
 Execution:
 
@@ -1598,35 +2060,29 @@ Execution:
 
 Work:
 
-- `awf-lab capture {run id} --good | --needs-work "{note}"`, with `--dataset {name}` as for
-  `run`, needed only when the project has more than one dataset, and `--variant {name}`,
-  needed only with `--good`, for a real run, when the dataset has more than one variant (a
-  trial's run knows its variant).
-- The run id is looked up first in the lab's store, for a trial's run, then in the project's
-  `.awf/runs`, for a real one. A trial's run already has its case: `capture` copies the source
-  case's own `files/` and `input.json` (not the merged copy, so later edits to the shared files
-  still apply), skips the dataset's `capture`, and with `--good` drafts `expect` from the
-  trial's stored `read` and `check` fields.
-- `capture({ run, root })`, the default export of the dataset's `capture.ts`: given the run's record (argv,
-  result, and the folder of its logs) and the checkout, it returns one or more
-  `{ name, input, files, part }`, one per case, where `files` maps a path inside the case's
-  `files/` to its contents, written as given, and `input` becomes `input.json`: a mail run that read five emails gives five, each
-  named from its email, with the email fetched again by its id. `part` is that case's share of
-  the run's result, in the shape of a whole result (`{ items: [item] }` for mail), so the
-  variant's `read` applies to it. A name already taken gets a number.
-- `key.md` is written with the mark, the note, `draft: true` and a marker, as `case new` writes
-  one. With
-  `--good`, `expect` is drafted by the variant's `read` applied to `part` (`--variant` when the
-  dataset has more than one), for the person to check, leaving out the reserved `error`. For a
-  real run, fields only `check` returns are left for the person to write, since a past run's scratch folder is
-  gone. Either way the case counts under "cases with no key" until the person removes
-  `draft: true`; a run that needed work is never the answer, so its key is the person's to write.
+- Flags: `--dataset {name}` as for `run`.
+- The run id is looked up first in the lab's store (a trial's run), then in the project's
+  `.awf/runs` (a real one). A trial's run already has its case: `capture` copies the source case's
+  own `files/` and `input.json`, skips `capture.ts`, and with `--good` drafts `expect` from the
+  trial's stored facts.
+- For a real run, `capture({ run, root })` from `capture.ts` is given the run's record (argv,
+  result, and its logs folder) and the checkout. It returns one or more
+  `{ name, input, files, facts? }`, one per case: `files` maps a path inside the case's `files/` to
+  its contents; `input` becomes `input.json`; `facts` is what `observe` would have returned, read
+  off that case's share of the result by the dataset's own code (`observe` needs a trial's mocks,
+  so it can't run on a real run). A mail run that
+  read five emails gives five cases, each fetched again by its email's id. A name already taken
+  gets a number.
+- `key.md` is written with `captured: { run, mark: good | needs-work, note }`, `draft: true` and a
+  marker. With `--good`, `expect` is drafted from `facts`, leaving out `error`; facts `capture`
+  can't tell are left for the person. A run that needed work is never the
+  answer, so its key is the person's to write.
 
 Done when:
 
 - A run of each workflow becomes a case with one command, and that case runs.
-- A test: a trial's run is captured from its source case without the dataset's `capture`; a
-  name already taken gets a number; a captured key stays a draft, and no grader runs on it.
+- A test: a trial's run is captured from its source case without `capture.ts`; a name already
+  taken gets a number; a captured key stays a draft, and no grader runs on it.
 
 Tasks are checkpoints, not a file-by-file edit script. The implementation agent may adjust the
 implementation without changing their outcomes, order, or the story's scope.
@@ -1635,7 +2091,8 @@ implementation without changing their outcomes, order, or the story's scope.
 
 Automated:
 
-- [ ] A dataset runs end to end on scripted agents: trials, scores, report.
+- [ ] A dataset runs end to end on scripted agents: trials, scores, verdicts, report, exit code.
+- [ ] Two folders run side by side on scripted agents, each on its own `awf` (task 4).
 - [ ] The lab copies `key.md` and `key/` into neither folder, and a leaked marker is caught.
 - [ ] The review lab's existing tests pass, with only their import paths changed.
 - [ ] `bun test`
@@ -1644,43 +2101,47 @@ Automated:
 
 Manual or live evaluation:
 
-- [ ] The mail dataset, two variants, three trials each: minutes, a few dollars with the judge.
-- [ ] The builds dataset, two variants: about two hours and twenty dollars.
+- [ ] The mail dataset, three trials each: minutes, a few dollars with the judge.
+- [ ] A case added for a known miss fails the run; after the fix, it passes (task 2).
+- [ ] The builds dataset against a worktree with another builder model, and one stage case: about
+  two hours and twenty dollars.
 - [ ] The built judge gives the hand-run judge's verdicts on task 1's held-out part (task 3).
-- [ ] The mail dataset on `main` beside a branch with a changed prompt (task 4).
+- [ ] The mail dataset with a changed prompt against a worktree of `main` (task 4).
 - [ ] A real run of each workflow captured as a case, and that case run (task 6).
 
 ## Review record
 
 ### Refinement
 
-- Draft 1 of [[workflow-cases]] was reviewed by three subagents (feasibility against the code, an
-  adversarial pass, prior art and coherence). What they removed is in that document's Considered
-  and dropped.
-- The setup sketch for both workflows was reviewed by three more (the case layout, the setup
-  code, the sandbox and the lab's structure). From them: variants under their dataset, shared
-  `files/`, `key.md` flat; the smaller setup surface; that a sandbox reads the repository's
-  `.git`; that web-to-cli's `configure` copies `evals/` and renames the environment prefix.
-- This story was then reviewed by four (feasibility against the code, eval method, consistency,
-  scope and risk). From them: `trialCase()` called inside functions; the project's own `awf`;
-  two folders, not one; `check` for a built command; errored trials apart from failed ones; what
-  the judge is given; the stronger bar in task 1; runs kept under a label in place of trials
-  filed by code state; `--baseline {branch}` deferred; record fields and `/0` kinds; results
-  outside the repository; the notes on what to know before using it.
-- A second round of two (a builder's read against the code; the owner's goals and eval method).
-  From them: how the first run on `main` is made; that the lab does not make an unfaked service
-  fail; why a stage is not faked; the op's name read back in `check`; `PATH` and the project's
-  `awf`; where results and run records live; the judge as three voters and the tighter bar; one
-  trial unless asked; advice on writing cases.
-- Two more rounds of two (a strict check against the code and the doc rules; a reader who saw
-  only this file). From them: example reports that agree with each other and with the rules; the
-  verdicts for a `must-not`; what runs in the lab and what in `awf run`; naming a dataset; the
-  judge's cost; "Before you start".
-- Three further rounds of two, the same two angles with new reviewers each time. From them: the
-  mail readers' folder moved out of the repository; a run's own record; a leaked trial's place in
-  the report; what happens to tasks 3 and 5 if task 1 fails its bar; the marker's shape; labels
-  and `score` explained where they are first used. The last round returned no blocking and no
-  should-fix finding from either reviewer.
+[[workflow-cases]] draft 1 had three reviewers (feasibility, an adversarial pass, prior art). This
+story then went through about thirty rounds of review against the code, eval method, consistency
+and a first-time reader. On 2026-11-14 the owner refocused it: running and scoring first, with a
+verdict per case and an exit code; comparing became the same run on another folder, replacing the
+comparison of kept runs, its store identity and its staleness rules. A best-practice pass over
+current eval tools and writing supports the split. Three reviewers then read the refocused draft
+(eval method, a first-time reader with a consistency check, feasibility against the code); their
+findings brought the flaky verdict and history, the judge's majority, the workflow's errors
+failing a case, the exit codes, `--failed` across runs, the plan before a run, cheap graders
+first, and each folder's `awf` started in that folder. On 2026-11-15 the owner moved a case's world
+into code, as a unit test's setup: after a study of agent-env and of how test tools fake services
+(msw, Jest and Vitest mocks, record and replay, containers), and experiments on Bun with three
+subagents (module mocks and their limits, mocks across processes, sandboxes, proxies and stage
+seeding), `env.ts` replaced the variant, `setup.ts`, `read` and `check`, columns became folders
+only, and given stages and `until` came in without an engine change.
+Then ten rounds of two reviewers each (consistency, and design checked against the awf and
+web-to-cli code with experiments on Bun) settled the blame rules (a refusal is the dataset's, a
+forbidden call is a recording fake and a fact, blame by phase, the trial file), the clock
+through the workflow's own function (`setSystemTime` freezes the engine), strict hosts with
+`realHosts`, timeouts per phase, stopped and early-ended runs, exit 5, the type check, and
+web-to-cli's build run from its copy. The tenth round still found one must-fix (a mock of the
+checkout's module missing a workflow loaded from the copy), fixed. Later that day the owner dropped msw: the lab answers and
+refuses `fetch` with its own replacement, so a project installs nothing for it, and a workflow
+that uses another client fakes it by module or with a tool it installs. The owner settled Q9:
+agents' own commands are not faked here; their reach is checked against `agentReach`. Three
+more rounds of the same two reviewers followed: the eleventh and twelfth found must-fixes (the
+lab's `fetch` installed by a preload, before anything captures it; `--no-env-file`, so a trial
+never reads the folder's `.env`; sockets as reach; a stale rule on known-failing cases), all
+fixed; the thirteenth found none.
 
 ## Readiness
 
