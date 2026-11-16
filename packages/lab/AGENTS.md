@@ -1,7 +1,29 @@
 # @agentswf/lab
 
 Tools for evaluating workflows against cases with known answers, and later for improving them.
-It holds review fixtures (story 005) and their scoring (story 008), in `src/review/` by purpose:
+It has two kinds of case, and one command line, `awf-lab`, whose entry `src/cli.ts` hands a
+command to either: `case` and `runs` are the case kind's; otherwise `--dataset` naming a folder
+beside `awf-lab.json` with a `dataset.json` of kind `awf.case-dataset/0` is, and without it the
+case kind serves a workspace that names no review `datasets`, the review kind one that does. Each
+kind keeps its own flags and help.
+
+**The case kind** (story 044), `src/cases/`: `format/` (pure: `dataset.json` and `key.md` in
+`settings.ts`, the strict key reader `key.ts`, the trial file, the env variables, and the run,
+trial and score records), `env/` (`@agentswf/lab/cases` and the `fetch` preload: what runs in a
+trial's own process, in the project), and `lab/` (the lab's side: datasets and cases, `case new`,
+the checks before the first trial, the lock and the store under `~/.awf/lab/`, each trial's
+folders and marker search, the reach check, `expect`, blame, verdicts, the report). It never
+imports `review/` and names no word of one workflow's domain (`mail`, `review`, `finding`); the
+boundary checker holds both. `lab/` is pure but for `cli.ts`, `dataset.ts`, `folders.ts`,
+`git.ts`, `inspect.ts`, `runs.ts`, `scaffold.ts`, `store.ts`, `trial.ts` and `workspace.ts`.
+
+**What both share**, `src/shared/`: the process seam (`runner.ts`: a request, `awf run`'s argv,
+starting this checkout's `awf` or a folder's own bin with a preload, record parsing), the common
+fields of `awf-lab.json` (`config.ts`: `kind`, `judgeAgent`, `store`; `config-file.ts` finds and
+reads it, in a folder or its `evals/`), and the schema checks (`validate.ts`). It imports neither
+kind and is pure but for `runner.ts` and `config-file.ts`.
+
+**The review kind**, `src/review/`, holds review fixtures (story 005) and their scoring (story 008), in `src/review/` by purpose:
 `format/` (the formats and their checks), `fixtures/` (reading, checking and sealing a set:
 `seal.ts` writes `set.json`, each fixture pinned by a digest), `build/` (`collect`, code that
 freezes a GitLab MR as a fixture; `draft-key`, where an agent drafts the answer key and code
@@ -10,8 +32,9 @@ checks it against the fixture; and `fixtures.workflow.ts`, which runs both and s
 `voting.ts` has voters label the rest, which with nothing settled is the retired panel,
 `judge.workflow.ts`; and the check every judgement passes), `metrics/` (pure
 numbers from records), and `lab/` (`awf-lab`, the command line that runs a variant and a scorer
-per case through `awf run` and keeps the trials and scores in the workspace's results). Story 008
-has `awf-lab`'s terms and command line.
+per case through `awf run` and keeps the trials and scores in the workspace's results; its runner
+adds the contained mode and `summaryOf` to the shared seam). Story 008 has its terms and command
+line. Its `awf-lab.json` fields are checked only when a review dataset is used.
 
 `src/compare/` (`@agentswf/lab/compare`, story 011) turns two variants' per-case numbers into a
 verdict: `pairedComparison` and the types a workspace's `*.compare.ts` uses. It knows nothing of
@@ -25,13 +48,14 @@ record it prints. Every file in `src/review/` is pure except those the boundary 
 doing I/O (`fixtures/git.ts`, `verify.ts`, `seal.ts`; `build/gitlab.ts`, `collect.ts`,
 `draft-key.ts`; `judge/case.ts`; `lab/cli.ts`, `execute.ts`, `provenance.ts`, `load.ts`,
 `runner.ts`, `store.ts`, `workspace.ts`; `lab/loop/bundle.ts`, `loop.ts`, `scope.ts`; the
-workflows; the index). A folder imports only the folders below it: `format`
-nothing of ours, `fixtures` `format`, `build`, `judge` and `metrics` those two, `lab` all but
+workflows; the index). A folder imports only the folders below it, and `src/shared/`: `format`
+nothing else of ours, `fixtures` `format`, `build`, `judge` and `metrics` those two, `lab` all but
 `build`; the boundary checker keeps the order. Agents are used only where a step needs judgement:
 drafting a key and its graders' votes, and judging a review. No person is in the loop.
 
-Every file it writes in a format of its own has a TypeBox schema in `format/` and is checked
-before it is written: the case formats in `format.ts`, the records `awf-lab` writes in
+Every file it writes in a format of its own has a TypeBox schema and is checked before it is
+written. The case kind's are in `cases/format/` (published as `schema/case-*.schema.json`); the
+review kind's in `review/format/`: the case formats in `format.ts`, the records `awf-lab` writes in
 `records.ts`, its config in `workspace.ts`, and what each command prints with `--json` in
 `output.ts`. A variant or scorer is identified by the version its file declares, nothing else:
 an edit that changes what it measures bumps it, and the records keep only the file's commit, as

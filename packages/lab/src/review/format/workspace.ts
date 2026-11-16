@@ -1,4 +1,5 @@
 import Type from "typebox";
+import { COMMON_FIELDS } from "../../shared/config";
 
 /** `awf-lab.json` at the workspace's root. Relative paths resolve from the file. */
 
@@ -40,105 +41,128 @@ export const SandboxSettingSchema = Type.Union([
 
 export type SandboxSetting = Type.Static<typeof SandboxSettingSchema>;
 
-export const WorkspaceConfigSchema = Type.Object(
-  {
-    $schema: Type.Optional(Type.String()),
-    clone: Type.String({
+/** The review kind's fields it cannot go without, checked only when a review dataset is used. */
+const REVIEW_FIELDS = {
+  clone: Type.String({
+    minLength: 1,
+    description: "The project's main-branch clone that case snapshots restore from.",
+  }),
+  datasets: Type.String({ minLength: 1, description: "The folder holding datasets." }),
+  dataset: Type.String({
+    minLength: 1,
+    description: "The dataset a command uses unless --dataset names one.",
+  }),
+  results: Type.String({
+    minLength: 1,
+    description: "Where trials and scores go: {results}/{dataset}/…",
+  }),
+  runs: Type.String({
+    minLength: 1,
+    description: "Where awf run keeps run directories; not committed, records never need them.",
+  }),
+  variants: Type.Array(Text, {
+    description: "Globs of *.variant.ts files; a variant is named by its file's stem.",
+  }),
+  scorers: Type.Array(Text, {
+    description: "Globs of *.scorer.ts files; `match-first`, the package's own, is always there.",
+  }),
+};
+
+const REVIEW_OPTIONS = {
+  scorer: Type.Optional(
+    Type.String({
       minLength: 1,
-      description: "The project's main-branch clone that case snapshots restore from.",
+      description:
+        "The scorer a command uses unless --scorer names one; `match-first`, the package's own, if absent.",
     }),
-    datasets: Type.String({ minLength: 1, description: "The folder holding datasets." }),
-    dataset: Type.String({
+  ),
+  comparisons: Type.Optional(
+    Type.Array(Text, {
+      description:
+        "Globs of *.compare.ts files; `default`, the package's standard review comparison, is always there.",
+    }),
+  ),
+  comparison: Type.Optional(
+    Type.String({
       minLength: 1,
-      description: "The dataset a command uses unless --dataset names one.",
+      description:
+        "The comparison report uses with a baseline unless --comparison names one; `default` if absent.",
     }),
-    results: Type.String({
+  ),
+  trials: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "Trials a case unless --trials says otherwise; 1 if absent. Two or more let a comparison see how much one case varies.",
+    }),
+  ),
+  baseline: Type.Optional(
+    Type.String({
       minLength: 1,
-      description: "Where trials and scores go: {results}/{dataset}/…",
+      description: "The variant a report compares against unless --baseline names one.",
     }),
-    runs: Type.String({
-      minLength: 1,
-      description: "Where awf run keeps run directories; not committed, records never need them.",
-    }),
-    variants: Type.Array(Text, {
-      description: "Globs of *.variant.ts files; a variant is named by its file's stem.",
-    }),
-    scorers: Type.Array(Text, {
-      description: "Globs of *.scorer.ts files; `match-first`, the package's own, is always there.",
-    }),
-    scorer: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description:
-          "The scorer a command uses unless --scorer names one; `match-first`, the package's own, if absent.",
-      }),
+  ),
+  budget: Type.Optional(
+    Type.Object(
+      {
+        usd: Type.Number({
+          minimum: 0,
+          description: "Priced at list prices, as a run's accounting estimates it.",
+        }),
+      },
+      { additionalProperties: false },
     ),
-    comparisons: Type.Optional(
-      Type.Array(Text, {
-        description:
-          "Globs of *.compare.ts files; `default`, the package's standard review comparison, is always there.",
-      }),
-    ),
-    comparison: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description:
-          "The comparison report uses with a baseline unless --comparison names one; `default` if absent.",
-      }),
-    ),
-    trials: Type.Optional(
-      Type.Integer({
-        minimum: 1,
-        description:
-          "Trials a case unless --trials says otherwise; 1 if absent. Two or more let a comparison see how much one case varies.",
-      }),
-    ),
-    baseline: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description: "The variant a report compares against unless --baseline names one.",
-      }),
-    ),
-    budget: Type.Optional(
+  ),
+  sandbox: Type.Optional({
+    ...SandboxSettingSchema,
+    description:
+      'The provider of the sandbox every trial\'s agents run in, which holds the checkout and the request and nothing else: { "srt": {} }, the default, { "docker": { "image"?: … } }, or { "container": { "image": … } }, which runs the workflow itself in the container too.',
+  }),
+  seed: Type.Optional(
+    Type.String({ minLength: 1, description: "Orders cases for --cases {n}; awf-lab." }),
+  ),
+  holdout: Type.Optional(
+    Type.Record(
+      Text,
       Type.Object(
         {
-          usd: Type.Number({
-            minimum: 0,
-            description: "Priced at list prices, as a run's accounting estimates it.",
+          cases: Type.Array(Text, { minItems: 1, uniqueItems: true }),
+          chosen: Type.String({
+            format: "date",
+            description: "When the cases were set aside: before the first proposal.",
           }),
         },
         { additionalProperties: false },
       ),
+      {
+        description:
+          "By dataset, the cases set aside for a loop's final check: no command selects, shows or reports them, and no proposer sees them.",
+      },
     ),
-    sandbox: Type.Optional({
-      ...SandboxSettingSchema,
-      description:
-        'The provider of the sandbox every trial\'s agents run in, which holds the checkout and the request and nothing else: { "srt": {} }, the default, { "docker": { "image"?: … } }, or { "container": { "image": … } }, which runs the workflow itself in the container too.',
-    }),
-    seed: Type.Optional(
-      Type.String({ minLength: 1, description: "Orders cases for --cases {n}; awf-lab." }),
-    ),
-    holdout: Type.Optional(
-      Type.Record(
-        Text,
-        Type.Object(
-          {
-            cases: Type.Array(Text, { minItems: 1, uniqueItems: true }),
-            chosen: Type.String({
-              format: "date",
-              description: "When the cases were set aside: before the first proposal.",
-            }),
-          },
-          { additionalProperties: false },
-        ),
-        {
-          description:
-            "By dataset, the cases set aside for a loop's final check: no command selects, shows or reports them, and no proposer sees them.",
-        },
-      ),
-    ),
-  },
+  ),
+};
+
+/** `awf-lab.json` as the review kind checks it: its own fields, and the ones both kinds read. */
+export const WorkspaceConfigSchema = Type.Object(
+  { $schema: Type.Optional(Type.String()), ...COMMON_FIELDS, ...REVIEW_FIELDS, ...REVIEW_OPTIONS },
   { additionalProperties: false, description: "An awf-lab workspace, in its second form." },
+);
+
+/** The file as either kind reads it: the review kind's fields are needed only for reviews. */
+export const WorkspaceFileSchema = Type.Object(
+  {
+    $schema: Type.Optional(Type.String()),
+    ...COMMON_FIELDS,
+    ...(Object.fromEntries(
+      Object.entries(REVIEW_FIELDS).map(([name, schema]) => [name, Type.Optional(schema)]),
+    ) as { [K in keyof typeof REVIEW_FIELDS]: Type.TOptional<(typeof REVIEW_FIELDS)[K]> }),
+    ...REVIEW_OPTIONS,
+  },
+  {
+    additionalProperties: false,
+    description:
+      "An awf-lab workspace: kind, judgeAgent and store for cases; the review fields for review datasets.",
+  },
 );
 
 /** The first form's keys, each refused by name with the key that replaced it. */

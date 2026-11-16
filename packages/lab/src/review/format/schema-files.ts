@@ -16,7 +16,7 @@ import {
 import { PartialRecordSchema } from "./partial";
 import { PartialScoreSchema, ScoreSchema, TrialSchema } from "./records";
 import { FindingsRecordSchema, ScoreRecordSchema, ScorerResultSchema } from "./scoring";
-import { WorkspaceConfigSchema } from "./workspace";
+import { WorkspaceFileSchema } from "./workspace";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
@@ -43,7 +43,7 @@ export const SCHEMA_FILES = {
     title: "awf-lab partial score, first version",
     schema: PartialRecordSchema,
   },
-  "awf-lab.schema.json": { title: "awf-lab workspace", schema: WorkspaceConfigSchema },
+  "awf-lab.schema.json": { title: "awf-lab workspace", schema: WorkspaceFileSchema },
   "lab-list.schema.json": { title: "awf-lab list", schema: ListSchema },
   "lab-run.schema.json": { title: "awf-lab run and score", schema: RunSchema },
   "lab-report.schema.json": { title: "awf-lab report", schema: ReportSchema },

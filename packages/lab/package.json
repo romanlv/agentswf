@@ -4,15 +4,21 @@
   "private": true,
   "type": "module",
   "bin": {
-    "awf-lab": "./src/review/lab/cli.ts"
+    "awf-lab": "./src/cli.ts"
   },
   "exports": {
+    "./cases": "./src/cases/env/index.ts",
+    "./cases/fetch": "./src/cases/env/fetch.ts",
     "./compare": "./src/compare/index.ts",
     "./review": "./src/review/index.ts",
     "./review/*": "./src/review/*.ts"
   },
   "dependencies": {
     "@agentswf/contract": "workspace:*",
-    "typebox": "^1.3.34"
+    "typebox": "^1.3.34",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "agentswf": "workspace:*"
   }
 }

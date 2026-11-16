@@ -1,27 +1,28 @@
 import { basename, dirname, join } from "node:path";
+import type { AllowanceReport } from "@agentswf/contract/records";
 import {
-  type AllowanceReport,
-  OUTPUT_RECORD_VERSION,
-  type OutputRecord,
-} from "@agentswf/contract/records";
+  AWF,
+  awfArgv,
+  awfCommand,
+  loginRefused,
+  type RunRequest as ProcessRequest,
+  parseRecord,
+  type RunResult,
+  runEnvironment,
+  spawnAwf,
+} from "../../shared/runner";
 import type { RunSummary } from "../format/scoring";
 
-export type RunRequest = {
-  /** The workflow file. */
-  workflow: string;
-  /** Where the workflow works: `awf run --cwd`. */
-  cwd: string;
-  timeout: string;
-  /** The workflow's own arguments, after `--`. */
-  argv: readonly string[];
-  runRoot: string;
-  /**
-   * The run's id: `awf run --id`. The lab finds a run by its id alone, across workflows, so it gives
-   * each one an id unique among all of them.
-   */
-  id: string;
-  /** A sandbox spec file every agent of the run is put in: `awf run --sandbox`. */
-  sandbox?: string;
+export {
+  AWF,
+  awfArgv,
+  parseRecord,
+  type RunOutput,
+  type RunResult,
+  withoutCallingSession,
+} from "../../shared/runner";
+
+export type RunRequest = ProcessRequest & {
   /** The whole run in a container instead, with only these paths mounted, each where it is. */
   contained?: Contained;
 };
@@ -34,43 +35,8 @@ export type Contained = {
   home: string;
 };
 
-/** `awf run`'s record: never parked, as `awf run` refuses a workflow with events. */
-export type RunOutput = Exclude<OutputRecord, { outcome: "parked" }>;
-
-export type RunResult = { exitCode: number; record?: RunOutput; stderr: string; ms: number };
-
-/**
- * Runs one workflow as an operator would and returns the record it wrote: the one seam between
- * awf-lab and the engine, so the run record stays the only interface (ADR 0002).
- */
+/** The review kind's runner: a plain request, or one contained, which mounts this checkout. */
 export type Runner = (request: RunRequest) => Promise<RunResult>;
-
-/**
- * The `awf` of this checkout, as the root package's `awf` script runs it: a process, not an import,
- * so the engine's record stays the interface. A test pins that the file is there.
- */
-export const AWF = join(import.meta.dir, "../../../../engine/src/operator-cli.ts");
-
-/** `awf run`'s arguments for a request: the one argv both the process and a test's runner use. */
-export function awfArgv(request: RunRequest): string[] {
-  return [
-    "run",
-    "--json",
-    "--no-watch",
-    "--timeout",
-    request.timeout,
-    "--run-root",
-    request.runRoot,
-    "--id",
-    request.id,
-    "--cwd",
-    request.cwd,
-    ...(request.sandbox ? ["--sandbox", request.sandbox] : []),
-    request.workflow,
-    "--",
-    ...request.argv,
-  ];
-}
 
 /**
  * `docker run` for a contained request: the operator's uid, no capabilities, and only the paths it
@@ -125,7 +91,6 @@ const AWF_MOUNTS = [
 
 export function awfRunner(): Runner {
   return async (request) => {
-    const started = Date.now();
     if (request.contained && (!process.getuid || !process.getgid)) {
       throw new Error("a contained run needs the operator's uid, and this platform has none");
     }
@@ -133,40 +98,10 @@ export function awfRunner(): Runner {
     // As `awf` runs itself: a .env where awf-lab started could change how every agent logs in.
     const argv = request.contained
       ? containedArgv({ ...request, contained: request.contained }, uid)
-      : [process.execPath, "--no-env-file", AWF, ...awfArgv(request)];
-    const child = Bun.spawn(argv, {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-      env: withoutCallingSession(process.env),
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    return { exitCode, stderr, ms: Date.now() - started, ...parseRecord(stdout) };
+      : awfCommand(undefined, awfArgv(request));
+    const { exitCode, stdout, stderr, ms } = await spawnAwf(argv, { env: runEnvironment() });
+    return { exitCode, stderr, ms, ...parseRecord(stdout) };
   };
-}
-
-/**
- * Each harness's session variable, its spec's `sessionEnv`: a case's run started with one would
- * find the operator's session and let its workflow fork it (story 027).
- */
-const SESSION_VARIABLES = [
-  "CLAUDE_CODE_SESSION_ID",
-  "CODEX_SESSION_ID",
-  "PI_SESSION_ID",
-  "CURSOR_CONVERSATION_ID",
-];
-
-/** `environment` without the session `awf-lab` was started from, if it was started from one. */
-export function withoutCallingSession(
-  environment: Readonly<Record<string, string | undefined>>,
-): Record<string, string | undefined> {
-  return Object.fromEntries(
-    Object.entries(environment).filter(([name]) => !SESSION_VARIABLES.includes(name)),
-  );
 }
 
 /** `awf allowance --json`, as the operator's own login reads it; undefined when it printed none. */
@@ -174,10 +109,12 @@ export async function awfAllowance(
   harnesses: readonly string[],
 ): Promise<AllowanceReport | undefined> {
   // A pane read takes up to 90 s; past three minutes awf is stuck, and the run goes ahead.
-  const child = Bun.spawn(
-    [process.execPath, "--no-env-file", AWF, "allowance", "--json", ...harnesses],
-    { stdout: "pipe", stderr: "ignore", stdin: "ignore", timeout: 180_000 },
-  );
+  const child = Bun.spawn(awfCommand(undefined, ["allowance", "--json", ...harnesses]), {
+    stdout: "pipe",
+    stderr: "ignore",
+    stdin: "ignore",
+    timeout: 180_000,
+  });
   const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   try {
     const report = JSON.parse(stdout) as AllowanceReport | { code: string };
@@ -188,22 +125,6 @@ export async function awfAllowance(
   }
 }
 
-/** `awf run --json` prints the record, success or not; a run that never started, a refusal. */
-export function parseRecord(stdout: string): { record?: RunOutput } {
-  const text = stdout.trim();
-  if (!text.startsWith("{")) return {};
-  try {
-    const record = JSON.parse(text) as OutputRecord;
-    // Written by the same checkout's awf; another version is a reader this one doesn't know.
-    return record.version === OUTPUT_RECORD_VERSION && record.outcome !== "parked"
-      ? { record }
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-const LOGIN_REFUSED = /subscription authentication is required/;
 // awf fails a run whose agent outlived the shutdown grace, though the workflow may have finished:
 // that is the host's doing, not the variant's, so the trial is run again, its spend still counted.
 const CLEANUP_LATE = /^agent cleanup exceeded \d+ms shutdown grace/;
@@ -227,9 +148,7 @@ export function summaryOf(result: RunResult): RunSummary {
     };
   }
   const { totals } = record.accounting;
-  // awf checks a harness's login as its first agent opens, inside the run: refused there, with no
-  // agent opened, the run says nothing about the workflow, as one awf refused at the start.
-  if (record.outcome !== "completed" && totals.agents === 0 && LOGIN_REFUSED.test(record.reason)) {
+  if (record.outcome !== "completed" && loginRefused(record)) {
     return {
       outcome: "failed",
       reason: record.reason,

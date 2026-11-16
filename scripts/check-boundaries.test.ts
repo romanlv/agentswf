@@ -145,3 +145,69 @@ test("the review folders import down their order only", async () => {
     `${review}/misc: a folder the review layers don't place; add it to REVIEW_LAYERS`,
   ]);
 });
+
+test("the case kind imports only itself and the shared folder, and names no domain word", async () => {
+  const cases = "packages/lab/src/cases";
+  const shared = "packages/lab/src/shared";
+  await write({
+    "packages/lab/package.json": manifest("@agentswf/lab"),
+    [`${shared}/runner.ts`]: 'import "node:fs";\n',
+    [`${shared}/config.ts`]: 'import "../cases/format/settings";\nimport "node:path";\n',
+    [`${cases}/format/settings.ts`]: 'import "../../shared/config";\n',
+    [`${cases}/lab/verdict.ts`]:
+      'import "../format/settings";\nimport "../../review/format/format";\n',
+    [`${cases}/lab/store.ts`]: 'import "node:fs";\n// a mail case, in a comment\n',
+    [`${cases}/lab/grade.ts`]: 'export const label = "finding";\n',
+    [`${cases}/lab/mailbox.ts`]: "export {};\n",
+    [`${cases}/lab/grade.test.ts`]: 'export const fixture = "mail";\n',
+    "packages/lab/src/review/lab/runner.ts": 'import "../../shared/runner";\n',
+  });
+  const found = (await boundaryProblems(root)).filter(
+    (problem) =>
+      problem.includes(cases) || problem.includes(shared) || problem.includes("review/lab/runner"),
+  );
+  expect(found).toEqual([
+    `${cases}/lab/grade.ts: names "finding", a word of one workflow's domain; the case kind knows none`,
+    `${cases}/lab/mailbox.ts: its name holds a word of one workflow's domain (mail, review, finding)`,
+    `${cases}/lab/verdict.ts: names "review", a word of one workflow's domain; the case kind knows none`,
+    `${cases}/lab/verdict.ts: path import ../../review/format/format reaches what ${cases} may not`,
+    `${cases}/lab/verdict.ts: path import ../../review/format/format reaches what ${cases}/lab may not`,
+    `${shared}/config.ts: imports node:path — ${shared} is pure: no runtime builtins`,
+    `${shared}/config.ts: path import ../cases/format/settings reaches what ${shared} may not`,
+    `${shared}/config.ts: path import ../cases/format/settings reaches what ${shared} may not`,
+  ]);
+});
+
+test("the case kind's env imports only agentswf/workflow of awf, and the lab's side no agentswf", async () => {
+  const cases = "packages/lab/src/cases";
+  const shared = "packages/lab/src/shared";
+  await write({
+    "packages/lab/package.json": manifest("@agentswf/lab"),
+    [`${cases}/env/index.ts`]: 'export const w = require("agentswf/workflow");\n',
+    [`${cases}/env/mock.ts`]: 'import "agentswf";\nimport "@agentswf/contract/records";\n',
+    [`${cases}/env/case.ts`]: 'import "agentswf/testing";\n',
+    [`${cases}/env/env.test.ts`]: 'import "agentswf/testing";\n',
+    [`${cases}/env/fixtures/app/workflow.ts`]: 'import "agentswf/typebox";\n',
+    [`${cases}/lab/inspect.ts`]: 'import "agentswf/workflow";\n',
+    [`${cases}/lab/cli.test.ts`]: 'import "agentswf/workflow";\n',
+    [`${cases}/format/records.ts`]: 'import "agentswf";\n',
+    [`${shared}/runner.ts`]: 'import "agentswf/workflow";\n',
+  });
+  const found = (await boundaryProblems(root)).filter(
+    (problem) =>
+      problem.includes("packages/lab/src/") &&
+      problem.includes("agentswf") &&
+      !problem.includes("does not declare"),
+  );
+  const env =
+    "@agentswf/lab/cases runs in a project's process: it imports agentswf/workflow, which the running engine serves, and no @agentswf package";
+  const lab = "the lab starts a folder's own awf as a process, and never loads an agentswf";
+  expect(found).toEqual([
+    `${cases}/env/case.ts: imports agentswf/testing — ${env}`,
+    `${cases}/env/mock.ts: imports @agentswf/contract/records — ${env}`,
+    `${cases}/env/mock.ts: imports agentswf — ${env}`,
+    `${cases}/format/records.ts: imports agentswf — ${lab}`,
+    `${cases}/lab/inspect.ts: imports agentswf/workflow — ${lab}`,
+    `${shared}/runner.ts: imports agentswf/workflow — ${lab}`,
+  ]);
+});

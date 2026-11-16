@@ -1,0 +1,15 @@
+Fill in workflow and observe, then delete this line: run refuses the file until then.
+import { defineEnv } from "@agentswf/lab/cases";
+
+export default defineEnv({
+  // The workflow as it ships, imported lazily so the mocks setup makes exist before it loads.
+  workflow: () => import("../../path/to/workflow"),
+
+  setup(c) {
+    // Build the case's world from c.json(...), c.text(...) and c.input with c.mock, c.fake and c.http.
+    return {
+      // The facts the key's expect checks, read from the result and what the mocks recorded.
+      observe: (result) => ({ done: result !== undefined }),
+    };
+  },
+});

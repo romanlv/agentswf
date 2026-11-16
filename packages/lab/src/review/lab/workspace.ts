@@ -1,5 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { CONFIG_FILE } from "../../shared/config";
 import { checkSchema, describeProblems } from "../format/validate";
 import {
   RENAMED_CONFIG_KEYS,
@@ -7,7 +8,6 @@ import {
   WorkspaceConfigSchema,
 } from "../format/workspace";
 
-const CONFIG_FILE = "awf-lab.json";
 const MATCH_FILE = join(import.meta.dir, "match-first.scorer.ts");
 const DEFAULT_COMPARISON_FILE = join(import.meta.dir, "default.compare.ts");
 

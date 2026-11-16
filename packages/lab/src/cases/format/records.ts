@@ -1,0 +1,249 @@
+import Type from "typebox";
+import { AgentReachSchema, FactSchema } from "./settings";
+import { DATASET_ERRORS, RefusedSchema } from "./trial-file";
+
+// The records the lab writes in its store, `/0` until reviews move onto this kind: a run, a trial
+// and a score. Each is checked against its schema before it is written and when it is read.
+
+export const RUN_KIND = "awf.case-run/0";
+export const TRIAL_KIND = "awf.case-trial/0";
+export const SCORE_KIND = "awf.case-score/0";
+
+const Text = Type.String({ minLength: 1 });
+const Time = Type.String({ format: "date-time" });
+const Digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
+
+/** A folder of code: a column of the report. */
+export const FolderSchema = Type.Object(
+  {
+    path: Text,
+    /** null: detached. */
+    branch: Type.Union([Text, Type.Null()]),
+    commit: Type.Union([Text, Type.Null()]),
+    dirty: Type.Boolean(),
+    /** The digest of the dataset's `env.ts` in this folder. */
+    env: Digest,
+  },
+  { additionalProperties: false },
+);
+export type Folder = Type.Static<typeof FolderSchema>;
+
+/** `{store}/runs/{n}/run.json`. No `finished` means partial. */
+export const RunRecordSchema = Type.Object(
+  {
+    kind: Type.Literal(RUN_KIND),
+    number: Type.Integer({ minimum: 1 }),
+    dataset: Text,
+    folders: Type.Array(FolderSchema, { minItems: 1 }),
+    asked: Type.Array(
+      Type.Object(
+        { case: Text, trials: Type.Integer({ minimum: 1 }) },
+        { additionalProperties: false },
+      ),
+    ),
+    started: Time,
+    finished: Type.Optional(Time),
+    /** Set when the lab broke during the run. */
+    broke: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+export type RunRecord = Type.Static<typeof RunRecordSchema>;
+
+export const OUTCOMES = [
+  "leaked",
+  "errored",
+  "failed",
+  "stopped",
+  "undecided",
+  "passed",
+  "graded by numbers",
+  "not graded",
+] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+
+export const ErroredSchema = Type.Object(
+  {
+    by: Type.Union([
+      Type.Literal("dataset"),
+      Type.Literal("grading"),
+      Type.Literal("provider"),
+      Type.Literal("lab"),
+    ]),
+    phase: Type.Union([
+      Type.Literal("setup"),
+      Type.Literal("body"),
+      Type.Literal("observe"),
+      Type.Literal("teardown"),
+      Type.Literal("after"),
+    ]),
+    code: Type.Optional(Type.Enum([...DATASET_ERRORS, "reach", "login"] as const)),
+    reason: Type.String(),
+  },
+  { additionalProperties: false },
+);
+export type Errored = Type.Static<typeof ErroredSchema>;
+
+/** One agent's sandbox, as the reach check read it. */
+const ReachSchema = Type.Object(
+  {
+    ok: Type.Boolean(),
+    problems: Type.Array(Type.String()),
+    sockets: Type.Array(Type.String()),
+    sandboxes: Type.Array(
+      Type.Object(
+        {
+          key: Type.String(),
+          provider: Type.String(),
+          network: Type.Array(Type.String()),
+          webSearch: Type.Boolean(),
+          agents: Type.Array(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** `{store}/runs/{n}/trials/{case}/{column}-{trial}/trial.json`. */
+export const TrialRecordSchema = Type.Object(
+  {
+    kind: Type.Literal(TRIAL_KIND),
+    run: Type.Integer({ minimum: 1 }),
+    dataset: Text,
+    case: Text,
+    /** The folder's index in the run's `folders`. */
+    column: Type.Integer({ minimum: 0 }),
+    trial: Type.Integer({ minimum: 1 }),
+    awf: Type.Object({ bin: Text, version: Text }, { additionalProperties: false }),
+    /** The built case folder's digest; a copy is kept beside this record, in `input/`. */
+    input: Digest,
+    sandbox: Type.Literal("workflow"),
+    agentReach: AgentReachSchema,
+    models: Type.Array(Text),
+    at: Time,
+    workflow: Type.Optional(
+      Type.Object(
+        { name: Text, version: Type.Optional(Type.String()) },
+        { additionalProperties: false },
+      ),
+    ),
+    /** The workflow run: absent when the trial ended before one started (leaked, the lab). */
+    runId: Type.Optional(Text),
+    runOutcome: Type.Optional(Text),
+    runReason: Type.Optional(Type.String()),
+    ms: Type.Number({ minimum: 0 }),
+    setupMs: Type.Optional(Type.Number({ minimum: 0 })),
+    estimate: Type.Optional(Type.Number({ minimum: 0 })),
+    known: Type.Optional(Type.Integer({ minimum: 0 })),
+    priced: Type.Optional(Type.Integer({ minimum: 0 })),
+    agents: Type.Optional(Type.Integer({ minimum: 0 })),
+    result: Type.Optional(Type.Unknown()),
+    facts: Type.Optional(Type.Record(Type.String(), FactSchema)),
+    stages: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    given: Type.Optional(Type.Array(Type.String())),
+    until: Type.Optional(Type.String()),
+    neverReached: Type.Optional(Type.Array(Type.String())),
+    unused: Type.Array(Type.String()),
+    refused: Type.Array(RefusedSchema),
+    kept: Type.Array(Type.String()),
+    leaked: Type.Boolean(),
+    reach: Type.Optional(ReachSchema),
+    stopped: Type.Optional(Type.String()),
+    /** The workflow's own error: its body failed or timed out, or `observe` returned one. */
+    workflowError: Type.Optional(Type.String()),
+    errored: Type.Optional(ErroredSchema),
+    /** Tried again at the end of its round after the provider's error. */
+    retried: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export type TrialRecord = Type.Static<typeof TrialRecordSchema>;
+
+export const VERDICTS = ["passed", "failed", "undecided"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+/** A count out of a total, pooled per column by summing; `of: 0` is none in this case. Or a value. */
+const NumberSchema = Type.Union([
+  Type.Object(
+    { count: Type.Number({ minimum: 0 }), of: Type.Number({ minimum: 0 }) },
+    { additionalProperties: false },
+  ),
+  Type.Object({ value: Type.Number() }, { additionalProperties: false }),
+]);
+
+const ReasonSchema = Type.Object(
+  { about: Text, text: Type.String() },
+  { additionalProperties: false },
+);
+
+const Judged = Type.Enum([...VERDICTS, "not judged"] as const);
+
+/** One voter's say on a part: a verdict, or a label of the grader's own (a finding's `hit`). */
+export const VoteSchema = Type.Object(
+  {
+    by: Text,
+    role: Type.Optional(Text),
+    verdict: Type.Optional(Judged),
+    label: Type.Optional(Text),
+    data: Type.Optional(Type.Unknown()),
+    why: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+/** One thing a grader judged, such as a criterion or a finding: its verdict or label, and votes. */
+export const PartSchema = Type.Object(
+  {
+    about: Text,
+    verdict: Type.Optional(Judged),
+    label: Type.Optional(Text),
+    data: Type.Optional(Type.Unknown()),
+    why: Type.Optional(Type.String()),
+    settled: Type.Optional(
+      Type.Enum(["agreed", "majority", "tiebreak", "unsettled", "given"] as const),
+    ),
+    votes: Type.Optional(Type.Array(VoteSchema)),
+  },
+  { additionalProperties: false },
+);
+
+export const GraderEntrySchema = Type.Object(
+  {
+    grader: Text,
+    code: Digest,
+    key: Digest,
+    verdict: Type.Optional(Type.Enum(VERDICTS)),
+    numbers: Type.Optional(Type.Record(Text, NumberSchema)),
+    reasons: Type.Array(ReasonSchema),
+    parts: Type.Optional(Type.Array(PartSchema)),
+    /** The grader does not apply to this case, and why: neither a verdict nor numbers. */
+    notApplies: Type.Optional(Type.String()),
+    models: Type.Optional(Type.Array(Text)),
+    ms: Type.Optional(Type.Number({ minimum: 0 })),
+    estimate: Type.Optional(Type.Number({ minimum: 0 })),
+    runId: Type.Optional(Text),
+    errored: Type.Optional(
+      Type.Object(
+        { reason: Type.String(), problems: Type.Optional(Type.Array(Type.String())) },
+        { additionalProperties: false },
+      ),
+    ),
+    /** Skipped, as a cheaper grader failed the trial: graded by `score` once it passes them. */
+    skipped: Type.Optional(Type.Literal(true)),
+  },
+  { additionalProperties: false },
+);
+export type GraderEntry = Type.Static<typeof GraderEntrySchema>;
+
+/** A line of `{trial}/scores.jsonl`: every score a trial is given, newest last. */
+export const ScoreRecordSchema = Type.Object(
+  {
+    kind: Type.Literal(SCORE_KIND),
+    at: Time,
+    entries: Type.Array(GraderEntrySchema),
+  },
+  { additionalProperties: false },
+);
+export type ScoreRecord = Type.Static<typeof ScoreRecordSchema>;

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab case key, its frontmatter",
+  "type": "object",
+  "required": ["kind", "marker"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-key/0"
+    },
+    "marker": {
+      "type": "string",
+      "pattern": "^[a-z]+(-[a-z]+){2,}$"
+    },
+    "expect": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_]*$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "must": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "must-not": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "known-failing": {
+      "type": "boolean",
+      "const": true
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^(all|[1-9][0-9]*/[1-9][0-9]*)$",
+      "description": "\"all\", or the fraction of trials that must pass, such as \"2/3\"."
+    },
+    "draft": {
+      "type": "boolean",
+      "const": true
+    },
+    "captured": {
+      "type": "object",
+      "required": ["run", "mark"],
+      "properties": {
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "good"
+            },
+            {
+              "type": "string",
+              "const": "needs-work"
+            }
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a good result looks like for one case."
+}

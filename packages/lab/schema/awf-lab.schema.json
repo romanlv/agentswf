@@ -2,10 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "awf-lab workspace",
   "type": "object",
-  "required": ["clone", "datasets", "dataset", "results", "runs", "variants", "scorers"],
   "properties": {
     "$schema": {
       "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "const": "awf.lab-workspace/0",
+      "description": "Optional until a dataset of cases is used, which needs it."
+    },
+    "judgeAgent": {
+      "type": "object",
+      "required": ["harness", "model"],
+      "properties": {
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "The criteria judge's harness and model; a dataset.json may give its own.",
+      "~optional": true
+    },
+    "store": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where runs of cases are kept, in place of ~/.awf/lab/{checkout}-{hash}; never inside the repository."
     },
     "clone": {
       "type": "string",
@@ -176,5 +202,5 @@
     }
   },
   "additionalProperties": false,
-  "description": "An awf-lab workspace, in its second form."
+  "description": "An awf-lab workspace: kind, judgeAgent and store for cases; the review fields for review datasets."
 }

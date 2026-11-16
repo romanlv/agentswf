@@ -66,6 +66,7 @@ function rules(root: string): Rule[] {
   return [
     ...RULES,
     ...reviewRules(root),
+    ...LAB_RULES.filter((rule) => existsSync(join(root, rule.dir))),
     ...(existsSync(source) ? [{ dir: SANDBOX_SOURCE, files: "*.ts", paths: seam }] : []),
     ...directories.flatMap((name): Rule[] => {
       if (name === "testing") return [{ dir: `${SANDBOX_SOURCE}/testing`, paths: own("testing") }];
@@ -101,6 +102,10 @@ const REVIEW = "packages/lab/src/review";
 const COMPARE = "packages/lab/src/compare";
 /** The review folders that turn records into numbers and verdicts; the formats stay ours alone. */
 const COMPARE_USERS = ["metrics", "lab"];
+/** What both kinds of case share: the process seam, `awf-lab.json`'s common fields, the checks. */
+const SHARED = "packages/lab/src/shared";
+/** The case kind: never the review kind's code, and no word of any one workflow's domain. */
+const CASES = "packages/lab/src/cases";
 const isTest = (target: string) => /\.test(\.ts)?$/.test(target);
 const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
   format: [],
@@ -127,6 +132,7 @@ function reviewRules(root: string): Rule[] {
       dir: `${REVIEW}/${name}`,
       paths: (target: string) =>
         (COMPARE_USERS.includes(name) && containsPath(COMPARE, target) && !isTest(target)) ||
+        containsPath(SHARED, target) ||
         [name, ...REVIEW_LAYERS[name]!].some((layer) => containsPath(`${REVIEW}/${layer}`, target)),
     }));
 }
@@ -338,7 +344,8 @@ const RULES: Rule[] = [
       "index.ts",
     ],
     pure: true,
-    paths: (target) => containsPath(REVIEW, target) || containsPath(COMPARE, target),
+    paths: (target) =>
+      containsPath(REVIEW, target) || containsPath(COMPARE, target) || containsPath(SHARED, target),
   },
   // An example imports what an author outside the repository does: `agentswf/workflow`, and
   // `agentswf/typebox` for its schemas.
@@ -394,13 +401,142 @@ const RULES: Rule[] = [
   },
 ];
 
+/**
+ * The lab's two kinds: the case kind imports only itself and the shared folder, the shared folder
+ * only itself, and the review kind may import the shared folder (above). Only the command-line
+ * entry, `src/cli.ts`, imports both kinds. Each stays pure but for the files named as doing I/O.
+ */
+const ownShared = (target: string) => containsPath(SHARED, target);
+const ownCases = (target: string) => containsPath(CASES, target) || containsPath(SHARED, target);
+/** The lab's side never loads an `agentswf`: it starts a folder's own `awf` as a process. */
+const NO_AGENTSWF = {
+  pattern: /^agentswf(\/|$)/,
+  reason: "the lab starts a folder's own awf as a process, and never loads an agentswf",
+};
+const LAB_RULES: Rule[] = [
+  { dir: SHARED, paths: ownShared, forbid: [NO_AGENTSWF] },
+  {
+    dir: SHARED,
+    except: ["**/*.test.ts", "runner.ts", "config-file.ts"],
+    pure: true,
+    paths: ownShared,
+  },
+  { dir: CASES, paths: ownCases },
+  // What runs in a project's own process: the running engine's author surface, nothing else of awf.
+  {
+    dir: `${CASES}/env`,
+    except: ["**/*.test.ts", "fixtures/**"],
+    allow: [],
+    forbid: [
+      {
+        pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
+        reason:
+          "@agentswf/lab/cases runs in a project's process: it imports agentswf/workflow, which the running engine serves, and no @agentswf package",
+      },
+    ],
+    paths: ownCases,
+  },
+  {
+    dir: `${CASES}/format`,
+    except: ["**/*.test.ts"],
+    pure: true,
+    paths: ownCases,
+    forbid: [NO_AGENTSWF],
+  },
+  {
+    dir: `${CASES}/lab`,
+    except: ["**/*.test.ts"],
+    forbid: [NO_AGENTSWF],
+    // The rule below decides where its paths reach.
+    paths: () => true,
+  },
+  {
+    dir: `${CASES}/lab`,
+    paths: ownCases,
+    except: [
+      "**/*.test.ts",
+      "cli.ts",
+      "dataset.ts",
+      "folders.ts",
+      "git.ts",
+      "inspect.ts",
+      "runs.ts",
+      "scaffold.ts",
+      "store.ts",
+      "trial.ts",
+      "workspace.ts",
+    ],
+    pure: true,
+  },
+];
+
+/** Words of one workflow's domain, which the case kind never names (story 044). */
+const DOMAIN_WORDS = /mail|review|finding/i;
+
+/** `source` without its comments, strings and template text kept. */
+export function withoutComments(source: string): string {
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i]!;
+    const next = source[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+    } else if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < source.length && source[j] !== c) j += source[j] === "\\" ? 2 : 1;
+      out += source.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Each file under the case kind whose name, identifiers or strings name a domain word; a test and
+ * its fixtures are examples, and may.
+ */
+async function domainWordProblems(root: string): Promise<string[]> {
+  const dir = join(root, CASES);
+  if (!existsSync(dir)) return [];
+  const problems: string[] = [];
+  for await (const file of new Glob("**/*").scan({ cwd: dir, absolute: true })) {
+    const where = relative(root, file);
+    if (/\.test\.ts$/.test(file) || /(^|\/)fixtures\//.test(relative(dir, file))) continue;
+    if (DOMAIN_WORDS.test(relative(dir, file))) {
+      problems.push(
+        `${where}: its name holds a word of one workflow's domain (mail, review, finding)`,
+      );
+      continue;
+    }
+    if (!file.endsWith(".ts")) continue;
+    const word = withoutComments(await Bun.file(file).text()).match(DOMAIN_WORDS);
+    if (word) {
+      problems.push(
+        `${where}: names "${word[0]}", a word of one workflow's domain; the case kind knows none`,
+      );
+    }
+  }
+  return problems;
+}
+
 /** Any mention, so `globalThis.Bun` and aliases are caught too: an import ban misses the global. */
 const ANY_BUN = /\bBun\b/;
 const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 /** Every violation under `root`, a checkout laid out like this one. */
 export async function boundaryProblems(root: string): Promise<string[]> {
-  const problems = [...reviewPlacementProblems(root), ...(await clientReachProblems(root))];
+  const problems = [
+    ...reviewPlacementProblems(root),
+    ...(await clientReachProblems(root)),
+    ...(await domainWordProblems(root)),
+  ];
 
   for (const rule of rules(root)) {
     const abs = join(root, rule.dir);

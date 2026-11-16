@@ -1,0 +1,912 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { OUTPUT_RECORD_VERSION } from "@agentswf/contract/records";
+import type { Runner, RunOutput, RunRequest } from "../../shared/runner";
+import { TRIAL_ENV } from "../format/trial-env";
+import type { TrialLine } from "../format/trial-file";
+import { type CasesEnvironment, runCases } from "./cli";
+import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
+import { readTrials, runNumbers } from "./store";
+import type { TestGrader } from "./trial";
+
+const roots: string[] = [];
+afterAll(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+});
+
+function git(cwd: string, ...args: string[]) {
+  const run = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  if (run.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${run.stderr.toString()}`);
+}
+
+/** Never loaded: the runner here is scripted, so any filled-in env.ts will do. */
+const ENV_TS = "export default {};\n";
+
+type CaseSpec = {
+  key?: string;
+  files?: Record<string, string>;
+  keyFiles?: Record<string, string>;
+};
+
+/** A project outside the repository: evals/awf-lab.json and one dataset `ds`. */
+function project(cases: Record<string, CaseSpec>, dataset: object = {}) {
+  const top = realpathSync(mkdtempSync(join(tmpdir(), "awf-lab-cases-test-")));
+  roots.push(top);
+  const root = join(top, "project");
+  const evals = join(root, "evals");
+  const ds = join(evals, "ds");
+  mkdirSync(ds, { recursive: true });
+  writeFileSync(join(evals, "awf-lab.json"), JSON.stringify({ kind: "awf.lab-workspace/0" }));
+  writeFileSync(
+    join(ds, "dataset.json"),
+    JSON.stringify({
+      kind: "awf.case-dataset/0",
+      sandbox: "workflow",
+      agentReach: { network: [] },
+      ...dataset,
+    }),
+  );
+  writeFileSync(join(ds, "env.ts"), ENV_TS);
+  for (const [name, spec] of Object.entries(cases)) addCase(ds, name, spec);
+  git(root, "init", "-q", "-b", "main");
+  git(root, "add", "-A");
+  git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
+  const home = join(top, "home");
+  const tmp = join(top, "tmp");
+  mkdirSync(home);
+  mkdirSync(tmp);
+  return { top, root, evals, ds, home, tmp };
+}
+
+const MARKER = "lantern-copper-walrus-tangerine";
+const keyMd = (front: string) =>
+  `---\nkind: awf.case-key/0\nmarker: ${MARKER}\n${front}---\n\nWhy.\n`;
+const expectOk = keyMd("expect:\n  ok: true\n");
+
+function addCase(ds: string, name: string, spec: CaseSpec) {
+  const dir = join(ds, "cases", name);
+  mkdirSync(join(dir, "files"), { recursive: true });
+  writeFileSync(join(dir, "key.md"), spec.key ?? expectOk);
+  writeFileSync(join(dir, "files", "name.txt"), name);
+  for (const [path, text] of Object.entries(spec.files ?? {})) {
+    mkdirSync(dirname(join(dir, "files", path)), { recursive: true });
+    writeFileSync(join(dir, "files", path), text);
+  }
+  for (const [path, text] of Object.entries(spec.keyFiles ?? {})) {
+    mkdirSync(dirname(join(dir, "key", path)), { recursive: true });
+    writeFileSync(join(dir, "key", path), text);
+  }
+}
+
+/** What a trial's process does, scripted: the lines it writes and how its run ends. */
+type Behaviour =
+  | { facts: Record<string, unknown>; unused?: string[] }
+  | { workflowError: string }
+  | { setupError: string }
+  | { refused: string }
+  | { stop: string }
+  | { login: true }
+  | { breaks: true }
+  | { scratch: Record<string, string>; facts: Record<string, unknown> }
+  | { log: object[]; sandboxes?: object[]; facts: Record<string, unknown> }
+  /** The trial file's lines as written, and the run's ending. */
+  | { lines: (TrialLine | string)[]; outcome: string; reason: string }
+  /** awf printed a record this lab can't read. */
+  | { unread: string }
+  /** The run's own folder holds these files, beside its records. */
+  | { runFiles: Record<string, string>; facts: Record<string, unknown> };
+
+const pass: Behaviour = { facts: { ok: true } };
+const fail: Behaviour = { facts: { ok: false } };
+
+function record(request: RunRequest, runDir: string, outcome: string, extra: object): RunOutput {
+  return {
+    version: OUTPUT_RECORD_VERSION,
+    ref: `case-env-ds/${request.id}`,
+    runId: request.id,
+    attempt: 1,
+    workflow: { name: "case-env-ds", file: request.workflow },
+    accounting: {
+      wallMs: 5,
+      totals: { agents: 0, known: 0, priced: 0, estimate: 0.001 },
+      byModel: [],
+    },
+    usage: [],
+    artifacts: runDir,
+    outcome,
+    ...extra,
+  } as unknown as RunOutput;
+}
+
+/** A runner that plays each case's behaviours in turn, as a trial's `defineEnv` would. */
+function scripted(plays: Record<string, Behaviour[]>) {
+  const calls: RunRequest[] = [];
+  const seen: { name: string; caseFiles: string[]; scratchFiles: string[] }[] = [];
+  const count = new Map<string, number>();
+  const runner: Runner = async (request) => {
+    calls.push(request);
+    const env = request.env ?? {};
+    const caseDir = env[TRIAL_ENV.case]!;
+    const name = readFileSync(join(caseDir, "name.txt"), "utf8");
+    const at = count.get(name) ?? 0;
+    count.set(name, at + 1);
+    const list = plays[name] ?? [pass];
+    const play = list[Math.min(at, list.length - 1)]!;
+    seen.push({
+      name,
+      caseFiles: readdirSync(caseDir, { recursive: true }).map(String),
+      scratchFiles: readdirSync(request.cwd, { recursive: true }).map(String),
+    });
+    const trialFile = env[TRIAL_ENV.trial]!;
+    const write = (line: TrialLine) =>
+      writeFileSync(trialFile, `${JSON.stringify(line)}\n`, { flag: "a" });
+    const runDir = join(request.runRoot, "case-env-ds", request.id);
+    mkdirSync(runDir, { recursive: true });
+    const done = (facts: Record<string, unknown>, extra: object = {}) => {
+      write({ phase: "setup" });
+      write({ phase: "body" });
+      write({ phase: "observe" });
+      return {
+        exitCode: 0,
+        stderr: "",
+        ms: 5,
+        record: record(request, runDir, "completed", {
+          value: {
+            workflow: { name: "w" },
+            result: { done: true },
+            facts,
+            stages: {},
+            given: [],
+            unused: [],
+            refused: [],
+            ...extra,
+          },
+        }),
+      };
+    };
+    const failed = (reason: string) => ({
+      exitCode: 1,
+      stderr: "",
+      ms: 5,
+      record: record(request, runDir, "failed", { reason }),
+    });
+    if ("breaks" in play) throw new Error("the disk is full");
+    if ("unread" in play) return { exitCode: 0, stderr: "", ms: 5, unread: play.unread };
+    if ("lines" in play) {
+      for (const line of play.lines) {
+        writeFileSync(trialFile, `${typeof line === "string" ? line : JSON.stringify(line)}\n`, {
+          flag: "a",
+        });
+      }
+      return {
+        exitCode: 1,
+        stderr: "",
+        ms: 5,
+        record: record(request, runDir, play.outcome, { reason: play.reason }),
+      };
+    }
+    if ("runFiles" in play) {
+      for (const [path, text] of Object.entries(play.runFiles)) {
+        writeFileSync(join(runDir, path), text);
+      }
+    }
+    if ("login" in play) {
+      return failed("subscription authentication is required for claude: log in");
+    }
+    if ("setupError" in play) {
+      write({ phase: "setup" });
+      write({ error: { by: "dataset", phase: "setup", code: "threw", reason: play.setupError } });
+      return failed(play.setupError);
+    }
+    if ("workflowError" in play) {
+      write({ phase: "setup" });
+      write({ phase: "body" });
+      write({ error: { by: "workflow", phase: "body", reason: play.workflowError } });
+      return failed(play.workflowError);
+    }
+    if ("refused" in play) {
+      write({ phase: "setup" });
+      write({ phase: "body" });
+      write({
+        refused: { what: "store.drop", by: "function", phase: "body", message: play.refused },
+      });
+      return done({ ok: true });
+    }
+    if ("stop" in play) {
+      write({ phase: "setup" });
+      write({ phase: "body" });
+      write({ stopped: { reason: play.stop } });
+      return {
+        exitCode: 1,
+        stderr: "",
+        ms: 5,
+        record: record(request, runDir, "stopped", { reason: play.stop }),
+      };
+    }
+    if ("scratch" in play) {
+      for (const [path, text] of Object.entries(play.scratch)) {
+        mkdirSync(dirname(join(request.cwd, path)), { recursive: true });
+        writeFileSync(join(request.cwd, path), text);
+      }
+    }
+    if ("log" in play) {
+      writeFileSync(join(runDir, "log.jsonl"), play.log.map((l) => JSON.stringify(l)).join("\n"));
+      return done(play.facts, {});
+    }
+    return done(play.facts, "unused" in play && play.unused ? { unused: play.unused } : {});
+  };
+  return { runner, calls, seen };
+}
+
+/** The store a project's runs went to, under its home. */
+const storeOf = (where: { home: string }) =>
+  join(
+    where.home,
+    ".awf/lab",
+    readdirSync(join(where.home, ".awf/lab")).find((n) => n.startsWith("project-"))!,
+  );
+
+const fakeFolder = (root: string): FolderSetup => ({
+  root,
+  awf: { bin: join(root, "node_modules/agentswf/src/awf.ts"), dir: root, preload: "/fetch.ts" },
+  version: "0.1.1",
+  bin: join(root, "node_modules/.bin"),
+});
+
+async function lab(
+  where: { root: string; home: string; tmp: string; evals: string },
+  argv: string[],
+  extra: CasesEnvironment = {},
+) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await runCases(argv, {
+    cwd: where.root,
+    home: where.home,
+    tmp: where.tmp,
+    env: { PATH: "/usr/bin:/bin" },
+    stdout: (t) => out.push(t),
+    stderr: (t) => err.push(t),
+    inspect: async (root) => fakeFolder(root),
+    logs: async () => ({ text: "" }),
+    ...extra,
+  });
+  return { code, out: out.join("\n"), err: err.join("\n") };
+}
+
+async function run(
+  cases: Record<string, CaseSpec>,
+  plays: Record<string, Behaviour[]>,
+  trials = 1,
+  extra: CasesEnvironment = {},
+  dataset: object = {},
+) {
+  const where = project(cases, dataset);
+  const fake = scripted(plays);
+  const result = await lab(where, ["run", "--yes", "--trials", String(trials)], {
+    runner: fake.runner,
+    ...extra,
+  });
+  return { ...result, where, fake };
+}
+
+const undecided: TestGrader = {
+  name: "unsure",
+  grade: async () => ({ verdict: "undecided", reasons: [{ about: "x", text: "could not tell" }] }),
+};
+
+describe("a case's verdict and the exit code, through the command line", () => {
+  test("every case passed: 0", async () => {
+    const { code, out } = await run({ a: {}, b: {} }, {}, 1);
+    expect(code).toBe(0);
+    expect(out).toContain("passed 2 · failed 0");
+    expect(out).toContain("exit 0");
+  });
+
+  test("a case that must pass failed: 1, with the failing fact", async () => {
+    const { code, out } = await run({ a: {}, b: {} }, { b: [fail] });
+    expect(code).toBe(1);
+    expect(out).toContain("failed, must pass");
+    expect(out).toContain("ok is false, the key wants true");
+  });
+
+  test("2 of 3 passed with one failed: flaky, 3", async () => {
+    const { code, out } = await run({ a: {} }, { a: [pass, fail, pass] }, 3);
+    expect(code).toBe(3);
+    expect(out).toContain("flaky");
+    expect(out).toContain("2/3");
+  });
+
+  test("a grader that can't tell leaves the case unclear: 3", async () => {
+    const { code, out } = await run({ a: {} }, {}, 1, { graders: [undecided] });
+    expect(code).toBe(3);
+    expect(out).toContain("unclear");
+  });
+
+  test("the workflow erring on every trial fails the case: 1", async () => {
+    const { code, out } = await run({ a: {} }, { a: [{ workflowError: "it crashed" }] }, 2);
+    expect(code).toBe(1);
+    expect(out).toContain("the workflow erred: it crashed");
+  });
+
+  test("setup erring on every trial is the dataset's: 5", async () => {
+    const { code, out } = await run({ a: {} }, { a: [{ setupError: "no such file" }] }, 2);
+    expect(code).toBe(5);
+    expect(out).toContain("errored by dataset (threw): no such file");
+  });
+
+  test("a stopped run fails the case: 1", async () => {
+    const { code, out } = await run({ a: {} }, { a: [{ stop: "nothing to do" }] });
+    expect(code).toBe(1);
+    expect(out).toContain("stopped: nothing to do");
+  });
+
+  test("a refused call errors the trial as the dataset's, though the run completed", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ refused: "no fake for store.drop in this case" }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("no fake for store.drop");
+  });
+
+  test("a known-failing case that fails leaves 0; one errored by the dataset gives 5", async () => {
+    const known = { key: keyMd("expect:\n  ok: true\nknown-failing: true\n") };
+    const failing = await run({ a: {}, k: known }, { k: [fail] });
+    expect(failing.code).toBe(0);
+    expect(failing.out).toContain("known failing 1");
+    const broken = await run({ a: {}, k: known }, { k: [{ setupError: "bad" }] });
+    expect(broken.code).toBe(5);
+  });
+
+  test("a known-failing case passing at three trials: 0, now passing", async () => {
+    const known = { key: keyMd("expect:\n  ok: true\nknown-failing: true\n") };
+    const { code, out } = await run({ k: known }, {}, 3);
+    expect(code).toBe(0);
+    expect(out).toContain("known failing, now passing");
+    expect(out).toContain("remove known-failing from its key?");
+  });
+
+  test("a pass: 2/3 case with one failed trial passes", async () => {
+    const twoOfThree = { key: keyMd("expect:\n  ok: true\npass: 2/3\n") };
+    const { code } = await run({ a: twoOfThree }, { a: [pass, fail, pass] }, 3);
+    expect(code).toBe(0);
+  });
+
+  test("a run where no case is graded exits 3", async () => {
+    const { code, out } = await run({ a: { key: keyMd("") } }, {});
+    expect(code).toBe(3);
+    expect(out).toContain("no case was graded");
+  });
+
+  test("a grader that throws on every trial exits 5", async () => {
+    const throws: TestGrader = {
+      name: "broken",
+      grade: async () => {
+        throw new Error("grader bug");
+      },
+    };
+    const { code, out } = await run({ a: {} }, {}, 2, { graders: [throws] });
+    expect(code).toBe(5);
+    expect(out).toContain("by grading");
+  });
+
+  test("the lab breaking mid-run exits 4 and leaves the run partial", async () => {
+    const { code, where } = await run({ a: {}, b: {} }, { b: [{ breaks: true }] });
+    expect(code).toBe(4);
+    const runs = await lab(where, ["runs"]);
+    expect(runs.out).toContain("the lab broke");
+  });
+
+  test("a provider's login refusal is tried once more at the end of its round", async () => {
+    const { code, fake, out } = await run({ a: {} }, { a: [{ login: true }, pass] });
+    expect(fake.calls).toHaveLength(2);
+    expect(code).toBe(0);
+    expect(out).toContain("passed 1");
+  });
+
+  test("a fact of no flat type errors the trial as fact-type", async () => {
+    const { code, out } = await run({ a: {} }, { a: [{ facts: { ok: { nested: true } } }] });
+    expect(code).toBe(5);
+    expect(out).toContain("fact-type");
+  });
+
+  test("an unused mock is noted on a passing case", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ facts: { ok: true }, unused: ["store.list"] }] },
+    );
+    expect(code).toBe(0);
+    expect(out).toContain("passed, with notes");
+    expect(out).toContain("store.list was faked but never called");
+  });
+
+  test("a teardown that throws after the workflow failed errors the trial as the dataset's: 5", async () => {
+    const lines: TrialLine[] = [
+      { phase: "setup" },
+      { phase: "body" },
+      { error: { by: "workflow", phase: "body", reason: "the workflow broke" } },
+      { phase: "teardown" },
+      { error: { by: "dataset", phase: "teardown", code: "threw", reason: "teardown broke" } },
+    ];
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ lines, outcome: "failed", reason: "the workflow broke" }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("errored by dataset (threw): teardown broke");
+  });
+
+  test("a cancelled run errors the trial as the lab's: 4", async () => {
+    const lines: TrialLine[] = [{ phase: "setup" }, { phase: "body" }, { cancelled: "body" }];
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ lines, outcome: "cancelled", reason: "cancelled" }] },
+    );
+    expect(code).toBe(4);
+    expect(out).toContain("1 by lab");
+  });
+});
+
+describe("what the lab can't read errors the trial as the lab's, never graded: 4", () => {
+  test("a run record of another version", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ unread: "awf printed a run record of version 99; this lab reads version 6" }] },
+    );
+    expect(code).toBe(4);
+    expect(out).toContain("errored 1 (1 by lab)");
+    expect(out).toContain("exit 4");
+  });
+
+  test("a trial file line that fits no shape", async () => {
+    const lines = [{ phase: "setup" }, "not a line", { phase: "body" }] as (TrialLine | string)[];
+    const { code, where } = await run(
+      { a: {} },
+      { a: [{ lines, outcome: "failed", reason: "x" }] },
+    );
+    expect(code).toBe(4);
+    const [trial] = readTrials(storeOf(where), 1);
+    expect(trial!.record.errored).toMatchObject({ by: "lab", phase: "after" });
+    expect(trial!.record.errored?.reason).toContain("1 line of the trial file fit no shape");
+    expect(trial!.scores).toEqual([]);
+  });
+
+  test("awf logs that can't be read whole: fail closed", async () => {
+    const { code, out } = await run({ a: {} }, {}, 1, {
+      logs: async () => ({ unread: "awf logs left out the run's oldest events" }),
+    });
+    expect(code).toBe(4);
+    expect(out).toContain("1 by lab");
+  });
+});
+
+describe("the marker search reads the run's own folder", () => {
+  test("a run file holding the marker is leaked, though awf logs showed nothing", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ runFiles: { "out.json": `{"x":"${MARKER}"}` }, facts: { ok: true } }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
+});
+
+describe("the code folder", () => {
+  test("is the nearest folder above evals/ holding node_modules/agentswf, not the repository's top", async () => {
+    const where = project({ a: {} });
+    // A monorepo: the package `app` has its own agentswf and its own evals/.
+    const app = join(where.root, "app");
+    mkdirSync(join(app, "node_modules", "agentswf"), { recursive: true });
+    renameSync(where.evals, join(app, "evals"));
+    const roots: string[] = [];
+    const { code } = await lab({ ...where, root: app }, ["run", "--yes"], {
+      runner: scripted({}).runner,
+      inspect: async (root) => {
+        roots.push(root);
+        return fakeFolder(root);
+      },
+    });
+    expect(code).toBe(0);
+    expect(roots).toEqual([app]);
+  });
+
+  test("a store inside the repository is refused, though the code folder is a package of it", async () => {
+    const where = project({ a: {} });
+    const app = join(where.root, "app");
+    mkdirSync(join(app, "node_modules", "agentswf"), { recursive: true });
+    renameSync(where.evals, join(app, "evals"));
+    writeFileSync(
+      join(app, "evals", "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", store: "../../runs" }),
+    );
+    const { code, err } = await lab({ ...where, root: app }, ["run", "--yes"], {
+      runner: scripted({}).runner,
+    });
+    expect(code).toBe(2);
+    expect(err).toContain("is inside the repository");
+  });
+});
+
+describe("the checks of a folder before the first trial: exit 2", () => {
+  /** A project whose node_modules hold an agentswf of `version`, its bin `awf`, and a lab. */
+  function installed(version: string, awf: string, lab: "this" | "another") {
+    const where = project({ a: {} });
+    const pkg = join(where.root, "node_modules", "agentswf");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ version, bin: { awf: "awf.ts" } }));
+    writeFileSync(join(pkg, "awf.ts"), awf);
+    const scope = join(where.root, "node_modules", "@agentswf");
+    mkdirSync(scope, { recursive: true });
+    if (lab === "this") symlinkSync(join(import.meta.dir, "../../.."), join(scope, "lab"));
+    else {
+      mkdirSync(join(scope, "lab"));
+      writeFileSync(
+        join(scope, "lab", "package.json"),
+        JSON.stringify({
+          name: "@agentswf/lab",
+          exports: { "./cases": "./cases.ts", "./cases/fetch": "./fetch.ts" },
+        }),
+      );
+      writeFileSync(join(scope, "lab", "cases.ts"), "export {};\n");
+      writeFileSync(join(scope, "lab", "fetch.ts"), "export {};\n");
+    }
+    return where;
+  }
+
+  async function checked(where: ReturnType<typeof installed>) {
+    const fake = scripted({});
+    const result = await lab(where, ["run", "--yes"], {
+      runner: fake.runner,
+      inspect: inspectFolder,
+    });
+    expect(fake.calls).toHaveLength(0);
+    return result;
+  }
+
+  const prints = (record: object) => `console.log(${JSON.stringify(JSON.stringify(record))});\n`;
+
+  test("an agentswf older than the lab reads: upgrade it", async () => {
+    const { code, err } = await checked(
+      installed("0.1.0-beta.2", prints({ version: OUTPUT_RECORD_VERSION }), "this"),
+    );
+    expect(code).toBe(2);
+    expect(err).toContain(`agentswf 0.1.0-beta.2 in`);
+    expect(err).toContain(
+      `is older than ${MIN_AGENTSWF}, the oldest this lab reads: upgrade agentswf there`,
+    );
+  });
+
+  test("an awf printing another record version, named with the lab's", async () => {
+    const { code, err } = await checked(installed("0.1.1", prints({ version: 99 }), "this"));
+    expect(code).toBe(2);
+    expect(err).toContain(
+      `prints run records of version 99; this lab reads version ${OUTPUT_RECORD_VERSION}`,
+    );
+  });
+
+  test("an awf printing no record at all", async () => {
+    const { code, err } = await checked(installed("0.1.1", "process.exit(3);\n", "this"));
+    expect(code).toBe(2);
+    expect(err).toContain("its awf run printed no record (exit 3)");
+  });
+
+  test("@agentswf/lab/cases resolving to another copy of the lab", async () => {
+    const { code, err } = await checked(
+      installed("0.1.1", prints({ version: OUTPUT_RECORD_VERSION }), "another"),
+    );
+    expect(code).toBe(2);
+    expect(err).toContain("@agentswf/lab/cases resolves from");
+    expect(err).toContain("not this lab's");
+  });
+});
+
+describe("refusals before any trial: exit 2", () => {
+  test("a dataset.json with graders: they come with task 3", async () => {
+    const where = project({ a: {} }, { graders: ["accuracy"] });
+    const fake = scripted({});
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(2);
+    expect(err).toContain("a dataset's own graders come with task 3");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("a keep path reaching outside the scratch folder", async () => {
+    const where = project({ a: {} }, { keep: ["../outside.txt"] });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("keep ../outside.txt reaches outside the scratch folder");
+  });
+
+  test("a symlink in a case's files/ or key/, or the dataset's files/", async () => {
+    for (const where of ["case files", "case key", "dataset files"] as const) {
+      const at = project({ a: {} });
+      const caseDir = join(at.ds, "cases", "a");
+      const dir =
+        where === "case files"
+          ? join(caseDir, "files")
+          : where === "case key"
+            ? join(caseDir, "key")
+            : join(at.ds, "files");
+      mkdirSync(dir, { recursive: true });
+      // A case's file that is a link to its own key: copied as a link, the workflow reads the key.
+      symlinkSync(join(caseDir, "key.md"), join(dir, "notes.md"));
+      const fake = scripted({});
+      const { code, err } = await lab(at, ["run", "--yes"], { runner: fake.runner });
+      expect({ where, code }).toEqual({ where, code: 2 });
+      expect(err).toContain("notes.md: a symlink");
+      expect(fake.calls).toHaveLength(0);
+    }
+  });
+
+  test("a missing env.ts", async () => {
+    const where = project({ a: {} });
+    rmSync(join(where.ds, "env.ts"));
+    const fake = scripted({});
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(2);
+    expect(err).toContain("env.ts is missing");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("a dataset whose sandbox is not workflow", async () => {
+    const where = project({ a: {} }, { sandbox: "lab" });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain('only "workflow"');
+  });
+
+  test("a dataset without agentReach", async () => {
+    const where = project({ a: {} }, { agentReach: undefined });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("agentReach");
+  });
+
+  test("a key with an unknown field", async () => {
+    const where = project({ a: { key: keyMd("expects:\n  ok: true\n") } });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("key.md is not valid");
+  });
+
+  test("an empty key/ file", async () => {
+    const where = project({ a: { keyFiles: { "empty.txt": "" } } });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("is empty");
+  });
+
+  test("keys with criteria and no judgeAgent", async () => {
+    const where = project({ a: { key: keyMd("must:\n  - says hello\n") } });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("judgeAgent");
+  });
+
+  test("a declined plan runs nothing", async () => {
+    const where = project({ a: {} });
+    const fake = scripted({});
+    const { code } = await lab(where, ["run"], { runner: fake.runner, confirm: async () => false });
+    expect(code).toBe(2);
+    expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe("case new", () => {
+  test("writes awf-lab.json, dataset.json, a stub env.ts and the case; run refuses the stub, then runs", async () => {
+    const top = realpathSync(mkdtempSync(join(tmpdir(), "awf-lab-new-test-")));
+    roots.push(top);
+    const root = join(top, "project");
+    mkdirSync(root);
+    git(root, "init", "-q", "-b", "main");
+    const home = join(top, "home");
+    const tmp = join(top, "tmp");
+    mkdirSync(home);
+    mkdirSync(tmp);
+    const where = { root, home, tmp, evals: join(root, "evals") };
+    const made = await lab(where, ["case", "new", "ds/first"]);
+    expect(made.code).toBe(0);
+    for (const file of ["awf-lab.json", "ds/dataset.json", "ds/env.ts", "ds/cases/first/key.md"]) {
+      expect(existsSync(join(root, "evals", file))).toBe(true);
+    }
+    expect(JSON.parse(readFileSync(join(root, "evals/ds/dataset.json"), "utf8"))).toEqual({
+      kind: "awf.case-dataset/0",
+      sandbox: "workflow",
+      agentReach: { network: [] },
+    });
+    const key = readFileSync(join(root, "evals/ds/cases/first/key.md"), "utf8");
+    expect(key).toMatch(/marker: [a-z]+(-[a-z]+){3}\n/);
+
+    const fake = scripted({});
+    const refused = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("env.ts");
+    expect(refused.err).toContain("stub");
+    expect(fake.calls).toHaveLength(0);
+
+    writeFileSync(join(root, "evals/ds/env.ts"), ENV_TS);
+    writeFileSync(join(root, "evals/ds/cases/first/files/name.txt"), "first");
+    writeFileSync(
+      join(root, "evals/ds/cases/first/key.md"),
+      key.replace("# expect:\n#   done: true", "expect:\n  ok: true"),
+    );
+    const ran = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(ran.code).toBe(0);
+    expect(fake.calls).toHaveLength(1);
+
+    const second = await lab(where, ["case", "new", "second"]);
+    expect(second.code).toBe(0);
+    expect(existsSync(join(root, "evals/ds/cases/second/key.md"))).toBe(true);
+  });
+});
+
+describe("the key stays hidden", () => {
+  test("the lab copies neither key.md nor key/ into the case or scratch folder", async () => {
+    const { code, fake } = await run(
+      { a: { keyFiles: { "evidence.txt": "the evidence itself" } } },
+      {},
+    );
+    expect(code).toBe(0);
+    const [seen] = fake.seen;
+    expect(seen!.caseFiles.sort()).toEqual(["name.txt"]);
+    expect(seen!.scratchFiles).toEqual([]);
+  });
+
+  test("a case folder holding the marker is leaked without running", async () => {
+    const { code, fake, out } = await run({ a: { files: { "notes.md": `copied ${MARKER}` } } }, {});
+    expect(fake.calls).toHaveLength(0);
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
+
+  test("a scratch folder holding the marker after the run is leaked", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ scratch: { "out/x.md": MARKER }, facts: { ok: true } }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
+
+  test("a copy of a key/ file in the scratch folder is found by its digest", async () => {
+    const evidence = "the answer is forty-two, as the evidence shows";
+    const { code, out } = await run(
+      { a: { keyFiles: { "evidence.txt": evidence } } },
+      { a: [{ scratch: { "renamed.bin": evidence }, facts: { ok: true } }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
+
+  test("a marker only in a commit of a repository in the scratch folder is caught", async () => {
+    const runner: Runner = async (request) => {
+      const repo = join(request.cwd, "repo");
+      mkdirSync(repo);
+      git(repo, "init", "-q", "-b", "main");
+      writeFileSync(join(repo, "k.md"), MARKER);
+      git(repo, "add", "-A");
+      git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "k");
+      git(repo, "rm", "-q", "k.md");
+      git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "gone");
+      return scripted({}).runner(request);
+    };
+    const { code, out } = await run({ a: {} }, {}, 1, { runner });
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
+});
+
+describe("--failed and history across runs", () => {
+  test("runs the cases whose newest verdict was failed, flaky or unclear, with that run's trials", async () => {
+    const where = project({ a: {}, b: {}, c: {} });
+    const first = scripted({ a: [fail], b: [pass, fail, pass], c: [pass] });
+    expect(
+      (await lab(where, ["run", "--yes", "--trials", "3"], { runner: first.runner })).code,
+    ).toBe(1);
+    const second = scripted({ a: [pass] });
+    const again = await lab(where, ["run", "--yes", "--failed", "--cases", "a"], {
+      runner: second.runner,
+    });
+    expect(again.code).toBe(0);
+    expect(second.calls).toHaveLength(3);
+    const third = scripted({});
+    const rest = await lab(where, ["run", "--yes", "--failed"], { runner: third.runner });
+    // a passed in run 2; b is still flaky from run 1, at its three trials.
+    expect(third.calls).toHaveLength(3);
+    expect(third.seen.map((s) => s.name)).toEqual(["b", "b", "b"]);
+    expect(rest.code).toBe(0);
+    const report = await lab(where, ["report", "1"]);
+    expect(report.code).toBe(1);
+    expect(report.out).toContain("run 1");
+    const shown = await lab(where, ["report", "--case", "b"]);
+    expect(shown.out).toContain("trial 1: passed");
+    expect(shown.out).toContain("logs:");
+    const listed = await lab(where, ["runs"]);
+    expect(listed.out.split("\n")[0]).toMatch(/^\s+3\s/);
+  });
+
+  test("a case's earlier verdicts show as its history", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({ a: [pass] }).runner });
+    await lab(where, ["run", "--yes"], { runner: scripted({ a: [pass] }).runner });
+    const last = await lab(where, ["run", "--yes"], { runner: scripted({ a: [fail] }).runner });
+    expect(last.out).toContain("history ✓✓");
+    const store = readdirSync(join(where.home, ".awf/lab")).find((n) => n.startsWith("project-"))!;
+    expect(runNumbers(join(where.home, ".awf/lab", store))).toEqual([1, 2, 3]);
+    const trials = readTrials(join(where.home, ".awf/lab", store), 3);
+    expect(trials[0]!.record.input).toMatch(/^[0-9a-f]{64}$/);
+    expect(trials[0]!.scores[0]!.entries[0]!.grader).toBe("expect");
+  });
+});
+
+describe("reach, end to end", () => {
+  const opened = (agent: string, extra: object = {}) => ({
+    version: 1,
+    attempt: 1,
+    at: "2026-11-15T00:00:00Z",
+    kind: "agent-opened",
+    agent,
+    callPath: [],
+    harness: "claude",
+    cwd: "/x",
+    ...extra,
+  });
+  const sandbox = (key: string, spec: object) => ({
+    version: 1,
+    attempt: 1,
+    at: "2026-11-15T00:00:00Z",
+    kind: "sandbox-opened",
+    callPath: [],
+    key,
+    provider: "srt",
+    spec: { srt: {}, cwd: "/x", ...spec },
+    directory: "/d",
+    gitdirs: [],
+    domains: [],
+    agents: [],
+  });
+
+  test("an agent with no sandbox errors the trial as reach: 5", async () => {
+    const { code, out } = await run(
+      { a: {} },
+      { a: [{ log: [opened("reader")], facts: { ok: true } }] },
+    );
+    expect(code).toBe(5);
+    expect(out).toContain("(reach): agent reader ran with no sandbox");
+  });
+
+  test("a sandbox within agentReach and its model domains passes", async () => {
+    const { code } = await run(
+      { a: {} },
+      {
+        a: [
+          {
+            log: [
+              sandbox("box", { network: ["api.anthropic.com", "a.example.com"] }),
+              opened("reader", { sandbox: "box", domains: ["api.anthropic.com"] }),
+            ],
+            facts: { ok: true },
+          },
+        ],
+      },
+      1,
+      {},
+      { agentReach: { network: ["*.example.com"] } },
+    );
+    expect(code).toBe(0);
+  });
+});

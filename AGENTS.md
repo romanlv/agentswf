@@ -35,7 +35,7 @@ rule is in `docs/foundation.md`'s naming note and ADRs 0005 and 0013.
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
 | `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs; `src/agent-cli` is the agent's `wfa` command |
 | `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
-| `packages/lab` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
+| `packages/lab` | evaluating workflows against cases with known answers: `src/cases/` the case kind (`env/`, `@agentswf/lab/cases`, runs in a trial's process; `lab/`, `awf-lab run`, `report`, `runs`, `case new`), `src/review/` review fixtures, `collect`, `draft-key` and their agent votes, `src/shared/` what both use; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries; `examples/site/` holds the site's samples |
 | `site/` | the agents.wf site, VitePress. Standalone, not a workspace: `cd site && bun install && bun run build`; `bun run deploy` publishes it, as CI does on every push to main. Its writing rules are `site/AGENTS.md` |
 | `experiments/_archive/` | E1–E3 and E5 raw results, the evidence behind `docs/findings/`. Never edited |
@@ -51,7 +51,7 @@ Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 2. `engine/src/accounting` imports contract only, performs no I/O, and uses no runtime-specific API.
 3. `engine/src/agent-cli`, the `wfa` command, imports contract and itself only, and performs no run-directory I/O.
 4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`. `engine/src/workflow-testing/`, the second composition root a workflow's tests run on, imports the fakes, `@agentswf/harness/testing` and `@agentswf/sandbox/testing/fake`, and never `bun:test` (ADR 0006).
-5. `lab` imports contract only, and runs workflows through `awf run`, never by linking the engine or a harness; its review format stays pure outside the files that do I/O.
+5. `lab` imports, of the `@agentswf` packages, contract only, and runs workflows through a folder's own `awf run`, never by linking the engine or a harness; `@agentswf/lab/cases` is the entry that runs inside a trial's process, in a project, and imports `agentswf/workflow` and `bun:test` there. Its case kind (`src/cases/`) imports only itself and `src/shared/`, and names no word of one workflow's domain (`mail`, `review`, `finding`); the review kind may import `src/shared/`, which imports neither; only `src/cli.ts` imports both. Its formats stay pure outside the files that do I/O.
 6. `examples/` imports `agentswf/workflow` and approved pure schema libraries, as an author's workflow does — never an `@agentswf/*` package. A workflow's test beside it, `*.test.ts`, also imports `agentswf/testing` and may use runtime built-ins. A program that drives runs, `*.driver.ts`, imports `agentswf/client` and may use runtime built-ins.
 7. A cross-package import must be a declared dependency, not just a hoisted symlink.
 

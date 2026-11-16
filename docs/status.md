@@ -394,6 +394,14 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   `skills` (Q6, Q7); a sandbox's `launch` takes the operator's terminal (srt with a pty profile,
   docker `exec -t`).
 
+- [044 — run a workflow on cases you wrote, with its services faked, and get a score](stories/044-cases-for-a-workflow.md):
+  in progress, tasks 0 and 2 done. `awf-lab run` runs a dataset in a project's `evals/`: each
+  trial is the folder's own `awf run` of `env.ts` (`@agentswf/lab/cases`: `defineEnv`, strict
+  `c.mock`, `c.fake`, `c.http` through the lab's `fetch` preload, given stages and `until`),
+  graded by the key's `expect`, with a verdict per case and an exit code; `report`, `runs`,
+  `case new` and `--failed`. The mail triage's seven cases pass live. Next: task 1 (the person
+  judges criteria by hand), then task 3 (the criteria judge and `score`).
+
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next

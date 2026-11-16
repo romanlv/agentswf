@@ -3,7 +3,7 @@ id: "044"
 title: "Run a workflow on cases you wrote, with its services faked, and get a score"
 summary: "A person writes cases (an input and what a good result looks like); awf-lab runs the workflow, with outside services swapped for the case, and says case by case what passed. A case that must pass and fails is a regression, and the command exits non-zero. The same cases can run on code in another folder, such as a worktree of main, side by side."
 type: story
-status: draft
+status: in-progress
 epic: loop
 discovered_in: "a conversation about evals built from runs, 2026-11-09"
 depends_on: ["008", "010", "011"]
@@ -194,7 +194,7 @@ and `realHosts`.
 | `c.input`, `c.dir` | `input.json`; the built case folder: the dataset's shared `files/` and the case's own merged at its root, the case's winning, plus `input.json` |
 | `c.scratch`, `c.root` | the trial's empty working folder; the code folder |
 | `c.mock(module, fakes)` | replaces a module's functions with `bun:test` mocks, strictly |
-| `c.fake<T>(fakes)` | a strict typed object, for a client a factory returns (`connect()`) |
+| `c.fake<T>(fakes, { name })` | a strict typed object, for a client a factory returns (`connect()`) |
 | `c.http(routes)` | answers the workflow's `fetch` calls from routes; strict for a host a route names, and any other host refused unless the engine's own or in `realHosts` |
 | `c.cleanup(fn)` | teardown, run after `observe` even when the run fails |
 
@@ -1146,7 +1146,7 @@ Out of scope:
   function member given is a spy, and any other member given is its value as is
   (`inbox: "school@agentmail.to"` on a `Mailbox`); any other member, when called, refuses as above, while reading `then`,
   `toJSON` or a symbol gives `undefined`, so the fake can be awaited and logged. It joins `unused`
-  and `refused`.
+  and `refused`, labelled by `{ name }` when given (`Db.close`), else `fake`, `fake2`….
 - **`c.http(routes)`**: routes keyed `"{METHOD} {URLPattern}"`, each a function from the
   `Request` and the pattern's `params` to a `Response`. The lab's `fetch`, in place of
   `globalThis.fetch` on every trial from a preload module the lab gives the trial's process (it
@@ -1715,7 +1715,7 @@ Alternatives rejected:
    branch, and reviewed by the person: `env.ts`, seven cases, and what writing them changed here
 
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
-- [ ] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
+- [x] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
 - [ ] 3. Criteria are judged, and a changed key is graded again
 - [ ] 4. The same cases on code in another folder
 - [ ] 5. web-to-cli's build runs on cases
@@ -1848,16 +1848,16 @@ gets a verdict and `run` exits by it. It does not wait for task 1.
 
 Execution:
 
-- [ ] Plan: first, amend ADR 0003 and rewrite [[second-case-kind]] as "move reviews onto the case
+- [x] Plan: first, amend ADR 0003 and rewrite [[second-case-kind]] as "move reviews onto the case
   kind". Do M2, so the score record and its grader entries are shaped once, M3, M4 and M5. Check
   the mail workflow's assumption (its services through imported modules, its day through a clock
   function, every agent in a sandbox, and what its sandboxes reach, for its `agentReach`). Then inspect
   the lab's run, store and load code; settle the new kind's folder, which shared files move, the
   helper process, the records and the commands.
-- [ ] Implement: only this task's change, with tests.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the `Done when` items.
+- [x] Implement: only this task's change, with tests.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the `Done when` items.
 
 Work:
 
@@ -2185,6 +2185,162 @@ takes no type argument (one given blocks the inference of `observe`'s result); a
 already loaded before `setup` is refused; the refusal names `real`; criteria are two lists of
 sentences; the judge reads the facts. The workflow gained `clock.ts`, and its readers' folder
 moved to the temp folder.
+
+### Task 2: plan (2026-11-15)
+
+- ADR 0003 is amended (cases for a workflow live beside it), and [[second-case-kind]] is rewritten
+  as "move reviews onto the case kind".
+- Folders: `src/shared/` (`validate.ts` now; the runner's process seam and `awf-lab.json`'s common
+  fields as they move), `src/cases/format/` (pure: `settings.ts` for `dataset.json` and `key.md`,
+  `key.ts` the strict reader, `trial-file.ts`, `records.ts`), `src/cases/env/` (what runs in the
+  trial's process: `@agentswf/lab/cases` and the `fetch` preload), `src/cases/lab/` (the lab's side;
+  `expect.ts` and `verdict.ts` pure). `review/format/validate.ts` re-exports the shared checks, so
+  no review file changes for the move.
+- The store: `{store}/runs/{n}/run.json`; a trial at `runs/{n}/trials/{case}/{column}-{trial}/`
+  with `trial.json`, `input/` (the built case folder), `kept/`, and `scores.jsonl` (every score,
+  newest last); the workflows' runs under `{store}/awf-runs` through `--run-root`.
+- Which kind a command is for: `case` and `runs` are the new kind's; otherwise `--dataset` names a
+  folder of `evals/` holding a new-kind `dataset.json`, or, without it, the new kind when
+  `awf-lab.json` has no review `datasets` and the review kind as today when it has.
+- The helper process for `graders.ts` and `capture.ts` comes with task 3, its first user: task 2
+  has no dataset code outside the trial's process to run.
+- `expect` strings are quoted (the design's rule); the mail keys already are.
+
+M2 (a review grader sketched as code and as a workflow, against a real trial; the sketch, which
+does not ship, is in the session's scratch folder): the interface carries the review scorer with
+these changes, taken into `records.ts`:
+
+- A part has a `label` and `data` beside its verdict (a finding is `hit`, `wrong`, `noise`…), a
+  `why`, and `settled` (`agreed`, `majority`, `tiebreak`, `unsettled`, `given`), which also
+  carries the judge's 2–1 mark; votes have a shape (`by`, `role`, `verdict` or `label`, `why`).
+- A number is `{ count, of }`, summed per column (`of: 0` is none in this case, adding nothing),
+  or `{ value }`, shown as a median.
+- A grader may answer "does not apply" with a reason (`notApplies`), neither a verdict nor
+  numbers; an empty answer stays grading's error.
+- A score entry keeps `models` (a grading can use several), `ms`, and its errors' `problems`.
+- For task 3: a grader workflow gets an empty working folder of its own (`--cwd`), and may be
+  given its previous parts and key digest, so a key edit judges only what changed.
+- For the reviews' move, not now: grading a run the workflow failed (the review counts its recall
+  as 0), graders identified by a version instead of a code digest (one trial holds 21 scores of
+  several scorer versions), and a key digest limited to the files a grader reads.
+
+M3: nothing in a run's records tells a provider's stop from the workflow's own failure. The ending
+is an outcome and free text; a turn's `retryable` and `login` never reach the attempt record, and no
+harness detects a rate limit or an overload. Text matching is unsafe: web-to-cli's own stops say
+"sign in again" and "page budget … spent". So every failed run is the workflow's, as the design's
+fallback says, with one exception the runner already makes: a run refused at its first agent for a
+missing subscription login, with no agent opened, is the engine's fixed text, and errors the
+trial as the provider's (code `login`), tried once more. A `cause` on the attempt record would make
+the rest readable; that is an engine story of its own.
+
+M4 (a wrapper workflow running another's body, tried on the repo's engine; the probes are in the
+session's scratch folder):
+
+- `prepare`, stages through `Object.create(wf, { stage })`, a given value, a given value its
+  schema refuses, and `until` all work; so do `wf.sandboxes.open`, `wf.agents.open` and a live
+  codex turn in an srt sandbox through the wrapper, with `sandbox-opened` and `agent-opened` lines
+  the reach check reads. The engine's context methods are bound, so `this` is never a problem.
+- A given value its schema refuses fails the stage with a plain `Error`; `defineEnv` knows it is
+  the dataset's because it gave that stage. A stage with no result is `undefined`, which a run's
+  value refuses, so `stages` leaves it out.
+- A given value replaces the whole work a workflow's helper passes to `wf.stage`, its side effects
+  too (web-to-cli's ledger update): a case that gives a stage gives up what that stage's helper
+  does around it.
+- **Changed:** the engine's `--timeout` sends no signal: it abandons the body and exits after its
+  2 s grace, so only a synchronous `exit` handler runs. `defineEnv` therefore times every phase
+  itself, the body's limit included, and also stops short of `wf.deadline` by a margin, so its
+  teardown runs before the backstop; a SIGTERM handler covers a cancel (about 2 s), and an `exit`
+  handler writes "timed out" to the trial file as the last resort.
+- web-to-cli's build imported from a copy loads with the copy's own dependencies, and its stages
+  reach the wrapped `stage` through its helper; `agentswf/workflow` and `typebox` are the running
+  engine's whatever copy imports them, a linked lab's included.
+- **Changed:** so the lab works only on an engine whose author surface it was written for. The
+  check before the first trial reads the folder's `agentswf` version and refuses one below 0.1.1
+  (exit 2): beta.2 has no `defineWorkflow` and no `--quiet`, and keeps other record files. The mail
+  project moved to 0.1.1 (the person, 2026-11-15).
+- Sandbox homes are kept in `~/.awf/sandboxes/{workflow}/{run}`, outside `--run-root`, as for any
+  run; the lab leaves them to the engine.
+
+M5: from inside the folder, `bun --no-env-file --preload {fetch} node_modules/agentswf/src/awf.ts
+run … --cwd {scratch} --run-root {store} --json` runs in one process (no hand-over), the preload's
+`fetch` answers the workflow's, and `awf logs --run-root` with the same bin reads the run back. The
+repo's 0.1.1 bin started in a beta.2 folder hands over, and the preload is lost, as the design
+expects. `--quiet` still prints the ending block to stderr for a run that fails; the lab reads
+stdout only.
+
+### Task 2: correctness review, fixes (2026-11-15)
+
+- **The lab's own errors**: a trial the lab can't read whole is errored `by: "lab"` and never
+  graded: a run record of another version, a trial file line that fits no shape, `awf logs` that
+  can't be read whole, a run with no folder under `--run-root`. Any such trial makes the exit 4,
+  ahead of every verdict, as the lab breaking mid-run does.
+- **A cancel** (SIGTERM or SIGINT) writes `cancelled` in the trial file, runs teardown and ends the
+  trial, so nothing reads as timed out; blame makes a cancelled run the lab's, from that line or
+  from the engine's `cancelled` outcome alone, since no one's code decided its ending. An exit
+  before the trial ended and short of the run's deadline (`process.exit`, a crash) writes `exited`,
+  and blame reads the run's own ending.
+- **Blame**: the first dataset error wins over the first workflow error, whatever their order.
+- **The version**: `MIN_AGENTSWF` is a constant, 0.1.1. Before the first trial the folder's `awf`
+  runs a do-nothing workflow in a temporary folder inside it, and a record version other than
+  contract's `OUTPUT_RECORD_VERSION` stops `run` (exit 2), naming both.
+- **The marker search** reads `awf logs --json` once without `--after`, with a `--limit` past any
+  run, the documented newest-N form, failing closed when the page says older events were left
+  out; it also reads every file of the run's folder under `--run-root`. A string of an agent's
+  native text past `awf logs`' 50 000 characters is cut there and not searched past it.
+- **The code folder** is the nearest folder at or above `evals/`'s parent holding
+  `node_modules/agentswf`; the repository's top is only for git state and the store check.
+- **Symlinks**: a case's or the dataset's `files/` and `key/` holding one is refused (exit 2); the
+  marker search follows them, each folder once; `keep` copies a link's file, and never a path
+  outside the scratch folder (`..` in `keep` is refused when the dataset is read).
+- `dataset.json`'s `graders` is refused until task 3. `c.fake<T>(fakes, { name })`.
+- A tool handler calling a mocked module is tested by nothing: a tool runs only when an agent
+  calls it, and `awf run` has no scripted harness, so it needs a live agent. It runs in the
+  trial's process, where the mocks are.
+- The type test that a project with its own copy of `agentswf` type-checks needs the project's
+  workflow test (`agentswf/testing`) beside its `env.ts`, read after it: TypeScript 5.9 takes two
+  packages of one name and version for one, and mixes their types only then.
+
+### Task 2: departures from the design, and checks (2026-11-16)
+
+- **`observe`'s `result` is typed `Result`**, never `Result | null`: for an async `setup`,
+  TypeScript can't pick a union member by whether `until` is returned, and `result` came out
+  `any`. Under `until`, the author annotates `observe(result: Result | null)`. A wrong read there
+  throws in `observe`, the dataset's error.
+- **`Facts` admits `undefined` in its type**, so facts from different branches compile; at run
+  time an `undefined` fact is still `facts-missing`.
+- **`defineEnv` requires `agentswf/workflow` at run time instead of importing it**: found live,
+  linking the lab into the mail project made the project's own `tsc` fail. TypeScript took the
+  lab's `agentswf` and the project's, of one name and version, for one package and mixed their
+  types. A test builds a project with its own copy and type-checks it.
+- **`awf-lab.json` is also found in `{folder}/evals/`** at each level up, so `awf-lab run` works
+  from the project's root; the review kind's lookup is unchanged, and the entry routes such a file
+  to the case kind.
+- **A trial record holds no outcome**: it is computed from the record and each grader's newest
+  score entry, so it never goes stale after `score`.
+- **Trial files live in `~/.awf/lab/trials/` while a trial runs**, named by the lab's process, and
+  move into the trial's folder after; a dead lab's are swept at the next start.
+- **History and `--failed`** recompute earlier verdicts with the keys' current `pass` bars.
+- **`setupMs` is not recorded**: the trial file's lines carry no times.
+
+Checks:
+
+- The mail readers' sandboxes (srt, `write: []`, `network: []`): the srt profile denies reading
+  the home folder (which holds the store and the project's `evals/`), the temp folders and the run
+  root, and allows back only the reader's own folder under the system temp; so a reader sees
+  neither the store, `evals/`, nor the lab's case and scratch folders
+  (`packages/sandbox/src/srt/profile.ts`).
+- Live, the mail dataset, three trials each (run 2, and run 3 after the review fixes): 21 trials,
+  median 9 s and an estimated $0.003 a trial, $0.06 in all; 5 cases passed, `trip-form` and
+  `trip-moved` failed 0/3, each on `short: true` where the key wants `false`; exit 1. Nothing
+  errored, leaked or was refused, and every reader's reach passed.
+- The known miss, live: the person judged the workflow right on both trip emails (short enough to
+  read as is), so their keys now expect `short: true` and `reply: null`, and their criteria judge
+  the week's note, a new `note` fact (the reader's summary and actions, kept whether or not a
+  summary goes out). `--failed` then ran those two cases at three trials each and passed them
+  (exit 0, run 4), and a full run passed every case (7 of 7, 21 trials, exit 0, run 5).
+- Task 2 reviews: architecture and scope (2 must-fix, 7 should-fix), correctness and proof (2
+  must-fix, 7 should-fix); every finding fixed with a test that fails before it, except a tool
+  handler's mock (above). Recorded in the previous section.
 
 ## Human review
 

@@ -40,9 +40,6 @@
     "packages/engine": {
       "name": "@agentswf/engine",
       "version": "0.1.1",
-      "bin": {
-        "awf": "./src/operator-cli.ts",
-      },
       "dependencies": {
         "@agentswf/contract": "workspace:*",
         "@agentswf/harness": "workspace:*",
@@ -62,11 +59,15 @@
       "name": "@agentswf/lab",
       "version": "0.0.0",
       "bin": {
-        "awf-lab": "./src/review/lab/cli.ts",
+        "awf-lab": "./src/cli.ts",
       },
       "dependencies": {
         "@agentswf/contract": "workspace:*",
         "typebox": "^1.3.34",
+        "yaml": "^2.9.1",
+      },
+      "devDependencies": {
+        "agentswf": "workspace:*",
       },
     },
     "packages/sandbox": {
@@ -127,5 +128,7 @@
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
   }
 }
