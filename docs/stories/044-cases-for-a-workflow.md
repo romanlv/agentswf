@@ -51,11 +51,13 @@ exists.
 
 Also here: `awf-lab capture {run id}` turns a past run into a new case.
 
-It is built and tried on two workflows that pull in opposite directions:
-%% make sure to clone those repos locally and story outcome should be a working evals in those repos , they might be already cloned, search in ~/dev/ %%
-- **A mail triage.** A scheduled workflow reads new mail; one agent per email decides whether it
+It is built and tried on two workflows that pull in opposite directions, and the story ends with
+working evals in each one's own repository:
+- **A mail triage**, `school-mail` in `romanlv/mini-workflows` (`~/dev/mini-workflows`). A
+  scheduled workflow reads new mail; one agent per email decides whether it
   matters and summarizes it. A trial takes seconds, costs cents, and touches nothing real.
-- **web-to-cli's build** ([`core/workflows/build.ts`](https://github.com/romanlv/web-to-cli)).
+- **web-to-cli's build** ([`core/workflows/build.ts`](https://github.com/romanlv/web-to-cli),
+  `~/dev/web-cli/web-to-cli`).
   From one sentence, agents explore a live site, write a command for it, check it and merge it. A
   trial takes half an hour, costs dollars, writes code and needs the real site.
 
@@ -108,34 +110,43 @@ fresh process.
 ```ts
 // evals/mail/env.ts
 import { defineEnv } from "@agentswf/lab/cases";
-import * as clock from "../../mail-triage/clock";
-import * as mail from "../../mail-triage/mail";
-import * as notes from "../../mail-triage/notes";
+import * as clock from "../../school-mail/clock";
+import * as mail from "../../school-mail/mail";
+import * as notes from "../../school-mail/notes";
 
 export default defineEnv({
-  workflow: () => import("../../mail-triage/workflow"),
+  workflow: () => import("../../school-mail/workflow"),
 
   setup(c) {
-    const raw = c.json("email.json");
-    const email: mail.Email = { ...raw, date: new Date(raw.date) };
+    const file = c.json<Omit<mail.Email, "date"> & { date: string }>("email.json");
+    const email: mail.Email = { ...file, date: new Date(file.date) };
 
-    const inbox = c.mock(mail, {
-      listNew: async () => [email],
+    // The workflow asks a factory for its mailbox, so the mailbox is a fake and the factory a mock.
+    const inbox = c.fake<mail.Mailbox>({
+      inbox: "school@agentmail.to",
+      listNew: async () => [{ id: email.id, from: email.from, subject: email.subject }],
       read: async () => email,
+      reply: async () => {},                 // recorded: the summary the parent would get
       markDone: async () => {},
-      reply: async () => {},                 // recorded; the key says it must not happen
-    });                                      // anything else of mail.ts: no fake, the trial errors
-    c.mock(notes, { recent: async () => "" });
-    c.mock(clock, { today: () => new Date(c.input.today) });
+    });                                      // any other member of Mailbox: refused, the trial errors
+    c.mock(mail, { agentmailMailbox: async () => inbox });
+
+    const week = c.fake<notes.Notes>({ recent: async () => c.text("notes.md"), add: async () => {} });
+    c.mock(notes, { notesIn: () => week });
+
+    const input: { today: string } = c.input;
+    c.mock(clock, { today: () => new Date(input.today) });
 
     return {
       observe: (result) => {
-        const item = result?.items?.[0];     // a result of the wrong shape is a fact, not a throw
+        const item = result.items[0];
+        const reply = inbox.reply.mock.calls[0]?.[1];
+        const noted = week.add.mock.calls[0]?.[1];
         return {
           relevant: item?.relevant ?? null,  // null: the workflow returned no item, a fail
           short: item?.short ?? null,
-          markedDone: inbox.markDone.mock.calls.length > 0,
-          replied: inbox.reply.mock.calls.length > 0,
+          children: noted ? [...noted.children].sort().join(", ") : null,
+          reply: reply?.text ?? null,        // null: no summary sent; the judge reads it too
           error: item?.error ?? "",          // non-empty: the workflow failed on this case
         };
       },
@@ -143,6 +154,9 @@ export default defineEnv({
   },
 });
 ```
+
+The full file, with the Edsby fake for a post the email links to, is the mail project's
+`evals/school-mail/env.ts`.
 
 `defineEnv` takes two things:
 
@@ -158,8 +172,8 @@ export default defineEnv({
 - **`setup(c)`**: builds the world, a test's arrange step, and returns what the run needs:
   - **`observe(result, { stages })`**, required: called once the body returned or reached `until`, it returns the
     **facts** the key's `expect` checks, read from the workflow's result, the stages' values, and
-    what the mocks recorded. It never asserts: to check that no reply went out, return
-    `replied: inbox.reply.mock.calls.length > 0` and put `replied: false` in the key. The key is the
+    what the mocks recorded. It never asserts: to check that no summary went out, return
+    `reply: inbox.reply.mock.calls[0]?.[1]?.text ?? null` and put `reply: null` in the key. The key is the
     assertion, so a fact that fails is reported beside the others, and editing a key never means
     editing code. A body that failed fails the trial as the workflow's; one broken by `setup`
     errors it as the dataset's, and `observe` is not called; a refused call errors it as the
@@ -247,7 +261,7 @@ and the trial's process ending undoes it. `c.mock(mail, fakes)` is
 
 The type check covers a fake written in the call; a set of fakes built elsewhere, like
 `fakeMail` below, is checked for shape but not for a misspelled extra key, which the runtime
-refuses when `c.mock` is called.
+refuses when `c.mock` or `c.fake` is called.
 
 It returns the mocks, by name: plain `bun:test` mocks with `.mock.calls`, `mockResolvedValueOnce`
 and the rest, so `observe` checks what the workflow *did*, not only what it returned.
@@ -255,16 +269,19 @@ and the rest, so `observe` checks what the workflow *did*, not only what it retu
 A set of fakes can live beside the module and serve the workflow's own tests too:
 
 ```ts
-// mail-triage/mail.fake.ts
+// school-mail/mail.fake.ts
 import type * as mail from "./mail";
-export const fakeMail = (emails: mail.Email[]) => ({
-  listNew: async () => emails,
-  read: async (id: string) => emails.find((e) => e.id === id)!,
-  markDone: async (_id: string) => {},
+export const fakeMail = (emails: mail.Email[]): mail.Mailbox => ({
+  inbox: "test@agentmail.to",
+  listNew: async () => emails.map(({ id, from, subject }) => ({ id, from, subject })),
+  read: async (id) => emails.find((e) => e.id === id)!,
+  reply: async () => {},
+  markDone: async () => {},
 });
 
-// in env.ts, or in mail-triage/workflow.test.ts with spyOn
-const inbox = c.mock(mail, fakeMail([email]));
+// in env.ts, or in school-mail/workflow.test.ts with spyOn
+const inbox = c.fake<mail.Mailbox>(fakeMail([email]));
+c.mock(mail, { agentmailMailbox: async () => inbox });
 ```
 
 A client a factory returns is not an export to mock. `c.fake<T>(fakes)` makes a strict typed
@@ -563,17 +580,12 @@ marker: lantern-copper-walrus-tangerine
 expect:
   relevant: true
   short: false
-  replied: false
-criteria:
-  - id: k1
-    kind: must
-    text: the summary gives the deadline for the form and the money, Tuesday November 3
-  - id: k2
-    kind: must
-    text: the summary says to pack a lunch for Friday November 6
-  - id: k3
-    kind: must-not
-    text: the summary presents the grade 5 spring trip as something to act on
+  children: Daniel
+must:
+  - the summary gives the deadline for the form and the money, Tuesday November 3
+  - the summary says to pack a lunch for Friday November 6
+must-not:
+  - the summary presents the grade 5 spring trip as something to act on
 ---
 
 Two dates in one email, and a paragraph for another grade.
@@ -581,8 +593,10 @@ Two dates in one email, and a paragraph for another grade.
 
 - `expect` lists facts `observe` returns and the values they must have. Code checks them: free
   and exact.
-- `criteria` are sentences an agent judges. A `must` should be true of a good result; a
-  `must-not` should never be. Three agents vote on each one; the majority decides.
+- `must` and `must-not` are the **criteria**, sentences an agent judges. A `must` should be true
+  of a good result; a `must-not` should never be. Three agents vote on each one; the majority
+  decides. A criterion is known by its text: edit it and it is a new one, judged again; the report
+  numbers them in order (`must 2`, `must-not 1`). Two the same in one key are refused.
 - `marker` is a few random words that `awf-lab case new` writes: a tripwire. If they ever show up
   where the workflow's agents work, the key leaked (see "How the key stays hidden").
 - The text below the frontmatter is your note on why the case exists.
@@ -597,13 +611,13 @@ writes `awf-lab.json`, the dataset's `dataset.json` (agents reaching nothing out
 `"agentReach": { "network": [] }`) and a stub `env.ts` whose `workflow` is left for you to fill in; `run` refuses the stub, naming `env.ts`, until you do.
 
 **2. Write the environment.** The mail dataset's `env.ts` is the one under "The environment"
-above: a strict mock of `mail.ts` holding the case's email, `notes.ts` returning nothing,
-`clock.today()` returning the case's day, and `observe` returning `relevant`, `short`,
-`markedDone`, `replied` and `error`. One file serves every case of the dataset; a case differs only in its files and input.
+above: a strict fake mailbox holding the case's email, the week's notes from the case's
+`notes.md`, `clock.today()` returning the case's day, and `observe` returning `relevant`,
+`short`, `children`, `reply` and `error`. One file serves every case of the dataset; a case differs only in its files and input.
 
 The workflow needs no change for it: it calls its mail module as it does in production, and the
-mock answers. No `--dry-run` either: `markDone` and `reply` are mocks that record, and the key
-says `replied: false`. What the environment doesn't mock (the model, a module it
+fake answers. No `--dry-run` either: `markDone` and `reply` are fakes that record, and a key for
+an email that needs nothing says `reply: null`. What the environment doesn't mock (the model, a module it
 doesn't name) stays real.
 
 **3. Run it.**
@@ -628,7 +642,7 @@ mail · 12 cases · 3 trials each · run 14
 code: this checkout, branch shorter-prompt, commit a1b2c3d, with uncommitted changes
 
 failed, must pass
-  grade-3-only        0/3   k3 violated. Judge: "lists the grade 3 trip as an action"   history ✓✓✗
+  grade-3-only        0/3   must-not 1 violated. Judge: "lists the grade 3 trip as an action"   history ✓✓✗
 flaky
   trip-form           2/3   k2 unmet once (judges split 2–1)                             history ✓✓✓
 known failing, now passing
@@ -812,13 +826,10 @@ expect:
   state: "done"
   runs: true
   stories: true
-criteria:
-  - id: k1
-    kind: must
-    text: the op's code reads a title, points and a comment count for each story
-  - id: k2
-    kind: must-not
-    text: the op submits, votes or signs in
+must:
+  - the op's code reads a title, points and a comment count for each story
+must-not:
+  - the op submits, votes or signs in
 ---
 ```
 
@@ -896,7 +907,7 @@ Safety and privacy:
 
 In scope:
 
-- Cases written by hand: `input.json`, `files/`, `key.md` with `expect`, `criteria`,
+- Cases written by hand: `input.json`, `files/`, `key.md` with `expect`, `must`, `must-not`,
   `known-failing` and `pass`, and files a dataset's cases share. `case new`.
 - `defineEnv` and its `c` (`json`, `text`, `input`, `dir`, `scratch`, `root`, `mock`, `fake`,
   `http` with `http.requests`, the lab's `fetch` on every trial, `cleanup`),
@@ -1092,16 +1103,18 @@ Out of scope:
 
 ### The code surface, from `@agentswf/lab/cases`
 
-- **`defineEnv<Input>({ workflow, setup })`**, the default export of `env.ts`. Its types name
+- **`defineEnv({ workflow, setup })`**, the default export of `env.ts`. Its types name
   nothing from the lab's own `agentswf` or `contract`: `workflow` is typed structurally (a
   module whose default export has a `run`), and `observe`'s `result` is inferred from that
   `run`'s return. A project's `agentswf` is another copy than the linked lab's, and the brands in
   `contract`'s types (`unique symbol`) never match across copies, so naming them would make
-  every `env.ts` fail its type check. `Input` types
-  `c.input` (`any` when not given); `c.json<T>(name)` returns `T` (`any` by default). It makes the workflow `awf
+  every `env.ts` fail its type check. It takes no type argument: TypeScript infers none of a
+  call's type arguments once one is given, so `defineEnv<Input>` would leave `result` `unknown`
+  (found writing the mail evals). `c.input` is `any`, typed where it is read
+  (`const input: { today: string } = c.input`); `c.json<T>(name)` returns `T` (`any` by default). It makes the workflow `awf
   run` starts: it leaves `file` unset (it can't see `env.ts`'s path, and the loader allows none),
   and its name is `case-env-{dataset}`. Its body: build `c`, run
-  `setup(c)`, import `workflow(c)` and take its default export, refuse one with `events`, run its `prepare` on the argv (a
+  `setup(c)`, import `workflow(c)` and take its default export, refuse one with `events`, refuse it too when the module it names was already loaded before `setup` ran (Bun lists loaded modules in `require.cache`): `env.ts` or a module it imports took the workflow statically, and every mock of a function the workflow calls as it loads (a factory building its mailbox) missed it, the dataset's error, run its `prepare` on the argv (a
   refusal errors the trial as the dataset's), run its body with the lab's `wf`, call `observe`, run
   teardown. Its result is `{ workflow: { name, version }, result, facts, stages, given, unused,
   refused }`, read by the lab through `awf run --json --quiet`; `result` is `null` under `until`.
@@ -1123,14 +1136,15 @@ Out of scope:
   object or a class's prototype) that is not a class, and never `constructor`, and for each
   function member of an exported plain object, `spyOn` with the
   fake, or, unless named in `real`, with a function that records the call as refused and throws
-  "no fake for {module}.{name} in this case". A class is replaced only when faked by name. A
+  "no fake for {module}.{name} in this case: fake it, or name it in `real` if it is a pure helper". A class is replaced only when faked by name. A
   `node:*` module or `bun` is refused: the engine shares the process. Returns
   the spies by name. A key the module doesn't export, or
   that isn't a function, is refused at once; the type is `Partial` over the module's functions,
   so it is a type error first. A CommonJS module is patched on its named export and on
   `default`.
 - **`c.fake<T>(fakes)`**: a Proxy typed as `T` (a type alone lists no members at run time): a
-  member given is a spy; any other member, when called, refuses as above, while reading `then`,
+  function member given is a spy, and any other member given is its value as is
+  (`inbox: "school@agentmail.to"` on a `Mailbox`); any other member, when called, refuses as above, while reading `then`,
   `toJSON` or a symbol gives `undefined`, so the fake can be awaited and logged. It joins `unused`
   and `refused`.
 - **`c.http(routes)`**: routes keyed `"{METHOD} {URLPattern}"`, each a function from the
@@ -1230,7 +1244,7 @@ Out of scope:
   reach anything, so a sandbox with sockets needs `"sockets": true`, and the report names them.
   Paths stay the workflow's, checked in each workflow's task (2 and 5) to keep agents out of the
   home folder, the store and `evals/`.
-- **`key.md`** frontmatter: `kind: awf.case-key/0`, `marker`, and optionally `expect`, `criteria`,
+- **`key.md`** frontmatter: `kind: awf.case-key/0`, `marker`, and optionally `expect`, `must`, `must-not` (lists of sentences),
   `known-failing: true`, `pass` (this case's bar), `draft: true` and `captured` (task 6). It is read
   strictly with the `yaml` package (YAML 1.2 core schema, a new dependency), and an unknown field
   (`expects:`) is refused: only `true` and
@@ -1350,7 +1364,7 @@ scorer is M2; the shape is a first guess, settled by trying it.
 
 **Built in.** `expect` and the criteria judge are graders like any other, stored under the names
 `expect` and `criteria`, which a dataset grader may not take. A dataset uses them by having
-`expect` or `criteria` in its keys.
+`expect`, or `must` or `must-not`, in its keys.
 
 **Order, cheap first**: `expect`, then the dataset's code graders, then grader workflows and the
 judge. When a grader has failed the trial, the costly ones are skipped and their criteria show
@@ -1362,7 +1376,7 @@ verdict (only numbers), the trial is graded by numbers only.
 
 **When graders run**: during the trial, after its `awf run` ends, while the scratch folder still
 holds what the workflow left. Not on an errored trial, or one failed because the workflow erred. Not on a case no grader applies to
-(no `expect`, no `criteria`, no dataset grader), or whose key says `draft: true`.
+(no `expect`, no `must` or `must-not`, no dataset grader), or whose key says `draft: true`.
 
 ### `expect`
 
@@ -1382,8 +1396,9 @@ holds what the workflow left. Not on an errored trial, or one failed because the
 ### The criteria judge
 
 - A grader workflow that ships with the lab, one run per trial, one part per criterion.
-- Its voters are given the trial's case folder, the workflow's whole result, the saved files, and
-  each criterion's text; never the marker, `expect`, `key/` or the agents' logs, though the
+- Its voters are given the trial's case folder, the workflow's whole result, the facts and the
+  stages' values (it `readsFacts`: what a workflow did is often only there, such as the summary
+  email a mock recorded), the saved files, and each criterion's text; never the marker, `expect`, `key/` or the agents' logs, though the
   judge's workflow reads the key from the grade folder to build their prompts. The result
   and saved files, written by agents and possibly holding a stranger's email, are data to it,
   never instructions.
@@ -1516,7 +1531,7 @@ grader. A trial keeps every score it is given; the report reads each grader's ne
 errored one shows the trial as errored by grading until a later `score` succeeds.
 Each entry has the grader's name and a digest of its code (a workflow grader: its file, with its
 run's id), a digest of the part of the key it reads (`expect`'s values for `expect`, each
-criterion by `id` for the judge, the whole key with `key/` for a dataset's own), its verdict,
+criterion by its text for the judge, the whole key with `key/` for a dataset's own), its verdict,
 numbers, reasons, model and cost, its parts with their votes, and `errored` when it errored.
 
 ### Grading again: `score`
@@ -1567,6 +1582,12 @@ the workflow, or `observe`.
 
 Settled by the owner:
 
+- **The judge reads the facts** (2026-11-15): what a workflow did is often only in a mock's
+  record, not in its result (the mail triage's summary goes out as an email), so `observe` hands
+  it to the judge as a fact.
+- **Criteria are two lists of sentences** (2026-11-15): `must:` and `must-not:` in a key's
+  frontmatter, no ids. A criterion is known by its text, so an edited one is judged again.
+  Found writing the mail evals, where `id`, `kind` and `text` per criterion was most of the key.
 - **Run and score first; compare second.** A case says whether it must pass; a run gives a
   verdict and an exit code from its own trials. Comparing is the same run on more folders
   (2026-11-14).
@@ -1607,7 +1628,7 @@ Settled in the design:
   given, requests to a routed host that no route matches, and requests to any other host not
   the engine's own or in `realHosts`, throw, and the trial errors as
   the dataset's, so a forgotten fake never reads as a regression. A call that must not happen is
-  a recording fake and a fact the key checks (`replied: false`), so it fails as the workflow's.
+  a recording fake and a fact the key checks (`reply: null`), so it fails as the workflow's.
 - **One process per trial**, so a mock is a plain function `observe` reads, and nothing needs
   restoring.
 - **Facts, not assertions**: `observe` returns values and the key judges them, so every failing
@@ -1690,7 +1711,8 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-0. [ ] %% define evals for mini-workflows/mail triage, ask me to review , it should be readable and easy to follow and understand and designed api surface should allow do to what we want %%
+0. [x] The mail triage's evals written against this design, in `mini-workflows` on its `evals`
+   branch, and reviewed by the person: `env.ts`, seven cases, and what writing them changed here
 
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
 - [ ] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
@@ -1809,7 +1831,7 @@ Run once, by hand, at the end of task 1: at most one violated `must-not` missed,
 Task 3 then checks only that the built judge gives the hand-run judge's verdicts on that part.
 
 **If the judge misses a bar**, criteria leave this story: keys hold `expect` alone and the key
-reader refuses `criteria`; task 3 builds the grader interface with `expect` and a dataset's own
+reader refuses `must` and `must-not`; task 3 builds the grader interface with `expect` and a dataset's own
 code graders behind it, the key digest and `score`, with no judge and no grader-workflow path
 (`gradeCase`, the grade folder and `grade.json` come with the reviews' move); its `Done when` items
 that need the judge are dropped, and so are task 5's "read, not run" and the person's check of the
@@ -1859,7 +1881,7 @@ Work:
 - The case verdict, history, known-failing cases, `--failed`, the exit codes.
 - `run` (`--dataset`, `--cases`, `--failed`, `--trials`; one trial unless told) and `report`, for a
   run and for one case (`--case`).
-- The key reader reads and checks `criteria`, but they are not graded until task 3.
+- The key reader reads and checks `must` and `must-not`, but they are not graded until task 3.
 - In the mail project: the readers' working folder moves out of the repository; today's date
   through a `clock.ts` if it isn't already a function of its own; the `evals/` folder with
   `env.ts`.
@@ -2153,6 +2175,16 @@ fixed; the thirteenth found none.
 - [ ] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 0 (2026-11-15)
+
+The mail triage's evals are on `mini-workflows`' `evals` branch: `evals/school-mail/env.ts`, seven
+cases (`trip-form`, `grade-3-only`, `fundraiser`, `picture-day`, `edsby-post`, `trip-moved`,
+`newsletter`). Writing them changed this design: `c.fake` passes plain values through; `defineEnv`
+takes no type argument (one given blocks the inference of `observe`'s result); a workflow module
+already loaded before `setup` is refused; the refusal names `real`; criteria are two lists of
+sentences; the judge reads the facts. The workflow gained `clock.ts`, and its readers' folder
+moved to the temp folder.
 
 ## Human review
 
