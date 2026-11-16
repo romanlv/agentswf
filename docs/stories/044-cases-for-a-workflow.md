@@ -2293,9 +2293,10 @@ stdout only.
   marker search follows them, each folder once; `keep` copies a link's file, and never a path
   outside the scratch folder (`..` in `keep` is refused when the dataset is read).
 - `dataset.json`'s `graders` is refused until task 3. `c.fake<T>(fakes, { name })`.
-- A tool handler calling a mocked module is tested by nothing: a tool runs only when an agent
-  calls it, and `awf run` has no scripted harness, so it needs a live agent. It runs in the
-  trial's process, where the mocks are.
+- A tool handler calling a mocked module needs a live agent, as a tool runs only when an agent
+  calls it and `awf run` has no scripted harness: `tests/lab-cases.eval.ts`, one claude haiku
+  agent in srt calling a `lookup` tool whose module's real export throws. Live 2026-11-16: the
+  handler got the fake, called once, passed in 5.6 s, ~$0.002.
 - The type test that a project with its own copy of `agentswf` type-checks needs the project's
   workflow test (`agentswf/testing`) beside its `env.ts`, read after it: TypeScript 5.9 takes two
   packages of one name and version for one, and mixes their types only then.

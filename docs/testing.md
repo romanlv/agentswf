@@ -202,6 +202,11 @@ What they cover between them:
   its own, and a spec that can't open must end the run before it starts, leaving no record.
   `tests/run-sandbox.test.ts` checks these checks for free. 3 agents; srt ~1 min, ~$0.05–0.17;
   docker ~1½ min, ~$0.12–0.16.
+- `lab-cases` — awf-lab's cases for a workflow (story 044): one case of a throwaway project whose
+  agent calls a workflow tool; its handler calls a module `env.ts` mocks, whose real export throws,
+  and must answer with the fake. Checks the trial passed `expect`, the fake was called once and no
+  call was refused. `tests/lab-cases.test.ts` checks these checks for free. 1 claude haiku agent
+  in srt, from `CLAUDE_CODE_OAUTH_TOKEN`; srt must be installed. ~10 s, ~$0.002.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~50 s, ~$0.16. Fails,
   saying why, where docker cannot run.
@@ -257,7 +262,8 @@ as story 002 did to check accounting against the session files.
   harness's sandbox needs, or the engine's sandboxes; `skills` for `engine/src/skills`,
   `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
-  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `effort` for effort, `agent.set`
+  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `lab-cases` for
+  `packages/lab/src/cases/env` or how a case's trial is started; `effort` for effort, `agent.set`
   or a harness's settings flags; `tools` for workflow tools, the
   lesson, flags on `wfa tool` or `wfa result`, or a harness's shell limits; `calling-session` for
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
