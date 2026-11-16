@@ -1643,7 +1643,7 @@ export async function runLab(
 ): Promise<number> {
   const cwd = environment.cwd ?? process.cwd();
   const stdout = environment.stdout ?? ((text) => console.log(text));
-  const stderr = environment.stderr ?? ((text) => console.error(text));
+  const stderr = environment.stderr ?? ((text) => void process.stderr.write(`${text}\n`));
   try {
     const { command, names, options } = parse(argv);
     if (command === "schema") {
