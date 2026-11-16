@@ -351,7 +351,7 @@ const RULES: Rule[] = [
   // `agentswf/typebox` for its schemas.
   {
     dir: "examples",
-    except: ["**/*.test.ts", "**/*.driver.ts", "nudges/ledger.ts"],
+    except: ["**/*.test.ts", "**/*.driver.ts", "**/evals/**", "nudges/ledger.ts"],
     forbid: [
       {
         pattern: /^(@agentswf\/|agentswf(?!\/(workflow|typebox)$))/,
@@ -383,6 +383,19 @@ const RULES: Rule[] = [
       {
         pattern: /^(@agentswf\/|agentswf(?!\/(workflow|client)$))/,
         reason: "a program drives runs through agentswf/client",
+      },
+    ],
+  },
+  // A workflow's cases are written against the lab's case surface, as an author's evals are: they
+  // import the workflow and its modules, `@agentswf/lab/cases`, and may use the runtime.
+  {
+    dir: "examples",
+    files: "**/evals/**/*.ts",
+    forbid: [
+      {
+        pattern: /^(@agentswf\/(?!lab\/cases$)|agentswf(?!\/(workflow|typebox)$))/,
+        reason:
+          "a workflow's cases use @agentswf/lab/cases, agentswf/workflow and agentswf/typebox",
       },
     ],
   },

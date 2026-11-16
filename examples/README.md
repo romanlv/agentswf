@@ -38,6 +38,7 @@ write one.
 | --- | --- | --- |
 | `messaging/` | an implementer writes `slugify()`; a reviewer that knows a house style runs it, asks for each fix by message and checks again; `-- codex` (the default), `pi`, `claude` or `claude-tui` | [Review loop](../site/patterns/review-loop.md), [Messaging](../site/guide/messaging.md) |
 | `feature-delivery/` | a ticket from plan to approved change, each step a stage: `-- {ticket}`, `--revisions {n}`, `--reviewer {name}={runtime}`; give it a `--run-root` outside the repository | [Plan, implement, review](../site/patterns/plan-implement.md) |
+| `refund-desk/` | an agent decides refund requests by a policy and code acts on them; its cases in `evals/` check it with `bun awf-lab run`, the whole workflow on fakes and the decision alone; a few cents | [its README](refund-desk/README.md) |
 | `event-sketches/` | a run per merge request (`mr-review.ts`) and per Datadog case (`dd-case.ts`), each with the poller that sends it events; type-checked sketches, not runnable | [Review on event](../site/patterns/review-on-event.md), [Events](../site/guide/events.md) |
 
 ### Reviews

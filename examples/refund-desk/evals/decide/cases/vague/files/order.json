@@ -1,0 +1,9 @@
+{
+  "id": "A-2290",
+  "customer": "Ana Silva",
+  "deliveredAt": "2026-11-07T11:00:00Z",
+  "items": [
+    { "name": "Linen tablecloth", "price": 38 },
+    { "name": "Napkins, set of six", "price": 16 }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "id": "A-1980",
+  "customer": "Sam Okafor",
+  "deliveredAt": "2026-09-20T10:00:00Z",
+  "items": [{ "name": "Desk lamp", "price": 49 }]
+}

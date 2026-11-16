@@ -1,0 +1,6 @@
+{
+  "id": "A-2105",
+  "customer": "Tom Becker",
+  "deliveredAt": "2026-10-13T09:00:00Z",
+  "items": [{ "name": "Electric kettle", "price": 39 }]
+}

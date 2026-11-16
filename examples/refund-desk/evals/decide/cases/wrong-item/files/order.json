@@ -1,0 +1,6 @@
+{
+  "id": "A-2302",
+  "customer": "Priya Nair",
+  "deliveredAt": "2026-11-09T13:00:00Z",
+  "items": [{ "name": "Frying pan, large", "price": 45 }, { "name": "Spatula", "price": 9 }]
+}
