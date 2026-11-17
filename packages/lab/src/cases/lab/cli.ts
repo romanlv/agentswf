@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { findConfigFile } from "../../shared/config-file";
 import { awfLogs, processRunner, type Runner } from "../../shared/runner";
 import { RUN_KIND, type RunRecord } from "../format/records";
+import { codeGraders } from "./code-graders";
 import { type CaseInfo, type DatasetInfo, fileDigest, readCases, readDataset } from "./dataset";
 import { clearStale } from "./folders";
 import { gitState, gitTop } from "./git";
@@ -25,7 +26,8 @@ import {
   writeRun,
   writeTrial,
 } from "./store";
-import { runTrial, type TestGrader, type TrialDone, type TrialLab } from "./trial";
+import { type LabGrader, runTrial, type TrialDone, type TrialLab } from "./trial";
+import { trialSettingsOf } from "./trial-settings";
 import { type CaseWorkspace, chooseDataset, openCaseWorkspace } from "./workspace";
 
 export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
@@ -71,7 +73,7 @@ export type CasesEnvironment = {
   /** The checks of a folder before the first trial; absent, the real ones. */
   inspect?: (root: string, envFile: string) => Promise<FolderSetup>;
   /** Graders a test adds after `expect`; task 3 builds the real interface. */
-  graders?: readonly TestGrader[];
+  graders?: readonly LabGrader[];
   now?: () => Date;
 };
 
@@ -359,7 +361,14 @@ async function run(context: Context): Promise<number> {
       logs: environment.logs ?? awfLogs,
       tmp,
       env: environment.env ?? process.env,
-      graders: environment.graders ?? [],
+      graders: [
+        ...(environment.graders ?? []),
+        ...codeGraders(
+          info,
+          workspace.root,
+          trialSettingsOf(info.name, info.dataset).setupTimeoutMs,
+        ),
+      ],
       now,
     };
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));

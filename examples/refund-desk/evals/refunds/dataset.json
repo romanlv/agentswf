@@ -2,5 +2,6 @@
   "kind": "awf.case-dataset/0",
   "sandbox": "workflow",
   "agentReach": { "network": [] },
-  "timeout": "5m"
+  "timeout": "5m",
+  "graders": ["replyStatesRefund"]
 }

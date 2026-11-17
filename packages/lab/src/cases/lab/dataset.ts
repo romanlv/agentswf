@@ -6,6 +6,9 @@ import { parseKey } from "../format/key";
 import { DATASET_KIND, type Dataset, DatasetSchema, type Key } from "../format/settings";
 import { Refusal } from "./refusal";
 
+/** The file a dataset's own code graders are named exports of. */
+export const GRADERS_FILE = "graders.ts";
+
 export const DATASET_FILE = "dataset.json";
 export const ENV_FILE = "env.ts";
 export const KEY_FILE = "key.md";
@@ -72,9 +75,25 @@ export function readDataset(name: string, dir: string): DatasetInfo {
     throw new Refusal(describeProblems(file, checked.problems) + why);
   }
   const dataset = checked.value;
-  if ((dataset.graders ?? []).length > 0) {
+  const names = new Set<string>();
+  for (const grader of dataset.graders ?? []) {
+    if (typeof grader !== "string") {
+      throw new Refusal(
+        `${file}: graders: a grader workflow isn't run yet; name an export of ${GRADERS_FILE} instead`,
+      );
+    }
+    if (grader === "expect" || grader === "criteria") {
+      throw new Refusal(`${file}: graders: ${grader} is the lab's own; name your grader otherwise`);
+    }
+    if (!/^[A-Za-z_$][\w$]*$/.test(grader)) {
+      throw new Refusal(`${file}: graders: ${grader} is no export name of ${GRADERS_FILE}`);
+    }
+    if (names.has(grader)) throw new Refusal(`${file}: graders: ${grader} is named twice`);
+    names.add(grader);
+  }
+  if (names.size > 0 && !existsSync(join(dir, GRADERS_FILE))) {
     throw new Refusal(
-      `${file}: graders is not read yet: a dataset's own graders come with task 3; remove them, and expect grades the facts`,
+      `${file}: graders names ${[...names].join(", ")}, and ${dir} has no ${GRADERS_FILE}`,
     );
   }
   for (const pattern of dataset.keep ?? []) {

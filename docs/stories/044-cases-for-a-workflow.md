@@ -2343,6 +2343,43 @@ Checks:
   must-fix, 7 should-fix); every finding fixed with a test that fails before it, except a tool
   handler's mock (above). Recorded in the previous section.
 
+### Task 3, first part: a dataset's own code graders (2026-11-16)
+
+Built ahead of the rest of task 3 at the person's request: the `refund-desk` example needed a
+grader of its own, and this part doesn't wait on task 1's judging.
+
+- `defineGrader({ grade, readsFacts? })` from `@agentswf/lab/cases`; `dataset.json`'s `graders`
+  names exports of the dataset's `graders.ts`. A grader workflow (`{ "workflow": … }`) is still
+  refused, and so are `expect` and `criteria` as names, a name that is no export name, a name
+  given twice, and `graders` without a `graders.ts`.
+- Each grader runs in a Bun process of its own started in the code folder
+  (`cases/env/grade-helper.ts`), exchanging JSON files with the lab, so dataset code never loads
+  into the lab's process. Its output goes to a file, not a pipe, so a process it left running
+  can't hold the lab after the kill. A throw, an answer the entry schema refuses, an answer with
+  no verdict, numbers or `notApplies` (or `notApplies` beside either), a missing export, or a
+  grader slower than `setupTimeout` errors the trial by grading. Its environment is the trial's:
+  the lab's, without the calling session's variables.
+- It is given the case (name, built folder, input, key without its marker, and its `key/` folder
+  when it has one), the result, the scratch folder and the folder the `keep` paths were saved to;
+  with `readsFacts`, the facts and the stages' values. It returns `verdict`, `numbers`, `reasons`
+  and `notApplies`.
+- Its entry's `code` digest is its name and `graders.ts`'s text. An edit to a module `graders.ts`
+  imports keeps the digest, so `score` can't tell that grader edited. Settle what the digest
+  covers before `score` reads it: it's a record format then.
+- Code graders run after `expect`, every trial, even when `expect` failed: they are cheap. Pooled
+  numbers in the report, `score`, grader workflows and the criteria judge are still task 3's.
+- Reviewed by two subagents, architecture and correctness, and the example's grader as a reader.
+  No must-fix. Fixed: a grader's grandchild held the stderr pipe past the kill (verified hang of
+  20 s on a 3 s limit); empty or contradictory answers were stored; `key/` and `kept` weren't
+  given; the calling session's variables reached the grader; untested claims. The example's first
+  motivation was wrong: a $54 payout already fails `expect`, so the grader now checks a rule that
+  holds on every case. The digest's reach is recorded above, not fixed.
+- Proof: `code-graders.test.ts` (input, `readsFacts`, `notApplies`, each error, a lingering
+  child, the digest); in `cli.test.ts`, a grader failing a trial `expect` passed, graders run
+  after `expect` failed and under `setupTimeout`, and the refusals. Live, the example's
+  `refunds` dataset with `replyStatesRefund`, three trials each: 9 passed, the grader's reasons on
+  every trial and "nothing was refunded" on the declines (run 7).
+
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.

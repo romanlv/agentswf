@@ -6,6 +6,14 @@ import { copiedModule, missingStageNames } from "./sources";
 import { shared, trialSettings, writeLine } from "./state";
 
 export type { Case, Faked, Spies, Spy } from "./case";
+export {
+  type CodeGrader,
+  defineGrader,
+  type FactsInput,
+  type Grade,
+  type GradeInput,
+  type GradeNumber,
+} from "./grader";
 export type { RouteHandler } from "./routes";
 export type { HttpRequest } from "./state";
 

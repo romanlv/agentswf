@@ -16,7 +16,8 @@ export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
     repositoryPath === "packages/engine/src/workflow-loader.ts" ||
     repositoryPath === "packages/engine/src/client/exported.ts" ||
     repositoryPath === "packages/engine/src/client/reply-probe.fixture.ts" ||
-    repositoryPath === "packages/lab/src/review/lab/load.ts"
+    repositoryPath === "packages/lab/src/review/lab/load.ts" ||
+    repositoryPath === "packages/lab/src/cases/env/grade-helper.ts"
   );
 }
 

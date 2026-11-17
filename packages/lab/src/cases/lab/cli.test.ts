@@ -20,7 +20,7 @@ import type { TrialLine } from "../format/trial-file";
 import { type CasesEnvironment, runCases } from "./cli";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
 import { readTrials, runNumbers } from "./store";
-import type { TestGrader } from "./trial";
+import type { LabGrader } from "./trial";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -303,7 +303,7 @@ async function run(
   return { ...result, where, fake };
 }
 
-const undecided: TestGrader = {
+const undecided: LabGrader = {
   name: "unsure",
   grade: async () => ({ verdict: "undecided", reasons: [{ about: "x", text: "could not tell" }] }),
 };
@@ -393,7 +393,7 @@ describe("a case's verdict and the exit code, through the command line", () => {
   });
 
   test("a grader that throws on every trial exits 5", async () => {
-    const throws: TestGrader = {
+    const throws: LabGrader = {
       name: "broken",
       grade: async () => {
         throw new Error("grader bug");
@@ -402,6 +402,41 @@ describe("a case's verdict and the exit code, through the command line", () => {
     const { code, out } = await run({ a: {} }, {}, 2, { graders: [throws] });
     expect(code).toBe(5);
     expect(out).toContain("by grading");
+  });
+
+  test("a dataset's own grader in graders.ts fails a trial expect passed: 1, with its reason", async () => {
+    const where = project({ a: {} }, { graders: ["strict"] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const strict = { kind: "awf.case-grader/0", readsFacts: true,
+        grade: ({ facts }) => ({ verdict: "failed", reasons: [{ about: "ok", text: "ok is " + facts.ok + ", and strict wants more" }] }) };`,
+    );
+    const fake = scripted({});
+    const { code, out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(1);
+    expect(out).toContain("strict: ok is true, and strict wants more");
+  });
+
+  test("a dataset's grader runs after expect failed, and is given setupTimeout", async () => {
+    const where = project(
+      { a: { key: keyMd("expect:\n  ok: false\n") } },
+      { graders: ["counts", "slow"], setupTimeout: "1s" },
+    );
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `const kind = "awf.case-grader/0";
+      export const counts = { kind, readsFacts: false, grade: () => ({ numbers: { hits: { count: 1, of: 2 } } }) };
+      export const slow = { kind, readsFacts: false, grade: () => new Promise(() => setInterval(() => {}, 1000)) };`,
+    );
+    const { code } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(5);
+    const [trial] = readTrials(storeOf(where), 1);
+    const entries = trial!.scores.at(-1)!.entries;
+    expect(entries.map((e) => [e.grader, e.verdict ?? e.errored?.reason ?? e.numbers])).toEqual([
+      ["expect", "failed"],
+      ["counts", { hits: { count: 1, of: 2 } }],
+      ["slow", "grader slow took longer than 1s"],
+    ]);
   });
 
   test("the lab breaking mid-run exits 4 and leaves the run partial", async () => {
@@ -615,13 +650,24 @@ describe("the checks of a folder before the first trial: exit 2", () => {
 });
 
 describe("refusals before any trial: exit 2", () => {
-  test("a dataset.json with graders: they come with task 3", async () => {
-    const where = project({ a: {} }, { graders: ["accuracy"] });
-    const fake = scripted({});
-    const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
-    expect(code).toBe(2);
-    expect(err).toContain("a dataset's own graders come with task 3");
-    expect(fake.calls).toHaveLength(0);
+  test("graders a dataset can't have: no graders.ts, a workflow, the lab's own names", async () => {
+    const cases: [unknown[], string][] = [
+      [["accuracy"], "has no graders.ts"],
+      [[{ workflow: "graders/judge.ts" }], "a grader workflow isn't run yet"],
+      [["expect"], "expect is the lab's own"],
+      [["criteria"], "criteria is the lab's own"],
+      [["a-b"], "a-b is no export name of graders.ts"],
+      [["x", "x"], "x is named twice"],
+    ];
+    for (const [graders, said] of cases) {
+      const where = project({ a: {} }, { graders });
+      if (graders[0] !== "accuracy") writeFileSync(join(where.ds, "graders.ts"), "");
+      const fake = scripted({});
+      const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+      expect(code).toBe(2);
+      expect(err).toContain(said);
+      expect(fake.calls).toHaveLength(0);
+    }
   });
 
   test("a keep path reaching outside the scratch folder", async () => {

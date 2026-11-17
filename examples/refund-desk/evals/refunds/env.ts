@@ -38,6 +38,8 @@ export default defineEnv({
         refunded: shopSpies.refund.mock.calls.reduce((sum, [, amount]) => sum + amount, 0),
         refunds: shopSpies.refund.mock.calls.length,
         replied: replies().some((text) => text.trim() !== ""),
+        /** What the customer was told: no key expects it, and `graders.ts` reads it. */
+        reply: replies().join("\n\n"),
       }),
     };
   },

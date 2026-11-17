@@ -11,7 +11,7 @@ import {
   TRIAL_KIND,
   type TrialRecord,
 } from "../format/records";
-import type { Fact } from "../format/settings";
+import type { Fact, Key } from "../format/settings";
 import { TRIAL_ENV } from "../format/trial-env";
 import { blame, readTrialLines } from "./blame";
 import { type CaseInfo, type DatasetInfo, folderDigest, sha256 } from "./dataset";
@@ -30,14 +30,30 @@ import { appendScore, awfRunsOf, trialDirOf, trialFileOf, writeTrial } from "./s
 import { backstopOf, trialSettingsOf } from "./trial-settings";
 import type { CaseWorkspace } from "./workspace";
 
-/** What a grader the lab's tests add is given and gives back; task 3 builds the real interface. */
-export type TestGrader = {
+/** A grader the lab runs after `expect`: a dataset's own from `graders.ts`, or one a test adds. */
+export type LabGrader = {
   name: string;
+  /** The digest of the grader's code, stored on its entry; a test grader's name otherwise. */
+  code?: () => string;
   grade(input: {
-    case: string;
+    case: {
+      name: string;
+      dir: string;
+      input: unknown;
+      key: Omit<Key, "marker">;
+      /** The case's `key/` folder, when it has one. */
+      keyDir?: string;
+    };
     facts: Record<string, Fact>;
+    stages: Record<string, unknown>;
     result: unknown;
-  }): Promise<Pick<GraderEntry, "verdict" | "numbers" | "reasons">>;
+    scratch: string;
+    /** Where the trial's `keep` paths were saved. */
+    kept: string;
+    /** The trial's own folder, outside the case and scratch folders, for the grader's files. */
+    work: string;
+    env: Record<string, string>;
+  }): Promise<Pick<GraderEntry, "verdict" | "numbers" | "reasons" | "notApplies">>;
 };
 
 export type TrialLab = {
@@ -57,7 +73,7 @@ export type TrialLab = {
   tmp: string;
   /** The lab's environment, which every trial starts from. */
   env: Readonly<Record<string, string | undefined>>;
-  graders: readonly TestGrader[];
+  graders: readonly LabGrader[];
   now: () => Date;
 };
 
@@ -250,7 +266,11 @@ export async function runTrial(
     const gradable =
       !record.leaked && !errored && !record.workflowError && record.stopped === undefined;
     if (gradable && !info.key.draft) {
-      const graded = await grade(lab, info, record);
+      const graded = await grade(lab, info, record, {
+        ...folders,
+        kept: join(dir, "kept"),
+        env: definedOf(withoutCallingSession(lab.env)),
+      });
       if ("errored" in graded) errored = graded.errored;
       else if (graded.entries.length > 0) {
         score = { kind: SCORE_KIND, at: lab.now().toISOString(), entries: graded.entries };
@@ -271,6 +291,13 @@ async function grade(
   lab: TrialLab,
   info: CaseInfo,
   record: TrialRecord,
+  trial: {
+    parent: string;
+    dir: string;
+    scratch: string;
+    kept: string;
+    env: Record<string, string>;
+  },
 ): Promise<{ entries: GraderEntry[] } | { errored: NonNullable<TrialRecord["errored"]> }> {
   const facts = record.facts ?? {};
   const entries: GraderEntry[] = [];
@@ -297,11 +324,29 @@ async function grade(
     const started = Date.now();
     const base = {
       grader: grader.name,
-      code: sha256(`test grader ${grader.name}`),
+      code: grader.code?.() ?? sha256(`test grader ${grader.name}`),
       key: keyDigest,
     };
     try {
-      const out = await grader.grade({ case: info.name, facts, result: record.result });
+      const { marker: _, ...key } = info.key;
+      const inputFile = join(trial.dir, "input.json");
+      const keyDir = join(info.dir, "key");
+      const out = await grader.grade({
+        case: {
+          name: info.name,
+          dir: trial.dir,
+          input: existsSync(inputFile) ? JSON.parse(readFileSync(inputFile, "utf8")) : {},
+          key,
+          ...(existsSync(keyDir) ? { keyDir } : {}),
+        },
+        facts,
+        stages: record.stages ?? {},
+        result: record.result ?? null,
+        scratch: trial.scratch,
+        kept: trial.kept,
+        work: trial.parent,
+        env: trial.env,
+      });
       entries.push({ ...base, ...out, reasons: out.reasons ?? [], ms: Date.now() - started });
     } catch (error) {
       entries.push({

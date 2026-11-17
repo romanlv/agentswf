@@ -78,7 +78,8 @@ evals/decide/cases/day-30/
 ```
 
 Each dataset's `env.ts` turns what happened into flat **facts**:
-- `refunds/` reports what the code did: `action`, `refunded`, `refunds`, `replied`.
+- `refunds/` reports what the code did: `action`, `refunded`, `refunds`, `replied`, and the
+  `reply` text, which its grader reads.
 - `decide/` reports what the agent decided: `action`, `amount`.
 
 `key.md`'s `expect` gives each fact's right value, and a trial passes when every fact matches.
@@ -88,9 +89,10 @@ into the case, and the lab says so.
 To add a case, run `bun awf-lab case new decide/{name}`. It makes the folder and a key with its
 marker; then write `files/` and `expect`.
 
-`dataset.json` sets two things. `"sandbox": "workflow"` means the agents run in the sandbox the
-workflow gives them. `"agentReach": { "network": [] }` is what the lab checks they could reach
-besides their model, which here is nothing.
+`dataset.json` sets what holds for every case. `"sandbox": "workflow"` means the agents run in
+the sandbox the workflow gives them. `"agentReach": { "network": [] }` is what the lab checks
+they could reach besides their model, which here is nothing. `refunds/` also names its own grader,
+`"graders": ["replyStatesRefund"]`.
 
 ## What each case catches
 
@@ -117,11 +119,69 @@ case's mistake, not the prompt's. The ticket now says the lid arrived cracked.
 Neither problem shows up in a single run. Finding both took about twenty trials, a few cents by
 the lab's estimate.
 
-## Grading beyond exact facts
+## A grader of your own
 
-`expect` compares facts exactly. Two more kinds of grading are planned, and this example will gain
-both when they ship:
+`expect` holds the answers that differ from case to case: this ticket gets a $24 refund, that one
+a decline. Some checks are instead a rule that holds on every case. Those go in a **grader**: a
+named export of the dataset's `graders.ts`, listed in `dataset.json`.
 
-- `must` and `must-not` criteria in `key.md`, judged by an agent, such as "the reply doesn't
-  promise a refund that wasn't made";
-- a dataset's own code grader, in `graders.ts`.
+The policy says a refund's reply states the amount refunded. Every fact can be right, with the
+right $24 paid, while the reply says only "we've processed your refund", or "your $54 order has
+been refunded". `refunds/graders.ts` checks the rule on every case that refunds:
+
+```ts
+import { defineGrader } from "@agentswf/lab/cases";
+
+export const replyStatesRefund = defineGrader({
+  readsFacts: true,
+  grade({ facts }) {
+    if (typeof facts.refunded !== "number") throw new Error("observe returned no refunded number");
+    const refunded = facts.refunded;
+    if (refunded === 0) return { notApplies: "nothing was refunded" };
+    const named = dollars(String(facts.reply)); // "$24", "$ 24.00" and "$1,024", as numbers
+    if (named.some((amount) => Math.abs(amount - refunded) < 0.005)) {
+      return {
+        verdict: "passed",
+        reasons: [{ about: "reply", text: `it names $${refunded}, the amount refunded` }],
+      };
+    }
+    const said =
+      named.length > 0 ? `it names ${named.map((n) => `$${n}`).join(", ")}` : "it names no amount";
+    return {
+      verdict: "failed",
+      reasons: [{ about: "reply", text: `$${refunded} was refunded, and ${said}` }],
+    };
+  },
+});
+```
+
+It checks that the amount paid is named, not that no other amount is: the `pushy` replies mention
+the $200 they decline. It reads only amounts written with "$", which is how this agent writes
+them.
+
+You could compute the same check in `observe` as a fact, `replyStatesAmount`, and add
+`replyStatesAmount: true` to each refunding case's key. But it's one rule, not an answer that
+changes per case. A grader states it once, and it covers every case added later without touching
+their keys. It also says when it doesn't apply, and when it fails it says which amounts the reply
+named, not only that a value was false.
+
+`awf-lab report --case pushy` shows each grader's verdict and reasons, trial by trial:
+
+```text
+  expect: passed
+  replyStatesRefund: passed
+    reply: it names $24, the amount refunded
+```
+
+On `late-return` it shows `replyStatesRefund: nothing was refunded`. The grader doesn't apply,
+so the verdict is `expect`'s.
+
+A trial fails when any grader fails it. A grader runs after `expect`, in a Bun process of its own
+started in your checkout, so it can import your code and read the case's files from `case.dir`.
+It's given the case, the workflow's result and the scratch folder. With `readsFacts`, it also gets
+the facts and the stages' values, so a grader on `decide/` would read the reply from
+`stages.decide`. A grader that throws marks the trial as errored by grading, not as the workflow's
+fault.
+
+Still planned: `must` and `must-not` criteria in `key.md`, judged by an agent, for what code can't
+check, such as "the reply doesn't blame the customer".

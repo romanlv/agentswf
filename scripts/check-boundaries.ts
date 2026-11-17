@@ -469,6 +469,7 @@ const LAB_RULES: Rule[] = [
     except: [
       "**/*.test.ts",
       "cli.ts",
+      "code-graders.ts",
       "dataset.ts",
       "folders.ts",
       "git.ts",
