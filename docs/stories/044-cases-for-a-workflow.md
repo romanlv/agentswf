@@ -1278,9 +1278,7 @@ Out of scope:
 - **`sandbox`** accepts only `"workflow"` until task 10: trust the sandboxes the workflow opens
   itself. It is required, with no default to grow used to, so task 10 can add the lab's box
   without breaking a dataset file: `{ "lab": "srt" }` or `{ "lab": "docker", "image": … }`
-  (Q10), the provider named, with Docker's image, required (it must hold bun, git and the
-  harnesses `awf run` needs); `"lab"` in prose means either. Task 10 also adds `"network": "any"` to
-  `agentReach`, for a reviewer's open network. The report says which setting a run used.
+  (Q10; `image` required, holding bun, git and the harnesses); `"lab"` in prose means either. Task 10 also adds `"network": "any"` to `agentReach`. The report says which setting a run used.
 - **`agentReach`**: `{ "network": [domains], "webSearch": false, "sockets": false }` (`webSearch`
   and `sockets` optional, `false` by default; a cursor agent counts as web search, since its
   harness keeps its web tools), what the workflow's agents may
@@ -1299,16 +1297,10 @@ Out of scope:
 - **`awf-lab.json`** serves both kinds until task 13: `kind: awf.lab-workspace/0`, optional until
   a new-kind dataset is used; `datasets`, the review kind's folder (a new-kind dataset is a folder of `evals/` itself); `judgeAgent: { harness, model }` (not
   `judge`, which the review loader refuses as the old name of `scorer`); `store`, optional, in
-  place of the default store; `hide`, optional, paths in the repository kept out of the lab's
-  box, a loop's copy and the code folder's digest, for keys or results kept outside `evals/`
-  (autoresearch's old `datasets/`, `results/`, `reports/`, and `docs/` and `lenses/README.md`,
-  which quote key issues); `reuseDays`, optional, how old a trial may be to be reused (14 by
-  default, Q11); `records`, optional, a folder inside `evals/` for the run, trial and
-  score records (any other path is refused, since agents' working copies leave `evals/` out), to be committed (Q12); named apart from the review kind's `results`, which this
-  file holds too until task 13. The review fields (every key of the review kind's
-  `REVIEW_FIELDS` and `REVIEW_OPTIONS`: `clone`, `datasets`, `dataset`, `results`, `runs`,
-  `variants`, `scorers`, `scorer`, `comparisons`, `comparison`, `trials`, `baseline`, `budget`,
-  `sandbox`, `seed`, `holdout`) become optional, checked only when a review dataset is used.
+  place of the default store; `records`, optional, a folder inside `evals/` for records to commit
+  (Q12); `hide`, optional, paths kept out of the lab's box, a loop's copy and the code digest,
+  for keys or results kept outside `evals/`; `reuseDays` (Q11). The review fields become
+  optional, checked only when a review dataset is used.
 - **One set of commands.** A new-kind dataset is a folder of `evals/` holding a `dataset.json`
   with `kind: awf.case-dataset/0`; a review dataset is found as today, through `awf-lab.json`'s
   `datasets`. `run`, `score` and `report` hand it to the code for its kind. With one dataset you
@@ -1343,14 +1335,12 @@ Out of scope:
   workflow or `setup` starts, and refuse their real calls.
 - **Reach**: after the run, whatever its ending, the lab reads the run's `agent-opened` and
   `sandbox-opened` lines and the run record's `sandboxes` with the column's `awf`. The trial errors
-  as `reach`, the dataset's, for the following. Under `"lab"`, the box is every agent's sandbox,
-  so the first two items are replaced by one, the box's spec: its network must be
-  `agentReach.network` plus the agents' model domains, `realHosts` and the engine's own hosts,
-  since the workflow's own code runs in the box too (agents in it can reach `realHosts` as well,
-  which the report says); the unknown-agent part of the first item
-  still applies, and web search and sockets are read from the box's spec, the cursor rule from
-  `agent-opened`'s `harness`. `agentReach.network: "any"` allows every domain, under either
-  setting.
+  as `reach`, the dataset's, for the following. Under `"lab"` the box is every agent's sandbox, and
+  its network is `agentReach` plus the model domains, `realHosts` and the engine's hosts, since
+  the workflow's code runs in it too. `"network": "any"` allows every domain. Under `"lab"` the box's spec
+  replaces the sandbox items below: its web search and sockets are checked against `agentReach`;
+  an agent with no `agent-opened` line and the cursor rule still apply; the report says agents
+  can reach `realHosts`.
   - an agent with no `sandbox` on its `agent-opened` line, or an agent named in the run's sessions
     or turns with no `agent-opened` line at all (its reach unknown);
   - a sandbox's `spec.network` domain not in `agentReach.network` and not among the model domains
@@ -1593,72 +1583,33 @@ until task 13.
 A dataset says what "better" means by exporting `compare` from its `graders.ts` (Q14); without
 it, a report has columns and no verdict.
 
-- **The forms**: a preset, `better.paired({ primary, guards?, tiebreak? })` (the review loop's
-  sequential paired rule from `src/compare`, which can stop as soon as it can tell) or
-  `better.mean(fn, { onFailure? })` (the higher average of one number per trial, as DSPy's
-  optimizers use), or a
-  `defineComparison` of the dataset's own. All three come from `@agentswf/lab/cases` and are
-  pure; the helper process runs them, outside any trial.
-- **Its input**, per trial of each column: the case, `passed` (1 for passed, 0 for failed,
-  missing for errored, leaked, undecided, graded by numbers and not graded), the graders' `numbers`, `cost` and
-  `time`. A reused trial counts as any other. A trial the workflow failed or stopped has no
-  numbers; each preset metric says what such a trial scores (`onFailure`, a number, or
-  `"missing"` by default), as `src/compare`'s `onVariantFailure` does, so a review's recall can
-  count 0. A trial a cheaper grader failed, whose costly graders were skipped, has none of their
-  numbers; each preset metric scores it as `onFailure` says, as for a failed workflow.
-  `better.mean(fn, { onFailure? })` takes the same option for its one number. The report's pooled numbers leave out trials the workflow failed or stopped (which have no
-  numbers) and trials whose grader was skipped (counted apart), and say how many of each; a trial a grader failed has its numbers pooled.
-- **Its output**: a verdict per column against the reference column (`better`, `worse`, `tie`,
-  `undecided`), its reason, the metrics as compared, and `stop`, as JSON with `--json`. With no
-  other column, it still runs and reports the reference column's metrics, with no verdict.
-- **`stop` ends only a loop's try** (task 12): the loop runs a try case by case and ends it once
-  `stop` is set. A plain `run` runs every trial it planned and shows the verdict; it is never
-  partial because of `compare`, and its exit code is the reference column's own.
+- **The forms**: `better.paired({ primary, guards?, tiebreak? })`, the review loop's sequential
+  paired rule from `src/compare`, which can stop as soon as it can tell; `better.mean(fn)`, the
+  higher average of one number per trial, as DSPy's optimizers use; or a `defineComparison` of
+  the dataset's own. All pure, from `@agentswf/lab/cases`, run in the helper process.
+- **Its input**, per trial: `passed` (1 or 0, missing when there is no verdict), the graders'
+  `numbers`, `cost` and `time`. A trial with no numbers, because the workflow failed or a costly
+  grader was skipped, scores what each metric's `onFailure` says (default `"missing"`), so a
+  review's recall can count 0.
+- **Its output**: each column's verdict against the reference column, its reason and metrics,
+  and `stop`, as JSON with `--json`.
+- **`stop` ends only a loop's try** (task 12). A plain `run` runs every trial it planned.
 
 ### What is kept
 
-**The store** (amended by Q12): `~/.awf/lab/{name}-{id}/`, one per project, named from the
-project's identity alone: `{id}` from its repository's first commit, `{name}` from the main
-checkout's folder (`git rev-parse --git-common-dir`), so every worktree and the loop's copies
-share one, unless `awf-lab.json`'s `store` says otherwise; `store` stays outside the
-repository. With `records` set, run, trial and score records go there, in the repository, and
-the workflows' run records, grader runs' among them, stay in the store. Every column's trial and
-score records go to the records folder of the checkout running `awf-lab`, the loop's copies and
-`--against` folders included; reuse, history, `--failed`, `score` and `capture` read trials from
-there when `records` is set, and from the store otherwise. With `records` set, a run's id is
-unique across machines (its start time and a random suffix); `report {n}` takes the store's local
-number for a run made here, and `report {id}` any run, one that came through committed records
-included.
+**The store** (Q12): `~/.awf/lab/{name}-{id}/`, one per project, named from its repository's first
+commit and its main checkout's folder, so every worktree and loop copy shares it; never inside the
+repository. With `records` set, run, trial and score records go to that folder in `evals/`, to be
+committed, and are read from there; the workflows' run records stay in the store. A run's id is
+then unique across machines, and `report {id}` opens a committed one.
 
-**Reuse** (Q11): a stored trial is reused when what shaped it matches: the code folder's digest,
-the parameters, the case's input digest, `env.ts`'s digest, `dataset.json`'s trial settings
-(`sandbox`, `agentReach`, `realHosts`, `keep`, `timeout`, `setupTimeout`), the `awf` version and
-the lab's version (a digest of the lab's trial-side files, by file, not by import graph: the
-`fetch` preload, `src/cases/env/` less `grader.ts`, `grade-helper.ts` and `compare`'s presets,
-`src/cases/format/trial-env.ts`, the runner and the case-folder builder, listed by name in task 9's plan, since the lab is linked from a checkout, not published; grading code,
-the grade helper, the built-in graders and `compare`'s presets are left out, keyed by their own
-versions); within `reuseDays` of `awf-lab.json`, 14 by default. The code folder's digest
-covers the files git would hold (tracked, and untracked but not ignored: `git ls-files -co
---exclude-standard`, with the source checkout's git and ignore rules over wherever the code is, so
-a loop's copy without `.git` lists its own files, a new one included, and a listed file missing
-from the folder is hashed as absent), less the records folder, `awf-lab.json`, the paths `hide` names and the dataset folders'
-cases, `graders.ts`, `capture.ts`, `dataset.json` and grader workflow files (each dataset's
-`graders/` folder, where they live, on demand or not;
-keyed by their `meta.version`; a grader's own modules belong in `graders/` too, and anything it
-imports from outside counts as code), which are keyed apart or graded again; so editing one
-case, a grader or `judgeAgent` runs no other case again. A code folder that is neither in a git
-repository nor the lab's own copy of one, your checkout included, is refused (exit 2). Only a trial the lab could grade is reused: never one errored by
-the dataset, the provider or the lab, nor a leaked one; one errored by grading is reused and
-graded again; a grader that needs the working folder rebuilds it itself (task 7). A reused trial that graders run on (see "When graders run") is graded
-again, as `score` would, when a grader's key digest or `{major}.{minor}` changed, its newest entry
-errored, or it has none, or, for the criteria judge, `judgeAgent`'s harness or model changed; otherwise its stored scores stand. A
-grader marked `onDemand` is graded again only by `score --grader`, on any of these triggers; a
-costly grader skipped as "not judged" is graded only once the cheap graders, graded again first,
-no longer fail the trial. So a key edit runs no trial again, only grading.
-History, `--failed` and a case's verdict count distinct trials, so a reused trial is never counted
-twice; asking for more trials than are stored runs only the difference, and `--fresh` runs all
-new ones. The plan says how many trials it reuses, at no cost; the report marks them with their
-count and oldest date, and leaves their cost out of the run's.
+**Reuse** (Q11): a stored trial is reused, within `reuseDays` (14 by default), when what shaped it
+is unchanged: the code (a digest of the files git would hold, less the records folder, `hide`, and
+each dataset's cases, keys and grading code), the parameters, the case's input, `env.ts`, the trial
+settings in `dataset.json`, and the `awf` and lab versions. Never a trial errored by anything but
+grading, nor a leaked one. A code folder outside git is refused (exit 2). A key or grader change grades a reused trial again, by `score`'s rules,
+and runs nothing. History and verdicts count each trial once; asking for more trials runs only the
+difference; `--fresh` runs all new ones. The plan and report say how many trials were reused.
 
 - Without `records`, a run's id is a number, the next one in the store, taken under the lock. `report` shows the last
   run; `report {n}` another; `awf-lab runs` lists them, newest first. With `records`, `runs` lists
@@ -1673,16 +1624,12 @@ reused from earlier runs, start and finish times. No finish means partial.
 **A trial record** (`kind: awf.case-trial/0`):
 
 - which: run, dataset, case, folder, and the `awf` it ran on with its version;
-- the input: a copy of the case's own files and `input.json` (never the key) with the built
-  folder's digest, and the digest of the dataset's shared files, which are kept once by digest
-  in the store, or the records folder when set, not copied per trial; `score` and a grader
-  rebuilding the checkout read them from there;
+- the input: a copy of the case's own files and `input.json` (never the key), and the digest of
+  the dataset's shared files, kept once by digest rather than per trial;
 - the conditions: the sandbox setting, `agentReach`, the models used, when it ran;
-- the key it is reused by: the parameters, the code folder's digest, `env.ts`'s digest, the
-  trial settings and the lab's version;
+- the parameters and the reuse key;
 - what happened: the workflow run's id and outcome, its time and cost (the accounting's
-  `estimate`, with its `known` and `priced` counts), each stage's time (so a
-  report needs no run record, as on a fresh clone), the whole result, the
+  `estimate`, with its `known` and `priced` counts), each stage's time, the whole result, the
   facts, the stages' values (which were given), the unused mocks, the refused
   calls each with its phase, the saved files, whether the marker was found, the outcome, and
   the agents' sandboxes and the reach check's result, and `errored: { by, phase, reason }`
@@ -1700,20 +1647,14 @@ numbers, reasons, harness and model, cost, its parts with their votes, and `erro
 `awf-lab score [{n} | {id}]` grades the last run (or the run named) again. It never runs `env.ts`: not `setup`,
 the workflow, or `observe`.
 
-- **What it grades again**, on a trial graders run on (see "When graders run"; never one the
-  workflow failed or stopped, nor one whose key is a draft): a grader whose key digest no longer matches or whose version's
-  `{major}.{minor}` changed, the criteria judge when `judgeAgent`'s harness or model changed, whose
-  newest entry errored, or that has no entry (a draft key made final, criteria added, a grader
-  added, a criterion skipped as "not judged"). A grader marked `onDemand` is graded again only by
-  `score --grader`, on any of these triggers; a costly grader skipped as "not judged" is graded
-  only once the cheap graders, graded again first, no longer fail the trial. Editing the note under a key's frontmatter costs
-  nothing for `expect` and the judge. The judge judges only a trial's changed criteria, unless `judgeAgent`'s harness or model, or
-  the judge's `{major}.{minor}`, changed since its entry; then all of them.
+- **What it grades again**, on a trial graders run on (see "When graders run"): a grader whose key
+  digest or `{major}.{minor}` changed, the judge when `judgeAgent` changed, one whose newest
+  entry errored, or one with no entry (a draft made final, criteria or a grader added, criteria
+  "not judged" once the cheap graders pass). An `onDemand` grader is graded only by
+  `score --grader`. The judge judges only changed criteria unless its model or minor changed.
 - **What it grades from**: the trial's stored case folder, the current key, the stored result, the
-  stored facts and stages' values, and the saved files. There is no scratch folder: `grade.json`
-  names none and a code grader is given none. A grader that needs one rebuilds it from the stored
-  case (as the review grader restores the checkout, task 7); one that reads the scratch folder
-  without rebuilding it errors as grading's error.
+  stored facts and stages' values, and the saved files. There is no scratch folder: a grader that
+  needs one rebuilds it from the stored case, as the review grader restores the checkout.
   A trial whose case input changed since it ran is not graded again; the report says to run that
   case again.
 - **The versions** (decided 2026-11-16, replacing code digests): every grader declares a semver
@@ -1917,7 +1858,7 @@ Alternatives rejected:
 
 Reviews and the loop (added 2026-11-16):
 
-- [ ] 7. What reviews and the loop need, set against the design
+- [x] 7. What reviews and the loop need, set against the design
 - [ ] 8. Grader workflows and `score`, built against the review scorer
 - [ ] 9. Parameters, compared as columns, and trials reused
 - [ ] 10. The `"lab"` sandbox
@@ -2358,107 +2299,12 @@ Done when:
 
 ### 7. What reviews and the loop need, set against the design
 
-Outcome: every feature of the review lab is carried over, dropped or redesigned, each with its
-reason, and the design sections and tasks 8 to 13 change before any code does. A design pass, no
-code. Its structural choices are the person's, asked as Q10 onward.
+Outcome: every feature of the review lab carried over, dropped or redesigned, with its reason,
+and the design changed before any code. Done 2026-11-16.
 
-Execution:
-
-- [ ] Plan: list the review lab's features from its code and its use, then weigh each against
-  this design and the purpose: an agent iterating on a workflow quickly, on any dataset.
-- [ ] Implement: amend the design sections, Decisions, Alternatives rejected and tasks 3 to 6 and
-  8 to 13 to what it settles.
-- [ ] Review: subagents on the inventory's completeness against the code and the autoresearch
-  repository, and on the design's coherence after the changes; until clear.
-- [ ] Resolve: disposition every finding; ask the person about structural ones.
-- [ ] Verify: the `Done when` items.
-
-Work:
-
-- The inventory, from `packages/lab/src/review/`, `awf-lab --help`, stories 011 and 013 (its
-  live-loop lessons included), the todos on the loop and the review lab ([[loop-next]],
-  [[comparison-efficiency]], [[workflow-in-sandbox]], [[key-growth-from-runs]],
-  [[jev-noise-audit]], [[judge-opus-voter]], [[review-shapes-and-models]]) and the autoresearch repository's use (its `awf-lab.json`,
-  `awf-lab.loop.json`, variants, scorers, `scripts/` and `docs/experiments`):
-  - variants: a workflow module (several per repository: `air`, `explore`, the loop's proposals),
-    its argv with placeholders (`{base}`, `{request}`), a version, a timeout, and `read`, which
-    turns the result into findings;
-  - the sanity workflows (`NOP_WORKFLOW`, `ORACLE_WORKFLOW`, `COMMENTS_WORKFLOW`), which check
-    judges without a person; the oracle reads the key, which this design calls leaked;
-  - scorers: a judge workflow with argv and a version; `--settled` and `--rest-from`, which reuse
-    another scorer's labels; the lab's label check (`checkScorerResult`), which moves into the
-    grader since the lab stores parts without knowing them; two scorers' agreement in `report`;
-  - fixtures: `fixture.json` (source, snapshot `base`, `head`, `start`), a thin `snapshot.bundle`
-    that restores only against the workspace's `clone`, `request.md`; sealing and verifying a
-    set; `collect` and `draft-key`, which build them from merge requests;
-  - keys: `key.json`'s issues (mechanism, severity, category, scope, locations), revisions,
-    `fixes.bundle`, `evidence/`;
-  - the contained run (Docker, the checkout mounted), the open network a reviewer keeps,
-    allowance waiting, `--jobs`, the budget and its stop;
-  - selection: `--cases` with a seeded order, `--only` down to one finding, `--where` and its
-    predicates, holdouts (set in `awf-lab.json` per dataset) refused by every command but the
-    loop's final check;
-  - comparing and reading: `--baseline`, `*.compare.ts` and its sequential stop, `check`'s
-    headroom, variance, resolution and `--rescore`, `show` and its addresses, `report --md` and
-    `--categories`, `list`, `schema`, `--dry-run`, metrics by category and source;
-  - the results autoresearch commits (`results/{dataset}/{variant}@{version}/`), trials pooled
-    across days, and a try named by its code so its trials count again;
-  - the loop: proposer, its bundle (missed issues, per-category tallies), the scope check (one
-    file, an import allowlist), the container generated code runs in, incumbent, keep on
-    `better`, stall, spend read from records, resume from `proposal.json`, holdout and `--final`;
-  - the exit codes (3 a budget stop and 4 a declined plan, where this design has 3 flaky and 4
-    the lab broke);
-  - the ~20 internal modules autoresearch imports through `@agentswf/lab/review/*`.
-- Weighed against this design's decisions where they pull apart, each a question for the person
-  unless the answer is plain:
-  - one run at a time against `--jobs`, safe only once no agent can reach a grade folder: moved
-    to task 10's plan;
-  - every comparison rerunning both sides, and a store per checkout outside the repository,
-    against committed results, pooled trials and reuse keyed by version: answered, Q11 and Q12;
-  - a folder per change against variants that pick a workflow module, a `read` and a timeout:
-    answered, Q13 (parameters);
-  - the trial running in your checkout beside its keys, with only agents sandboxed, against the
-    loop's generated code, which story 013 runs whole in a container: answered, Q10 (`"lab"`);
-    the try is the lab's copy of your checkout, without keys;
-  - "the lab doesn't say which is better" against the loop keeping a try on `better`: answered,
-    Q14 (`compare` in code, with presets); `src/compare` placed where the new kind may import it;
-  - no scratch folder at `score` against a review scorer that reads the restored checkout:
-    settled, a grader that needs the working folder rebuilds it itself from the stored case (a
-    review grader restores the checkout from the dataset's bundles); no lab mechanism;
-  - facts that are flat against findings that are a list: settled, facts stay flat; a review
-    grader reads the findings from the whole result, which every grader is given;
-  - `agentReach` with no "any domain" against a reviewer's open network: settled,
-    `"network": "any"` (task 10);
-  - the marker search over every commit in the folders against a restored checkout with all of
-    its project's history: M6, in task 11's plan;
-  - the lab never naming a domain against review code that must live somewhere: settled, in the
-    autoresearch repository, as that dataset's own code, copied from `review/` before task 13;
-  - whether the move needs an engine change, which Scope rules out: none, by Q10, since the lab
-    wraps the `awf run` process ([[workflow-in-sandbox]] stays a story of its own);
-  - the sanity workflows: settled, the no-op and cited-comments workflows are review workflows
-    like any other, picked by a parameter; the oracle, which reads the key, is no trial (it would
-    be leaked) and becomes an autoresearch script that grades the key's own issues as a result
-    with the review grader's labelling run directly, as its judge tests do, outside the lab
-    (table in Implementation notes);
-  - `--settled` and `--rest-from`: settled, dropped as flags; a grader workflow may be given its
-    previous parts (M2), so the review grader reuses the labels it already settled;
-  - from M2, left for the move: grading a run the workflow failed (the review counts its recall
-    as 0, where this design grades no trial the workflow erred on): settled, the trial stays
-    ungraded and `compare` counts it, each metric in a preset saying what a failed trial scores
-    (`src/compare`'s `onVariantFailure`), so a review's recall counts 0; and a key digest
-    limited to the files a grader reads: dropped, since each grader's key digest is its own.
-- What an agent needs to iterate quickly, checked against the commands: every result as JSON,
-  a cost known before a run and a budget stop, a comparison that stops as soon as it can tell, a
-  holdout it can't tune on, and where to read why a trial failed.
-
-Done when:
-
-- A table in Implementation notes, one row per feature: carried, dropped or redesigned, and why.
-  Written 2026-11-16.
-- Each structural choice is under Open questions as Q10 onward, answered by the person before
-  task 8 starts. Q10 to Q14 were answered on 2026-11-16.
-- The design sections, Decisions, Alternatives rejected and tasks 3 to 6 and 8 to 13 say what
-  the table settled.
+- [x] Plan, implement, review, resolve, verify. The owner answered Q10 to Q14; the smaller
+  choices and every feature's disposition are the table in Implementation notes ("Task 7: the
+  review lab's features"), and the design sections say what they settled.
 
 ### 8. Grader workflows and `score`, built against the review scorer
 
@@ -2468,10 +2314,9 @@ then runs on this path.
 
 Execution:
 
-- [ ] Plan: the grade folder and `gradeCase()` as the design gives them; the review scorer's
-  match judge's labelling ported to them as the first grader workflow, in the autoresearch
-  repository's `evals/air-1/graders/` (task 7), ahead of task 11's converted cases, with its scripted-agent test there; M2's shape for parts and votes; how a grader that needs the workflow's
-  working folder gets it at `score` time, as task 7 settled.
+- [ ] Plan: the grade folder, `gradeCase()` and `previous.json` as the design gives them; the
+  review scorer's match labelling ported as the first grader workflow, into autoresearch's
+  `evals/air-1/graders/`; M2's shape for parts and votes.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2479,73 +2324,35 @@ Execution:
 
 Work:
 
-- `"graders": [{ "workflow": … }]`, the grade folder, `gradeCase()`, a grader's run in the store
-  and its cost on the score entry.
-- `parts` with labels, votes and how each was settled; `numbers` pooled into report rows.
-- `score` grading a kept run with a grader added to `dataset.json` since it ran, or with
-  `--grader {name}`, a grader listed in `dataset.json` with `"onDemand": true` (a code grader's
-  `{ "grader": …, "onDemand": true }`, or a workflow entry with its `readsFacts`), which grades kept trials only and never runs on
-  trials; `--grader` refuses any other name (exit 2); so judges are
-  tried on the same trials, and a report row shows their agreement; the report marks that `score` brings (keys changed since grading, a case
-  edited since the run).
-- `--json` on `score` and `report`; `score` prints its plan with its estimated cost and asks at a
-  terminal, with `--yes`, `--dry-run` and `--budget`.
+- Grader workflows in `graders/`, their run in the store and their cost on the score entry.
+- `parts` and `numbers` stored and pooled into report rows.
+- `score`: grading again by the rules in "Grading again", `onDemand` graders through `--grader`,
+  the agreement row, its plan with `--yes`, `--dry-run`, `--budget`, and `--json` on `score` and
+  `report`.
 
 Done when:
 
-- A test on scripted agents: a grader workflow is given its folder, and its parts, numbers and
-  cost reach the score entry.
-- A test: a dataset's own code grader returns counts that are pooled into report rows; a trial
-  the workflow failed or stopped is left out and counted, a trial whose grader workflow was
-  skipped is left out of that grader's numbers and counted apart, and a trial a grader failed
-  has its numbers pooled; a dataset whose graders give no verdict shows its cases as graded by numbers
-  only.
-- A test: a grader workflow is given its previous parts and key digest in `previous.json`, and
-  none on its first grading, after a minor bump, or when its newest entry errored.
-- A test: `score --dry-run` prints its plan and grades nothing; `score --budget` stops at the cap
-  with exit 3, as partial; `score --json` and `report --json` each print one document.
-- A test: a grader workflow outside the dataset's `graders/` folder is refused, and so is one
-  whose name matches a `graders.ts` export, one named `expect` or `criteria`, and one listed
-  twice.
-- A test: `score --grader {name}` grades kept trials with an `onDemand` grader, once a code
-  grader's `{ "grader": "x", "onDemand": true }` and once a workflow entry; the trial's verdict is
-  unchanged; a later `run` and a plain `score` leave it ungraded, whether it has no entry or its
-  key digest changed; a name that is not an `onDemand` entry, or an object form naming no
-  `graders.ts` export, is refused with exit 2.
-- A test: `score` grades no trial the workflow failed or stopped, nor one whose key is a draft.
-- A test: after `score` with an added grader, the report shows how often the two graders agree
-  on the same trials, by verdict and, for graders with parts and no verdict, by label.
+- A test on scripted agents: a grader workflow is given its folder and `previous.json`, and its
+  parts, numbers and cost reach the score entry.
 - A test: `score` never runs `env.ts`; it grades again on a changed key digest or minor version,
-  and with an added grader; a trial whose case was edited since it ran is not graded again and is
-  reported as edited.
+  never a workflow-failed or draft trial; an `onDemand` grader runs only with `--grader` and
+  never decides a verdict.
+- A test: pooled numbers leave out workflow-failed trials and count them.
 - A test: a grader that throws leaves the trial errored by grading, and `score` grades it again.
-- A test pins the outcome order: a failed `expect` with a grader that errored reads as errored; a
-  leaked trial that also errored reads as leaked.
-- The interface built is the one M2 left, or Implementation notes say what changed and why.
-- A test on scripted agents: the ported match judge, given the votes the review kind's scorer
-  was given, gives the same labels and the same settlement.
+- A test on scripted agents: the ported match labelling, given the review scorer's votes, gives
+  its labels and settlement.
 
 ### 9. Parameters, compared as columns, and trials reused
 
-Outcome: `--param k=v` and `--vary k=a,b` run the dataset's cases under parameters `env.ts` reads
-(`c.params`), every combination a column beside your checkout's (Q13); an unchanged side reuses
-its stored trials (Q11), from one store per project with committable records (Q12); and a
-dataset's `compare` export gives each column a verdict (Q14). Comes after task 4.
+Outcome: `--param` and `--vary` run the cases under parameters `env.ts` reads (Q13); an
+unchanged side reuses its stored trials (Q11), from one store per project with committable
+records (Q12); a dataset's `compare` gives each column a verdict (Q14). Comes after task 4.
 
 Execution:
 
-- [ ] Plan: the key as "What is kept" gives it (the folder's digest, sorted parameters, the case's
-  input digest, `env.ts`'s digest, the trial settings, the `awf` version and the lab's version)
-  and which files the folder's digest covers; which lab files the lab's version digests, by
-  name (the `fetch` preload, the trial-side `cases/env/` modules, `cases/format/trial-env.ts`,
-  the runner, the case-folder builder; and whether `marker.ts` and `reach.ts`, which set a
-  trial's leaked status and reach result, belong), and which it leaves out (`grader.ts`,
-  `grade-helper.ts`, the built-in graders, `compare`'s presets); `report`, `score` and `capture` reading records; how parameters and
-  folders combine; how parameters key history, `--failed`, the exit code and the run record's
-  columns; the store's project identity and the `records` folder; what becomes of task 2's
-  per-checkout stores; `better.paired`,
-  `better.mean` and `defineComparison` on `src/compare`; how autoresearch's variants map onto
-  parameters.
+- [ ] Plan: the reuse key and the files its digests cover, as "What is kept" gives them, named
+  file by file; how parameters key history and the run record's columns; what becomes of task
+  2's per-checkout stores; how autoresearch's variants map onto parameters.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2553,101 +2360,37 @@ Execution:
 
 Work:
 
-- `--param`, `--vary` (repeatable), `c.params`; the parameters and the key on the trial record; a
-  column per combination, labelled by its values.
-- Reuse within `reuseDays`, marked in the report with its date; `--fresh`.
-- `run --budget {usd}` (a stop exits 3, partial), `run --dry-run`, `run --json` (the run's
-  result, each column's verdict and the trials' outcomes as one document), and `report --md`
-  (task 7's table).
-- The store per project, still refused inside the repository; `records` in `awf-lab.json`;
-  task 2's per-checkout store replaced.
-- `src/compare` moved into the shared folder, with `check-boundaries.ts`.
-- The parameters in what a grader is given and in `grade.json`.
-- A dataset's shared files kept once by digest in the store or the records folder, the trial
-  record naming the digest instead of copying them (task 2's records copy them today).
-- `compare` in `graders.ts`, run in a process of its own; each column's verdict, as JSON, with
-  the rule's stop.
+- `--param`, `--vary`, `c.params`, `AWF_LAB_PARAMS`, a column per combination.
+- Reuse, `--fresh`, `reuseDays`; the store per project; `records`; shared files kept once.
+- `run --budget`, `--dry-run`, `--json`; `report --md`.
+- `src/compare` moved into the shared folder; `compare` with `better.paired`, `better.mean` and
+  `defineComparison`, run in the helper process.
 
 Done when:
 
-- A test on scripted agents: two values of a parameter give two columns, and each trial records
-  its parameters and key.
-- A test: a second run with nothing changed reuses every trial; an edit to `env.ts`, the workflow,
-  a parameter, a case's input, a trial setting, the `awf` version or the lab's version runs new
-  ones; a key edit, an
-  edit to another case, to `graders.ts`, to a grader workflow or to `judgeAgent`, or a write to
-  `records` runs none, and
-  a `judgeAgent` edit grades the criteria again; `--fresh` runs all; a trial past the window runs again; asking
-  for more trials than are stored runs only the difference, and history counts each trial once.
-- A test: a reused trial is not graded by an `onDemand` grader; after a key edit, a reused trial
-  the workflow failed or stopped, or whose key is a draft, is not graded again.
-- A test: a reused trial whose key digest or grader `{major}.{minor}` changed is graded again,
-  one whose grader had only a patch bump keeps its grades, and one errored by
-  the dataset, the provider or the lab, or leaked, is run again, not reused; one errored by
-  grading is reused and graded again.
-- A test: a loop's copy with no change has its source's digest, and one with a new, changed or
-  deleted file has another; a code folder outside git, your checkout included, is refused with
-  exit 2.
-- A test: a fresh clone with committed records reuses their trials, shows their history and
-  `--failed`, and `report {id}` opens a committed run; stage times come from the trial record,
-  and `report --case` on a trial whose run isn't in the local store says its logs are on the
-  machine that ran it.
-- A test: an unchanged `--against` side reuses its trials; with `records` set, its trial records
-  land in the running checkout's records folder, and a run's id is unique across machines.
-- A test: a grader is given the trial's parameters.
-- A test: two trials of a dataset with shared files store those files once, and `score` rebuilds
-  the case folder from the digest.
-- A test: a `records` path outside `evals/` is refused with exit 2; with `records`, `runs` lists
-  committed runs and a bare `report` opens the newest.
-- A test: bumping the criteria judge's minor grades again and runs no trial; an edit to the
-  grade helper or to a `compare` preset runs no trial.
-- A test: `run --budget` stops at the cap with exit 3, as partial; `run --dry-run --json` prints
-  the plan, its reuse and cost, and runs nothing; `run --json` prints the run's result as one
-  document; `report --md` prints the report as a table.
-- The mail triage's and refund-desk's sandboxes are checked to keep agents out of the records
-  folder.
-- A test: two worktrees of one repository share a store; run, trial and score records land in
-  `records` when it is set, and the store is refused inside the repository.
-- A test: a trial whose grader workflow was skipped because `expect` failed it is scored by
-  `onFailure` for that grader's numbers, in `better.paired` and in `better.mean`.
-- A test: with one column, `run --json` holds `compare`'s metrics for the reference column and no
-  verdict.
-- A test: with `compare` exported, a column's verdict against the reference column comes as JSON;
-  `better.paired` sets `stop` once the difference is clear while `run` still runs every trial it
-  planned, `onFailure` counts a failed trial as its
-  number, `better.mean` and a `defineComparison` of
-  the dataset's own give theirs; without it, no verdict is shown.
-- A test: two `--vary` flags of two values each give four columns, each labelled by both values;
-  with `--against`, every folder gets every combination; `--param` applies to every column.
-- A test: with parameters, `--failed` and the exit code follow the reference column (your
-  checkout, `--param`'s values, each `--vary`'s first value).
-- Live: refund-desk's `decide` with `--vary model=…` over two models, after the example takes
-  the model as a parameter, then again with nothing changed, reusing every trial.
+- A test on scripted agents: `--vary` gives a column per combination, each trial recording its
+  parameters and key; `--failed` and the exit code follow the reference column.
+- A test: an unchanged run reuses every trial, a change to what shapes a trial runs new ones, and
+  a key edit only grades again.
+- A test: two worktrees share a store, and a fresh clone reuses trials from committed records.
+- A test: `compare` gives a column's verdict as JSON; `run` still runs every planned trial.
+- Live: refund-desk's `decide` over two models with `--vary`, then again, reusing every trial.
 
 ### 10. The `"lab"` sandbox
 
-Outcome: `"sandbox": { "lab": "srt" | "docker" }` runs the whole trial, `awf run`, the workflow's code and its agents,
-in one outer sandbox from a provider the setting names (srt or Docker), with the keys, the store
-and the home folder outside it (Q10). Inside it the workflow's own sandboxes are set aside. It is
-the new kind's counterpart of the review lab's contained run, which stays the review kind's until
-task 13.
+Outcome: `"sandbox": { "lab": "srt" | "docker" }` runs the whole trial in one box, with the
+keys, the store and the home folder outside it, and the workflow's own sandboxes set aside
+(Q10). Comes after task 9.
 
 Execution:
 
-- [ ] Plan: whether `awf run` works inside srt (its control socket, its run folder), and if not,
-  Docker first; what the box holds (the case and scratch folders; the code folder (for a loop's
-  try, its copy in the store, mounted alone, the rest of the store outside) as the files the
-  digest lists (what git would hold, so no ignored file) plus `node_modules`, without `.git`,
-  any case's `key.md` or `key/`, the records folder, or the paths `awf-lab.json`'s `hide` names; a
-  per-trial run folder moved into the store after the trial) and what it reaches (`agentReach`, the agents' models, `realHosts`
-  and the engine's own hosts, or an open network where `agentReach` says so); how the lab makes
-  the box within boundary 5, by the provider's command-line tool (`srt`, `docker`), as the review
-  lab's `docker run` does, never importing `@agentswf/sandbox`; how the workflow's own sandboxes are set aside; how
-  the reach check reads the box's spec; where the lab gets the model domains before the run
-  starts (every harness it carries a login for, or a list in `dataset.json`), and that an agent
-  whose harness's domains the box lacks errors as `reach`; whether `--jobs` becomes safe with it;
-  the harness logins it carries in. If setting the workflow's own sandboxes aside needs an engine
-  change, stop and ask the person (Scope).
+- [ ] Plan: whether `awf run` works inside srt, else Docker first; the box holds the case and
+  scratch folders and the code folder as the files the digest lists plus `node_modules` (no
+  ignored file), without `.git`, any `key.md` or `key/`, the records folder or `hide`'s paths; a
+  loop's try copy is mounted alone, writable, from the store (an awf sandbox can't be granted a
+  path in `~/.awf`, so the proposer runs in the box too); the logins it carries in; where the model domains
+  come from; whether `--jobs` becomes safe. If setting the workflow's sandboxes aside needs an
+  engine change, stop and ask the person.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2655,47 +2398,29 @@ Execution:
 
 Work:
 
-- `"sandbox": { "lab": "srt" }` or `{ "lab": "docker", "image": … }` (required) in `dataset.json`, and `agentReach.network: "any"`; `hide` in
-  `awf-lab.json`; the lab wrapping the `awf run` process;
-  the reach check and the report under it.
+- The box, made by the provider's own command-line tool (boundary 5); `hide`;
+  `agentReach.network: "any"`; the reach check under `"lab"`.
 
 Done when:
 
-- A test: code and agents under `"lab"` cannot read the case's key, a key through git history,
-  the records folder, the store (other than a code folder mounted from it) or the home folder, and the report says which setting a run
-  used.
-- A test: a file under a path `hide` names can't be read in the box, and editing it changes no
-  trial's key; an ignored file in the checkout (not `node_modules`) is not in the box.
-- A test: under `"lab"`, a box with web search or sockets that `agentReach` doesn't allow errors
-  the trial as `reach`.
-- A test: under `"lab"`, the box's network is `agentReach` plus the agents' model domains,
-  `realHosts` and the engine's own hosts, a call
-  to a domain outside it is blocked and never passes, and a workflow that opens its own sandbox
-  runs with it set aside.
-- A test: `"network": "any"` admits a sandbox or box with any domain, under either setting.
-- A test: `{ "lab": "docker" }` without `image` is refused; the named image is used, and changing it, as part of the `sandbox` setting, runs
-  trials again.
-- Live: refund-desk's `decide` under `"lab"`. A review under it is task 11's.
+- A test: code and agents in the box cannot read a key (in a file or git history), an ignored
+  file, the records folder, a path `hide` names, the store (other than a try's copy mounted from
+  it) or the home folder.
+- A test: the box reaches only `agentReach`, the model domains, `realHosts` and the engine's
+  hosts; a workflow that opens its own sandbox runs with it set aside.
+- Live: refund-desk's `decide` under `"lab"`.
 
 ### 11. A review dataset on cases, graded by the review scorer
 
-Outcome: the autoresearch repository's datasets run as cases: fixtures converted, the checkout
-restored by `env.ts` from bundles in the dataset, with no clone at run time, findings graded by the review scorer as a
-grader workflow, with recall and precision as numbers and a part per finding, with its label (the key issues
-missed in its numbers and reasons). Comes after
-tasks 8, 9 and 10.
+Outcome: autoresearch's datasets run as cases: fixtures converted, the checkout restored by
+`env.ts` from bundles in the dataset, findings graded by the review scorer with recall and
+precision as numbers and a part per finding. Comes after tasks 8, 9 and 10.
 
 Execution:
 
-- [ ] Plan: the converter (fixture, `request.md`, `snapshot.bundle`, `key.json`, `fixes.bundle`
-  and `evidence/` into a case folder and `key/`), which writes the clone's history once into the
-  dataset's shared `files/` as a bundle cut at the common ancestor of every case's base, holdout
-  cases included (`git merge-base --octopus {bases}`, the oldest base when history is linear;
-  that commit and its ancestors only, never a merged change or its fixes), each case's thin
-  bundle carrying what follows up to its own base and head, so it restores inside the box and on any machine, and no
-  local path enters a trial's parameters; its size; the
-  review `env.ts`; the scorer as a grader, its label check included, with its modules (matching, voting)
-  in the dataset's `graders/`; M6.
+- [ ] Plan: the converter, which writes the history once as a shared bundle cut at the common
+  ancestor of every case's base (holdouts included), each case's thin bundle carrying the rest;
+  the review `env.ts`; the grader and its modules in `graders/`; air-1's `compare`; M6.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2703,60 +2428,30 @@ Execution:
 
 Work:
 
-- air-1's `compare` in `graders.ts`: `better.paired` with primary `recall.weighted`, `onFailure: 0`
-  for recall and `"missing"` for precision; `compare` reports each column's metrics, the
-  reference column's included, in `run --json`, even with no other column.
-- The converter; the review `env.ts`, under `"lab"`; on task 8's ported labelling, recall and
-  precision as numbers, the label check (`checkScorerResult`) inside the grader; the sanity workflows as
-  task 7 settled.
-- Holdouts in `dataset.json`, carried over by the converter: `run`, `score` and `report` leave
-  holdout cases out, and refuse one named in `run --cases` or `report --case` (exit 2).
+- The converter and verifier, in autoresearch; the review `env.ts` under `"lab"`; the grader
+  and the sanity workflows as task 7's table settles; holdouts in `dataset.json`; `hide` set.
 
 Done when:
 
-- A test: no case folder holds a commit that is not an ancestor of that case's base or head.
-- autoresearch's `awf-lab.json` hides what holds key content outside `evals/`, checked, not
-  listed: a grep of every tracked file outside `evals/` for each key's `mechanism` text and
-  issue ids finds nothing that `hide` doesn't cover; a review trial under `"lab"` can't read an
-  old key.
-- Every autoresearch dataset converts, its holdout included, and the converted sets verify as
-  the old ones do, by the verifier moved into the autoresearch repository.
-- A test: the oracle script feeds a key's issues to the review grader's labelling and reports
-  recall. Live: the oracle on a few cases with the real judge, at a cost stated before it runs;
-  its recall is recorded.
-- The review grader's numbers are named as the old lab's metrics are (`recall.weighted`, recall
-  by severity, `precision`, `wrong`, `noise`), and by category and source, pooled per column.
-- A test: `run`, `score` and `report` leave holdout cases out, and refuse one named in
-  `run --cases` or `report --case` with exit 2.
-- `score` with an added grader works on a review trial.
-- Live: a few tuning cases, one review workflow and two trials each, on both labs with the same scorer,
-  the new kind under `"lab"` and the review lab in its contained run; recall from
-  `compare`'s metrics in `run --json` (trials the workflow failed counted as 0, as the old lab
-  counts them) and precision (those trials left out, on both) differ by no more than the review lab's own spread between trials on those cases,
-  and any other difference is explained.
+- Every autoresearch dataset converts and verifies, holdout included.
+- A test: no case folder holds a commit beyond its base or head, and a grep of tracked files
+  outside `evals/` for each key's text finds nothing `hide` doesn't cover.
+- A test: `run`, `score` and `report` leave holdout cases out.
+- Live: a few tuning cases, two trials each, on both labs with the same scorer; recall and
+  precision agree within the review lab's own spread between trials.
 
 ### 12. The loop, for any dataset
 
-Outcome: `awf-lab loop` runs on a new-kind dataset: a proposer agent changes the workflow, the
-change runs against the incumbent on the tuning cases, it is kept only when better, and the
-final incumbent is checked once on a holdout. It works on any dataset, not only reviews. Comes
-after tasks 4 and 8 to 11.
+Outcome: `awf-lab loop` on any dataset under `"lab"` with a `compare`: a proposer changes a
+copy of the incumbent, the try runs against it case by case, is kept only when better, and the
+final incumbent is checked once on the holdout. Comes after tasks 4 and 8 to 11.
 
 Execution:
 
-- [ ] Plan: story 013's loop on the new kind, as task 7 settled. A try is the lab's copy of the
-  incumbent (your checkout at the start, then the last kept try's copy), as the files the
-  digest lists plus `node_modules` (so no ignored file), without `.git`, any
-  dataset's `cases/` (the cases are read from your checkout, so no case, holdout or other, is in
-  the copy), the records folder or the paths `hide` names, with the proposer's change on it, or new parameter values; it
-  runs under `"lab"` (Q10), against the incumbent, whose trials are reused (Q11), and is kept or
-  dropped by the dataset's `compare` (Q14). The loop refuses a dataset whose `sandbox` isn't `{ "lab": … }`, or one with no `compare`
-  export in `graders.ts`
-  (exit 2). It exits 3 when stopped by its spend cap and 2 when its plan is declined. The proposer runs in the lab's box too (Q10), with
-  its try's copy, in the store, mounted alone and writable, since an awf sandbox may not be
-  granted a path inside `~/.awf`. The plan settles what the proposer may change (the
-  scope check, which refuses a try that changes anything under `evals/`, `env.ts` included, since
-  it decides the facts graded), the spend cap, resume, and what the proposer's box reaches (its model, and the copy alone).
+- [ ] Plan: story 013's loop on the new kind: the try's copy of the incumbent, kept in the store
+  (the files the digest lists plus `node_modules`; no ignored file, `.git`, cases, records or
+  hidden paths), the proposer in the box writing only that copy, the scope check (nothing
+  under `evals/` changes), the domain-free bundle, the spend cap, the stall stop, resume.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2764,76 +2459,30 @@ Execution:
 
 Work:
 
-- Allowance waiting: the loop waits while a plan window it draws on is past
-  `--allowance {percent}|off` (90 by default), until it resets (task 7's table).
-- Exit codes: 0 when the rounds are done or the loop stalls; `--final` exits as a `run` of the
-  holdout cases with the incumbent as the reference column would (1 when a must-pass holdout case
-  fails).
-- The incumbent's copy is kept in the store, under the loop's name, across tries and a resume;
-  the loop ends by printing the final incumbent's change against your checkout as a patch, with
-  the copy's path, for the person to apply.
-- The stall stop: three tries in a row that keep nothing end the loop with exit 0, the try log
-  saying "stalled", for a person to look at.
-- The proposer's bundle, which names no domain: each tuning case's failing checks, criteria,
-  grader reasons, parts and numbers, read from score records; never anything from a holdout.
-- `loop {name}`, resumed by name, with `--budget {usd}` (its spend cap, required on a new loop
-  and on `--final`), `--trials` per case of a try, and `--yes`; it prints its plan and asks at a
-  terminal; the start is your checkout; a try runs case by case, all of a case's trials before
-  the next, in a seeded shuffle of the tuning cases, the seed recorded in the try log, since
-  `better.paired`'s stop depends on the order; a try ends once `compare` sets `stop`.
-- `loop` with `--program {file}` (what steers the proposer, as autoresearch's
-  `programs/review.md`), `--proposer {harness/model}` and `--rounds`; and `--final`, the one
-  command that runs holdout cases (task 11 adds holdouts); `--final`
-  reports its own trials, and `report` and `score` still leave them out; the proposer's bundle; the
-  try log; `--json`.
-- A refund-desk dataset with room to improve: more cases than the three of each, a numeric
-  grader, and a holdout, so the first live loop costs cents.
+- `loop {name}` with `--program`, `--proposer`, `--rounds`, `--trials`, `--budget` (required),
+  `--allowance`, `--yes`, `--json`; `--final`; the incumbent kept in the store and handed back as
+  a patch.
+- A refund-desk dataset with room to improve: more cases, a numeric grader, a holdout.
 
 Done when:
 
-- A test: a loop's declined plan exits 2 and runs nothing; a new loop or `--final` without
-  `--budget` is refused.
-- A test on scripted agents: three dropped tries in a row end the loop with exit 0, logged as
-  stalled; the proposer's bundle
-  holds the tuning cases' failing checks, reasons, parts and numbers, and nothing from a holdout.
-- A test on scripted agents: after a try is kept, the next try is compared against it, not
-  against the starting checkout, also after a resume, the incumbent's copy read from the store
-  under the loop's name, and the next try's copy starts from the kept try's files; the loop
-  ends with the incumbent's patch and the copy's path.
-- A test: a file under a path `hide` names, or an ignored file (not `node_modules`), is not in a
-  try's copy and can't be read in the proposer's box.
-- A test: a loop whose rounds are done exits 0; `--final` exits 1 when a must-pass holdout case
-  fails.
-- A test on scripted agents: a `compare` that sets `stop` after the second case ends the try
-  there, with no later case run, and the try log says it stopped early.
-- A test: a trial errored by the provider in a loop's try is tried again right after that case's
-  trials; the proposer, in the lab's box, writes only its try's copy.
-- A test: a resumed try runs its cases in the order its recorded seed gives; `loop --json` prints
-  one document.
-- A test on scripted agents: a loop keeps a better try, drops a worse one, stops at the cap with
-  exit 3 and
-  never shows the proposer a holdout case; `--final` runs only the holdout.
-- A test: `loop` on a dataset without `compare`, or not under `"lab"`, is refused with exit 2.
-- A test: the loop waits while a plan window it draws on is past the threshold, and goes on when
-  it resets.
-- A test: a try that changes `env.ts` or anything else under `evals/` is refused, and the
-  proposer's copy holds no case's files, input or key.
-- A test: a loop stopped mid-try resumes, and generated code reaches no key, neither in a file,
-  in git history nor in the records folder.
+- A test on scripted agents: a loop keeps a better try, drops a worse one, compares each try
+  against the last kept one, stops at the cap with exit 3, and never shows the proposer a
+  holdout case.
+- A test: a try that changes anything under `evals/` is refused, and generated code reaches no
+  key.
+- A test: a loop stopped mid-try resumes.
 - Live: a short loop on refund-desk, then one round on `air-1` under the cap the person sets.
 
 ### 13. The review kind retired, and the records made `/1`
 
-Outcome: one kind of case. The review lab's runner, store, commands, flags and exit codes are
-gone, `collect` and `draft-key` become the autoresearch repository's scripts writing cases, and
-the lab's records become `/1`. Comes after
-tasks 5 and 6, which still add fields to the records, and 11 and 12.
+Outcome: one kind of case. `review/` is deleted, `collect` and `draft-key` become autoresearch's
+scripts writing cases, and the lab's records become `/1`. Comes after tasks 5, 6, 11 and 12.
 
 Execution:
 
-- [ ] Plan: what is deleted, what is copied into the autoresearch repository as its own code (task
-  7), which autoresearch scripts change,
-  which todos name retired commands, and what the docs and the site say.
+- [ ] Plan: what is deleted and what is copied into autoresearch first; which autoresearch
+  scripts and todos change; what the docs and the site say.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -2841,30 +2490,17 @@ Execution:
 
 Work:
 
-- Delete `review/` whole: its runner, store, commands and loop, with `collect` and `draft-key`
-  copied first into the autoresearch repository as scripts writing new-kind cases; one set of exit
-  codes; `awf-lab.json`'s
-  review fields refused with what replaced them.
-- `scripts/check-boundaries.ts` and boundary 5 in `AGENTS.md` for one kind.
-- Run, trial and score records and `grade.json` at `/1`; `dataset.json`'s `graders` under the
-  format rules; `awf-lab.json` at `/1`: the lab's converter rewrites a `/0` file that has no review fields (a
-  file with no `kind` is read as `/0`), and refuses one that has them, naming each field with its
-  replacement (task 7's table); the review fields are every key of `REVIEW_FIELDS` and
-  `REVIEW_OPTIONS`.
+- Delete `review/`; one set of exit codes; retired commands and flags refused with what replaced
+  them (task 7's table).
+- `check-boundaries.ts` and boundary 5 for one kind.
+- Records and `grade.json` at `/1`; `awf-lab.json` at `/1`, its converter refusing review fields.
 
 Done when:
 
-- Nothing reads or writes the review kind's run records; a test reads each record the lab writes
-  at `/1`, and `/0` records in a `records` folder are refused by name, with history and reuse
-  starting over.
-- A test: an `awf-lab.json` at `/0` without review fields, or with no `kind`, converts to `/1`;
-  one with review fields is refused, each field named with what replaced it.
-- `check-boundaries.ts` passes with the one-kind rules, and the CLI has one set of exit codes.
-- A test: each retired command and flag is refused with what replaced it, as task 7's table
-  says.
-- The autoresearch repository's `collect` makes a case that runs, and its `draft-key` drafts the
-  case's key.
-- The autoresearch repository runs on the new kind alone, its scripts included.
+- A test: each retired command, flag and `awf-lab.json` review field is refused with its
+  replacement.
+- `check-boundaries.ts` passes with the one-kind rules.
+- autoresearch runs on the new kind alone, its scripts included.
 
 Tasks are checkpoints, not a file-by-file edit script. The implementation agent may adjust the
 implementation without changing their outcomes, order, or the story's scope.
@@ -2878,13 +2514,10 @@ Automated:
 - [ ] The lab copies `key.md` and `key/` into neither folder, and a leaked marker is caught.
 - [ ] Until task 13, the review lab's existing tests pass, with only their import paths changed.
 - [ ] `score` grades again on a changed key or version, and with an added grader (task 8).
-- [ ] Two values of a parameter give two columns, each trial recording its parameters and key;
-  an unchanged run reuses its trials; two worktrees share a store; `compare` gives a verdict
-  (task 9).
-- [ ] Code and agents under `"lab"` cannot read a key (in a file or git history), the records
-  folder or the store, other than a code folder mounted from it (task 10).
-- [ ] Every autoresearch dataset converts and verifies, its holdout included, and `run`, `score`
-  and `report` leave holdout cases out (task 11).
+- [ ] Parameters give columns, an unchanged run reuses its trials, and `compare` gives a
+  verdict (task 9).
+- [ ] Code and agents under `"lab"` cannot read a key (task 10).
+- [ ] Every autoresearch dataset converts and verifies (task 11).
 - [ ] A loop on scripted agents keeps a better try and never shows a holdout (task 12).
 - [ ] Nothing reads or writes review-kind run records, and the lab's records are `/1` (task 13).
 - [ ] `bun test`
