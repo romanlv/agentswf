@@ -5,6 +5,12 @@ import { fileOf, Mocks } from "./mock";
 import { copiedModule, missingStageNames } from "./sources";
 import { shared, trialSettings, writeLine } from "./state";
 
+export {
+  type Capture,
+  type CapturedCase,
+  type CapturedRun,
+  defineCapture,
+} from "./capture";
 export type { Case, Faked, Spies, Spy } from "./case";
 export { type GradeCase, gradeCase } from "./grade-case";
 export {

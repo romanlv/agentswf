@@ -144,6 +144,8 @@ export const TrialRecordSchema = Type.Object(
     result: Type.Optional(Type.Unknown()),
     facts: Type.Optional(Type.Record(Type.String(), FactSchema)),
     stages: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    /** Each stage the workflow ran, by name: how long it took. A given stage ran no work. */
+    stageMs: Type.Optional(Type.Record(Type.String(), Type.Number({ minimum: 0 }))),
     given: Type.Optional(Type.Array(Type.String())),
     until: Type.Optional(Type.String()),
     neverReached: Type.Optional(Type.Array(Type.String())),

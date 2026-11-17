@@ -134,6 +134,26 @@ function judgeLines(
   return lines;
 }
 
+/** Each stage's median time over these trials, in the order the stages first ran; or none. */
+export function stageLine(trials: readonly StoredTrialView[]): string | undefined {
+  const order: string[] = [];
+  const times = new Map<string, number[]>();
+  // A trial that errored, stopped or failed in the workflow's body was cut short: left out.
+  for (const t of trials.filter(
+    (t) => !t.record.errored && !t.record.workflowError && t.record.stopped === undefined,
+  )) {
+    for (const [stage, ms] of Object.entries(t.record.stageMs ?? {})) {
+      if (!times.has(stage)) {
+        order.push(stage);
+        times.set(stage, []);
+      }
+      times.get(stage)!.push(ms);
+    }
+  }
+  if (order.length === 0) return undefined;
+  return order.map((stage) => `${stage} ${seconds(median(times.get(stage)!)!)}`).join(" · ");
+}
+
 /** Pooled numbers in a line: each grader's, by name. */
 function pooledText(pooled: ReturnType<typeof poolNumbers>): string {
   const each = [...pooled.graders].map(
@@ -388,6 +408,11 @@ export function renderRun({
     );
   }
   lines.push(...gradersLines(trials, decidersOf));
+  // With one trial per case, a stage's time across cases is worth a line; with more, `--case`.
+  if (run.asked.every((a) => a.trials === 1)) {
+    const stages = stageLine(trials.filter((t) => t.record.column === 0));
+    if (stages) lines.push(`time per stage, median across cases: ${stages}`);
+  }
   if (typeof stale === "number" && stale > 0) {
     lines.push(
       `${plural(stale, "grade")} out of date, a key or grader changed: awf-lab score ${run.number}`,
@@ -430,6 +455,8 @@ export function renderCase(
     `${row.name} · run ${run.number} · ${tally(row)}`,
     ...others.flatMap((other, i) => (other ? [`against ${i + 1}: ${tally(other)}`] : [])),
   ];
+  const stages = stageLine(trials.filter((t) => t.record.column === 0));
+  if (stages) lines.push(`time per stage, median: ${stages}`);
   for (const trial of trials) {
     const { record } = trial;
     const view = trialOutcome(record, trial.scores, deciders);

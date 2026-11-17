@@ -14,7 +14,7 @@ let requests = 0;
  * never a pipe: a process the grader left running would hold a pipe open, and the lab would wait
  * on it after the kill.
  */
-async function runHelper(
+export async function runHelper(
   request: Record<string, unknown>,
   options: {
     root: string;

@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { CAPTURE_KIND, type Capture } from "./capture";
 import { type CodeGrader, GRADER_KIND } from "./grader";
 
 /**
@@ -6,6 +7,7 @@ import { type CodeGrader, GRADER_KIND } from "./grader";
  * into the lab's process. Reads a request file and writes its answer to the file it names:
  *
  * - `grade`: runs one export of `graders.ts`; answers `{ grade, version }` or `{ error, version? }`.
+ * - `capture`: runs the dataset's `capture.ts` on a real run; answers `{ cases }` or `{ error }`.
  * - `versions`: each grader's declared version, without grading: a `graders.ts` export's, or a
  *   grader workflow's `meta.version` (null when it gives none); answers `{ versions }`, or
  *   `{ error }` naming the first that doesn't load.
@@ -18,6 +20,13 @@ type Request =
       input: Record<string, unknown>;
       facts: Record<string, unknown>;
       stages: Record<string, unknown>;
+      out: string;
+    }
+  | {
+      mode: "capture";
+      /** The dataset's `capture.ts`. */
+      file: string;
+      input: { run: unknown; root: string };
       out: string;
     }
   | {
@@ -39,7 +48,21 @@ const isGrader = (value: unknown): value is CodeGrader =>
 const noExport = (file: string, name: string) =>
   `${file} exports no grader ${name}: export const ${name} = defineGrader({ grade })`;
 
-if (request.mode === "versions") {
+if (request.mode === "capture") {
+  try {
+    const module = (await import(request.file)) as { default?: Partial<Capture> };
+    const capture = module.default;
+    if (capture?.kind !== CAPTURE_KIND || typeof capture.capture !== "function") {
+      answer({
+        error: `${request.file} has no capture as its default export: export default defineCapture(({ run, root }) => [...])`,
+      });
+    } else {
+      answer({ cases: (await capture.capture(request.input as never)) ?? null });
+    }
+  } catch (error) {
+    answer({ error: error instanceof Error ? error.message : String(error) });
+  }
+} else if (request.mode === "versions") {
   try {
     const versions: Record<string, string | null> = {};
     if (request.code) {

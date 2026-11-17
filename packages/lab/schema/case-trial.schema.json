@@ -180,6 +180,15 @@
         "^.*$": {}
       }
     },
+    "stageMs": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
     "given": {
       "type": "array",
       "items": {

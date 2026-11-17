@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -14,18 +14,30 @@ import {
   ScoredSchema,
 } from "../format/output";
 import { RUN_KIND, type RunRecord } from "../format/records";
-import { codeGraders, graderVersions } from "./code-graders";
+import {
+  CAPTURE_FILE,
+  capturedKey,
+  checkCaptured,
+  findRealRun,
+  findTrial,
+  freeName,
+  type Mark,
+  readRealRun,
+  writeCase,
+} from "./capture";
+import { codeGraders, graderVersions, runHelper } from "./code-graders";
 import { criteriaJudge } from "./criteria";
 import {
   type CaseInfo,
   type DatasetInfo,
   ENV_FILE,
   fileDigest,
+  folderDigest,
   graderSpecs,
   readCases,
   readDataset,
 } from "./dataset";
-import { clearStale } from "./folders";
+import { buildCase, clearStale } from "./folders";
 import { gitState, gitTop } from "./git";
 import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
@@ -72,6 +84,9 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]
                               grade the last run, or run n, again without running a trial: each
                               grader whose key or version changed, or that errored
+  capture {run id} (--good | --needs-work {note}) [--dataset {name}]
+                              a case from a past run: a trial's, from its case, or a real one,
+                              through the dataset's capture.ts; its key a draft to finish
   runs                        the runs kept, newest first
 
   --dataset {name}  the dataset: a folder beside awf-lab.json holding a dataset.json; with one,
@@ -129,6 +144,8 @@ type Options = {
   yes: boolean;
   case?: string;
   grader?: string;
+  good: boolean;
+  needsWork?: string;
   dryRun: boolean;
   budget?: number;
   json: boolean;
@@ -146,6 +163,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     json: false,
     help: false,
     against: [],
+    good: false,
   };
   const positional: string[] = [];
   const rest = [...argv];
@@ -186,6 +204,12 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
         break;
       case "--yes":
         options.yes = true;
+        break;
+      case "--good":
+        options.good = true;
+        break;
+      case "--needs-work":
+        options.needsWork = value(arg);
         break;
       case "--grader":
         options.grader = value(arg);
@@ -267,6 +291,8 @@ export async function runCases(
         return await report(context, names);
       case "score":
         return await score(context, names);
+      case "capture":
+        return await captureCommand(context, names);
       case "runs":
         return runs(context);
       default:
@@ -1024,6 +1050,141 @@ async function score(context: Context, names: readonly string[]): Promise<number
       : rendered.text;
   context.stdout([...lines, text].join("\n"));
   return exit;
+}
+
+/**
+ * `capture {run id}`: a case from a past run of the workflow. A trial's run has its case: its own
+ * `files/` and `input.json` are copied, and `--good` drafts `expect` from the trial's facts. A real
+ * run, from the project's `.awf/runs`, becomes cases through the dataset's `capture.ts`. Every key
+ * is a draft, so no grader runs on it until the person finishes it.
+ */
+async function captureCommand(context: Context, names: readonly string[]): Promise<number> {
+  const { options } = context;
+  const usage = 'awf-lab capture {run id} (--good | --needs-work "{note}") [--dataset {name}]';
+  const [runId, ...extra] = names;
+  if (!runId || extra.length > 0) throw new Refusal(usage);
+  if (options.good === (options.needsWork !== undefined)) {
+    throw new Refusal(`say how the run went, --good or --needs-work "{note}": ${usage}`);
+  }
+  const mark: Mark = options.good
+    ? { mark: "good" }
+    : { mark: "needs-work", note: options.needsWork! };
+  const workspace = workspaceOf(context);
+  const { info } = loadDataset(workspace, options.dataset);
+  const lock = takeLock(workspace.labHome);
+  if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
+  try {
+    return await captureLocked(context, workspace, info, runId, mark);
+  } finally {
+    lock.release();
+  }
+}
+
+async function captureLocked(
+  context: Context,
+  workspace: CaseWorkspace,
+  info: DatasetInfo,
+  runId: string,
+  mark: Mark,
+): Promise<number> {
+  const { environment } = context;
+  const say = (dir: string, from: string) =>
+    context.stdout(
+      `wrote ${relative(context.cwd, dir) || dir}, ${from}: its key is a draft to finish`,
+    );
+
+  const trial = findTrial(workspace.store, runId);
+  if (trial) {
+    if (trial.record.dataset !== info.name) {
+      throw new Refusal(
+        `run ${runId} is a trial of dataset ${trial.record.dataset}: --dataset ${trial.record.dataset}`,
+      );
+    }
+    const source = join(info.dir, "cases", trial.record.case);
+    if (!existsSync(source))
+      throw new Refusal(`case ${trial.record.case} is no longer in ${info.name}`);
+    const inputFile = join(source, "input.json");
+    const dir = writeCase(info, freeName(info, trial.record.case), {
+      filesFrom: join(source, "files"),
+      ...(existsSync(inputFile) ? { input: JSON.parse(readFileSync(inputFile, "utf8")) } : {}),
+      key: capturedKey(runId, mark, trial.record.facts),
+    });
+    say(
+      dir,
+      `from trial ${trial.record.trial} of case ${trial.record.case} in run ${trial.record.run}`,
+    );
+    if (folderDigestOfCase(info, trial.record.case) !== trial.record.input) {
+      context.stderr(
+        `note: case ${trial.record.case} changed since that trial ran; its files were copied as they are now`,
+      );
+    }
+    return 0;
+  }
+
+  const found = findRealRun(
+    [workspace.root, ...(workspace.repository ? [workspace.repository] : [])],
+    runId,
+  );
+  if (!found) {
+    throw new Refusal(
+      `no run ${runId}: neither a trial in ${workspace.store} nor a run in ${join(workspace.root, ".awf/runs")}`,
+    );
+  }
+  const file = join(info.dir, CAPTURE_FILE);
+  if (!existsSync(file)) {
+    throw new Refusal(
+      `run ${runId} is a real run: ${relative(context.cwd, file) || file} turns one into cases, and ${info.name} has none`,
+    );
+  }
+  const tmp = realpathSync(environment.tmp ?? tmpdir());
+  const work = mkdtempSync(join(tmp, "awf-lab-capture-"));
+  let answer: { cases?: unknown; error?: string };
+  try {
+    answer = (await runHelper(
+      { mode: "capture", file, input: { run: readRealRun(found), root: workspace.root } },
+      {
+        root: workspace.root,
+        work,
+        env: definedOf(withoutCallingSession(environment.env ?? process.env)),
+        timeoutMs: trialSettingsOf(info.name, info.dataset).setupTimeoutMs,
+        name: "capture",
+      },
+    )) as typeof answer;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  if (answer.error !== undefined) throw new Refusal(`${file}: ${answer.error}`);
+  const run = readRealRun(found);
+  if (mark.mark === "good" && run.outcome !== "completed") {
+    throw new Refusal(
+      `run ${runId} of ${run.workflow} ${run.outcome === "running" ? "has not ended" : `ended ${run.outcome}`}: --good takes a completed run; --needs-work "{note}" captures it`,
+    );
+  }
+  const taken = new Set<string>();
+  for (const each of checkCaptured(file, answer.cases)) {
+    const name = freeName(info, each.name, taken);
+    taken.add(name);
+    const dir = writeCase(info, name, {
+      ...(each.files ? { files: each.files } : {}),
+      ...(each.input !== undefined ? { input: each.input } : {}),
+      key: capturedKey(runId, mark, each.facts),
+    });
+    say(dir, `from ${run.workflow}'s run ${runId}`);
+  }
+  return 0;
+}
+
+/** A case as a trial would be built from it now, for its digest. */
+function folderDigestOfCase(info: DatasetInfo, name: string): string | undefined {
+  const tmp = mkdtempSync(join(tmpdir(), "awf-lab-capture-case-"));
+  try {
+    const found = readCases(info).find((c) => c.name === name);
+    if (!found) return undefined;
+    buildCase(info.dir, found, tmp);
+    return folderDigest(tmp);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {

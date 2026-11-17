@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { OUTPUT_RECORD_VERSION } from "@agentswf/contract/records";
 import type { Runner, RunOutput, RunRequest } from "../../shared/runner";
 import { type GradeCase, gradeCase } from "../env/grade-case";
+import { parseKey } from "../format/key";
 import { TRIAL_ENV } from "../format/trial-env";
 import type { TrialLine } from "../format/trial-file";
 import { type CasesEnvironment, runCases } from "./cli";
@@ -109,7 +110,9 @@ type Behaviour =
   /** awf printed a record this lab can't read. */
   | { unread: string }
   /** The run's own folder holds these files, beside its records. */
-  | { runFiles: Record<string, string>; facts: Record<string, unknown> };
+  | { runFiles: Record<string, string>; facts: Record<string, unknown> }
+  /** The run record's stages: name, milliseconds, and whether the case gave its value. */
+  | { facts: Record<string, unknown>; runStages: [string, number, boolean?][] };
 
 const pass: Behaviour = { facts: { ok: true } };
 const fail: Behaviour = { facts: { ok: false } };
@@ -300,6 +303,25 @@ function scripted(
     if ("log" in play) {
       writeFileSync(join(runDir, "log.jsonl"), play.log.map((l) => JSON.stringify(l)).join("\n"));
       return done(play.facts, {});
+    }
+    if ("runStages" in play) {
+      const completed = done(play.facts, {
+        given: play.runStages.filter(([, , given]) => given).map(([stage]) => stage),
+      });
+      return {
+        ...completed,
+        record: {
+          ...completed.record,
+          // A given stage runs through the engine as any other, its work handing the value back.
+          stages: play.runStages.map(([stage, spanMs]) => ({
+            stage,
+            source: "ran",
+            outcome: "completed",
+            attempt: 1,
+            spanMs,
+          })),
+        } as unknown as RunOutput,
+      };
     }
     return done(play.facts, "unused" in play && play.unused ? { unused: play.unused } : {});
   };
@@ -1705,5 +1727,203 @@ describe("--against, its report and refusals", () => {
     });
     expect(out).toContain("errored 1 (1 by dataset), 1 in against 1");
     expect(code).toBe(0);
+  });
+});
+
+test("each stage's time, recorded per trial and shown as a median; a given stage ran nothing", async () => {
+  const where = project({ a: {}, b: {} });
+  const fake = scripted({
+    a: [
+      {
+        facts: { ok: true },
+        runStages: [
+          ["read", 1000, true],
+          ["decide", 4000],
+          ["act", 300],
+        ],
+      },
+    ],
+    b: [
+      {
+        facts: { ok: true },
+        runStages: [
+          ["read", 1000, true],
+          ["decide", 6000],
+          ["act", 500],
+        ],
+      },
+    ],
+  });
+  const { out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+  expect(out).toContain("time per stage, median across cases: decide 5.0s · act 0.4s");
+  const [first] = readTrials(storeOf(where), 1);
+  expect(first!.record.stageMs).toEqual({ decide: 4000, act: 300 });
+  expect((await lab(where, ["report", "--case", "a"])).out).toContain(
+    "time per stage, median: decide 4.0s · act 0.3s",
+  );
+});
+
+describe("capture: a past run becomes a case", () => {
+  test("a trial's run is captured from its case without capture.ts; a taken name gets a number; the key is a draft no grader runs on", async () => {
+    const where = project({ a: { files: { "ticket.md": "a broken lid" } } });
+    writeFileSync(join(where.ds, "cases/a/input.json"), '{"day":3}');
+    const prose =
+      "Thank you for writing: we refunded the chipped lid, and we're sorry it arrived so.";
+    const fake = scripted({ a: [{ facts: { ok: true, error: null, words: 12, reply: prose } }] });
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    const runId = fake.calls[0]!.id;
+    const good = await lab(where, ["capture", runId, "--good"]);
+    expect(good.code).toBe(0);
+    expect(good.out).toContain("evals/ds/cases/a-2, from trial 1 of case a in run 1");
+    const made = join(where.ds, "cases/a-2");
+    expect(readFileSync(join(made, "files/ticket.md"), "utf8")).toBe("a broken lid");
+    expect(readFileSync(join(made, "input.json"), "utf8")).toContain('"day": 3');
+    const key = readFileSync(join(made, "key.md"), "utf8");
+    expect(key).toContain("draft: true");
+    expect(key).toContain(`run: "${runId}"`);
+    expect(key).toContain("mark: good");
+    expect(key).toContain("expect:\n  ok: true\n  words: 12\n  # reply: ");
+    // The draft reads as a key, the prose left commented for the person.
+    expect(parseKey(key).ok).toBe(true);
+    expect(key).not.toContain("error");
+    const again = await lab(where, ["capture", runId, "--needs-work", "the reply was rude"]);
+    expect(again.out).toContain("cases/a-3");
+    const rude = readFileSync(join(where.ds, "cases/a-3/key.md"), "utf8");
+    expect(rude).toContain('note: "the reply was rude"');
+    expect(rude).not.toContain("expect:");
+    // The drafts run, and no grader runs on them.
+    const ran = await lab(where, ["run", "--yes", "--cases", "a-2,a-3"], {
+      runner: scripted({}).runner,
+    });
+    expect(ran.out).toContain("no verdict");
+    const trials = readTrials(storeOf(where), 2);
+    expect(trials.every((t) => t.scores.length === 0)).toBe(true);
+  });
+
+  test("a real run becomes cases through the dataset's capture.ts", async () => {
+    const where = project({ a: {} });
+    const runDir = join(where.root, ".awf/runs/mail-triage/R-7");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      join(runDir, "run.json"),
+      JSON.stringify({
+        format: 1,
+        id: "R-7",
+        workflow: "mail-triage",
+        argv: ["--dry-run"],
+        cwd: where.root,
+      }),
+    );
+    writeFileSync(
+      join(runDir, "out.json"),
+      JSON.stringify({
+        outcome: "completed",
+        value: {
+          read: [
+            { id: "m1", short: true },
+            { id: "m2", short: false },
+          ],
+        },
+      }),
+    );
+    writeFileSync(
+      join(where.ds, "capture.ts"),
+      `export default { kind: "awf.case-capture/0", capture: ({ run }) =>
+        run.result.read.map((m) => ({ name: m.id === "m1" ? "a" : m.id, input: { id: m.id }, files: { "email.md": "mail " + m.id }, facts: { short: m.short } })) };`,
+    );
+    const { code, out } = await lab(where, ["capture", "R-7", "--good"]);
+    expect(code).toBe(0);
+    expect(out).toContain("cases/a-2, from mail-triage's run R-7");
+    expect(out).toContain("cases/m2, from mail-triage's run R-7");
+    expect(readFileSync(join(where.ds, "cases/m2/files/email.md"), "utf8")).toBe("mail m2");
+    expect(readFileSync(join(where.ds, "cases/m2/key.md"), "utf8")).toContain(
+      "expect:\n  short: false",
+    );
+  });
+
+  test("refusals: no such run, a real run without capture.ts, neither mark or both", async () => {
+    const where = project({ a: {} });
+    expect((await lab(where, ["capture", "R-1", "--good"])).err).toContain("no run R-1");
+    expect((await lab(where, ["capture", "R-1"])).err).toContain("--good or --needs-work");
+    expect((await lab(where, ["capture", "R-1", "--good", "--needs-work", "x"])).code).toBe(2);
+    const runDir = join(where.root, ".awf/runs/w/R-2");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      join(runDir, "run.json"),
+      JSON.stringify({ format: 1, id: "R-2", workflow: "w", argv: [] }),
+    );
+    const none = await lab(where, ["capture", "R-2", "--good"]);
+    expect(none.code).toBe(2);
+    expect(none.err).toContain("is a real run");
+  });
+});
+
+describe("capture, what it refuses and keeps whole", () => {
+  test("a --good capture whose facts are all prose still writes a key the reader takes", async () => {
+    const where = project({ a: {} });
+    const prose = "A long reply the agent wrote, which no later run would give back word for word.";
+    const fake = scripted({ a: [{ facts: { summary: prose } }] });
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    await lab(where, ["capture", fake.calls[0]!.id, "--good"]);
+    const key = readFileSync(join(where.ds, "cases/a-2/key.md"), "utf8");
+    expect(key).toContain("# expect:\n  # summary: ");
+    expect(parseKey(key).ok).toBe(true);
+    expect((await lab(where, ["report"])).code).not.toBe(2);
+  });
+
+  test("a real run: --good refused unless its last attempt completed; an id in two workflows refused; a file path that is no file refused", async () => {
+    const where = project({ a: {} });
+    const realRun = (workflow: string, id: string, attempts: object[], out?: object) => {
+      const dir = join(where.root, ".awf/runs", workflow, id);
+      mkdirSync(join(dir, "attempts"), { recursive: true });
+      writeFileSync(join(dir, "run.json"), JSON.stringify({ format: 1, id, workflow, argv: [] }));
+      for (const [i, a] of attempts.entries()) {
+        writeFileSync(join(dir, "attempts", `${i + 1}.json`), JSON.stringify(a));
+      }
+      if (out) writeFileSync(join(dir, "out.json"), JSON.stringify(out));
+    };
+    writeFileSync(
+      join(where.ds, "capture.ts"),
+      `export default { kind: "awf.case-capture/0", capture: ({ run }) => [{ name: "c", files: run.argv.includes("dot") ? { ".": "x" } : { "a.md": "x" } }] };`,
+    );
+    // Attempt 1 completed, attempt 2 is still going: not ended.
+    realRun("w", "R-1", [{ outcome: "completed" }, {}], {
+      attempt: 1,
+      outcome: "completed",
+      value: {},
+    });
+    const going = await lab(where, ["capture", "R-1", "--good"]);
+    expect(going.code).toBe(2);
+    expect(going.err).toContain("has not ended");
+    expect((await lab(where, ["capture", "R-1", "--needs-work", "slow"])).code).toBe(0);
+    realRun("w", "R-2", [{ outcome: "completed" }], {
+      attempt: 1,
+      outcome: "completed",
+      value: {},
+    });
+    realRun("v", "R-2", [{ outcome: "completed" }], {
+      attempt: 1,
+      outcome: "completed",
+      value: {},
+    });
+    expect((await lab(where, ["capture", "R-2", "--good"])).err).toContain(
+      "in more than one workflow's runs",
+    );
+    const dir = join(where.root, ".awf/runs/w/R-3");
+    realRun("w", "R-3", [{ outcome: "completed" }], {
+      attempt: 1,
+      outcome: "completed",
+      value: {},
+    });
+    writeFileSync(
+      join(dir, "run.json"),
+      JSON.stringify({ format: 1, id: "R-3", workflow: "w", argv: ["dot"] }),
+    );
+    const dot = await lab(where, ["capture", "R-3", "--good"]);
+    expect(dot.code).toBe(2);
+    expect(dot.err).toContain("is no file inside its files/");
+    // Nothing half-made is left among the cases.
+    expect(readdirSync(join(where.ds, "cases")).sort()).toEqual(["a", "c"]);
+    expect(readdirSync(where.ds).filter((n) => n.startsWith(".capture-"))).toEqual([]);
   });
 });

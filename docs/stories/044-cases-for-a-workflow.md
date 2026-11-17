@@ -1853,8 +1853,8 @@ Alternatives rejected:
 - [x] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
 - [ ] 3. Criteria are judged (after task 8): built; the check against task 1 waits on task 1
 - [x] 4. The same cases on code in another folder
-- [ ] 5. web-to-cli's build runs on cases
-- [ ] 6. A past run becomes a case
+- [ ] 5. web-to-cli's build runs on cases: the lab's part built (time by stage); its dataset waits on the person
+- [ ] 6. A past run becomes a case: built; its live check on both workflows waits on task 5
 
 Reviews and the loop (added 2026-11-16):
 
@@ -2265,10 +2265,10 @@ of the workflow, a trial's or a real one.
 
 Execution:
 
-- [ ] Plan: confirm the shape below against both workflows' run records.
-- [ ] Implement: only this task's change, with tests.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
+- [x] Plan: confirm the shape below against both workflows' run records.
+- [x] Implement: only this task's change, with tests.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
 - [ ] Verify: the `Done when` items.
 
 Work:
@@ -3081,4 +3081,49 @@ Checks:
   passed all three; the other column failed `newsletter` and `trip-form` on their date criteria
   (the judge split 2–1 on two of them), and the exit was 0, from your checkout alone. Grading cost
   an estimated $1.81 of the run's $1.83; the plan had said $0.02, before it counted grading.
+
+### Task 5, the lab's part, and task 6 (2026-11-17)
+
+**Task 5, what the lab needed**: a trial records each stage's time (`stageMs`, from the run
+record's stages; a stage the case gave ran through the engine too, its work only handing the
+value back, so `given` names are left out), and the report shows each stage's median: across
+cases when each case ran once, and in `report --case`. Trials that errored, stopped or failed in
+the body are left out of the medians. "read, not run" came with task 3. **web-to-cli's dataset
+waits on the person**: a build drives a real, logged-in site through a browser over a unix
+socket, real git (a worktree per request, a squash merge), and planner, builder, checker and
+troubleshooter agents; recorded builds took 8 to 132 minutes and an estimated $1 to $44. Which
+site and login, which past requests become cases (x-cli's and linkedin-cli's `.state/runs` hold
+real ones), and the spend are the person's to choose; M1 is answered then.
+
+**Task 6, `awf-lab capture {run id} (--good | --needs-work "{note}") [--dataset {name}]`**:
+
+- **A trial's run** is found by its workflow run's id in the store. Its case's own `files/` and
+  `input.json` are copied as they are now (a note says so when the case changed since the trial
+  ran); no `capture.ts`. **A real run** is `.awf/runs/{workflow}/{id}` under your checkout or the
+  repository's top; an id under two workflows is refused, naming both. How it ended is its last
+  attempt's (`attempts/{n}.json`): one still going, or whose last attempt was lost, has not ended,
+  and an earlier attempt's `out.json` is not its result. `--good` takes only a completed run.
+- **`capture.ts`** is a dataset's `defineCapture(({ run, root }) => cases)`, run in the helper
+  process in your checkout: `run` is `{ id, workflow, argv, args?, outcome, result, dir }`; each
+  case `{ name, input?, files?, facts? }`, checked (a plain folder name; every path a file inside
+  `files/`, none both a file and a folder). A name taken gets `-2`, `-3`….
+- **The key** is a draft (`draft: true`, `captured: { run, mark, note? }`, a fresh marker), so no
+  grader runs on it. With `--good`, `expect` drafts the facts, `error` and `_` names left out; a
+  string over 60 characters is left commented, since prose an agent wrote won't match a later run
+  word for word, and `expect:` itself is commented when nothing else is left. Each case is built
+  whole beside `cases/` and moved into place, under the lab's lock.
+
+Review (one, scope and correctness; two must-fix: a draft of prose facts alone the key reader
+refused, which stopped every command on the dataset, and given stages timed as if they ran, with
+a test faking a shape the lab never writes; should-fix: a failed write leaving a case without its
+key, a run still going captured as ended, a run id matched in another workflow's runs). All fixed
+with tests. Open: `capture` looks for real runs in your checkout and the repository's top, not in
+a `.awf` higher up.
+
+Checks: `bun test packages/lab` passes; live, a trial of refund-desk's `pushy` captured with
+`--good`, the reply left commented, the draft finished by removing `draft: true`, and the new
+case run once: passed (run 4), with time per stage `read 0.0s · decide 6.2s · act 0.0s`. The
+captured case was then removed from the example. Verify waits on task 5: "a run of each workflow
+becomes a case with one command, and that case runs" needs web-to-cli's dataset, and a mail
+`capture.ts`.
 

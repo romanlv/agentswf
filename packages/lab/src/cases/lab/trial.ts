@@ -202,6 +202,7 @@ export async function runTrial(
       ...(blamed.result !== undefined ? { result: blamed.result } : {}),
       ...(blamed.facts ? { facts: blamed.facts } : {}),
       ...(blamed.stages ? { stages: blamed.stages } : {}),
+      ...stageTimes(run?.stages, blamed.given),
       ...(blamed.given ? { given: blamed.given } : {}),
       ...(blamed.until ? { until: blamed.until } : {}),
       ...(blamed.neverReached ? { neverReached: blamed.neverReached } : {}),
@@ -252,6 +253,19 @@ export async function runTrial(
     rmSync(folders.parent, { recursive: true, force: true });
     rmSync(trialFile, { force: true });
   }
+}
+
+/** How long each stage the run ran took; a stage given or reused ran no work of its own. */
+function stageTimes(
+  stages: readonly { stage: string; source: string; spanMs: number; provided?: true }[] | undefined,
+  given: readonly string[] = [],
+): { stageMs?: Record<string, number> } {
+  // A stage the case gave ran through the engine too, its work only handing the value back.
+  const ran = (stages ?? []).filter(
+    (s) => s.source === "ran" && !s.provided && !given.includes(s.stage),
+  );
+  if (ran.length === 0) return {};
+  return { stageMs: Object.fromEntries(ran.map((s) => [s.stage, s.spanMs])) };
 }
 
 function definedOf(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
