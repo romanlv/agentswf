@@ -68,4 +68,4 @@ key (`key.md`, `key/`) beside it.
 - **Private data still stays out of this repository.** A case can hold real mail or real code;
   it lives in the project's repository, which is the project's to keep private. Nothing here
   changes for review fixtures until reviews move onto the new kind
-  ([[second-case-kind]]).
+  ([[044-cases-for-a-workflow|story 044]]).

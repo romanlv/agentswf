@@ -110,7 +110,7 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 ### P3
 
 - [[review-shapes-and-models]], [[key-growth-from-runs]], [[jev-noise-audit]],
-  [[second-case-kind]], [[judge-opus-voter]] — the loop's research and the lab's data.
+  [[judge-opus-voter]] — the loop's research and the lab's data.
 - [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]],
   [[wfa-help]] — the launch.
 - [[agent-release]], [[workflow-test-generated-answers]], [[workflow-test-virtual-time]].

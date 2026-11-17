@@ -1,12 +1,12 @@
 ---
 id: "044"
 title: "Run a workflow on cases you wrote, with its services faked, and get a score"
-summary: "A person writes cases (an input and what a good result looks like); awf-lab runs the workflow, with outside services swapped for the case, and says case by case what passed. A case that must pass and fails is a regression, and the command exits non-zero. The same cases can run on code in another folder, such as a worktree of main, side by side."
+summary: "A person writes cases (an input and what a good result looks like); awf-lab runs the workflow, with outside services swapped for the case, and says case by case what passed. A case that must pass and fails is a regression, and the command exits non-zero. The same cases can run on code in another folder, such as a worktree of main, or on named command-line settings, side by side. Reviews and the improvement loop move onto it, so an agent can change a workflow, compare, keep what is better and check it on a holdout, for any workflow."
 type: story
 status: in-progress
 epic: loop
 discovered_in: "a conversation about evals built from runs, 2026-11-09"
-depends_on: ["008", "010", "011"]
+depends_on: ["008", "010", "011", "013"]
 ---
 
 # Run a workflow on cases you wrote, with its services faked, and get a score
@@ -22,8 +22,8 @@ Today, when a workflow gets something wrong, you fix the prompt, run it again on
 hand, and hope. Nothing remembers the email it misjudged last week, and nothing tells you that
 your fix broke an email it used to get right.
 
-The story has two angles. The first is most of the work; the second is small once the first
-exists.
+The story has three angles. The first is most of the work; the second is small once the first
+exists; the third, added later, moves the review lab and its loop onto the first two.
 
 **1. Run and score: the regression loop.**
 
@@ -32,7 +32,8 @@ exists.
 - A small file of your own per dataset, the **environment** (`env.ts`), sets up each case's world
   the way a unit test's setup does: `bun:test` mocks in place of the inbox, `fetch` routes in
   place of a site, the clock set to the case's day. Then it says what to read off once the run is over.
-  The workflow runs as it ships; its settings, such as the model, are its code.
+  The workflow runs as it ships; its settings, such as the model, are its code, or arms it takes
+  on its command line (task 9).
 - `awf-lab run` runs the workflow, as it is in your checkout, on every case, as many times as you
   ask, each trial in a throwaway folder, and grades each result against the key.
 - Each case says whether it **must pass** (the default) or is **known failing** (a problem you
@@ -47,7 +48,7 @@ exists.
   in another folder: a worktree of `main`, another branch, an experiment. The change can be
   anything (a prompt, a tool, a stage), since each side is a whole folder of code.
 - The report puts the two side by side and lists the cases that came out differently. It does not
-  say which side is better.
+  say which side is better (the loop's own comparison decides that, task 12, as task 7 settles).
 
 Also here: `awf-lab capture {run id}` turns a past run into a new case.
 
@@ -61,8 +62,18 @@ working evals in each one's own repository:
   From one sentence, agents explore a live site, write a command for it, check it and merge it. A
   trial takes half an hour, costs dollars, writes code and needs the real site.
 
-Reviews, today the lab's only kind of case, move onto this design in the next story. Scope lists
-what is left out.
+Then the review workflows, with the autoresearch repository running on this design alone (tasks
+11 to 13).
+
+**3. Iterate: reviews and the loop move over** (tasks 7 to 13, added 2026-11-16). The point of
+running, comparing and grading is a framework where an agent iterates on a workflow and finds a
+better one quickly: it changes the workflow or a setting, runs the cases, compares, keeps what is
+better, and checks it on cases it never tuned on. The review lab already does this for one kind of
+workflow, with its own runner, store, commands and loop. Those move onto this design, for any
+workflow, on the same branch as the rest of this story, so what the design gets wrong shows while
+it can still change. The old review lab is then retired.
+
+Scope lists what is left out.
 
 ## How it works
 
@@ -76,7 +87,8 @@ what is left out.
 
 A workflow's cases, environment and settings together are its **dataset**. One run of the
 workflow on one case is a **trial**. One `awf-lab run`, with all its trials, is a **run**. Each
-folder of code, your checkout and with angle 2 each other folder, is a **column** of the report.
+folder of code, your checkout and with angle 2 each other folder, or each arm (task 9), is a
+**column** of the report.
 
 ```text
 evals/                              in your project, beside your workflows
@@ -917,27 +929,34 @@ In scope:
   process with a case folder without the key.
 - The reach check after each trial against `dataset.json`'s `agentReach`.
 - Grading: `expect` by code, `criteria` by a judge, both behind one grader interface a dataset can
-  add its own to, as code or as a workflow. The interface is shaped against what the review scorer
-  needs; no review grader ships here.
+  add its own to, as code or as a workflow. The interface is built against the review scorer,
+  which becomes a grader (tasks 8 and 11).
 - A verdict per case, its history, known-failing cases, and the exit code.
-- `run` (with `--dataset`, `--cases`, `--failed`, `--trials`, `--against`, `--yes`), `report`,
-  `runs` and `score`.
+- `run` (with `--dataset`, `--cases`, `--failed`, `--trials`, `--against`, `--arm`, `--yes`),
+  `report`, `runs`, `score` and `loop` (tasks 9 and 12).
 - `capture`: a past run turned into a case, marked good or needing work.
 - Both workflows working end to end, with their datasets in their own repositories.
+- Reviews moved onto this design (tasks 7 to 13, which replace the `second-case-kind` todo):
+  - grader workflows and `score`, built against the review scorer;
+  - arms, the settings a workflow takes on its command line, named and compared;
+  - the `"lab"` sandbox setting;
+  - a review fixture as a case, and the review scorer as a grader;
+  - the autoresearch datasets converted;
+  - the loop, for any dataset, with holdouts;
+  - the review kind's runner, store and commands retired, but for `collect` and `draft-key`,
+    which write cases; and the records made `/1`.
 
 Out of scope:
 
 - Any change to `engine` or `contract`: given stages and `until` are the lab's own `wf`, not
-  engine options.
-- Moving reviews onto this design. That is the next story ([[second-case-kind]], rewritten for
-  it); the old review lab is replaced then, not kept beside it. Here reviews are the testing ground
-  on paper: every interface is checked against what they need, and `review/` keeps running with
-  only its import paths changed.
-- The `"lab"` sandbox setting, one sandbox around every agent of a trial, and a grader that
-  rebuilds the scratch folder at `score` time. Only reviews need them; they come with the move.
+  engine options. Task 7 asks whether the reviews' move needs one; if it does, that is the
+  person's call.
+- Converting the review kind's stored runs. They stay where they are, readable with an older lab
+  checkout. Fixtures and keys are converted; runs are not (decided 2026-11-16).
 - Comparing against a run kept from earlier, and reusing any trial: every run costs its full
-  price, and each comparison runs both sides. The store keeps enough to add it later.
-- Statistics beyond counts.
+  price, and each comparison runs both sides. The store keeps enough to add it later. Task 7
+  weighs this again against the review loop, which reuses an incumbent's trials across rounds.
+- Statistics beyond counts, except what task 7 keeps for the loop's comparison.
 - The lab making a checkout or installing dependencies for `--against`.
 - Faking an agent's answer inside a stage: a recorded answer goes stale as soon as an earlier step
   changes. A whole stage can be given (`stages`).
@@ -945,11 +964,10 @@ Out of scope:
   then shares one sample of that stage. If it comes, it is a named option, never the default.
 - Faking what an agent's own commands reach inside a sandbox (Q9), and mocks shared with child
   processes, which the same route would carry. Their reach is checked here (`agentReach`).
-- The improvement loop and holdouts.
 - A ceiling the engine enforces on what a workflow's own sandboxes may allow, before an agent
-  starts. Needed before an agent edits workflows in the loop, since an edit could loosen its own
-  sandbox. This story checks reach after each trial (`agentReach`), which catches it but doesn't
-  prevent it.
+  starts. An agent editing workflows in the loop (task 12) could loosen its own sandbox; this
+  story checks reach after each trial (`agentReach`), which catches it but doesn't prevent it.
+  Task 7 says whether the loop needs the ceiling first, or whether the `"lab"` sandbox covers it.
 - Keys kept outside the repository.
 - A shadow: another folder's workflow run beside the real one on each real input, with
   differences becoming cases. It builds on `capture`; it is the story after.
@@ -973,8 +991,8 @@ Out of scope:
 - Fact: three voters on one model and prompt are correlated, so requiring all three to agree turns
   sampling noise into undecided trials: at 3% per criterion, a run of 108 judgments has an
   unsettled one about 96% of the time. Hence a majority, with splits shown.
-- Fact: of the lab's 13,000 lines, about 700 (`src/compare`) know nothing of reviews; this story
-  does not use them. The rest, the command line included, is under `src/review`.
+- Fact: of the lab's 13,000 lines, about 700 (`src/compare`) know nothing of reviews; tasks 1 to 6
+  do not use them; task 7 decides whether the loop does. The rest, the command line included, is under `src/review`.
 - Fact, from reading `packages/lab/src/review` against this design: a review trial's setup fits
   `env.ts`'s `setup`; its grading (a label per finding, recall and precision, two voters and a tiebreak)
   and its multi-file key are what M2 checks the grader interface against.
@@ -1040,12 +1058,13 @@ Out of scope:
   `workspace.ts`, `cli.ts`; `src/review/format/variant.ts`, `records.ts`, `workspace.ts` (the
   schema and `RENAMED_CONFIG_KEYS`), `validate.ts`; `src/review/judge/`.
 - Everything a trial does lives under `review/`. The new kind gets a folder of its own; `review/`
-  keeps working as it is until the next story. What both share moves to a neutral folder, so the
+  keeps working as it is until task 13 retires it. What both share moves to a neutral folder, so the
   new kind never imports `review/`: `runner.ts` (once its one review type moves out),
   `awf-lab.json`'s schema and the loader of its common fields, and `validate.ts`'s `checkSchema`
   and `describeProblems`.
 - The runner's request gains an environment to add and the folder's `awf` bin, started as
-  `bun --no-env-file --preload {fetch} {awf bin}`, with its working folder. Its contained mode, which mounts the lab's checkout, stays review-only.
+  `bun --no-env-file --preload {fetch} {awf bin}`, with its working folder. Its contained mode, which mounts the lab's checkout, stays the review kind's until task 13 deletes it; the new kind uses `"lab"` (task 10)
+  instead.
 - The command line moves to a neutral entry that hands a dataset to the new kind or to `review/`;
   each kind keeps its own flags and help (`--cases` differs). `package.json`'s `bin` follows it
   and gains `./cases` and `./cases/fetch` exports.
@@ -1232,9 +1251,9 @@ Out of scope:
   `"2/3"`); `keep`, the
   paths saved from the scratch folder; `graders`, the dataset's own; `judgeAgent`, when not the
   workspace's.
-- **`sandbox`** accepts only `"workflow"` in this story: trust the sandboxes the workflow opens
-  itself. It is required, with no default to grow used to, so `"lab"` can come with the reviews'
-  move without breaking a dataset file. The report says which setting a run used.
+- **`sandbox`** accepts only `"workflow"` until task 10: trust the sandboxes the workflow opens
+  itself. It is required, with no default to grow used to, so task 10 can add `"lab"` without
+  breaking a dataset file. The report says which setting a run used.
 - **`agentReach`**: `{ "network": [domains], "webSearch": false, "sockets": false }` (`webSearch`
   and `sockets` optional, `false` by default; a cursor agent counts as web search, since its
   harness keeps its web tools), what the workflow's agents may
@@ -1250,7 +1269,7 @@ Out of scope:
   (`expects:`) is refused: only `true` and
   `false` are booleans, and an `expect` value that is a string must be quoted, so `no` is refused
   rather than read as a string or false.
-- **`awf-lab.json`** serves both kinds until the move: `kind: awf.lab-workspace/0`, optional until
+- **`awf-lab.json`** serves both kinds until task 13: `kind: awf.lab-workspace/0`, optional until
   a new-kind dataset is used; `datasets`, the review kind's folder (a new-kind dataset is a folder of `evals/` itself); `judgeAgent: { harness, model }` (not
   `judge`, which the review loader refuses as the old name of `scorer`); `store`, optional, in
   place of the default store, refused inside the repository. The review fields (`clone`,
@@ -1476,7 +1495,7 @@ Known-failing cases and cases with no verdict never change it by their verdict (
 leaked trial of one still gives 5), except that a run in which no
 case was graded at all, by a verdict or by numbers, exits 3. A dataset graded by numbers only
 counts as graded. Review datasets keep their codes
-until the move.
+until task 13.
 
 ### Report rows
 
@@ -1571,14 +1590,14 @@ the workflow, or `observe`.
 ### What may change, and what may not
 
 - **`/0` means "may change without a way to read old files"** for what the lab writes: run, trial,
-  score and `grade.json` stay `/0` until the reviews move, where they become `/1`.
+  score and `grade.json` stay `/0` until task 13, where they become `/1`.
 - **Costly to change**: the names that pair kept results (a case's folder name, a dataset's
-  folder name, a grader's name, a criterion's `id`), the case and dataset layout and its reserved
+  folder name, a grader's name, a criterion's text), the case and dataset layout and its reserved
   names (`cases/`, `files/`, `input.json`, `key.md`, `key/`, `env.ts`, `graders.ts`,
   `capture.ts`), the exit codes, and the
   formats people write by hand and commit (`key.md`, `dataset.json`, `awf-lab.json`). These start
   at `/0`; their next incompatible change makes them `/1`, with a converter in the lab.
-  `dataset.json`'s `graders` is exempt until the reviews move.
+  `dataset.json`'s `graders` is exempt until task 13.
 - **Unstable, no converter**: the code shapes people write against (`defineEnv`, `setup`'s
   return, `c`, a grader's result).
 
@@ -1595,8 +1614,17 @@ Settled by the owner:
 - **Run and score first; compare second.** A case says whether it must pass; a run gives a
   verdict and an exit code from its own trials. Comparing is the same run on more folders
   (2026-11-14).
-- **The unit of change is a folder of code** (2026-11-14). There are no variants: a setting such
-  as the model is code too, and comparing one is comparing folders (2026-11-15).
+- **The unit of change is a folder of code** (2026-11-14). A setting such as the model is code
+  too, and comparing one is comparing folders (2026-11-15). Amended 2026-11-16: a setting the
+  workflow already takes on its command line can be named as an **arm** and compared in one
+  folder, since the review research compares one workflow across dozens of such settings, and a
+  folder each would be a worktree each. A change to code is still a folder.
+- **Reviews and the loop move over on this branch** (2026-11-16), replacing "reviews move over
+  in the next story" (2026-11-14): building them beside the design shows what it gets wrong while
+  it can change. The purpose is a framework where agents iterate on workflows and find better
+  ones quickly; the design may change for it, and the change is recorded here.
+- **The review kind's stored runs are not converted** (2026-11-16): fixtures and keys are; runs
+  stay readable with an older lab checkout.
 - **A case's world is set up in code, as a unit test's is** (2026-11-15): one `env.ts` per
   dataset, with `bun:test`'s mocks as agents and people already write them; the
   workflow runs as it ships, with no fakes passed in as arguments.
@@ -1611,7 +1639,6 @@ Settled by the owner:
   by module, or installs and starts its own tool (msw, say) in `setup`.
 - **Grading is pluggable**: graders are code or a workflow, and the two built in are graders like
   any other (2026-11-10, confirmed 2026-11-14). Their exact shape is settled by trying it (M2).
-- **Reviews move over in the next story** (2026-11-14).
 - **A past run becomes a case from its traces**: the dataset's own code rebuilds it; the engine
   does not change (2026-11-14).
 
@@ -1649,7 +1676,7 @@ What must hold:
   one still gives 5.
 - A captured case is never graded against the run it came from; only the lab's own trials are.
 - Nothing under `review/` is imported by the new kind, and nothing in the new kind names a
-  workflow.
+  workflow. Task 7 says where review code lives after the move; the new kind stays free of it.
 
 How "done properly" is checked:
 
@@ -1674,7 +1701,8 @@ Alternatives rejected:
   tool or a stage without the workflow exposing every part someone might change.
 - **Fakes passed to the workflow as arguments**, through a **variant** (a file per setting that
   wrapped the workflow, the earlier draft): it reaches nothing an agent does, bends every workflow
-  around being tested, and a setting such as the model is code anyway.
+  around being tested, and a setting such as the model is code anyway (one it takes on its command line can be an
+  arm; see Decisions).
 - **Network fakes for agents' own commands** (a proxy, `PATH` shims, a preload in child
   processes): proven unsandboxed, but a sandbox starts agents' processes from nothing; it needs an
   engine route into the sandbox (Q9). This story checks agents' reach instead.
@@ -1720,14 +1748,28 @@ Alternatives rejected:
 
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
 - [x] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
-- [ ] 3. Criteria are judged, and a changed key is graded again
+- [ ] 3. Criteria are judged (after task 8)
 - [ ] 4. The same cases on code in another folder
 - [ ] 5. web-to-cli's build runs on cases
 - [ ] 6. A past run becomes a case
 
+Reviews and the loop (added 2026-11-16):
+
+- [ ] 7. What reviews and the loop need, set against the design
+- [ ] 8. Grader workflows and `score`, built against the review scorer
+- [ ] 9. Arms: a workflow's command-line settings, named and compared
+- [ ] 10. The `"lab"` sandbox
+- [ ] 11. A review dataset on cases, graded by the review scorer
+- [ ] 12. The loop, for any dataset
+- [ ] 13. The review kind retired, and the records made `/1`
+
+Order: 7, 8, 3, 4, 5, 6, 9, 10, 11, 12, 13; task 1 is the person's, at any time. Task 7 comes
+before tasks 3 to 6 are started, since what it finds can change their design too. Task 3's
+criteria judge is one more grader workflow on task 8's path.
+
 ## Open questions
 
-None open. The owner's answers, Q8 and Q9 among them, are under Decisions. Smaller ones,
+None open now; task 7 adds the structural choices it finds, as Q10 onward. The owner's answers, Q8 and Q9 among them, are under Decisions. Smaller ones,
 settled in the design:
 
 - Q1. The default bar: every trial passes; a mixed result is flaky, not failed.
@@ -1737,7 +1779,7 @@ settled in the design:
   the lab broke, 5 a trial errored by the dataset or grading, or leaked.
 - Q4. Where runs are kept: one store per checkout, numbered runs; one `run` or `score` per machine
   at a time.
-- Q5. One set of commands for both kinds: yes; `dataset.json`'s `kind` marks the new one.
+- Q5. One set of commands for both kinds, until task 13 leaves one kind: yes; `dataset.json`'s `kind` marks the new one.
 - Q6. The judge's model: once for the workspace; a dataset may override it.
 - Q7. A setup that runs the project's own commands: accepted; a case does not carry a prepared
   checkout.
@@ -1768,11 +1810,15 @@ settled in the design:
   under `--run-root`. A run with the repo's own engine was recorded there, and the lab's
   `--preload` was tried on the real bin: the workflow's `fetch` and the decision provider's both
   went through it. In task 2's plan.
+- M6. How long the marker search takes on a restored review checkout, which carries its
+  project's whole history, and whether it must be limited to commits not in the clone. In task
+  11's plan.
 
 ## Task execution rule
 
-Process one task at a time, with one exception: task 2 may start before task 1's decision is
-recorded, since task 1 is the person's work and no code. Every task repeats the checklist shown
+Process one task at a time, with two exceptions: task 2 may start before task 1's decision is
+recorded, since task 1 is the person's work and no code; and the order after task 2 is the one under
+Tasks at a glance: 7, 8, 3, 4, 5, 6, 9, 10, 11, 12, 13. Every task repeats the checklist shown
 under its details. Do not begin the next task because the current implementation merely compiles:
 its design must be recorded, its diff reviewed by subagents, findings resolved, and focused
 verification complete.
@@ -1835,10 +1881,8 @@ Run once, by hand, at the end of task 1: at most one violated `must-not` missed,
 Task 3 then checks only that the built judge gives the hand-run judge's verdicts on that part.
 
 **If the judge misses a bar**, criteria leave this story: keys hold `expect` alone and the key
-reader refuses `must` and `must-not`; task 3 builds the grader interface with `expect` and a dataset's own
-code graders behind it, the key digest and `score`, with no judge and no grader-workflow path
-(`gradeCase`, the grade folder and `grade.json` come with the reviews' move); its `Done when` items
-that need the judge are dropped, and so are task 5's "read, not run" and the person's check of the
+reader refuses `must` and `must-not`; task 3, which is the
+judge alone once task 8 has `score` and grader workflows, is dropped, and so are task 5's "read, not run" and the person's check of the
 judge.
 
 Done when:
@@ -1852,7 +1896,7 @@ gets a verdict and `run` exits by it. It does not wait for task 1.
 
 Execution:
 
-- [x] Plan: first, amend ADR 0003 and rewrite [[second-case-kind]] as "move reviews onto the case
+- [x] Plan: first, amend ADR 0003 and rewrite `second-case-kind` (folded into tasks 7 to 13 since) as "move reviews onto the case
   kind". Do M2, so the score record and its grader entries are shaped once, M3, M4 and M5. Check
   the mail workflow's assumption (its services through imported modules, its day through a clock
   function, every agent in a sandbox, and what its sandboxes reach, for its `agentReach`). Then inspect
@@ -1896,7 +1940,7 @@ Done when:
   changed.
 - A test runs a small dataset end to end on scripted agents and gets the expected report.
 - Tests of each case verdict and exit code: all passed (0); a must-pass case failed (1); 2 of 3
-  passed with one failed, flaky (3); one undecided through a grader hook internal to the lab's tests (task 3 builds the real
+  passed with one failed, flaky (3); one undecided through a grader hook internal to the lab's tests (tasks 3 and 8 build the real
   interface), unclear (3); a workflow error on every trial,
   failed (1); a setup error on every trial (5); a stopped run, failed (1); a known-failing case failed (0), and one with a trial errored by the dataset (5), and passing at three
   trials (0, now passing); a `pass: 2/3` case with one failed trial passes; a missing `env.ts`
@@ -1954,20 +1998,21 @@ Done when:
   fails the run (exit 1); after the workflow is fixed, `--failed` passes it and a full run exits 0
   or 3, with any flaky case read.
 
-### 3. Criteria are judged, and a changed key is graded again
+### 3. Criteria are judged
 
-Outcome: `criteria` count in each case's verdict; `score` grades a kept run again after a key
-changes.
+Outcome: `criteria` count in each case's verdict, judged by the lab's criteria judge, a grader
+workflow on task 8's path. Comes after task 8 (2026-11-16: grader workflows and `score` moved
+there, built against the review scorer first); its first part, a dataset's code graders, is done.
 
 Execution:
 
-- [ ] Plan: the grader interface as M2 left it; the judge's prompt, from task 1's tuned part. The
-  review judge's voting (`review/judge/voting.ts`) is built around finding labels, so the three
-  voters are written fresh in the new folder, reusing only the shared runner. The judge is a lab
-  workflow that reads its input through the grade folder and `gradeCase()`, so that path has a
-  shipping user; it puts what the voters need into their prompts. It runs on the lab's own `awf`,
-  under a sandbox that reaches only its model, with its records in the store and its cost on the
-  score entry. The reach check is for trials only: a grader's run is the lab's own, not graded.
+- [ ] Plan: the judge's prompt, from task 1's tuned part. The review judge's voting
+  (`review/judge/voting.ts`) is built around finding labels, so the three voters are written
+  fresh in the new folder, reusing only the shared runner and what task 8 settled for parts and
+  votes. The judge reads its input through the grade folder and `gradeCase()` and puts what the
+  voters need into their prompts. It runs on the lab's own `awf`, under a sandbox that reaches
+  only its model, with its records in the store and its cost on the score entry. The reach check
+  is for trials only: a grader's run is the lab's own, not graded.
 - [ ] Implement: only this task's change, with tests.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
@@ -1975,11 +2020,8 @@ Execution:
 
 Work:
 
-- The grader interface: `defineGrader` and `gradeCase`, as code and as a workflow; `expect` moved
-  behind it; the order, cheap first; the criteria judge, its voters, majority and splits, and what
-  it is given; pooled numbers; grading errors; the key's digest and the graders' versions on a
-  score; `score`.
-- The report marks `score` brings: keys changed since grading, a case edited since the run.
+- The criteria judge, its voters, majority and splits, and what it is given; the judge's
+  version, its minor going up when its model, voters or prompt change.
 - For the live check, a script calls the judge directly on each of task 1's fixtures.
 
 Done when:
@@ -1991,18 +2033,7 @@ Done when:
 - A test: no voter's prompt holds the marker, `expect`, `key/` or the agents' logs.
 - A test: a 2–1 split decides by majority and is counted; a voter with no answer and the other two
   split leaves the criterion unsettled.
-- A test: a dataset's own code grader returns counts that are pooled into report rows, and a
-  dataset whose graders give no verdict shows its cases as graded by numbers only.
-- A test on scripted agents: a grader workflow is given its folder, and its result and cost reach
-  the score.
-- A test: `score` never runs `env.ts`; a grader is given no scratch
-  folder there; a trial whose case was edited since it ran is not graded again and is reported as
-  edited.
-- A test: a grader that throws leaves the trial errored by grading, and `score` grades it again.
-- A test pins the outcome order: a failed `expect` with a grader that errored reads as errored; a
-  leaked trial that also errored reads as leaked.
 - The model-family table and the column mark.
-- The interface built is the one M2 left, or Implementation notes say what changed and why.
 - Live: the mail dataset, three trials each, with criteria judged.
 - Live: on task 1's held-out part, the built judge gives the hand-run judge's verdicts, except
   where voters split; any other difference is a bug, fixed before the task is done.
@@ -2111,6 +2142,309 @@ Done when:
 - A test: a trial's run is captured from its source case without `capture.ts`; a name already
   taken gets a number; a captured key stays a draft, and no grader runs on it.
 
+### 7. What reviews and the loop need, set against the design
+
+Outcome: every feature of the review lab is carried over, dropped or redesigned, each with its
+reason, and the design sections and tasks 8 to 13 change before any code does. A design pass, no
+code. Its structural choices are the person's, asked as Q10 onward.
+
+Execution:
+
+- [ ] Plan: list the review lab's features from its code and its use, then weigh each against
+  this design and the purpose: an agent iterating on a workflow quickly, on any dataset.
+- [ ] Implement: amend the design sections, Decisions, Alternatives rejected and tasks 3 to 6 and
+  8 to 13 to what it settles.
+- [ ] Review: subagents on the inventory's completeness against the code and the autoresearch
+  repository, and on the design's coherence after the changes; until clear.
+- [ ] Resolve: disposition every finding; ask the person about structural ones.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- The inventory, from `packages/lab/src/review/`, `awf-lab --help`, stories 011 and 013 (its
+  live-loop lessons included), the todos on the loop and the review lab ([[loop-next]],
+  [[comparison-efficiency]], [[workflow-in-sandbox]], [[key-growth-from-runs]],
+  [[jev-noise-audit]], [[judge-opus-voter]], [[review-shapes-and-models]]) and the autoresearch repository's use (its `awf-lab.json`,
+  `awf-lab.loop.json`, variants, scorers, `scripts/` and `docs/experiments`):
+  - variants: a workflow module (several per repository: `air`, `explore`, the loop's proposals),
+    its argv with placeholders (`{base}`, `{request}`), a version, a timeout, and `read`, which
+    turns the result into findings;
+  - the sanity workflows (`NOP_WORKFLOW`, `ORACLE_WORKFLOW`, `COMMENTS_WORKFLOW`), which check
+    judges without a person; the oracle reads the key, which this design calls leaked;
+  - scorers: a judge workflow with argv and a version; `--settled` and `--rest-from`, which reuse
+    another scorer's labels; the lab's label check (`checkScorerResult`), which moves into the
+    grader since the lab stores parts without knowing them; two scorers' agreement in `report`;
+  - fixtures: `fixture.json` (source, snapshot `base`, `head`, `start`), a thin `snapshot.bundle`
+    that restores only against the workspace's `clone`, `request.md`; sealing and verifying a
+    set; `collect` and `draft-key`, which build them from merge requests;
+  - keys: `key.json`'s issues (mechanism, severity, category, scope, locations), revisions,
+    `fixes.bundle`, `evidence/`;
+  - the contained run (Docker, the checkout mounted), the open network a reviewer keeps,
+    allowance waiting, `--jobs`, the budget and its stop;
+  - selection: `--cases` with a seeded order, `--only` down to one finding, `--where` and its
+    predicates, holdouts (set in `awf-lab.json` per dataset) refused by every command but the
+    loop's final check;
+  - comparing and reading: `--baseline`, `*.compare.ts` and its sequential stop, `check`'s
+    headroom, variance, resolution and `--rescore`, `show` and its addresses, `report --md` and
+    `--categories`, `list`, `schema`, `--dry-run`, metrics by category and source;
+  - the results autoresearch commits (`results/{dataset}/{variant}@{version}/`), trials pooled
+    across days, and a try named by its code so its trials count again;
+  - the loop: proposer, its bundle (missed issues, per-category tallies), the scope check (one
+    file, an import allowlist), the container generated code runs in, incumbent, keep on
+    `better`, stall, spend read from records, resume from `proposal.json`, holdout and `--final`;
+  - the exit codes (3 a budget stop and 4 a declined plan, where this design has 3 flaky and 4
+    the lab broke);
+  - the ~20 internal modules autoresearch imports through `@agentswf/lab/review/*`.
+- Weighed against this design's decisions where they pull apart, each a question for the person
+  unless the answer is plain:
+  - one run at a time against `--jobs`, safe only once no agent can reach a grade folder;
+  - every comparison rerunning both sides, and a store per checkout outside the repository,
+    against committed results, pooled trials and reuse keyed by version;
+  - a folder per change against arms, and arms as argv against variants that pick a workflow
+    module, a `read` and a timeout;
+  - the trial running in your checkout beside its keys, with only agents sandboxed, against the
+    loop's generated code, which story 013 runs whole in a container; and how a candidate becomes
+    a folder when the lab makes no checkouts;
+  - "the lab doesn't say which is better" against the loop keeping a try on `better`; what
+    `better` means when graders give verdicts only; `src/compare` placed where the new kind may
+    import it;
+  - no scratch folder at `score` against a review scorer that reads the restored checkout;
+  - facts that are flat against findings that are a list;
+  - `agentReach` with no "any domain" against a reviewer's open network;
+  - the marker search over every commit in the folders against a restored checkout with all of
+    its project's history;
+  - the lab never naming a domain against review code that must live somewhere: a library beside
+    the new kind's folder (which refuses domain words), or in the autoresearch repository;
+  - whether the move needs an engine change, which Scope rules out: a sandbox the engine opens
+    for `"lab"`, or generated code contained ([[workflow-in-sandbox]]);
+  - from M2, left for the move: grading a run the workflow failed (the review counts its recall
+    as 0, where this design grades no trial the workflow erred on), and a key digest limited to
+    the files a grader reads.
+- What an agent needs to iterate quickly, checked against the commands: every result as JSON,
+  a cost known before a run and a budget stop, a comparison that stops as soon as it can tell, a
+  holdout it can't tune on, and where to read why a trial failed.
+
+Done when:
+
+- A table in Implementation notes, one row per feature: carried, dropped or redesigned, and why.
+- Each structural choice is under Open questions as Q10 onward, answered by the person before
+  task 8 starts.
+- The design sections, Decisions, Alternatives rejected and tasks 3 to 6 and 8 to 13 say what
+  the table settled.
+
+### 8. Grader workflows and `score`, built against the review scorer
+
+Outcome: a grader can be a workflow, its parts and votes are stored, and `score` grades a kept
+run again, with any grader, without running a trial. Comes before task 3, whose criteria judge
+then runs on this path.
+
+Execution:
+
+- [ ] Plan: the grade folder and `gradeCase()` as the design gives them; the review scorer's
+  match judge's labelling ported to them as the first grader workflow, where task 7 settled
+  review code lives; M2's shape for parts and votes; how a grader that needs the workflow's
+  working folder gets it at `score` time, as task 7 settled.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- `"graders": [{ "workflow": … }]`, the grade folder, `gradeCase()`, a grader's run in the store
+  and its cost on the score entry.
+- `parts` with labels, votes and how each was settled; `numbers` pooled into report rows.
+- `score`, with a way to grade a kept run with a grader it was not run with, so two graders are
+  compared on the same trials; the report marks it brings (keys changed since grading, a case
+  edited since the run).
+- `--json` on `score` and `report`.
+
+Done when:
+
+- A test on scripted agents: a grader workflow is given its folder, and its parts, numbers and
+  cost reach the score entry.
+- A test: a dataset's own code grader returns counts that are pooled into report rows, and a
+  dataset whose graders give no verdict shows its cases as graded by numbers only.
+- A test: `score` never runs `env.ts`; it grades again on a changed key digest or minor version,
+  and with an added grader; a trial whose case was edited since it ran is not graded again and is
+  reported as edited.
+- A test: a grader that throws leaves the trial errored by grading, and `score` grades it again.
+- A test pins the outcome order: a failed `expect` with a grader that errored reads as errored; a
+  leaked trial that also errored reads as leaked.
+- The interface built is the one M2 left, or Implementation notes say what changed and why.
+- A test on scripted agents: the ported match judge, given the votes the review kind's scorer
+  was given, gives the same labels and the same settlement.
+
+### 9. Arms: a workflow's command-line settings, named and compared
+
+Outcome: `dataset.json` names arms, and `run --arm {name}`, repeatable, runs them side by side in
+one run, each a column beside your checkout's, as `--against` does folders. Comes after task 4.
+
+Execution:
+
+- [ ] Plan: what an arm holds (an argv appended to `setup`'s, and whether also a workflow module
+  and a timeout, as task 7 settled), where arms are named, how an arm's version is kept, how arms
+  and folders combine, how arms key history, `--failed`, the exit code and the run record's
+  columns, whether a grader workflow takes arms the same way, and how autoresearch's variants
+  map onto them.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- Arms in `dataset.json`; `--arm`, repeatable; the arm and its version on the trial record; a
+  column per arm; the comparison between columns, as JSON, with the stop task 7 settled.
+
+Done when:
+
+- A test on scripted agents: two arms give two columns, and each trial's record names its arm
+  and version.
+- A test: an arm and a folder in one run give the columns task 9's plan says.
+- A test: the comparison between two arms comes as JSON, and stops as the plan says.
+- A test: with arms, `--failed` and the exit code follow the column the plan names.
+- Live: refund-desk's `decide` on two arms that differ by model, after the example takes the
+  model on its command line.
+
+### 10. The `"lab"` sandbox
+
+Outcome: `"sandbox": "lab"` puts every agent of a trial in one sandbox the lab sets, reaching
+what task 7 settles (at least the scratch folder and the agents' model), the new kind's counterpart
+of the review lab's contained run, which stays the review kind's until task 13.
+
+Execution:
+
+- [ ] Plan: what the review workflows' agents need (they read the restored checkout and write
+  nothing outside it, and keep an open network), the review lab's Docker run against a sandbox
+  the engine opens, how `"lab"` treats a workflow that opens a sandbox of its own (`awf run
+  --sandbox` refuses one), how the reach check reads it, and whether `--jobs` becomes safe with
+  it.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- `"sandbox": "lab"` in `dataset.json`; the sandbox the lab gives each agent; the reach check
+  and the report under it.
+
+Done when:
+
+- A test: an agent under `"lab"` cannot read the case's key, the store or the home folder, and
+  the report says which setting a run used.
+- A test: under `"lab"`, an agent reaching a domain outside `agentReach` errors the trial as
+  `reach`, and one within it does not; a workflow that opens its own sandbox is handled as the
+  plan says.
+- Live: one dataset under `"lab"`, refund-desk's if the plan lets a workflow's own sandbox stand
+  under it, else a workflow written without one. A review under it is task 11's.
+
+### 11. A review dataset on cases, graded by the review scorer
+
+Outcome: the autoresearch repository's datasets run as cases: fixtures converted, the checkout
+restored by `env.ts` against the workspace's clone, findings graded by the review scorer as a
+grader workflow, with recall and precision as numbers and a part per key issue. Comes after
+tasks 8, 9 and 10.
+
+Execution:
+
+- [ ] Plan: the converter (fixture, `request.md`, `snapshot.bundle`, `key.json`, `fixes.bundle`
+  and `evidence/` into a case folder and `key/`); the review `env.ts` and where it finds the
+  clone; the scorer as a grader, its label check included; where it all lives, as task 7
+  settled; M6.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- The converter; the review `env.ts`, under `"lab"`; on task 8's ported labelling, recall and
+  precision as numbers, the label check (`checkScorerResult`), and `--settled` and `--rest-from`
+  if task 7 keeps them; the sanity workflows as task 7 settled.
+- Holdouts in `dataset.json`, carried over by the converter, and refused by `run`, `score` and
+  `report`.
+
+Done when:
+
+- Every autoresearch dataset converts, its holdout included, and the converted sets verify as
+  the old ones do.
+- A test: `run`, `score` and `report` refuse a holdout case.
+- `score` with an added grader works on a review trial.
+- Live: a few tuning cases, one arm and two trials each, on both labs with the same scorer,
+  the new kind under `"lab"` and the review lab in its contained run; pooled recall and
+  precision differ by no more than the review lab's own spread between trials on those cases,
+  and any other difference is explained.
+
+### 12. The loop, for any dataset
+
+Outcome: `awf-lab loop` runs on a new-kind dataset: a proposer agent changes the workflow, the
+change runs against the incumbent on the tuning cases, it is kept only when better, and the
+final incumbent is checked once on a holdout. It works on any dataset, not only reviews. Comes
+after tasks 4 and 8 to 11.
+
+Execution:
+
+- [ ] Plan: story 013's loop on the new kind, as task 7 settled: what a try is (a changed folder
+  or an arm) and how it is made, where generated code runs, the scope check, the comparison and
+  its stop, the spend cap, resume, and the sandbox the proposer runs
+  in.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- `loop` and `--final`, the one command that runs holdout cases (task 11 adds holdouts); `--final`
+  reports its own trials, and `report` and `score` still refuse them; the proposer's bundle; the
+  try log; `--json`.
+- A refund-desk dataset with room to improve: more cases than the three of each, a numeric
+  grader, and a holdout, so the first live loop costs cents.
+
+Done when:
+
+- A test on scripted agents: a loop keeps a better try, drops a worse one, stops at the cap and
+  never shows the proposer a holdout case; `--final` runs only the holdout.
+- A test: a loop stopped mid-try resumes, and generated code reaches no key.
+- Live: a short loop on refund-desk, then one round on `air-1` under the cap the person sets.
+
+### 13. The review kind retired, and the records made `/1`
+
+Outcome: one kind of case. The review lab's runner, store, commands, flags and exit codes are
+gone, `collect` and `draft-key` write cases, and the lab's records become `/1`. Comes after
+tasks 5 and 6, which still add fields to the records, and 11 and 12.
+
+Execution:
+
+- [ ] Plan: what is deleted, what moves to task 7's library, which autoresearch scripts change,
+  which todos name retired commands, and what the docs and the site say.
+- [ ] Implement: only this task's change, with tests.
+- [ ] Review: architecture and scope; correctness and proof.
+- [ ] Resolve: disposition every finding.
+- [ ] Verify: the `Done when` items.
+
+Work:
+
+- Delete `review/`'s runner, store, commands and loop; one set of exit codes; `awf-lab.json`'s
+  review fields refused with what replaced them.
+- `scripts/check-boundaries.ts` and boundary 5 in `AGENTS.md` for one kind, with the review
+  library's place.
+- Run, trial and score records and `grade.json` at `/1`; `dataset.json`'s `graders` under the
+  format rules; `awf-lab.json` at `/1`, with the lab's converter for it, since its review fields
+  go.
+
+Done when:
+
+- Nothing reads or writes the review kind's run records; a test reads each record the lab writes
+  at `/1`.
+- `awf-lab.json` at `/0` converts to `/1`, and its review fields are refused with what replaced
+  them.
+- `check-boundaries.ts` passes with the one-kind rules, and the CLI has one set of exit codes.
+- `collect` makes a case that runs, and `draft-key` drafts its key.
+- The autoresearch repository runs on the new kind alone, its scripts included.
+
 Tasks are checkpoints, not a file-by-file edit script. The implementation agent may adjust the
 implementation without changing their outcomes, order, or the story's scope.
 
@@ -2121,7 +2455,14 @@ Automated:
 - [ ] A dataset runs end to end on scripted agents: trials, scores, verdicts, report, exit code.
 - [ ] Two folders run side by side on scripted agents, each on its own `awf` (task 4).
 - [ ] The lab copies `key.md` and `key/` into neither folder, and a leaked marker is caught.
-- [ ] The review lab's existing tests pass, with only their import paths changed.
+- [ ] Until task 13, the review lab's existing tests pass, with only their import paths changed.
+- [ ] `score` grades again on a changed key or version, and with an added grader (task 8).
+- [ ] Two arms give two columns, each trial recording its arm and version (task 9).
+- [ ] An agent under `"lab"` cannot read the key or the store (task 10).
+- [ ] Every autoresearch dataset converts and verifies, its holdout included, and `run`, `score`
+  and `report` refuse a holdout case (task 11).
+- [ ] A loop on scripted agents keeps a better try and never shows a holdout (task 12).
+- [ ] Nothing reads or writes review-kind run records, and the lab's records are `/1` (task 13).
 - [ ] `bun test`
 - [ ] `bunx tsc --noEmit`
 - [ ] `bun run scripts/check-boundaries.ts`
@@ -2135,6 +2476,8 @@ Manual or live evaluation:
 - [ ] The built judge gives the hand-run judge's verdicts on task 1's held-out part (task 3).
 - [ ] The mail dataset with a changed prompt against a worktree of `main` (task 4).
 - [ ] A real run of each workflow captured as a case, and that case run (task 6).
+- [ ] `air-1` on both labs, with the same scorer, agreeing within noise (task 11).
+- [ ] A loop on refund-desk, and one round on `air-1` (task 12).
 
 ## Review record
 
@@ -2170,6 +2513,11 @@ lab's `fetch` installed by a preload, before anything captures it; `--no-env-fil
 never reads the folder's `.env`; sockets as reach; a stale rule on known-failing cases), all
 fixed; the thirteenth found none.
 
+Moving reviews and the loop onto this design, tasks 7 to 13, was added on 2026-11-16 and reviewed
+by subagents: one for consistency, one for completeness against the review lab and the
+autoresearch repository, then a round checking both. Their findings shaped task 7's inventory and
+tensions, the task order and the Done when items.
+
 ## Readiness
 
 - [ ] Outcome and boundaries are concrete.
@@ -2193,7 +2541,7 @@ moved to the temp folder.
 
 ### Task 2: plan (2026-11-15)
 
-- ADR 0003 is amended (cases for a workflow live beside it), and [[second-case-kind]] is rewritten
+- ADR 0003 is amended (cases for a workflow live beside it), and `second-case-kind` (folded into tasks 7 to 13 since) is rewritten
   as "move reviews onto the case kind".
 - Folders: `src/shared/` (`validate.ts` now; the runner's process seam and `awf-lab.json`'s common
   fields as they move), `src/cases/format/` (pure: `settings.ts` for `dataset.json` and `key.md`,
@@ -2223,9 +2571,9 @@ these changes, taken into `records.ts`:
 - A grader may answer "does not apply" with a reason (`notApplies`), neither a verdict nor
   numbers; an empty answer stays grading's error.
 - A score entry keeps `models` (a grading can use several), `ms`, and its errors' `problems`.
-- For task 3: a grader workflow gets an empty working folder of its own (`--cwd`), and may be
+- For task 8: a grader workflow gets an empty working folder of its own (`--cwd`), and may be
   given its previous parts and key digest, so a key edit judges only what changed.
-- For the reviews' move, not now: grading a run the workflow failed (the review counts its recall
+- For the reviews' move (tasks 7 to 13), not now: grading a run the workflow failed (the review counts its recall
   as 0), and a key digest limited to the files a grader reads. Graders identified by a version
   instead of a code digest came early, with the code graders (2026-11-16).
 
@@ -2377,6 +2725,7 @@ grader of its own, and this part doesn't wait on task 1's judging.
   before it no longer read (beta, no migration).
 - Code graders run after `expect`, every trial, even when `expect` failed: they are cheap. Pooled
   numbers in the report, `score`, grader workflows and the criteria judge are still task 3's.
+  (2026-11-16: `score` and grader workflows moved to task 8, which comes before task 3.)
 - Reviewed by two subagents, architecture and correctness, and the example's grader as a reader.
   No must-fix. Fixed: a grader's grandchild held the stderr pipe past the kill (verified hang of
   20 s on a 3 s limit); empty or contradictory answers were stored; `key/` and `kept` weren't

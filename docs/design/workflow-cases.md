@@ -247,7 +247,7 @@ person's words too.
 All in `packages/lab`. Its case side is review's throughout: a case is a fixture and an answer
 key, restore takes a bundle, a trial stores findings, a scorer is handed `--fixture` and
 `--findings`, and the scratch checkout is deleted before scoring. So this is
-[[second-case-kind]], with a captured or written case as the second kind instead of triage:
+[[044-cases-for-a-workflow|story 044]], with a captured or written case as the second kind instead of triage:
 
 | Piece | What it is |
 | --- | --- |

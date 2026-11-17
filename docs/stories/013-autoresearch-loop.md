@@ -95,7 +95,7 @@ In scope:
 Out of scope:
 
 - A generic case side; the loop stays review-specific until
-  [`second-case-kind`](todo/second-case-kind.md) (user, 2026-09-30: loop first).
+  [story 044](044-cases-for-a-workflow.md), tasks 7 to 13 (user, 2026-09-30: loop first).
 - Growing the dataset to ~40 + 20 ([`key-growth-from-runs`](todo/key-growth-from-runs.md)). With
   10 held-out cases × 2 trials the final check resolves ~0.2: it catches a collapse, not a small
   overfit. Accepted for now (user, 2026-09-30).
@@ -482,7 +482,7 @@ Manual or live evaluation:
 
 - Holdout: split air-1 23/10 now, the last 10 of the seeded order; growing the key comes later.
 - The proposer may write workflow code; so trials run contained (option B).
-- Loop before `second-case-kind`; the case side stays review's.
+- Loop before the case kind (story 044); the case side stays review's.
 - Tonight's cap: $40 list price, experiments included.
 
 ### Experiments

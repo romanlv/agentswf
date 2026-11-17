@@ -551,4 +551,4 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
 2. **What must a run record carry so an optimiser can score it?** Cost and wall clock are measured.
    Quality is scored against known answers for reviews (story 008); whatever stands in for it in
    another kind of workflow has to be *emitted here*, or the optimiser will happily find the
-   cheapest way to be wrong ([[second-case-kind]]).
+   cheapest way to be wrong ([[044-cases-for-a-workflow|story 044]]).

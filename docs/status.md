@@ -399,8 +399,10 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   trial is the folder's own `awf run` of `env.ts` (`@agentswf/lab/cases`: `defineEnv`, strict
   `c.mock`, `c.fake`, `c.http` through the lab's `fetch` preload, given stages and `until`),
   graded by the key's `expect`, with a verdict per case and an exit code; `report`, `runs`,
-  `case new` and `--failed`. The mail triage's seven cases pass live. Next: task 1 (the person
-  judges criteria by hand), then task 3 (the criteria judge and `score`).
+  `case new` and `--failed`; a dataset's own code graders, shown in `examples/refund-desk`. The
+  mail triage's seven cases pass live. Reviews and the improvement loop move onto it on the same
+  branch (tasks 7 to 13, added 2026-11-16). Next: task 7 (what reviews and the loop need, set
+  against the design), then task 8 (grader workflows and `score`); task 1 is the person's.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -409,7 +411,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as the site
 promises (durable runs, an engine that handles a quiet or hung agent, a run that parks with no
 process left). The autoresearch loop is a long-term bet, so [`comparison-efficiency`](stories/todo/comparison-efficiency.md) and
-[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait. The todo inbox
+[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait; story 044's
+tasks 7 to 13 (2026-11-16) move the loop onto the case kind, and weigh both todos as they do. The todo inbox
 is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities). The P0s:
 
 - [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go
