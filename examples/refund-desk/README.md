@@ -91,8 +91,8 @@ marker; then write `files/` and `expect`.
 
 `dataset.json` sets what holds for every case. `"sandbox": "workflow"` means the agents run in
 the sandbox the workflow gives them. `"agentReach": { "network": [] }` is what the lab checks
-they could reach besides their model, which here is nothing. `refunds/` also names its own grader,
-`"graders": ["replyStatesRefund"]`.
+they could reach besides their model, which here is nothing. `refunds/` also names its own
+graders: `"graders": ["replyStatesRefund", { "workflow": "graders/tone.ts", "readsFacts": true }]`.
 
 ## What each case catches
 
@@ -188,5 +188,41 @@ the facts and the stages' values, so a grader on `decide/` would read the reply 
 `stages.decide`. A grader that throws marks the trial as errored by grading, not as the workflow's
 fault.
 
-Still planned: `must` and `must-not` criteria in `key.md`, judged by an agent, for what code can't
-check, such as "the reply doesn't blame the customer".
+## A grader that is a workflow
+
+Code can't tell whether the reply is courteous. `refunds/graders/tone.ts` is a workflow: three
+Haiku voters each read the reply and say whether it is polite and never blames or lectures the
+customer, and the majority decides. It reads its case with `gradeCase()` and returns its verdict
+with a part per thing it judged, each part with its votes:
+
+```ts
+const { facts } = gradeCase();
+// … three voters answer { courteous, why } …
+return {
+  verdict,
+  reasons: [{ about: "tone", text: `${yes} of ${votes.length} voters found the reply courteous` }],
+  parts: [{ about: "courteous", verdict, why, settled, votes }],
+};
+```
+
+The lab runs a grader workflow after `expect` and the code graders, in an `awf run` of its own,
+and skips it when a cheaper grader already failed the trial. Its run's cost is grading's, shown
+apart in the report (`grading $0.02` for three tickets), and `report --case pushy` shows its votes
+when they split.
+
+Change a grader, or a key, and `awf-lab score` grades the kept trials again without running the
+workflow: only the graders whose key or `{major}.{minor}` changed, or whose last grade errored.
+`awf-lab report` says when grades are out of date, and `score --dry-run` prices the plan from
+earlier grades:
+
+```text
+score run 3: 3 trials · tone ×3
+from earlier grades: est. $0.02
+```
+
+A grader marked `"onDemand": true` never runs with the trials and never decides a verdict:
+`awf-lab score --grader {name}` grades with it alone, and the report shows how often it agreed
+with the others. That's how you try a second judge on trials you already have.
+
+Still planned: `must` and `must-not` criteria in `key.md`, judged by the lab's own grader workflow,
+for prose rules the dataset doesn't want to code itself.

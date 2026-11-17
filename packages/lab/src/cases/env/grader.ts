@@ -1,4 +1,5 @@
 import { checkVersion, DEFAULT_VERSION } from "../../shared/version";
+import type { Part } from "../format/records";
 import type { Key } from "../format/settings";
 import type { Fact } from "./index";
 
@@ -23,10 +24,15 @@ export type GradeInput<R = unknown> = {
    * gives `null`, and its grader says so itself.
    */
   result: R;
-  /** The trial's working folder, as the workflow left it. */
-  scratch: string;
+  /**
+   * The trial's working folder, as the workflow left it; null under `score`, which grades a kept
+   * trial: a grader that needs one rebuilds it from the case.
+   */
+  scratch: string | null;
   /** Where the dataset's `keep` paths were saved from the scratch folder. */
   kept: string;
+  /** The trial's parameters. */
+  params: Record<string, string>;
 };
 
 /** What a grader that `readsFacts` is given besides. */
@@ -45,6 +51,8 @@ export type Grade = {
   numbers?: Record<string, GradeNumber>;
   /** Why, each about a field, a criterion or a part of the result. */
   reasons?: { about: string; text: string }[];
+  /** One per thing judged, such as a criterion or a finding, with its verdict or label and votes. */
+  parts?: Part[];
   /** The grader doesn't apply to this case, and why; given with no verdict and no numbers. */
   notApplies?: string;
 };

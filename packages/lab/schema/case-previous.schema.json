@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab grade folder's previous.json",
+  "type": "object",
+  "required": ["key", "parts"],
+  "properties": {
+    "key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["about"],
+        "properties": {
+          "about": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verdict": {
+            "enum": ["passed", "failed", "undecided", "not judged"]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "data": {},
+          "why": {
+            "type": "string"
+          },
+          "settled": {
+            "enum": ["agreed", "majority", "tiebreak", "unsettled", "given"]
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["by"],
+              "properties": {
+                "by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "verdict": {
+                  "enum": ["passed", "failed", "undecided", "not judged"]
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "data": {},
+                "why": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

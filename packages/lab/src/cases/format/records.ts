@@ -9,6 +9,7 @@ import { DATASET_ERRORS, RefusedSchema } from "./trial-file";
 export const RUN_KIND = "awf.case-run/0";
 export const TRIAL_KIND = "awf.case-trial/0";
 export const SCORE_KIND = "awf.case-score/0";
+export const GRADE_KIND = "awf.case-grade/0";
 
 const Text = Type.String({ minLength: 1 });
 const Time = Type.String({ format: "date-time" });
@@ -210,6 +211,8 @@ export const PartSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export type Part = Type.Static<typeof PartSchema>;
+
 export const GraderEntrySchema = Type.Object(
   {
     grader: Text,
@@ -252,3 +255,29 @@ export const ScoreRecordSchema = Type.Object(
   { additionalProperties: false },
 );
 export type ScoreRecord = Type.Static<typeof ScoreRecordSchema>;
+
+/** A grader's earlier parts, given to it as `previous.json` so it judges only what changed. */
+export const PreviousSchema = Type.Object(
+  {
+    /** The digest of the key those parts were graded on. */
+    key: Digest,
+    parts: Type.Array(PartSchema),
+  },
+  { additionalProperties: false },
+);
+export type Previous = Type.Static<typeof PreviousSchema>;
+
+/** `grade.json` in a grade folder: what a grader workflow reads with `gradeCase()`. */
+export const GradeFileSchema = Type.Object(
+  {
+    kind: Type.Literal(GRADE_KIND),
+    case: Text,
+    /** The trial's working folder, during the trial; null under `score`, which has none. */
+    scratch: Type.Union([Text, Type.Null()]),
+    /** The trial's parameters. */
+    params: Type.Record(Type.String(), Type.String()),
+    readsFacts: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type GradeFile = Type.Static<typeof GradeFileSchema>;

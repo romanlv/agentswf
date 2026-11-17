@@ -1,16 +1,22 @@
 import { criteriaOf } from "../format/key";
 import type { RunRecord } from "../format/records";
 import type { CaseInfo, DatasetInfo } from "./dataset";
+import { decidersOf, type LabGrader } from "./grading";
 import { type CaseRow, caseRow, trialOutcome } from "./outcome";
 import { readRunRecord, readTrials, runNumbers, type StoredTrial } from "./store";
 import { type CaseVerdict, caseVerdict } from "./verdict";
 
-/** A case's bar and whether it is known failing, from its key as it is now. */
-export type CaseBar = { pass: string; knownFailing: boolean };
+/**
+ * A case's bar, whether it is known failing, and whose grades decide its trials: all from its key
+ * and the dataset as they are now.
+ */
+export type CaseBar = { pass: string; knownFailing: boolean; deciders?: ReadonlySet<string> };
 
+/** `graders`: every grader that may decide besides `expect`, the dataset's and a test's. */
 export function barsOf(
   dataset: DatasetInfo | undefined,
   cases: readonly CaseInfo[],
+  graders?: readonly Pick<LabGrader, "name" | "onDemand">[],
 ): Map<string, CaseBar> {
   return new Map(
     cases.map((c) => [
@@ -18,6 +24,7 @@ export function barsOf(
       {
         pass: c.key.pass ?? dataset?.dataset.pass ?? "all",
         knownFailing: c.key["known-failing"] === true,
+        ...(graders ? { deciders: decidersOf(c.key, graders) } : {}),
       },
     ]),
   );
@@ -35,7 +42,8 @@ function verdictsOf(
   for (const { case: name } of run.asked) {
     const own = trials.filter((t) => t.record.case === name && t.record.column === 0);
     if (own.length === 0) continue;
-    const outcomes = own.map((t) => trialOutcome(t.record, t.scores).outcome);
+    const deciders = bars.get(name)?.deciders;
+    const outcomes = own.map((t) => trialOutcome(t.record, t.scores, deciders).outcome);
     verdicts.set(
       name,
       caseVerdict(outcomes, asked(run, name), bars.get(name)?.pass ?? "all").verdict,
@@ -109,7 +117,15 @@ export function rowsOf(
   return run.asked.map(({ case: name, trials: count }) => {
     const bar = bars.get(name) ?? { pass: "all", knownFailing: false };
     const own = trials.filter((t) => t.record.case === name && t.record.column === 0);
-    return caseRow(name, own, count, bar.pass, bar.knownFailing, history.get(name) ?? []);
+    return caseRow(
+      name,
+      own,
+      count,
+      bar.pass,
+      bar.knownFailing,
+      history.get(name) ?? [],
+      bar.deciders,
+    );
   });
 }
 

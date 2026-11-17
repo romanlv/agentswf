@@ -395,14 +395,15 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   docker `exec -t`).
 
 - [044 — run a workflow on cases you wrote, with its services faked, and get a score](stories/044-cases-for-a-workflow.md):
-  in progress, tasks 0 and 2 done. `awf-lab run` runs a dataset in a project's `evals/`: each
+  in progress, tasks 0, 2, 7 and 8 done. `awf-lab run` runs a dataset in a project's `evals/`: each
   trial is the folder's own `awf run` of `env.ts` (`@agentswf/lab/cases`: `defineEnv`, strict
   `c.mock`, `c.fake`, `c.http` through the lab's `fetch` preload, given stages and `until`),
   graded by the key's `expect`, with a verdict per case and an exit code; `report`, `runs`,
-  `case new` and `--failed`; a dataset's own code graders, shown in `examples/refund-desk`. The
-  mail triage's seven cases pass live. Reviews and the improvement loop move onto it on the same
-  branch (tasks 7 to 13, added 2026-11-16). Next: task 7 (what reviews and the loop need, set
-  against the design), then task 8 (grader workflows and `score`); task 1 is the person's.
+  `case new` and `--failed`; a dataset's own graders, code or a workflow (`gradeCase()`), shown
+  in `examples/refund-desk`; `awf-lab score` grades kept trials again when a key or grader
+  changed, without running the workflow. The mail triage's seven cases pass live. Reviews and the
+  improvement loop move onto it on the same branch (tasks 7 to 13, added 2026-11-16). Next: task
+  3 (the criteria judge), then 4 (`--against`); task 1 is the person's.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

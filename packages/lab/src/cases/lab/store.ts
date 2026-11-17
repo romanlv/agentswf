@@ -34,6 +34,15 @@ export const runDirOf = (store: string, n: number) => join(store, "runs", String
 export const trialDirOf = (store: string, n: number, name: string, column: number, trial: number) =>
   join(runDirOf(store, n), "trials", name, `${column}-${trial}`);
 
+/** An `awf run --id` unique among every workflow's runs in the store. */
+export function newRunId(now: Date): string {
+  const stamp = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
+  return `${stamp}-${randomUUID().slice(0, 8)}`;
+}
+
 /**
  * A trial's file, which its process appends to, in the lab's home: named by this process, so a
  * later `run` sweeps what a dead one left.

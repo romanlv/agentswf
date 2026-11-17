@@ -12,10 +12,14 @@ kind keeps its own flags and help.
 trial and score records), `env/` (`@agentswf/lab/cases` and the `fetch` preload: what runs in a
 trial's own process, in the project), and `lab/` (the lab's side: datasets and cases, `case new`,
 the checks before the first trial, the lock and the store under `~/.awf/lab/`, each trial's
-folders and marker search, the reach check, `expect`, blame, verdicts, the report). It never
+folders and marker search, the reach check, `expect`, blame, verdicts, the report; grading in
+`grading.ts`, shared by `run` and `score`: a dataset's code graders through `code-graders.ts` and
+the grade helper, grader workflows through `workflow-graders.ts` and a grade folder that
+`gradeCase()` reads, and `score.ts`, which plans and grades kept trials again). It never
 imports `review/` and names no word of one workflow's domain (`mail`, `review`, `finding`); the
-boundary checker holds both. `lab/` is pure but for `cli.ts`, `dataset.ts`, `folders.ts`,
-`git.ts`, `inspect.ts`, `runs.ts`, `scaffold.ts`, `store.ts`, `trial.ts` and `workspace.ts`.
+boundary checker holds both. `lab/` is pure but for `cli.ts`, `code-graders.ts`, `dataset.ts`,
+`folders.ts`, `git.ts`, `grading.ts`, `inspect.ts`, `runs.ts`, `scaffold.ts`, `score.ts`,
+`store.ts`, `trial.ts`, `workflow-graders.ts` and `workspace.ts`.
 
 **What both share**, `src/shared/`: the process seam (`runner.ts`: a request, `awf run`'s argv,
 starting this checkout's `awf` or a folder's own bin with a preload, record parsing), the common

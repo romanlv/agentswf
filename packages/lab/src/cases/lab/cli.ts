@@ -1,20 +1,39 @@
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { findConfigFile } from "../../shared/config-file";
-import { awfLogs, processRunner, type Runner } from "../../shared/runner";
+import { awfLogs, processRunner, type Runner, withoutCallingSession } from "../../shared/runner";
+import { checkSchema, describeProblems } from "../../shared/validate";
+import {
+  type CaseReport,
+  CaseReportSchema,
+  REPORT_KIND,
+  SCORED_KIND,
+  type Scored,
+  ScoredSchema,
+} from "../format/output";
 import { RUN_KIND, type RunRecord } from "../format/records";
-import { codeGraders } from "./code-graders";
-import { type CaseInfo, type DatasetInfo, fileDigest, readCases, readDataset } from "./dataset";
+import { codeGraders, graderVersions } from "./code-graders";
+import {
+  type CaseInfo,
+  type DatasetInfo,
+  fileDigest,
+  graderSpecs,
+  readCases,
+  readDataset,
+} from "./dataset";
 import { clearStale } from "./folders";
 import { gitState, gitTop } from "./git";
+import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
-import { trialOutcome } from "./outcome";
+import { type CaseRow, trialOutcome } from "./outcome";
+import { agreements, poolNumbers } from "./pooled";
 import { Refusal } from "./refusal";
 import { median, plural, renderCase, renderRun, seconds } from "./report";
-import { barsOf, criteriaCount, failedCases, rowsOf } from "./runs";
+import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf } from "./runs";
 import { newCase } from "./scaffold";
+import { describePlan, planScore, runScore, type ScoreDone } from "./score";
 import {
   awfRunsOf,
   claimRun,
@@ -22,12 +41,14 @@ import {
   readRunRecord,
   readTrials,
   runNumbers,
+  type StoredTrial,
   takeLock,
   writeRun,
   writeTrial,
 } from "./store";
-import { type LabGrader, runTrial, type TrialDone, type TrialLab } from "./trial";
+import { runTrial, type TrialDone, type TrialLab } from "./trial";
 import { trialSettingsOf } from "./trial-settings";
+import { workflowGraders } from "./workflow-graders";
 import { type CaseWorkspace, chooseDataset, openCaseWorkspace } from "./workspace";
 
 export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
@@ -37,8 +58,11 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
-  report [{n}] [--case {name}]
+  report [{n}] [--case {name}] [--json]
                               the last run again, or run n; one case in full with --case
+  score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]
+                              grade the last run, or run n, again without running a trial: each
+                              grader whose key or version changed, or that errored
   runs                        the runs kept, newest first
 
   --dataset {name}  the dataset: a folder beside awf-lab.json holding a dataset.json; with one,
@@ -47,7 +71,11 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   --failed          only the cases whose newest verdict was failed, flaky or unclear, each with
                     that run's trials unless --trials says
   --trials {n}      trials a case; 1 unless told
-  --yes             no question before a run
+  --yes             no question before a run or a score
+  --grader {name}   score with this grader alone, one marked onDemand included
+  --dry-run         print score's plan and grade nothing
+  --budget {usd}    score stops before a grader workflow once its grades' estimates reach it
+  --json            the report, or score's plan and report, as JSON
 
 exit: 0 every case that must pass passed, 1 a case that must pass failed, 2 refused before any
 trial, 3 a case flaky or unclear, a partial run, or nothing graded, 4 the lab broke, 5 a trial
@@ -72,7 +100,7 @@ export type CasesEnvironment = {
   env?: Readonly<Record<string, string | undefined>>;
   /** The checks of a folder before the first trial; absent, the real ones. */
   inspect?: (root: string, envFile: string) => Promise<FolderSetup>;
-  /** Graders a test adds after `expect`; task 3 builds the real interface. */
+  /** Graders a test adds after `expect`, before the dataset's own. */
   graders?: readonly LabGrader[];
   now?: () => Date;
 };
@@ -85,6 +113,10 @@ type Options = {
   trials?: number;
   yes: boolean;
   case?: string;
+  grader?: string;
+  dryRun: boolean;
+  budget?: number;
+  json: boolean;
   help: boolean;
 };
 
@@ -92,7 +124,7 @@ type Options = {
 class LabBroke extends Error {}
 
 function parse(argv: readonly string[]): { command?: string; names: string[]; options: Options } {
-  const options: Options = { failed: false, yes: false, help: false };
+  const options: Options = { failed: false, yes: false, dryRun: false, json: false, help: false };
   const positional: string[] = [];
   const rest = [...argv];
   const value = (flag: string) => {
@@ -130,6 +162,24 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       case "--yes":
         options.yes = true;
         break;
+      case "--grader":
+        options.grader = value(arg);
+        break;
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      case "--json":
+        options.json = true;
+        break;
+      case "--budget": {
+        const text = value(arg);
+        const usd = Number(text);
+        if (!/^[0-9]+(\.[0-9]+)?$/.test(text) || !(usd > 0)) {
+          throw new Refusal("--budget is US dollars, more than 0, such as 5 or 2.50");
+        }
+        options.budget = usd;
+        break;
+      }
       case "--help":
       case "-h":
         options.help = true;
@@ -189,7 +239,9 @@ export async function runCases(
       case "run":
         return await run(context);
       case "report":
-        return report(context, names);
+        return await report(context, names);
+      case "score":
+        return await score(context, names);
       case "runs":
         return runs(context);
       default:
@@ -226,11 +278,15 @@ function loadDataset(
   return { info, cases: readCases(info) };
 }
 
-async function askOperator(plan: string, stderr: (text: string) => void): Promise<boolean> {
+async function askOperator(
+  plan: string,
+  stderr: (text: string) => void,
+  question = "run it?",
+): Promise<boolean> {
   stderr(plan);
   const prompt = createInterface({ input: process.stdin, output: process.stderr });
   try {
-    return /^y(es)?$/i.test((await prompt.question("run it? [y/N] ")).trim());
+    return /^y(es)?$/i.test((await prompt.question(`${question} [y/N] `)).trim());
   } finally {
     prompt.close();
   }
@@ -265,7 +321,12 @@ async function run(context: Context): Promise<number> {
   const { options, environment, stderr } = context;
   const workspace = workspaceOf(context);
   const { info, cases } = loadDataset(workspace, options.dataset);
-  const bars = barsOf(info, cases);
+  const now = environment.now ?? (() => new Date());
+  let inspected: Promise<FolderSetup> | undefined;
+  const folderOf = () =>
+    (inspected ??= (environment.inspect ?? inspectFolder)(workspace.root, checkEnvFile(info.dir)));
+  const graders = await datasetGraders(context, workspace, info, folderOf, now);
+  const bars = barsOf(info, cases, graders);
   const byName = new Map(cases.map((c) => [c.name, c]));
   for (const name of options.cases ?? []) {
     if (!byName.has(name)) {
@@ -299,7 +360,7 @@ async function run(context: Context): Promise<number> {
       `keys in ${info.name} have criteria: name a judgeAgent ({ "harness", "model" }) in awf-lab.json or dataset.json`,
     );
   }
-  const folder = await (environment.inspect ?? inspectFolder)(workspace.root, envFile);
+  const folder = await folderOf();
   const state = gitState(workspace.root);
 
   const total = selected.reduce((n, c) => n + trialsOf(c.name), 0);
@@ -328,18 +389,10 @@ async function run(context: Context): Promise<number> {
   } else stderr(plan);
 
   const lock = takeLock(workspace.labHome);
-  if ("heldBy" in lock) {
-    const file = join(workspace.labHome, "lock");
-    throw new Refusal(
-      lock.heldBy === undefined
-        ? `${file} holds no process this lab can read: remove it once no awf-lab runs`
-        : `another awf-lab run (process ${lock.heldBy}) holds ${file}`,
-    );
-  }
+  if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
   let record: RunRecord | undefined;
   try {
     const number = claimRun(workspace.store);
-    const now = environment.now ?? (() => new Date());
     record = {
       kind: RUN_KIND,
       number,
@@ -361,30 +414,24 @@ async function run(context: Context): Promise<number> {
       logs: environment.logs ?? awfLogs,
       tmp,
       env: environment.env ?? process.env,
-      graders: [
-        ...(environment.graders ?? []),
-        ...codeGraders(
-          info,
-          workspace.root,
-          trialSettingsOf(info.name, info.dataset).setupTimeoutMs,
-        ),
-      ],
+      graders,
       now,
     };
+    const shown = (done: TrialDone) => progress(stderr, done, bars.get(done.record.case)?.deciders);
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
     try {
       for (let trial = 1; trial <= most; trial++) {
         const again: CaseInfo[] = [];
         for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
           const done = await runTrial(lab, folder, info, 0, trial);
-          progress(stderr, done);
+          shown(done);
           if (done.record.errored?.by === "provider") again.push(info);
         }
         for (const info of again) {
           const done = await runTrial(lab, folder, info, 0, trial);
           const retried = { ...done.record, retried: true };
           writeTrial(done.dir, retried);
-          progress(stderr, { ...done, record: retried });
+          shown({ ...done, record: retried });
         }
       }
     } catch (error) {
@@ -405,22 +452,91 @@ async function run(context: Context): Promise<number> {
   }
   const trials = readTrials(workspace.store, record.number);
   const rows = rowsOf(workspace.store, record, trials, bars);
-  const { text, exit } = renderRun({ run: record, rows, trials, criteria });
+  const { text, exit } = renderRun({
+    run: record,
+    rows,
+    trials,
+    criteria,
+    decidersOf: (name) => bars.get(name)?.deciders,
+  });
   context.stdout(text);
   return exit;
 }
 
-function progress(stderr: (text: string) => void, done: TrialDone): void {
-  const view = trialOutcome(done.record, done.score ? [done.score] : []);
+function progress(
+  stderr: (text: string) => void,
+  done: TrialDone,
+  deciders: ReadonlySet<string> | undefined,
+): void {
+  const view = trialOutcome(done.record, done.score ? [done.score] : [], deciders);
   stderr(
     `  ${done.record.case} ${done.record.trial}: ${view.outcome}${done.record.retried ? " (tried again)" : ""} · ${seconds(done.record.ms)}`,
   );
 }
 
-function report(context: Context, names: readonly string[]): number {
-  const workspace = workspaceOf(context);
+/**
+ * The test's graders and the dataset's own, each with its version read in your checkout before
+ * the first grade: a grader that doesn't load stops the command (exit 2). Grader workflows run on
+ * your checkout's `awf`, which `folder` gives when one is first needed.
+ */
+async function datasetGraders(
+  context: Context,
+  workspace: CaseWorkspace,
+  info: DatasetInfo,
+  folder: () => Promise<FolderSetup>,
+  now: () => Date,
+): Promise<LabGrader[]> {
+  const { environment } = context;
+  const specs = graderSpecs(info);
+  const settings = trialSettingsOf(info.name, info.dataset);
+  const env = definedOf(withoutCallingSession(environment.env ?? process.env));
+  let versions = new Map<string, string>();
+  if (specs.length > 0) {
+    const tmp = realpathSync(environment.tmp ?? tmpdir());
+    const work = mkdtempSync(join(tmp, "awf-lab-versions-"));
+    try {
+      versions = await graderVersions(info, {
+        root: workspace.root,
+        work,
+        env,
+        timeoutMs: settings.setupTimeoutMs,
+      });
+    } catch (error) {
+      throw new Refusal(`${info.name}'s graders: ${(error as Error).message}`);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }
+  const workflows = workflowGraders(
+    {
+      dataset: info,
+      awf: async () => (await folder()).awf,
+      runner: environment.runner ?? processRunner(),
+      runRoot: awfRunsOf(workspace.store),
+      now,
+    },
+    specs,
+  );
+  return [
+    ...(environment.graders ?? []),
+    ...codeGraders(info, workspace.root, settings.setupTimeoutMs),
+    ...workflows,
+  ].map((g) => {
+    const version = versions.get(g.name) ?? g.version;
+    return version ? { ...g, version } : g;
+  });
+}
+
+function definedOf(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+}
+
+/** The run named, or the last one. */
+function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: string): RunRecord {
   if (names.length > 1 || (names[0] !== undefined && !/^[1-9][0-9]*$/.test(names[0]))) {
-    throw new Refusal("awf-lab report [{n}] [--case {name}]");
+    throw new Refusal(usage);
   }
   const numbers = runNumbers(workspace.store);
   const number = names[0] ? Number(names[0]) : numbers.at(-1);
@@ -428,15 +544,108 @@ function report(context: Context, names: readonly string[]): number {
     throw new Refusal(`no runs in ${workspace.store} yet; awf-lab run makes one`);
   const run = readRunRecord(workspace.store, number);
   if (!run) throw new Refusal(`no run ${number} in ${workspace.store}`);
+  return run;
+}
+
+/** `report --json`: a run's cases, pooled numbers and agreement, checked against its schema. */
+function reportJson(args: {
+  run: RunRecord;
+  rows: readonly CaseRow[];
+  trials: readonly StoredTrial[];
+  exit: number;
+  bars: ReadonlyMap<string, CaseBar>;
+  stale?: CaseReport["stale"];
+  withTrials?: boolean;
+}): CaseReport {
+  const { run, rows, trials, exit, bars } = args;
+  const own = trials.filter((t) => t.record.column === 0);
+  const pooled = poolNumbers(own);
+  const report: CaseReport = {
+    kind: REPORT_KIND,
+    run: run.number,
+    dataset: run.dataset,
+    partial: run.finished === undefined,
+    exit,
+    cases: rows.map((row) => ({
+      name: row.name,
+      verdict: row.tally.verdict ?? null,
+      ...(row.tally.none ? { none: row.tally.none } : {}),
+      passed: row.tally.passed,
+      trials: row.tally.trials,
+      knownFailing: row.knownFailing,
+      outcomes: row.outcomes,
+      ...(row.why ? { why: row.why } : {}),
+      notes: row.notes,
+      history: row.history,
+    })),
+    numbers: Object.fromEntries(
+      [...pooled.graders].map(([grader, numbers]) => [grader, Object.fromEntries(numbers)]),
+    ),
+    numbersLeftOut: pooled.left,
+    agreement: agreements(own, (name) => bars.get(name)?.deciders),
+    ...(args.stale !== undefined ? { stale: args.stale } : {}),
+    ...(args.withTrials ? { trials: own.map((t) => ({ ...t.record, scores: t.scores })) } : {}),
+  };
+  const checked = checkSchema(CaseReportSchema, report);
+  if (!checked.ok) throw new Error(describeProblems("report --json", checked.problems));
+  return report;
+}
+
+/** How many grades `score` would make again, or why that couldn't be told. */
+function staleGrades(
+  context: Context,
+  info: DatasetInfo,
+  cases: readonly CaseInfo[],
+  trials: readonly StoredTrial[],
+  graders: readonly LabGrader[],
+): number | { unread: string } {
+  try {
+    const plan = planScore({
+      trials,
+      datasetDir: info.dir,
+      cases,
+      graders: graders.filter((g) => !g.onDemand),
+      decidersOf: (c) => decidersOf(c.key, graders),
+      expect: true,
+      tmp: realpathSync(context.environment.tmp ?? tmpdir()),
+    });
+    return [...plan.counts.values()].reduce((a, b) => a + b, 0);
+  } catch (error) {
+    return { unread: (error as Error).message };
+  }
+}
+
+async function report(context: Context, names: readonly string[]): Promise<number> {
+  const workspace = workspaceOf(context);
+  const run = chooseRun(workspace, names, "awf-lab report [{n}] [--case {name}] [--json]");
+  const number = run.number;
   let info: DatasetInfo | undefined;
   let cases: CaseInfo[] = [];
   try {
     ({ info, cases } = loadDataset(workspace, run.dataset));
   } catch {
-    // A dataset since removed or broken: its run still reads, at the default bar.
+    // A dataset since removed or broken: its run still reads, at the default bar, every grade
+    // deciding.
   }
-  const bars = barsOf(info, cases);
+  let graders: LabGrader[] | undefined;
+  let stale: CaseReport["stale"];
   const trials = readTrials(workspace.store, number);
+  if (info) {
+    try {
+      // A grader workflow is only counted here, never run, so no folder is inspected.
+      graders = await datasetGraders(
+        context,
+        workspace,
+        info,
+        () => Promise.reject(new Error("report runs no grader")),
+        () => new Date(),
+      );
+      stale = staleGrades(context, info, cases, trials, graders);
+    } catch (error) {
+      stale = { unread: (error as Error).message };
+    }
+  }
+  const bars = barsOf(info, cases, graders);
   const rows = rowsOf(workspace.store, run, trials, bars);
   const { text, exit } = renderRun({
     run,
@@ -446,20 +655,211 @@ function report(context: Context, names: readonly string[]): number {
       cases,
       run.asked.map((a) => a.case),
     ),
+    ...(stale !== undefined ? { stale } : {}),
+    decidersOf: (name) => bars.get(name)?.deciders,
   });
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
     if (!row) throw new Refusal(`run ${number} has no case ${context.options.case}`);
     const own = trials.filter((t) => t.record.case === row.name && t.record.column === 0);
     const runRoot = awfRunsOf(workspace.store);
+    if (context.options.json) {
+      context.stdout(
+        JSON.stringify(
+          reportJson({ run, rows: [row], trials: own, exit, bars, withTrials: true }),
+          null,
+          2,
+        ),
+      );
+      return exit;
+    }
     context.stdout(
-      renderCase(run, row, own, (runId) => {
-        const bin = own.find((t) => t.record.runId === runId)?.record.awf.bin ?? "awf";
-        return `(cd ${run.folders[0]!.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
-      }),
+      renderCase(
+        run,
+        row,
+        own,
+        (runId) => {
+          const bin = own.find((t) => t.record.runId === runId)?.record.awf.bin ?? "awf";
+          return `(cd ${run.folders[0]!.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
+        },
+        bars.get(row.name)?.deciders,
+      ),
     );
+  } else if (context.options.json) {
+    const json = reportJson({
+      run,
+      rows,
+      trials,
+      exit,
+      bars,
+      ...(stale !== undefined ? { stale } : {}),
+    });
+    context.stdout(JSON.stringify(json, null, 2));
   } else context.stdout(text);
   return exit;
+}
+
+/**
+ * Grades a kept run again, without running a trial: never `env.ts`, the workflow or `observe`.
+ * Cheap graders first; a grader workflow is skipped again when the trial still fails a cheap one.
+ */
+async function score(context: Context, names: readonly string[]): Promise<number> {
+  const { options, environment, stderr } = context;
+  const workspace = workspaceOf(context);
+  const run = chooseRun(
+    workspace,
+    names,
+    "awf-lab score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]",
+  );
+  const { info, cases } = loadDataset(workspace, run.dataset);
+  const now = environment.now ?? (() => new Date());
+  let inspected: Promise<FolderSetup> | undefined;
+  const graders = await datasetGraders(
+    context,
+    workspace,
+    info,
+    () =>
+      (inspected ??= (environment.inspect ?? inspectFolder)(
+        workspace.root,
+        checkEnvFile(info.dir),
+      )),
+    now,
+  );
+  let chosen: LabGrader[];
+  if (options.grader) {
+    const one = graders.find((g) => g.name === options.grader);
+    if (!one) {
+      throw new Refusal(
+        `no grader ${options.grader} in ${info.name}; its graders: ${graders.map((g) => g.name).join(", ") || "none"}`,
+      );
+    }
+    chosen = [one];
+  } else chosen = graders.filter((g) => !g.onDemand);
+  const tmp = realpathSync(environment.tmp ?? tmpdir());
+  const trials = readTrials(workspace.store, run.number);
+  const plan = planScore({
+    trials,
+    datasetDir: info.dir,
+    cases,
+    graders: chosen,
+    decidersOf: (c) => decidersOf(c.key, graders),
+    expect: options.grader === undefined,
+    tmp,
+  });
+  const described = describePlan(plan, run.number);
+  const planJson: Scored["plan"] = {
+    run: run.number,
+    trials: plan.items.length,
+    grades: Object.fromEntries(plan.counts),
+    maybe: Object.fromEntries(plan.maybe),
+    ...(plan.estimate !== undefined ? { estimate: plan.estimate } : {}),
+    ...(plan.upTo !== undefined ? { upTo: plan.upTo } : {}),
+    unpriced: plan.unpriced,
+    changed: plan.changed.map((t) => ({ case: t.record.case, trial: t.record.trial })),
+  };
+  const print = (scored: Scored) => {
+    const checked = checkSchema(ScoredSchema, scored);
+    if (!checked.ok) throw new Error(describeProblems("score --json", checked.problems));
+    context.stdout(JSON.stringify(scored, null, 2));
+  };
+  if (options.dryRun) {
+    if (options.json) print({ kind: SCORED_KIND, plan: planJson });
+    else context.stdout(described);
+    return 0;
+  }
+  let done: ScoreDone | undefined;
+  if (plan.items.length > 0) {
+    // The question goes to stderr, so `--json` still asks at a terminal: grading costs money.
+    const confirm =
+      environment.confirm ??
+      (process.stdin.isTTY && !options.yes
+        ? (text: string) => askOperator(text, stderr, "grade them?")
+        : undefined);
+    if (confirm && !options.yes) {
+      if (!(await confirm(described))) {
+        stderr("declined; nothing graded");
+        return 2;
+      }
+    } else stderr(described);
+    const lock = takeLock(workspace.labHome);
+    if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
+    try {
+      clearStale(tmp);
+      done = await runScore({
+        plan,
+        tmp,
+        run: run.number,
+        env: definedOf(withoutCallingSession(environment.env ?? process.env)),
+        ...(options.budget !== undefined ? { budget: options.budget } : {}),
+        now,
+        progress: stderr,
+      });
+    } finally {
+      lock.release();
+    }
+  } else stderr(described);
+  const bars = barsOf(info, cases, graders);
+  const after = readTrials(workspace.store, run.number);
+  const rows = rowsOf(workspace.store, run, after, bars);
+  const rendered = renderRun({
+    run,
+    rows,
+    trials: after,
+    criteria: criteriaCount(
+      cases,
+      run.asked.map((a) => a.case),
+    ),
+    decidersOf: (name) => bars.get(name)?.deciders,
+  });
+  // A budget stop leaves grades unmade: 3, unless the report already exits worse.
+  const exit = done?.stopped && rendered.exit === 0 ? 3 : rendered.exit;
+  if (options.json) {
+    print({
+      kind: SCORED_KIND,
+      plan: planJson,
+      ...(done
+        ? {
+            done: {
+              graded: Object.fromEntries(done.graded),
+              errored: Object.fromEntries(done.errored),
+              estimate: done.estimate,
+              stopped: done.stopped,
+            },
+          }
+        : {}),
+      report: reportJson({ run, rows, trials: after, exit, bars }),
+    });
+    return exit;
+  }
+  const lines: string[] = [];
+  if (done) {
+    const counted = (map: Map<string, number>) =>
+      [...map].map(([name, n]) => `${name} ×${n}`).join(", ");
+    lines.push(
+      [
+        `graded again: ${counted(done.graded) || "nothing"}`,
+        ...(done.errored.size > 0 ? [`errored: ${counted(done.errored)}`] : []),
+        ...(done.estimate > 0 ? [`est. $${done.estimate.toFixed(2)}`] : []),
+        ...(done.stopped
+          ? [`stopped at the budget, $${options.budget!.toFixed(2)}: the rest is not graded`]
+          : []),
+      ].join(" · "),
+      "",
+    );
+  }
+  const text =
+    done?.stopped && rendered.exit === 0
+      ? rendered.text.replace(/exit 0: .*$/, "exit 3: score stopped at its budget")
+      : rendered.text;
+  context.stdout([...lines, text].join("\n"));
+  return exit;
+}
+
+function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {
+  const file = join(workspace.labHome, "lock");
+  return heldBy === undefined
+    ? `${file} holds no process this lab can read: remove it once no awf-lab runs`
+    : `another awf-lab run or score (process ${heldBy}) holds ${file}`;
 }
 
 function runs(context: Context): number {

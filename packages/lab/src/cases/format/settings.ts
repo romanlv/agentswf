@@ -68,7 +68,26 @@ export const DatasetSchema = Type.Object(
         Type.Union([
           Text,
           Type.Object(
-            { workflow: Text, readsFacts: Type.Optional(Type.Boolean()) },
+            { grader: Text, onDemand: Type.Optional(Type.Boolean()) },
+            { additionalProperties: false },
+          ),
+          Type.Object(
+            {
+              workflow: Type.String({
+                pattern: "^graders/.+\\.ts$",
+                description: "A grader workflow in the dataset's graders/ folder.",
+              }),
+              readsFacts: Type.Optional(Type.Boolean()),
+              onDemand: Type.Optional(
+                Type.Boolean({
+                  description: "Run only by score --grader; never decides a verdict.",
+                }),
+              ),
+              timeout: Type.Optional({
+                ...DurationSchema,
+                description: "Its run's limit; the dataset's timeout when absent.",
+              }),
+            },
             { additionalProperties: false },
           ),
         ]),

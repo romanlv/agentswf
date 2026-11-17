@@ -10,9 +10,24 @@ export function newestEntries(scores: readonly ScoreRecord[]): GraderEntry[] {
 
 export type TrialView = { outcome: Outcome; errored?: Pick<Errored, "by" | "reason"> };
 
-/** A trial's outcome, from its record and its graders' newest entries. */
-export function trialOutcome(trial: TrialRecord, scores: readonly ScoreRecord[]): TrialView {
-  const entries = newestEntries(scores).filter((e) => !e.skipped);
+/**
+ * The newest grades that decide: those of `deciders`, the graders the current dataset and key
+ * name; every grade when they can't be read.
+ */
+export function decidingEntries(
+  scores: readonly ScoreRecord[],
+  deciders: ReadonlySet<string> | undefined,
+): GraderEntry[] {
+  return newestEntries(scores).filter((e) => !deciders || deciders.has(e.grader));
+}
+
+/** A trial's outcome, from its record and its deciding graders' newest entries. */
+export function trialOutcome(
+  trial: TrialRecord,
+  scores: readonly ScoreRecord[],
+  deciders?: ReadonlySet<string>,
+): TrialView {
+  const entries = decidingEntries(scores, deciders).filter((e) => !e.skipped);
   const broken = entries.find((e) => e.errored);
   const errored =
     trial.errored ??
@@ -48,9 +63,9 @@ export type CaseRow = {
 };
 
 /** Why a trial didn't pass, in a line. */
-export function whyNot(trial: StoredTrialView): string | undefined {
+export function whyNot(trial: StoredTrialView, deciders?: ReadonlySet<string>): string | undefined {
   const { record } = trial;
-  const view = trialOutcome(record, trial.scores);
+  const view = trialOutcome(record, trial.scores, deciders);
   switch (view.outcome) {
     case "passed":
     case "graded by numbers":
@@ -65,7 +80,7 @@ export function whyNot(trial: StoredTrialView): string | undefined {
     default: {
       if (record.workflowError !== undefined)
         return `failed: the workflow erred: ${record.workflowError}`;
-      const entries = newestEntries(trial.scores);
+      const entries = decidingEntries(trial.scores, deciders);
       const failing = entries.find((e) => e.verdict === view.outcome) ?? entries[0];
       const reason = failing?.reasons[0];
       return reason ? `${failing.grader}: ${reason.text}` : view.outcome;
@@ -80,11 +95,12 @@ export function caseRow(
   pass: string,
   knownFailing: boolean,
   history: CaseVerdict[],
+  deciders?: ReadonlySet<string>,
 ): CaseRow {
-  const views = trials.map((t) => trialOutcome(t.record, t.scores));
+  const views = trials.map((t) => trialOutcome(t.record, t.scores, deciders));
   const outcomes = views.map((v) => v.outcome);
   const tally = caseVerdict(outcomes, asked, pass);
-  const firstNot = trials.find((t, i) => views[i]!.outcome !== "passed" && whyNot(t));
+  const firstNot = trials.find((t, i) => views[i]!.outcome !== "passed" && whyNot(t, deciders));
   const notes = [
     ...new Set(
       trials.flatMap((t) => [
@@ -100,7 +116,7 @@ export function caseRow(
     brokenTrial: views.some((v) => isBroken(v.outcome, v.errored)),
     labTrial: views.some((v) => v.outcome === "errored" && v.errored?.by === "lab"),
     outcomes,
-    ...(firstNot ? { why: whyNot(firstNot)! } : {}),
+    ...(firstNot ? { why: whyNot(firstNot, deciders)! } : {}),
     notes,
     history,
   };

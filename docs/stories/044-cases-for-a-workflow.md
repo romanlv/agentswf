@@ -1859,7 +1859,7 @@ Alternatives rejected:
 Reviews and the loop (added 2026-11-16):
 
 - [x] 7. What reviews and the loop need, set against the design
-- [ ] 8. Grader workflows and `score`, built against the review scorer
+- [x] 8. Grader workflows and `score`, built against the review scorer
 - [ ] 9. Parameters, compared as columns, and trials reused
 - [ ] 10. The `"lab"` sandbox
 - [ ] 11. A review dataset on cases, graded by the review scorer
@@ -2314,13 +2314,13 @@ then runs on this path.
 
 Execution:
 
-- [ ] Plan: the grade folder, `gradeCase()` and `previous.json` as the design gives them; the
+- [x] Plan: the grade folder, `gradeCase()` and `previous.json` as the design gives them; the
   review scorer's match labelling ported as the first grader workflow, into autoresearch's
   `evals/air-1/graders/`; M2's shape for parts and votes.
-- [ ] Implement: only this task's change, with tests.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the `Done when` items.
+- [x] Implement: only this task's change, with tests.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the `Done when` items.
 
 Work:
 
@@ -2862,3 +2862,104 @@ Q10 to Q14 are the owner's; the rest follow from them and the design, settled he
 | The loop: `loop {name}` (named, resumed by name), `--baseline` (now your checkout), `--source` (now the scope check), `--program`, `--proposer`, `--rounds`, `--allowance`, bundle, scope check, incumbent, keep on better, stall, spend cap, resume, `--final` | Carried onto the new kind, tries under `"lab"` and kept by `compare` | 12 |
 | Exit codes: 3 a budget stop, 4 a declined plan | Redesigned: 3 a budget or cap stop (partial), 2 a declined plan; 4 stays the lab's own breakage | 9, 12, 13 |
 | The ~20 internal modules autoresearch imports | Copied into the autoresearch repository as its own code, or replaced by `@agentswf/lab/cases` | 11, 13 |
+
+### Task 8: plan (2026-11-17)
+
+- **`dataset.json`'s `graders`** takes three forms: `"name"` (a `graders.ts` export),
+  `{ "grader": "name", "onDemand": true }`, and `{ "workflow": "graders/{path}.ts", "readsFacts"?,
+  "onDemand"?, "timeout"? }`; a workflow's `timeout` is its run's limit, the dataset's `timeout`
+  when absent. Names are unique across both kinds.
+- **The grade folder**, made in the trial's parent folder (under `score`, a fresh one under the
+  system's temporary folder) and deleted after: `grade.json` (`kind: awf.case-grade/0`, the case's
+  name, `scratch` or `null`, `params`, `readsFacts`), `case/` (the built case folder), `key.json`
+  (the key without `marker`), `key/`, `result.json`, `facts.json` (only with `readsFacts`), `kept/`,
+  and `previous.json` (`{ key, parts }`) by the rule in "Grading". `gradeCase()` reads it into the
+  same shape a code grader is given, plus `params` and `previous`.
+- **A grader workflow's run**: your checkout's `awf run {file}`, without the `fetch` preload, with
+  `--cwd` an empty folder of its own beside the grade folder, `--run-root` the store's `awf-runs`
+  and `AWF_LAB_GRADE` in its environment. Its value is checked as a code grader's answer is, with
+  `parts`; its version is the module's `meta.version`, read by the grade helper (which also gives
+  code graders' versions to `score` without grading). Its entry keeps its run's id, models, time
+  and estimate.
+- **Order**: `expect`, code graders, grader workflows; a grader workflow is `skipped` when an
+  earlier grader failed the trial. Code graders may return `parts` too.
+- **The key digest** for a dataset grader covers the key without `marker` and each `key/` file's
+  digest, so a `key/` edit grades again and a marker change does not.
+- **An `onDemand` grader's entry is marked `onDemand`**, so the verdict leaves it out whatever
+  `dataset.json` says later.
+- **`score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]`**, under the
+  lock: a plan of (trial, grader) pairs by "Grading again", priced from the grader's earlier
+  entries; cheap graders first, then the costly ones, skipped again when the trial now fails a
+  cheap one; one new score record per trial graded. `--budget` stops before a costly grader once
+  the graded ones' estimates reach it, and the exit is 3. A trial whose built case no longer
+  matches its `input` digest is left, and the plan says to run it again.
+- **Report**: a dataset grader's numbers pooled per column (counts summed, values as a median),
+  leaving out trials the workflow failed and saying how many; an agreement line for two graders on
+  the same trials (verdicts, and parts' labels matched by `about`); "N grades out of date: awf-lab
+  score {n}" when `score` would grade something. `report --json` and `score --json`.
+- **autoresearch**: in a worktree of its own (`../worktrees/autoresearch-workflow-cases`, branch
+  `workflow-cases`), since its main checkout has another session's changes. `evals/air-1/graders/
+  match.ts` is `match-sonnet` as a grader workflow: it reads `key/key.json` and the case's
+  `fixture.json` and `request.md` (the layout task 11's converter will write), takes the findings
+  from the result, and returns a part per finding (its label, `data` with the issue or finding it
+  names, the votes) and `REVIEW_METRICS`' numbers as counts. Its test is `match.workflow.test.ts`'s,
+  on a grade folder.
+
+### Task 8: departures, review and checks (2026-11-17)
+
+- **Who decides is read, not stored.** A grade keeps no `onDemand` flag. The graders that decide a
+  case are computed on every read from the current `dataset.json` and key: `expect` when the key
+  has values, and each dataset grader not marked `onDemand`. A grade by any other grader (one
+  removed, one made on demand, an `expect` taken out of the key) is shown, marked "not in the
+  verdict", and never decides. Putting a grader back makes its grades decide again without
+  grading.
+- **One rule for grading again** (`staleBecause` in `grading.ts`): no grade, an errored one, a
+  changed key digest, or a changed `{major}.{minor}`. One rule for `previous.json`
+  (`previousFrom`). Each grader carries its declared version, read before the first grade; a
+  dataset grader that doesn't load, or a grader workflow sharing a `graders.ts` export's name,
+  stops `run` and `score` with exit 2.
+- **A grader workflow skipped before** is planned by `score` only while what stands no longer
+  fails the trial. When cheap graders are being graded again, it is a "maybe", listed as "if the
+  cheaper graders now pass" and priced "up to".
+- **`--budget`** is checked before every grader workflow with the grades made so far, on the same
+  trial too. A stop exits 3, unless the report already exits worse (1, 4 or 5).
+- **The agreement line** is shown for two graders that judged the same parts (matched by
+  `about`), and for a grader set aside (on demand, or no longer deciding) against each deciding
+  grader but `expect`. `expect` beside a tone grader agrees by chance and says nothing.
+- **`report --json`** (`awf.case-report/0`) and **`score --json`** (`awf.case-scored/0`) are
+  checked against schemas before printing, published with `grade.json` and `previous.json`'s in
+  `schema/`. `score --json` still asks at a terminal, on stderr.
+- **`report`** says when it couldn't check for grades out of date, rather than leaving the line
+  out, and builds each case once for its digest.
+- Code graders are given `params` too (`{}` until task 9, which fills both paths).
+- **The ported review grader** (autoresearch's `evals/air-1/graders/match.ts`) builds on the
+  lab's current `review/judge` modules (`matching`, `voting`, `check`) and `review/metrics`;
+  task 11 copies them into autoresearch before task 13 deletes `review/`. Its voters' working
+  folder is empty until task 11's grader restores the checkout there. autoresearch's own old
+  scorers still call engine APIs that are gone (`isAnswered`, `defineExecutableWorkflow`);
+  another session's uncommitted changes in its main checkout migrate some of them, so this work
+  is on its `workflow-cases` branch, in `../worktrees/autoresearch-workflow-cases`.
+
+Reviews: architecture and scope (one must-fix: the stored `onDemand` flag froze who decides; six
+should-fix and nits: `report`'s cost and silence, the rules duplicated in two closures, no
+schemas for the JSON outputs and grade files, the agreement rule, `params`, the grade folder's
+name), correctness and proof (no must-fix; four should-fix: a removed grader's or `expect`'s
+grades still deciding, `--budget` not stopping between two grader workflows of a trial,
+`score --json` not asking, a skipped grader planned and priced when it would be skipped again;
+nits: agreement counts lost, a workflow and an export sharing a name, an `expect` error counted
+as graded). All fixed, each with a test, except the budget's exit staying 1 or 5 when the report
+exits worse, recorded above.
+
+Checks:
+
+- `bun test packages/lab`: 324 pass. autoresearch's `evals/air-1/graders/match.test.ts`: 5 pass on
+  scripted agents (Jev settles sure matches; a voter labels the rest, handed back once on an
+  issue already hit; recall and precision as counts; a withheld vote fails the grade; an empty
+  review).
+- Live, refund-desk's `refunds` with a new grader workflow, `graders/tone.ts` (three Haiku voters
+  on whether the reply is courteous): run 3, 3 cases passed, grading est. $0.02 beside the
+  trials' $0.006. The tone grader's minor bumped to 1.1.0: `report` said 3 grades out of date,
+  `score --dry-run` priced them at $0.02 from earlier grades, and `score` graded only `tone`
+  again on the three trials, exit 0. `srt` is installed under Node 22.20.0 only, while mise now
+  selects Node 24, so the runs put Node 22's bin first on `PATH`.
+

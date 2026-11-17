@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab report --json",
+  "type": "object",
+  "required": [
+    "kind",
+    "run",
+    "dataset",
+    "partial",
+    "exit",
+    "cases",
+    "numbers",
+    "numbersLeftOut",
+    "agreement"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-report/0"
+    },
+    "run": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "partial": {
+      "type": "boolean"
+    },
+    "exit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "verdict",
+          "passed",
+          "trials",
+          "knownFailing",
+          "outcomes",
+          "notes",
+          "history"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": ["passed", "failed", "flaky", "unclear"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "none": {
+            "enum": ["not graded", "graded by numbers"]
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trials": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "knownFailing": {
+            "type": "boolean"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "leaked",
+                "errored",
+                "failed",
+                "stopped",
+                "undecided",
+                "passed",
+                "graded by numbers",
+                "not graded"
+              ]
+            }
+          },
+          "why": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "enum": ["passed", "failed", "flaky", "unclear"]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "numbers": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["count", "of"],
+                  "properties": {
+                    "count": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "of": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["values"],
+                  "properties": {
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "numbersLeftOut": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "agreement": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["a", "b", "verdicts", "parts"],
+        "properties": {
+          "a": {
+            "type": "string",
+            "minLength": 1
+          },
+          "b": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verdicts": {
+            "type": "object",
+            "required": ["alike", "of"],
+            "properties": {
+              "alike": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "of": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "parts": {
+            "type": "object",
+            "required": ["alike", "of"],
+            "properties": {
+              "alike": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "of": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stale": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "object",
+          "required": ["unread"],
+          "properties": {
+            "unread": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "trials": {
+      "type": "array",
+      "items": {}
+    }
+  },
+  "additionalProperties": false,
+  "description": "awf-lab report --json."
+}

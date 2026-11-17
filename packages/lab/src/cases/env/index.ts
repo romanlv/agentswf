@@ -6,6 +6,7 @@ import { copiedModule, missingStageNames } from "./sources";
 import { shared, trialSettings, writeLine } from "./state";
 
 export type { Case, Faked, Spies, Spy } from "./case";
+export { type GradeCase, gradeCase } from "./grade-case";
 export {
   type CodeGrader,
   defineGrader,

@@ -16,6 +16,27 @@ export const TRIAL_ENV = {
   root: "AWF_LAB_ROOT",
   /** `TrialSettings` as JSON. */
   settings: "AWF_LAB_SETTINGS",
+  /** A grader workflow's grade folder, which `gradeCase()` reads. */
+  grade: "AWF_LAB_GRADE",
+} as const;
+
+/** The files of a grade folder, as the lab writes them and `gradeCase()` reads them. */
+export const GRADE_FILES = {
+  /** `grade.json`, `kind: awf.case-grade/0`. */
+  grade: "grade.json",
+  /** The built case folder. */
+  case: "case",
+  /** The key without its marker. */
+  key: "key.json",
+  /** The case's `key/` folder, when it has one. */
+  keyDir: "key",
+  result: "result.json",
+  /** `{ facts, stages }`, only for a grader that reads facts. */
+  facts: "facts.json",
+  /** The trial's saved `keep` paths. */
+  kept: "kept",
+  /** `{ key, parts }`: the grader's earlier parts, when they still count. */
+  previous: "previous.json",
 } as const;
 
 /** From `dataset.json`, resolved by the lab. */

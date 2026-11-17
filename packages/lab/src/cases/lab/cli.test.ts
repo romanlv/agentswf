@@ -15,12 +15,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { OUTPUT_RECORD_VERSION } from "@agentswf/contract/records";
 import type { Runner, RunOutput, RunRequest } from "../../shared/runner";
+import { type GradeCase, gradeCase } from "../env/grade-case";
 import { TRIAL_ENV } from "../format/trial-env";
 import type { TrialLine } from "../format/trial-file";
 import { type CasesEnvironment, runCases } from "./cli";
+import type { LabGrader } from "./grading";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
 import { readTrials, runNumbers } from "./store";
-import type { LabGrader } from "./trial";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -131,14 +132,61 @@ function record(request: RunRequest, runDir: string, outcome: string, extra: obj
   } as unknown as RunOutput;
 }
 
+/** A grader workflow's run, scripted: what it answers, given what `gradeCase()` read. */
+type GraderPlay = (
+  input: GradeCase,
+  request: RunRequest,
+) => { value: unknown; estimate?: number } | { outcome: "failed"; reason: string };
+
 /** A runner that plays each case's behaviours in turn, as a trial's `defineEnv` would. */
-function scripted(plays: Record<string, Behaviour[]>) {
+function scripted(plays: Record<string, Behaviour[]>, grader?: GraderPlay) {
   const calls: RunRequest[] = [];
+  const graded: { input: GradeCase; files: string[]; request: RunRequest }[] = [];
   const seen: { name: string; caseFiles: string[]; scratchFiles: string[] }[] = [];
   const count = new Map<string, number>();
   const runner: Runner = async (request) => {
     calls.push(request);
     const env = request.env ?? {};
+    const gradeDir = env[TRIAL_ENV.grade];
+    if (gradeDir) {
+      if (!grader) throw new Error("a grader workflow ran with no grader play");
+      const was = process.env[TRIAL_ENV.grade];
+      process.env[TRIAL_ENV.grade] = gradeDir;
+      let input: GradeCase;
+      try {
+        input = gradeCase();
+      } finally {
+        if (was === undefined) delete process.env[TRIAL_ENV.grade];
+        else process.env[TRIAL_ENV.grade] = was;
+      }
+      graded.push({
+        input,
+        files: readdirSync(gradeDir, { recursive: true }).map(String).sort(),
+        request,
+      });
+      const runDir = join(request.runRoot, "grader", request.id);
+      mkdirSync(runDir, { recursive: true });
+      const played = grader(input, request);
+      const base = record(request, runDir, "completed", {});
+      const accounting = {
+        ...base.accounting,
+        wallMs: 7,
+        totals: {
+          ...base.accounting.totals,
+          estimate: "estimate" in played ? (played.estimate ?? 0) : 0,
+        },
+        byModel: [{ model: "claude-haiku-5-5" }],
+      };
+      return {
+        exitCode: 0,
+        stderr: "",
+        ms: 7,
+        record:
+          "outcome" in played
+            ? record(request, runDir, "failed", { reason: played.reason, accounting })
+            : record(request, runDir, "completed", { value: played.value, accounting }),
+      };
+    }
     const caseDir = env[TRIAL_ENV.case]!;
     const name = readFileSync(join(caseDir, "name.txt"), "utf8");
     const at = count.get(name) ?? 0;
@@ -248,7 +296,7 @@ function scripted(plays: Record<string, Behaviour[]>) {
     }
     return done(play.facts, "unused" in play && play.unused ? { unused: play.unused } : {});
   };
-  return { runner, calls, seen };
+  return { runner, calls, seen, graded };
 }
 
 /** The store a project's runs went to, under its home. */
@@ -650,10 +698,13 @@ describe("the checks of a folder before the first trial: exit 2", () => {
 });
 
 describe("refusals before any trial: exit 2", () => {
-  test("graders a dataset can't have: no graders.ts, a workflow, the lab's own names", async () => {
+  test("graders a dataset can't have: no graders.ts, a missing export or workflow, the lab's own names", async () => {
     const cases: [unknown[], string][] = [
       [["accuracy"], "has no graders.ts"],
-      [[{ workflow: "graders/judge.ts" }], "a grader workflow isn't run yet"],
+      [["missing"], "exports no grader missing"],
+      [[{ workflow: "graders/judge.ts" }], "graders/judge.ts doesn't exist"],
+      [[{ workflow: "graders/../env.ts" }], "outside the dataset's graders/"],
+      [[{ workflow: "judge.ts" }], "graders/"],
       [["expect"], "expect is the lab's own"],
       [["criteria"], "criteria is the lab's own"],
       [["a-b"], "a-b is no export name of graders.ts"],
@@ -954,5 +1005,371 @@ describe("reach, end to end", () => {
       { agentReach: { network: ["*.example.com"] } },
     );
     expect(code).toBe(0);
+  });
+});
+
+/** A grader workflow in the dataset's `graders/`: only its version is read, by the helper. */
+function graderWorkflow(where: { ds: string }, name: string, version = "1.0.0") {
+  mkdirSync(join(where.ds, "graders"), { recursive: true });
+  writeFileSync(
+    join(where.ds, "graders", `${name}.ts`),
+    `export default { kind: "awf.workflow", meta: { name: "${name}", version: "${version}" } };\n`,
+  );
+}
+
+const judged =
+  (verdict: string, estimate = 0.25): GraderPlay =>
+  () => ({
+    value: {
+      verdict,
+      numbers: { recall: { count: 2, of: 3 } },
+      reasons: [{ about: "finding 0", text: "gives K1's cause" }],
+      parts: [
+        {
+          about: "finding 0",
+          label: "hit",
+          data: { issue: "K1" },
+          settled: "majority",
+          votes: [
+            { by: "v1", label: "hit" },
+            { by: "v2", label: "hit" },
+            { by: "v3", label: "noise", why: "vague" },
+          ],
+        },
+      ],
+    },
+    estimate,
+  });
+
+const keyWith = (front: string) => ({ key: keyMd(front), keyFiles: { "answer.json": '{"n":1}' } });
+
+describe("grader workflows and score", () => {
+  test("a grader workflow is given its grade folder; its parts, numbers and cost reach the score entry", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/judge.ts", readsFacts: true }] },
+    );
+    graderWorkflow(where, "judge", "1.2.0");
+    let answer = "";
+    let cwdFiles: string[] = ["unread"];
+    const fake = scripted({}, (input, request) => {
+      answer = readFileSync(join(input.case.keyDir!, "answer.json"), "utf8");
+      cwdFiles = readdirSync(request.cwd);
+      return judged("passed")(input, request);
+    });
+    const { code, out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(0);
+    const [{ input, files, request }] = fake.graded as [(typeof fake.graded)[number]];
+    expect(input.case.name).toBe("a");
+    expect(input.case.key).toEqual({ kind: "awf.case-key/0", expect: { ok: true } });
+    expect(answer).toBe('{"n":1}');
+    expect(input.facts).toEqual({ ok: true });
+    expect(input.result).toEqual({ done: true });
+    expect(typeof input.scratch).toBe("string");
+    expect(input.params).toEqual({});
+    expect(input.previous).toBeUndefined();
+    expect(files).toEqual(
+      expect.arrayContaining([
+        "grade.json",
+        "case/name.txt",
+        "key.json",
+        "key/answer.json",
+        "result.json",
+        "facts.json",
+        "kept",
+      ]),
+    );
+    expect(request.workflow).toBe(join(where.ds, "graders", "judge.ts"));
+    expect(request.awf?.preload).toBeUndefined();
+    expect(cwdFiles).toEqual([]);
+    const [trial] = readTrials(storeOf(where), 1);
+    const entry = trial!.scores[0]!.entries.find((e) => e.grader === "judge")!;
+    expect(entry).toMatchObject({
+      version: "1.2.0",
+      verdict: "passed",
+      estimate: 0.25,
+      models: ["claude-haiku-5-5"],
+      numbers: { recall: { count: 2, of: 3 } },
+    });
+    expect(entry.runId).toBe(request.id);
+    expect(entry.parts![0]!.votes).toHaveLength(3);
+    expect(out).toContain("numbers: judge recall 2/3 (67%)");
+    // The grade folder, which holds the key, is gone.
+    expect(existsSync(dirname(input.case.dir))).toBe(false);
+  });
+
+  test("a grader workflow is skipped when expect failed; score judges it once the key's expect passes", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: false\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed"));
+    expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(1);
+    expect(fake.graded).toHaveLength(0);
+    const unchanged = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(unchanged.err).toContain("nothing in run 1 to grade again");
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: true\n"));
+    const scored = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(scored.code).toBe(0);
+    expect(scored.out).toContain("graded again: expect ×1, judge ×1");
+    expect(fake.graded).toHaveLength(1);
+    expect(fake.graded[0]!.input.scratch).toBeNull();
+  });
+
+  test("score never runs env.ts, grades again on a key edit with previous.json, on a minor bump without it, never on a patch", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge", "1.0.0");
+    const fake = scripted({}, judged("passed"));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    const trialRuns = () => fake.calls.filter((c) => !c.env?.[TRIAL_ENV.grade]).length;
+    expect(trialRuns()).toBe(1);
+    const firstKey = readTrials(storeOf(where), 1)[0]!.scores[0]!.entries.find(
+      (e) => e.grader === "judge",
+    )!.key;
+
+    writeFileSync(join(where.ds, "cases/a/key/answer.json"), '{"n":2}');
+    const edited = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(edited.code).toBe(0);
+    expect(fake.graded).toHaveLength(2);
+    expect(fake.graded[1]!.input.previous).toEqual({
+      key: firstKey,
+      parts: expect.arrayContaining([
+        expect.objectContaining({ about: "finding 0", label: "hit" }),
+      ]),
+    });
+
+    graderWorkflow(where, "judge", "1.0.1");
+    const patch = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(patch.err).toContain("nothing in run 1 to grade again");
+
+    graderWorkflow(where, "judge", "1.1.0");
+    await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(3);
+    expect(fake.graded[2]!.input.previous).toBeUndefined();
+    expect(trialRuns()).toBe(1);
+    const scores = readTrials(storeOf(where), 1)[0]!.scores;
+    expect(scores).toHaveLength(3);
+  });
+
+  test("score leaves trials the workflow failed, drafts, and cases changed since they ran", async () => {
+    const where = project(
+      {
+        a: keyWith("expect:\n  ok: true\n"),
+        b: keyWith("expect:\n  ok: true\n"),
+        c: { key: keyMd("expect:\n  ok: true\ndraft: true\n"), keyFiles: { "answer.json": "{}" } },
+        d: keyWith("expect:\n  ok: true\n"),
+      },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({ b: [{ workflowError: "it crashed" }] }, judged("passed"));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(fake.graded.map((g) => g.input.case.name)).toEqual(["a", "d"]);
+    for (const name of ["a", "b", "c", "d"]) {
+      writeFileSync(join(where.ds, "cases", name, "key/answer.json"), '{"n":9}');
+    }
+    writeFileSync(join(where.ds, "cases/d/files/name.txt"), "d, changed");
+    const scored = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded.map((g) => g.input.case.name)).toEqual(["a", "d", "a"]);
+    expect(scored.err).toContain(
+      "1 trial left: the case changed since it ran; run it again: awf-lab run --cases d",
+    );
+  });
+
+  test("an onDemand grader runs only with score --grader, and never decides a verdict", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: ["first", { workflow: "graders/second.ts", onDemand: true }] },
+    );
+    graderWorkflow(where, "second");
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const first = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: false, grade: () => ({ verdict: "passed" }) };`,
+    );
+    const fake = scripted({}, judged("failed"));
+    expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(0);
+    expect(fake.graded).toHaveLength(0);
+    expect((await lab(where, ["score", "--yes"], { runner: fake.runner })).err).toContain(
+      "nothing in run 1 to grade again",
+    );
+    const scored = await lab(where, ["score", "--grader", "second", "--yes"], {
+      runner: fake.runner,
+    });
+    expect(fake.graded).toHaveLength(1);
+    expect(scored.code).toBe(0);
+    const entry = readTrials(storeOf(where), 1)[0]!.scores.at(-1)!.entries[0]!;
+    expect(entry).toMatchObject({ grader: "second", verdict: "failed" });
+    expect(scored.out).toContain("agreement, first and second: the same verdict on 0 of 1 trial");
+    expect(scored.out).not.toContain("agreement, expect");
+    const shown = await lab(where, ["report", "--case", "a"]);
+    expect(shown.out).toContain("second: failed (1.0.0, not in the verdict");
+  });
+
+  test("a grader that throws leaves the trial errored by grading, and score grades it again", async () => {
+    const where = project({ a: {} }, { graders: ["flaky"] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `import { existsSync } from "node:fs";
+      export const flaky = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: false,
+        grade: () => { if (existsSync(${JSON.stringify(join(where.ds, "broken"))})) throw new Error("no order.json"); return { verdict: "passed" }; } };`,
+    );
+    writeFileSync(join(where.ds, "broken"), "");
+    const fake = scripted({});
+    const ran = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(ran.code).toBe(5);
+    expect(ran.out).toContain("1 by grading");
+    rmSync(join(where.ds, "broken"));
+    const scored = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(scored.out).toContain("graded again: flaky ×1");
+    expect(scored.code).toBe(0);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  test("pooled numbers leave out trials the workflow failed, and say how many", async () => {
+    const where = project({ a: {} }, { graders: ["counts"] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const counts = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: false,
+        grade: () => ({ numbers: { hits: { count: 1, of: 2 }, words: { value: 40 } } }) };`,
+    );
+    const { out } = await run({ a: {} }, {}, 1, {}, {});
+    expect(out).not.toContain("numbers:");
+    const fake = scripted({ a: [pass, { workflowError: "it crashed" }, pass] });
+    const ran = await lab(where, ["run", "--yes", "--trials", "3"], { runner: fake.runner });
+    expect(ran.out).toContain(
+      "numbers: counts hits 2/4 (50%), words median 40; 1 trial the workflow failed left out",
+    );
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.numbers).toEqual({
+      counts: { hits: { count: 2, of: 4 }, words: { values: [40, 40] } },
+    });
+    expect(json.numbersLeftOut).toBe(1);
+    expect(json.cases[0]).toMatchObject({ name: "a", verdict: "flaky", passed: 2, trials: 3 });
+  });
+
+  test("score's plan prices from earlier grades; --dry-run grades nothing; --budget stops and exits 3", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n"), b: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed", 0.25));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    for (const name of ["a", "b"])
+      writeFileSync(join(where.ds, "cases", name, "key/answer.json"), "{}");
+    const report = await lab(where, ["report"]);
+    expect(report.out).toContain("2 grades out of date, a key or grader changed: awf-lab score 1");
+    const dry = await lab(where, ["score", "--dry-run"], { runner: fake.runner });
+    expect(dry.out).toContain("score run 1: 2 trials · judge ×2");
+    expect(dry.out).toContain("est. $0.50");
+    expect(fake.graded).toHaveLength(2);
+    const json = JSON.parse((await lab(where, ["score", "--dry-run", "--json"])).out);
+    expect(json.plan).toMatchObject({ trials: 2, grades: { judge: 2 }, estimate: 0.5 });
+    const capped = await lab(where, ["score", "--yes", "--budget", "0.2"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(3);
+    expect(capped.code).toBe(3);
+    expect(capped.out).toContain("stopped at the budget, $0.20");
+  });
+
+  test("only the graders dataset.json and the key name now decide: one removed, made onDemand, or an expect taken out", async () => {
+    const where = project({ a: { key: keyMd("expect:\n  ok: false\n") } }, { graders: ["g"] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const g = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: false,
+        grade: () => ({ verdict: "failed", reasons: [{ about: "x", text: "no" }] }) };`,
+    );
+    const fake = scripted({});
+    expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(1);
+    // expect taken out of the key: its old failed grade is shown, never deciding.
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd(""));
+    expect((await lab(where, ["report"])).code).toBe(1);
+    const datasetFile = join(where.ds, "dataset.json");
+    const dataset = JSON.parse(readFileSync(datasetFile, "utf8"));
+    writeFileSync(
+      datasetFile,
+      JSON.stringify({ ...dataset, graders: [{ grader: "g", onDemand: true }] }),
+    );
+    const aside = await lab(where, ["report"]);
+    expect(aside.code).toBe(3);
+    expect(aside.out).toContain("no case was graded");
+    writeFileSync(datasetFile, JSON.stringify({ ...dataset, graders: [] }));
+    expect((await lab(where, ["report"])).code).toBe(3);
+    // Back as a deciding grader, its grade decides again without grading.
+    writeFileSync(datasetFile, JSON.stringify(dataset));
+    expect((await lab(where, ["report"])).code).toBe(1);
+  });
+
+  test("--budget stops between two grader workflows of one trial", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/j1.ts" }, { workflow: "graders/j2.ts" }] },
+    );
+    graderWorkflow(where, "j1");
+    graderWorkflow(where, "j2");
+    const fake = scripted({}, judged("passed", 0.25));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(2);
+    writeFileSync(join(where.ds, "cases/a/key/answer.json"), "{}");
+    const capped = await lab(where, ["score", "--yes", "--budget", "0.1"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(3);
+    expect(capped.code).toBe(3);
+    expect(capped.out).toContain("graded again: j1 ×1");
+  });
+
+  test("a skipped grader workflow is planned only if the cheap graders regraded now pass, and priced as up to", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: false\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed", 0.25));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    // A key change that keeps expect failing: the judge is a maybe, and stays skipped.
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: 3\n"));
+    const dry = await lab(where, ["score", "--dry-run"], { runner: fake.runner });
+    expect(dry.out).toContain("judge ×1 if the cheaper graders now pass");
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
+    await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(0);
+  });
+
+  test("report --json and score --json print their schemas' shapes", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed"));
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    const report = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(report).toMatchObject({ kind: "awf.case-report/0", run: 1, exit: 0, stale: 0 });
+    const one = JSON.parse((await lab(where, ["report", "--case", "a", "--json"])).out);
+    expect(one.trials).toHaveLength(1);
+    writeFileSync(join(where.ds, "cases/a/key/answer.json"), "{}");
+    const scored = JSON.parse(
+      (await lab(where, ["score", "--yes", "--json"], { runner: fake.runner })).out,
+    );
+    expect(scored).toMatchObject({
+      kind: "awf.case-scored/0",
+      plan: { grades: { judge: 1 } },
+      done: { graded: { judge: 1 }, stopped: false },
+      report: { kind: "awf.case-report/0", exit: 0 },
+    });
+  });
+
+  test("a grader workflow and a graders.ts export of one name are refused", async () => {
+    const where = project({ a: {} }, { graders: [{ workflow: "graders/recall.ts" }] });
+    graderWorkflow(where, "recall");
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const recall = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: false, grade: () => ({ verdict: "passed" }) };`,
+    );
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("share the name");
   });
 });

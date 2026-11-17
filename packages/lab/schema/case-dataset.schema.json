@@ -82,14 +82,39 @@
           },
           {
             "type": "object",
+            "required": ["grader"],
+            "properties": {
+              "grader": {
+                "type": "string",
+                "minLength": 1
+              },
+              "onDemand": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
             "required": ["workflow"],
             "properties": {
               "workflow": {
                 "type": "string",
-                "minLength": 1
+                "pattern": "^graders/.+\\.ts$",
+                "description": "A grader workflow in the dataset's graders/ folder."
               },
               "readsFacts": {
                 "type": "boolean"
+              },
+              "onDemand": {
+                "type": "boolean",
+                "description": "Run only by score --grader; never decides a verdict."
+              },
+              "timeout": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*(ms|s|m|h)$",
+                "description": "Its run's limit; the dataset's timeout when absent.",
+                "~optional": true
               }
             },
             "additionalProperties": false

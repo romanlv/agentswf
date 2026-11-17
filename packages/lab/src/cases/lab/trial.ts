@@ -1,21 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runLogLine, type SandboxRecord } from "@agentswf/contract/records";
 import { type AwfBin, loginRefused, type Runner, withoutCallingSession } from "../../shared/runner";
 import {
   type Errored,
-  type GraderEntry,
   SCORE_KIND,
   type ScoreRecord,
   TRIAL_KIND,
   type TrialRecord,
 } from "../format/records";
-import type { Fact, Key } from "../format/settings";
 import { TRIAL_ENV } from "../format/trial-env";
 import { blame, readTrialLines } from "./blame";
-import { type CaseInfo, type DatasetInfo, folderDigest, sha256 } from "./dataset";
-import { gradeExpect } from "./expect";
+import { type CaseInfo, type DatasetInfo, folderDigest } from "./dataset";
 import {
   buildCase,
   keepFiles,
@@ -24,35 +20,12 @@ import {
   searchFolder,
   searchText,
 } from "./folders";
+import { decidersOf, gradeTrial, type LabGrader } from "./grading";
 import type { FolderSetup } from "./inspect";
 import { checkReach, type OpenedAgent } from "./reach";
-import { appendScore, awfRunsOf, trialDirOf, trialFileOf, writeTrial } from "./store";
+import { appendScore, awfRunsOf, newRunId, trialDirOf, trialFileOf, writeTrial } from "./store";
 import { backstopOf, trialSettingsOf } from "./trial-settings";
 import type { CaseWorkspace } from "./workspace";
-
-/** A grader the lab runs after `expect`: a dataset's own from `graders.ts`, or one a test adds. */
-export type LabGrader = {
-  name: string;
-  grade(input: {
-    case: {
-      name: string;
-      dir: string;
-      input: unknown;
-      key: Omit<Key, "marker">;
-      /** The case's `key/` folder, when it has one. */
-      keyDir?: string;
-    };
-    facts: Record<string, Fact>;
-    stages: Record<string, unknown>;
-    result: unknown;
-    scratch: string;
-    /** Where the trial's `keep` paths were saved. */
-    kept: string;
-    /** The trial's own folder, outside the case and scratch folders, for the grader's files. */
-    work: string;
-    env: Record<string, string>;
-  }): Promise<Pick<GraderEntry, "verdict" | "numbers" | "reasons" | "notApplies" | "version">>;
-};
 
 export type TrialLab = {
   workspace: CaseWorkspace;
@@ -74,28 +47,6 @@ export type TrialLab = {
   graders: readonly LabGrader[];
   now: () => Date;
 };
-
-/** JSON with its keys in order, for a digest that is the same however the value was built. */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-/** The built-in `expect` grader's code, by version: bumped when what it decides changes. */
-/** `expect`'s version: its minor goes up when it compares facts differently. */
-const EXPECT_VERSION = "1.0.0";
-
-function newRunId(now: Date): string {
-  const stamp = now
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d+Z$/, "Z");
-  return `${stamp}-${randomUUID().slice(0, 8)}`;
-}
 
 export type TrialDone = { record: TrialRecord; score?: ScoreRecord; dir: string };
 
@@ -265,13 +216,29 @@ export async function runTrial(
     const gradable =
       !record.leaked && !errored && !record.workflowError && record.stopped === undefined;
     if (gradable && !info.key.draft) {
-      const graded = await grade(lab, info, record, {
-        ...folders,
+      const graded = await gradeTrial({
+        info,
+        facts: record.facts ?? {},
+        stages: record.stages ?? {},
+        result: record.result ?? null,
+        caseDir: folders.dir,
+        scratch: folders.scratch,
         kept: join(dir, "kept"),
+        work: folders.parent,
         env: definedOf(withoutCallingSession(lab.env)),
+        params: {},
+        expect: Object.keys(info.key.expect ?? {}).length > 0,
+        graders: lab.graders.filter((g) => !g.onDemand),
+        deciders: decidersOf(info.key, lab.graders),
       });
-      if ("errored" in graded) errored = graded.errored;
-      else if (graded.entries.length > 0) {
+      if ("errored" in graded) {
+        errored = {
+          by: "dataset",
+          phase: "observe",
+          ...(graded.errored.code ? { code: graded.errored.code } : {}),
+          reason: graded.errored.reason,
+        };
+      } else if (graded.entries.length > 0) {
         score = { kind: SCORE_KIND, at: lab.now().toISOString(), entries: graded.entries };
       }
     }
@@ -283,81 +250,6 @@ export async function runTrial(
     rmSync(folders.parent, { recursive: true, force: true });
     rmSync(trialFile, { force: true });
   }
-}
-
-/** `expect`, then the lab's tests' own graders; the criteria judge comes with task 3. */
-async function grade(
-  lab: TrialLab,
-  info: CaseInfo,
-  record: TrialRecord,
-  trial: {
-    parent: string;
-    dir: string;
-    scratch: string;
-    kept: string;
-    env: Record<string, string>;
-  },
-): Promise<{ entries: GraderEntry[] } | { errored: NonNullable<TrialRecord["errored"]> }> {
-  const facts = record.facts ?? {};
-  const entries: GraderEntry[] = [];
-  const expected = info.key.expect ?? {};
-  if (Object.keys(expected).length > 0) {
-    const started = Date.now();
-    const result = gradeExpect(expected, facts);
-    if ("errored" in result) {
-      return {
-        errored: { by: "dataset", phase: "observe", code: result.errored, reason: result.reason },
-      };
-    }
-    entries.push({
-      grader: "expect",
-      version: EXPECT_VERSION,
-      key: sha256(canonical(expected)),
-      verdict: result.verdict,
-      reasons: result.reasons,
-      ms: Date.now() - started,
-    });
-  }
-  const keyDigest = sha256(canonical(info.key));
-  for (const grader of lab.graders) {
-    const started = Date.now();
-    const base = {
-      grader: grader.name,
-      key: keyDigest,
-    };
-    try {
-      const { marker: _, ...key } = info.key;
-      const inputFile = join(trial.dir, "input.json");
-      const keyDir = join(info.dir, "key");
-      const out = await grader.grade({
-        case: {
-          name: info.name,
-          dir: trial.dir,
-          input: existsSync(inputFile) ? JSON.parse(readFileSync(inputFile, "utf8")) : {},
-          key,
-          ...(existsSync(keyDir) ? { keyDir } : {}),
-        },
-        facts,
-        stages: record.stages ?? {},
-        result: record.result ?? null,
-        scratch: trial.scratch,
-        kept: trial.kept,
-        work: trial.parent,
-        env: trial.env,
-      });
-      entries.push({ ...base, ...out, reasons: out.reasons ?? [], ms: Date.now() - started });
-    } catch (error) {
-      const version = (error as { version?: unknown }).version;
-      entries.push({
-        ...base,
-        ...(typeof version === "string" ? { version } : {}),
-        reasons: [],
-        errored: { reason: (error as Error).message },
-        ms: Date.now() - started,
-      });
-    }
-  }
-  return { entries };
 }
 
 function definedOf(env: Readonly<Record<string, string | undefined>>): Record<string, string> {

@@ -1,7 +1,15 @@
 {
   "kind": "awf.case-dataset/0",
   "sandbox": "workflow",
-  "agentReach": { "network": [] },
+  "agentReach": {
+    "network": []
+  },
   "timeout": "5m",
-  "graders": ["replyStatesRefund"]
+  "graders": [
+    "replyStatesRefund",
+    {
+      "workflow": "graders/tone.ts",
+      "readsFacts": true
+    }
+  ]
 }

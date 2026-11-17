@@ -1,6 +1,7 @@
 import type { Folder, RunRecord } from "../format/records";
 import type { CaseRow, StoredTrialView } from "./outcome";
 import { newestEntries, trialOutcome } from "./outcome";
+import { agreements, type Pooled, poolNumbers } from "./pooled";
 import { type CaseVerdict, type ExitCode, exitCodeOf } from "./verdict";
 
 const MARK: Record<CaseVerdict, string> = { passed: "✓", failed: "✗", flaky: "~", unclear: "?" };
@@ -42,10 +43,54 @@ export type RunReport = {
   trials: StoredTrialView[];
   /** Criteria in the keys, not judged yet. */
   criteria: number;
+  /** Grades `score` would make again: a key or grader changed since; or why it couldn't tell. */
+  stale?: number | { unread: string };
+  /** Whose grades decide each case, from the current dataset and keys; all when unread. */
+  decidersOf?: (caseName: string) => ReadonlySet<string> | undefined;
 };
 
+const percent = (count: number, of: number) =>
+  of === 0 ? "" : ` (${Math.round((count / of) * 100)}%)`;
+
+export function describePooled(pooled: Pooled): string {
+  if ("count" in pooled) return `${pooled.count}/${pooled.of}${percent(pooled.count, pooled.of)}`;
+  const m = median(pooled.values)!;
+  return `median ${Number.isInteger(m) ? m : m.toFixed(2)}`;
+}
+
+/** The numbers and agreement lines, your checkout's column. */
+function gradersLines(
+  trials: readonly StoredTrialView[],
+  decidersOf: RunReport["decidersOf"],
+): string[] {
+  const own = trials.filter((t) => t.record.column === 0);
+  const lines: string[] = [];
+  const pooled = poolNumbers(own);
+  if (pooled.graders.size > 0) {
+    const each = [...pooled.graders].map(
+      ([grader, numbers]) =>
+        `${grader} ${[...numbers].map(([name, n]) => `${name} ${describePooled(n)}`).join(", ")}`,
+    );
+    const left =
+      pooled.left > 0 ? `; ${plural(pooled.left, "trial")} the workflow failed left out` : "";
+    lines.push(`numbers: ${each.join(" · ")}${left}`);
+  }
+  for (const pair of agreements(own, decidersOf)) {
+    const said = [
+      ...(pair.verdicts.of > 0
+        ? [`the same verdict on ${pair.verdicts.alike} of ${plural(pair.verdicts.of, "trial")}`]
+        : []),
+      ...(pair.parts.of > 0
+        ? [`the same label on ${pair.parts.alike} of ${plural(pair.parts.of, "part")}`]
+        : []),
+    ];
+    lines.push(`agreement, ${pair.a} and ${pair.b}: ${said.join("; ")}`);
+  }
+  return lines;
+}
+
 /** `run` and `report`'s text, and the exit code from your checkout's column. */
-export function renderRun({ run, rows, trials, criteria }: RunReport): {
+export function renderRun({ run, rows, trials, criteria, stale, decidersOf }: RunReport): {
   text: string;
   exit: ExitCode;
 } {
@@ -121,7 +166,10 @@ export function renderRun({ run, rows, trials, criteria }: RunReport): {
         : []),
     ].join(" · "),
   );
-  const views = trials.map((t) => ({ ...t, view: trialOutcome(t.record, t.scores) }));
+  const views = trials.map((t) => ({
+    ...t,
+    view: trialOutcome(t.record, t.scores, decidersOf?.(t.record.case)),
+  }));
   const errored = views.filter((t) => t.view.outcome === "errored");
   const by = (who: string) => errored.filter((t) => t.view.errored?.by === who).length;
   const blame = ["dataset", "grading", "provider", "lab"]
@@ -140,6 +188,15 @@ export function renderRun({ run, rows, trials, criteria }: RunReport): {
   const priced = counted.filter((t) => t.record.estimate !== undefined);
   const cost = median(priced.map((t) => t.record.estimate!));
   const total = trials.reduce((sum, t) => sum + (t.record.estimate ?? 0), 0);
+  const grading = trials.reduce(
+    (sum, t) =>
+      sum +
+      t.scores.reduce(
+        (s, score) => s + score.entries.reduce((e, x) => e + (x.estimate ?? 0), 0),
+        0,
+      ),
+    0,
+  );
   const unpriced = counted.some(
     (t) => t.record.estimate === undefined || (t.record.priced ?? 0) < (t.record.agents ?? 0),
   );
@@ -149,8 +206,17 @@ export function renderRun({ run, rows, trials, criteria }: RunReport): {
         `time per trial, median ${seconds(ms)}`,
         ...(cost !== undefined ? [`est. cost per trial, median ${usd(cost)}`] : []),
         `all trials ${usd(total)}${unpriced ? ", partly unpriced" : ""}`,
+        ...(grading > 0 ? [`grading ${usd(grading)}`] : []),
       ].join(" · "),
     );
+  }
+  lines.push(...gradersLines(trials, decidersOf));
+  if (typeof stale === "number" && stale > 0) {
+    lines.push(
+      `${plural(stale, "grade")} out of date, a key or grader changed: awf-lab score ${run.number}`,
+    );
+  } else if (typeof stale === "object") {
+    lines.push(`grades: couldn't check whether any is out of date: ${stale.unread}`);
   }
   if (criteria > 0) {
     lines.push(
@@ -176,13 +242,14 @@ export function renderCase(
   row: CaseRow,
   trials: readonly StoredTrialView[],
   logsCommand: (runId: string) => string,
+  deciders?: ReadonlySet<string>,
 ): string {
   const lines = [
     `${row.name} · run ${run.number} · ${row.tally.verdict ?? row.tally.none ?? "no trials"} ${row.tally.passed}/${row.tally.trials}`,
   ];
   for (const trial of trials) {
     const { record } = trial;
-    const view = trialOutcome(record, trial.scores);
+    const view = trialOutcome(record, trial.scores, deciders);
     lines.push(
       "",
       `trial ${record.trial}: ${view.outcome}${record.runId ? ` · run ${record.runId}` : ""} · ${seconds(record.ms)}`,
@@ -208,11 +275,40 @@ export function renderCase(
     for (const entry of newestEntries(trial.scores)) {
       const verdict = entry.errored
         ? `errored: ${entry.errored.reason}`
-        : (entry.verdict ?? entry.notApplies ?? "no verdict");
-      lines.push(`  ${entry.grader}: ${verdict}`);
+        : entry.skipped
+          ? "not judged: a cheaper grader failed the trial"
+          : (entry.verdict ??
+            (entry.notApplies ? `does not apply: ${entry.notApplies}` : "numbers only"));
+      const about = [
+        ...(entry.version ? [entry.version] : []),
+        ...(deciders && !deciders.has(entry.grader) ? ["not in the verdict"] : []),
+        ...(entry.estimate !== undefined ? [`est. ${usd(entry.estimate)}`] : []),
+        ...(entry.runId ? [`run ${entry.runId}`] : []),
+      ];
+      lines.push(
+        `  ${entry.grader}: ${verdict}${about.length > 0 ? ` (${about.join(", ")})` : ""}`,
+      );
+      for (const [name, number] of Object.entries(entry.numbers ?? {})) {
+        lines.push(
+          `    ${name}: ${"count" in number ? `${number.count}/${number.of}` : number.value}`,
+        );
+      }
       for (const reason of entry.reasons) lines.push(`    ${reason.about}: ${reason.text}`);
-      for (const part of entry.parts ?? [])
-        lines.push(`    ${part.about}: ${part.verdict ?? part.label}`);
+      for (const part of entry.parts ?? []) {
+        const settled = part.settled && part.settled !== "agreed" ? ` [${part.settled}]` : "";
+        lines.push(
+          `    ${part.about}: ${part.verdict ?? part.label}${settled}${part.why ? ` · ${part.why}` : ""}`,
+        );
+        // A split is worth reading vote by vote; an agreement is its why.
+        if (part.settled && part.settled !== "agreed" && part.settled !== "given") {
+          for (const vote of part.votes ?? []) {
+            const said = vote.verdict ?? vote.label ?? "no answer";
+            lines.push(
+              `      ${vote.by}${vote.role ? ` (${vote.role})` : ""}: ${said}${vote.why ? ` · ${vote.why}` : ""}`,
+            );
+          }
+        }
+      }
     }
     if (record.kept.length > 0) lines.push(`  kept: ${record.kept.join(", ")}`);
     if (record.runId) lines.push(`  logs: ${logsCommand(record.runId)}`);

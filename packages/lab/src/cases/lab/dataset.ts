@@ -75,26 +75,17 @@ export function readDataset(name: string, dir: string): DatasetInfo {
     throw new Refusal(describeProblems(file, checked.problems) + why);
   }
   const dataset = checked.value;
-  const names = new Set<string>();
-  for (const grader of dataset.graders ?? []) {
-    if (typeof grader !== "string") {
-      throw new Refusal(
-        `${file}: graders: a grader workflow isn't run yet; name an export of ${GRADERS_FILE} instead`,
-      );
-    }
-    if (grader === "expect" || grader === "criteria") {
-      throw new Refusal(`${file}: graders: ${grader} is the lab's own; name your grader otherwise`);
-    }
-    if (!/^[A-Za-z_$][\w$]*$/.test(grader)) {
-      throw new Refusal(`${file}: graders: ${grader} is no export name of ${GRADERS_FILE}`);
-    }
-    if (names.has(grader)) throw new Refusal(`${file}: graders: ${grader} is named twice`);
-    names.add(grader);
-  }
-  if (names.size > 0 && !existsSync(join(dir, GRADERS_FILE))) {
+  const specs = graderSpecs({ name, dir, dataset });
+  const code = specs.filter((s) => s.kind === "code").map((s) => s.name);
+  if (code.length > 0 && !existsSync(join(dir, GRADERS_FILE))) {
     throw new Refusal(
-      `${file}: graders names ${[...names].join(", ")}, and ${dir} has no ${GRADERS_FILE}`,
+      `${file}: graders names ${code.join(", ")}, and ${dir} has no ${GRADERS_FILE}`,
     );
+  }
+  for (const spec of specs) {
+    if (spec.kind === "workflow" && !existsSync(spec.file)) {
+      throw new Refusal(`${file}: graders: ${spec.file} doesn't exist`);
+    }
   }
   for (const pattern of dataset.keep ?? []) {
     if (isAbsolute(pattern) || pattern.split(/[\\/]/).includes("..")) {
@@ -103,6 +94,65 @@ export function readDataset(name: string, dir: string): DatasetInfo {
   }
   refuseLinks(join(dir, "files"));
   return { name, dir, dataset };
+}
+
+/** A dataset grader as `dataset.json` names it: a `graders.ts` export, or a grader workflow. */
+export type GraderSpec =
+  | { kind: "code"; name: string; onDemand: boolean }
+  | {
+      kind: "workflow";
+      name: string;
+      /** The workflow's file, inside the dataset's `graders/`. */
+      file: string;
+      readsFacts: boolean;
+      onDemand: boolean;
+      timeout?: string;
+    };
+
+/**
+ * The dataset's graders, checked: a workflow's name is its path under `graders/` without `.ts`;
+ * every name is unique, and never `expect` or `criteria`, which are the lab's own.
+ */
+export function graderSpecs(info: DatasetInfo): GraderSpec[] {
+  const file = join(info.dir, DATASET_FILE);
+  const graders = join(info.dir, "graders");
+  const seen = new Set<string>();
+  return (info.dataset.graders ?? []).map((entry): GraderSpec => {
+    let spec: GraderSpec;
+    if (typeof entry === "string" || "grader" in entry) {
+      const name = typeof entry === "string" ? entry : entry.grader;
+      if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
+        throw new Refusal(`${file}: graders: ${name} is no export name of ${GRADERS_FILE}`);
+      }
+      spec = { kind: "code", name, onDemand: typeof entry !== "string" && entry.onDemand === true };
+    } else {
+      const path = join(info.dir, entry.workflow);
+      const inside = relative(graders, path);
+      if (
+        inside.startsWith("..") ||
+        isAbsolute(inside) ||
+        entry.workflow.split(/[\\/]/).includes("..")
+      ) {
+        throw new Refusal(`${file}: graders: ${entry.workflow} is outside the dataset's graders/`);
+      }
+      spec = {
+        kind: "workflow",
+        name: inside.replace(/\.ts$/, ""),
+        file: path,
+        readsFacts: entry.readsFacts === true,
+        onDemand: entry.onDemand === true,
+        ...(entry.timeout ? { timeout: entry.timeout } : {}),
+      };
+    }
+    if (spec.name === "expect" || spec.name === "criteria") {
+      throw new Refusal(
+        `${file}: graders: ${spec.name} is the lab's own; name your grader otherwise`,
+      );
+    }
+    if (seen.has(spec.name)) throw new Refusal(`${file}: graders: ${spec.name} is named twice`);
+    seen.add(spec.name);
+    return spec;
+  });
 }
 
 /**

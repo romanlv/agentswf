@@ -82,6 +82,7 @@ const input = (trial: string) => ({
   kept: join(trial, "kept"),
   work: trial,
   env: { ...(process.env as Record<string, string>) },
+  params: {},
 });
 
 describe("a dataset's own graders, run in a process of their own", () => {
@@ -90,7 +91,7 @@ describe("a dataset's own graders, run in a process of their own", () => {
     const [grader] = codeGraders(dataset, root, 30_000);
     const out = await grader!.grade(input(trial));
     expect(out.verdict).toBe("passed");
-    expect(out.reasons[0]!.text).toBe(`["case","kept","result","scratch"] one ${root}`);
+    expect(out.reasons[0]!.text).toBe(`["case","kept","params","result","scratch"] one ${root}`);
   });
 
   test("readsFacts gives the facts and the stages; numbers come back", async () => {
