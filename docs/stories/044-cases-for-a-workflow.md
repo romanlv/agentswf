@@ -1851,7 +1851,7 @@ Alternatives rejected:
 
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
 - [x] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
-- [ ] 3. Criteria are judged (after task 8)
+- [ ] 3. Criteria are judged (after task 8): built; the check against task 1 waits on task 1
 - [ ] 4. The same cases on code in another folder
 - [ ] 5. web-to-cli's build runs on cases
 - [ ] 6. A past run becomes a case
@@ -2154,16 +2154,16 @@ there, built against the review scorer first); its first part, a dataset's code 
 
 Execution:
 
-- [ ] Plan: the judge's prompt, from task 1's tuned part. The review judge's voting
+- [x] Plan: the judge's prompt, from task 1's tuned part. The review judge's voting
   (`review/judge/voting.ts`) is built around finding labels, so the three voters are written
   fresh in the new folder, reusing only the shared runner and what task 8 settled for parts and
   votes. The judge reads its input through the grade folder and `gradeCase()` and puts what the
   voters need into their prompts. It runs on the lab's own `awf`, under a sandbox that reaches
   only its model, with its records in the store and its cost on the score entry. The reach check
   is for trials only: a grader's run is the lab's own, not graded.
-- [ ] Implement: only this task's change, with tests.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
+- [x] Implement: only this task's change, with tests.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
 - [ ] Verify: the `Done when` items.
 
 Work:
@@ -2962,4 +2962,67 @@ Checks:
   `score --dry-run` priced them at $0.02 from earlier grades, and `score` graded only `tone`
   again on the three trials, exit 0. `srt` is installed under Node 22.20.0 only, while mise now
   selects Node 24, so the runs put Node 22's bin first on `PATH`.
+
+### Task 3: the criteria judge (2026-11-17)
+
+Built before task 1's decision, at the person's request to implement the remaining tasks; task 1
+can still drop it. Its prompt is written fresh, not tuned on task 1's emails, so `JUDGE_CHECKED`
+is unset and every report says "not checked against a person". Verify stays open for the two
+checks that need task 1: the held-out part, and recording the checked prompt and agent.
+
+- **Where it lives**: `src/cases/judge/criteria.workflow.ts`, a workflow the lab's own `awf` runs
+  (`--harness`, `--model` from `judgeAgent`), importing `agentswf/workflow` (a dev dependency of
+  the private lab; a runtime one when the lab is published) and its own folders; `version.ts`
+  holds `JUDGE_VERSION` and `JUDGE_CHECKED`, which the lab reads without loading the workflow. It
+  is the grader named `criteria`, in `lab/criteria.ts`.
+- **Its key digest is the criteria alone** (each as `{field}: {text}`), not the whole key with
+  `key/` as a dataset grader's: an `expect` or `key/` edit never runs it again. Graders gained
+  three seams for it: `keyOf` (the digest), `appliesTo` (it grades only keys with criteria; no
+  entry otherwise, unlike `notApplies`, which a dataset grader answers itself), and `agent`.
+- **A grade records its `agent`**: the configured `judgeAgent`, which `staleBecause` and
+  `previousFrom` compare, so a new judge agent judges every criterion again with no earlier parts.
+  The models the run used are in `models`.
+- **Its grade folder holds the criteria alone**: `key.json` with `kind`, `must` and `must-not`,
+  no `expect` and no `key/`. The voters' working folder sits beside it; srt's profile denies the
+  temporary folders, but nothing in the grade folder is more than the voters are shown anyway.
+- **Voters**: three per criterion, each given that criterion alone, the result, the facts and the
+  stages' values in the prompt, and a folder of the case's files (`case/`) and the trial's saved
+  ones (`saved/`); in srt, writing nothing and reaching only their model; two criteria at a time.
+  A voter that says nothing is no vote; one that timed out or failed errors the judge's run, so
+  the grade is grading's error and `score` judges it again, never an `undecided` that stands.
+- **Settling**: two of three, or two of two answering, decide; anything less is `unsettled`, the
+  criterion `undecided`. The judge fails when any criterion failed, else is undecided when any is,
+  else passes. A criterion any voter judged from `saved/` carries `readNotRun`.
+- **`previous.json`**: a criterion whose text is unchanged keeps its earlier part, unless it was
+  unsettled; only changed or new ones are judged.
+- **The report**: `criteria judged N` with `split 2–1`, `unsettled`, `read, not run` and `not
+  judged on N trials a cheaper grader failed` when not zero; `judge: {harness}/{model}`, "not
+  checked against a person" unless every grade that judged matches `JUDGE_CHECKED`'s agent and
+  `{major}.{minor}`; the family mark (`families.ts`, by model id, or by the harness for an alias
+  such as `sonnet`) against the models of your checkout's column, per column once task 4 adds
+  columns.
+- **Also here, found live**: the mail project's store held runs written before task 8's score
+  shape, and history stopped every new run on them (exit 4). A record that fails its schema or
+  isn't JSON (`UnreadableRecord`) now leaves its run out of history, the estimate and `--failed`;
+  `runs` names it with the first problem, and the report says how many runs history left out.
+  Any other error still stops the command.
+
+Reviews: architecture and scope (no must-fix; should-fix: the departures above unrecorded, the
+grade folder beside the voters holding `expect` and `key/`, the unreadable-run catch swallowing
+every error and silent in the report, a `PATH` override for the judge pointing at the repo's
+`node_modules/.bin`, removed; nits: the checked mark comparing exact versions, no cap on voters,
+the README), correctness and proof (no must-fix; should-fix: a skipped or errored trial marking a
+checked judge unchecked, the recorded-check branch untested, a timed-out voter leaving a lasting
+`undecided`; nits: aliases and the family table, the unsettled reason's wording, a zero count
+shown). All fixed with tests, but two proofs left to the shared mechanism: the judge's minor bump
+(the same `staleBecause` rule as a grader workflow's, tested there) and a reused trial (task 9).
+
+Checks:
+
+- `bun test packages/lab`: 342 pass.
+- Live, the mail dataset with `judgeAgent` claude-sonnet-5-5: one trial each (run 9), then three
+  (run 10): 21 trials, every case passed, 36 criteria judged, none split, exit 0. The trials cost
+  an estimated $0.06; grading $3.53, about 60 times the workflow it judged, as three Sonnet voters
+  judge each of a case's two or three criteria apart. The report marks the judge as sharing the
+  anthropic family with the workflow's Haiku.
 

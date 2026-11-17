@@ -1,6 +1,6 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { findConfigFile } from "../../shared/config-file";
 import { awfLogs, processRunner, type Runner, withoutCallingSession } from "../../shared/runner";
@@ -15,6 +15,7 @@ import {
 } from "../format/output";
 import { RUN_KIND, type RunRecord } from "../format/records";
 import { codeGraders, graderVersions } from "./code-graders";
+import { criteriaJudge } from "./criteria";
 import {
   type CaseInfo,
   type DatasetInfo,
@@ -31,7 +32,7 @@ import { type CaseRow, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
 import { Refusal } from "./refusal";
 import { median, plural, renderCase, renderRun, seconds } from "./report";
-import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf } from "./runs";
+import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf, unreadableRuns } from "./runs";
 import { newCase } from "./scaffold";
 import { describePlan, planScore, runScore, type ScoreDone } from "./score";
 import {
@@ -43,6 +44,7 @@ import {
   runNumbers,
   type StoredTrial,
   takeLock,
+  UnreadableRecord,
   writeRun,
   writeTrial,
 } from "./store";
@@ -302,9 +304,15 @@ function estimate(
   const ms: number[] = [];
   const cost: number[] = [];
   for (const n of runNumbers(store)) {
-    const record = readRunRecord(store, n);
-    if (record?.dataset !== dataset) continue;
-    for (const { record: trial, scores } of readTrials(store, n)) {
+    let trials: StoredTrial[];
+    try {
+      if (readRunRecord(store, n)?.dataset !== dataset) continue;
+      trials = readTrials(store, n);
+    } catch (error) {
+      if (error instanceof UnreadableRecord) continue; // `runs` names it
+      throw error;
+    }
+    for (const { record: trial, scores } of trials) {
       if (!names.includes(trial.case) || !trial.runId) continue;
       if (trialOutcome(trial, scores).outcome === "errored") continue;
       ms.push(trial.ms);
@@ -458,6 +466,7 @@ async function run(context: Context): Promise<number> {
     trials,
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
+    leftOut: unreadableRuns(workspace.store).filter((n) => n < record.number),
   });
   context.stdout(text);
   return exit;
@@ -517,10 +526,24 @@ async function datasetGraders(
     },
     specs,
   );
+  const judgeAgent = info.dataset.judgeAgent ?? workspace.judgeAgent;
+  const judge = judgeAgent
+    ? [
+        criteriaJudge(
+          {
+            runner: environment.runner ?? processRunner(),
+            runRoot: awfRunsOf(workspace.store),
+            now,
+          },
+          judgeAgent,
+        ),
+      ]
+    : [];
   return [
     ...(environment.graders ?? []),
     ...codeGraders(info, workspace.root, settings.setupTimeoutMs),
     ...workflows,
+    ...judge,
   ].map((g) => {
     const version = versions.get(g.name) ?? g.version;
     return version ? { ...g, version } : g;
@@ -657,6 +680,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     ),
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
+    leftOut: unreadableRuns(workspace.store).filter((n) => n < run.number),
   });
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
@@ -810,6 +834,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
       run.asked.map((a) => a.case),
     ),
     decidersOf: (name) => bars.get(name)?.deciders,
+    leftOut: unreadableRuns(workspace.store).filter((n) => n < run.number),
   });
   // A budget stop leaves grades unmade: 3, unless the report already exits worse.
   const exit = done?.stopped && rendered.exit === 0 ? 3 : rendered.exit;
@@ -867,10 +892,22 @@ function runs(context: Context): number {
   const lines = runNumbers(workspace.store)
     .reverse()
     .flatMap((n) => {
-      const run = readRunRecord(workspace.store, n);
+      let run: RunRecord | undefined;
+      let state: string;
+      try {
+        run = readRunRecord(workspace.store, n);
+        if (run) readTrials(workspace.store, n);
+        state = run?.broke ? "the lab broke" : run?.finished ? "finished" : "partial";
+      } catch (error) {
+        if (!(error instanceof UnreadableRecord)) throw error;
+        // "{file} is not valid:" then its problems: the file's name and the first problem do.
+        const [head = "", first] = (error as Error).message.split("\n");
+        const why = `${basename(head.replace(/ is not valid:$/, ""))}${first ? `: ${first.trim()}` : ""}`;
+        if (!run) return [`${String(n).padStart(4)}  records don't read: ${why}`];
+        state = `records don't read (${why}), left out of history`;
+      }
       if (!run) return [];
       const trials = run.asked.reduce((sum, a) => sum + a.trials, 0);
-      const state = run.broke ? "the lab broke" : run.finished ? "finished" : "partial";
       return [
         `${String(n).padStart(4)}  ${run.started.slice(0, 16).replace("T", " ")}  ${run.dataset}  ${plural(run.asked.length, "case")}, ${plural(trials, "trial")}  ${state}`,
       ];

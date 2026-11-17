@@ -3,7 +3,7 @@ import type { RunRecord } from "../format/records";
 import type { CaseInfo, DatasetInfo } from "./dataset";
 import { decidersOf, type LabGrader } from "./grading";
 import { type CaseRow, caseRow, trialOutcome } from "./outcome";
-import { readRunRecord, readTrials, runNumbers, type StoredTrial } from "./store";
+import { readRunRecord, readTrials, runNumbers, type StoredTrial, UnreadableRecord } from "./store";
 import { type CaseVerdict, caseVerdict } from "./verdict";
 
 /**
@@ -52,7 +52,11 @@ function verdictsOf(
   return verdicts;
 }
 
-/** Earlier runs of the same dataset and checkout, oldest first, each with its verdicts. */
+/**
+ * Earlier runs of the same dataset and checkout, oldest first, each with its verdicts. A run whose
+ * records this lab can't read (written before a `/0` record changed shape) is left out; `runs`
+ * names it.
+ */
 function earlier(
   store: string,
   dataset: string,
@@ -63,10 +67,29 @@ function earlier(
   return runNumbers(store)
     .filter((n) => n < before)
     .flatMap((n) => {
-      const run = readRunRecord(store, n);
-      if (!run || run.dataset !== dataset || run.folders[0]?.path !== root) return [];
-      return [{ run, verdicts: verdictsOf(run, readTrials(store, n), bars) }];
+      try {
+        const run = readRunRecord(store, n);
+        if (!run || run.dataset !== dataset || run.folders[0]?.path !== root) return [];
+        return [{ run, verdicts: verdictsOf(run, readTrials(store, n), bars) }];
+      } catch (error) {
+        if (error instanceof UnreadableRecord) return [];
+        throw error;
+      }
     });
+}
+
+/** The runs whose records this lab can't read, which history leaves out. */
+export function unreadableRuns(store: string): number[] {
+  return runNumbers(store).filter((n) => {
+    try {
+      readRunRecord(store, n);
+      readTrials(store, n);
+      return false;
+    } catch (error) {
+      if (error instanceof UnreadableRecord) return true;
+      throw error;
+    }
+  });
 }
 
 /** Up to five earlier verdicts of each case, newest last. */

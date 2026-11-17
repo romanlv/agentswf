@@ -153,13 +153,27 @@ export function runNumbers(store: string): number[] {
     .sort((a, b) => a - b);
 }
 
+/**
+ * A record this lab can't read: written before a `/0` format changed shape, or not JSON. History
+ * leaves its run out; any other error is the lab's.
+ */
+export class UnreadableRecord extends Error {}
+
 function checked<T>(file: string, result: Checked<T>): T {
-  if (!result.ok) throw new Error(describeProblems(file, result.problems));
+  if (!result.ok) throw new UnreadableRecord(describeProblems(file, result.problems));
   return result.value;
 }
 
 function readJson(file: string): unknown {
-  return JSON.parse(readFileSync(file, "utf8"));
+  return parseJson(file, readFileSync(file, "utf8"));
+}
+
+function parseJson(file: string, text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new UnreadableRecord(`${file} is not valid:\n  ${(error as Error).message}`);
+  }
 }
 
 export function writeRun(store: string, run: RunRecord): void {
@@ -208,7 +222,9 @@ export function readTrials(store: string, n: number): StoredTrial[] {
         ? readFileSync(scoresFile, "utf8")
             .split("\n")
             .filter((line) => line.trim() !== "")
-            .map((line) => checked(scoresFile, checkSchema(ScoreRecordSchema, JSON.parse(line))))
+            .map((line) =>
+              checked(scoresFile, checkSchema(ScoreRecordSchema, parseJson(scoresFile, line))),
+            )
         : [];
       found.push({ dir, record, scores });
     }

@@ -1373,3 +1373,135 @@ describe("grader workflows and score", () => {
     expect(err).toContain("share the name");
   });
 });
+
+describe("the criteria judge, through the command line", () => {
+  const JUDGE = { harness: "claude", model: "claude-haiku-5-5" };
+  /** A project whose awf-lab.json names a judge, and a key with `expect` and criteria. */
+  function judged(expectOk = "true", must = ["the reply is short"]) {
+    const where = project({
+      a: {
+        key: keyMd(`expect:\n  ok: ${expectOk}\nmust:\n${must.map((m) => `  - ${m}\n`).join("")}`),
+      },
+    });
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", judgeAgent: JUDGE }),
+    );
+    return where;
+  }
+  /** The judge, scripted: every criterion met, all three voters agreeing. */
+  const judge: GraderPlay = (input) => ({
+    value: {
+      verdict: "passed",
+      reasons: [],
+      parts: [...(input.case.key.must ?? [])].map((text) => ({
+        about: `must: ${text}`,
+        verdict: "passed",
+        settled: "agreed",
+        why: "short enough",
+        votes: [],
+      })),
+    },
+    estimate: 0.01,
+  });
+
+  test("criteria are judged after expect, on the lab's own awf, recording the judge's agent", async () => {
+    const where = judged();
+    const fake = scripted({}, judge);
+    const { code, out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(0);
+    const [{ request, input }] = fake.graded as [(typeof fake.graded)[number]];
+    expect(request.workflow).toEndWith("cases/judge/criteria.workflow.ts");
+    expect(request.argv).toEqual(["--harness", "claude", "--model", "claude-haiku-5-5"]);
+    expect(request.awf).toBeUndefined();
+    expect(input.facts).toEqual({ ok: true });
+    const entry = readTrials(storeOf(where), 1)[0]!.scores[0]!.entries.find(
+      (e) => e.grader === "criteria",
+    )!;
+    expect(entry).toMatchObject({ version: "1.0.0", agent: JUDGE, verdict: "passed" });
+    expect(out).toContain("criteria judged 1\n");
+    // Its grade folder holds the criteria alone: no expect, no key/.
+    expect(input.case.key).toEqual({ kind: "awf.case-key/0", must: ["the reply is short"] });
+    expect(input.case.keyDir).toBeUndefined();
+    expect(out).toContain("judge: claude/claude-haiku-5-5, not checked against a person");
+  });
+
+  test("a trial expect failed skips the judge; score judges it once the key's expect passes", async () => {
+    const where = judged("false");
+    const fake = scripted({}, judge);
+    const ran = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(ran.code).toBe(1);
+    expect(fake.graded).toHaveLength(0);
+    expect(ran.out).toContain("not judged on 1 trial a cheaper grader failed");
+    // While expect still fails, a key edit leaves the criteria not judged.
+    writeFileSync(
+      join(where.ds, "cases/a/key.md"),
+      keyMd("expect:\n  ok: 7\nmust:\n  - the reply is short\n"),
+    );
+    await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(0);
+    writeFileSync(
+      join(where.ds, "cases/a/key.md"),
+      keyMd("expect:\n  ok: true\nmust:\n  - the reply is short\n"),
+    );
+    const scored = await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(scored.code).toBe(0);
+    expect(scored.out).toContain("graded again: expect ×1, criteria ×1");
+  });
+
+  test("an edited criterion is judged again with the earlier parts; an expect edit leaves the judge alone", async () => {
+    const where = judged("true", ["the reply is short", "the reply is polite"]);
+    const fake = scripted({}, judge);
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    // The judge's grades are kept against the criteria alone: an expect edit plans expect only.
+    writeFileSync(
+      join(where.ds, "cases/a/key.md"),
+      keyMd("expect:\n  ok: false\nmust:\n  - the reply is short\n  - the reply is polite\n"),
+    );
+    const dry = await lab(where, ["score", "--dry-run"], { runner: fake.runner });
+    expect(dry.out).toContain("score run 1: 1 trial · expect ×1");
+    expect(dry.out).not.toContain("criteria");
+    writeFileSync(
+      join(where.ds, "cases/a/key.md"),
+      keyMd("expect:\n  ok: true\nmust:\n  - the reply is short\n  - the reply is kind\n"),
+    );
+    await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(2);
+    expect(fake.graded[1]!.input.previous?.parts.map((p) => p.about)).toEqual([
+      "must: the reply is short",
+      "must: the reply is polite",
+    ]);
+  });
+
+  test("after judgeAgent changes, score judges every criterion again, with no earlier parts", async () => {
+    const where = judged();
+    const fake = scripted({}, judge);
+    await lab(where, ["run", "--yes"], { runner: fake.runner });
+    const other = { harness: "codex", model: "gpt-6-luna" };
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", judgeAgent: other }),
+    );
+    expect((await lab(where, ["report"])).out).toContain("1 grade out of date");
+    await lab(where, ["score", "--yes"], { runner: fake.runner });
+    expect(fake.graded).toHaveLength(2);
+    expect(fake.graded[1]!.input.previous).toBeUndefined();
+    expect(fake.graded[1]!.request.argv).toEqual(["--harness", "codex", "--model", "gpt-6-luna"]);
+    const newest = readTrials(storeOf(where), 1)[0]!.scores.at(-1)!.entries[0]!;
+    expect(newest.agent).toEqual(other);
+  });
+});
+
+test("a run whose records don't read is left out of history and named by runs, not a stop", async () => {
+  const where = project({ a: {} });
+  const fake = scripted({});
+  await lab(where, ["run", "--yes"], { runner: fake.runner });
+  const [trial] = readTrials(storeOf(where), 1);
+  writeFileSync(join(trial!.dir, "scores.jsonl"), '{"kind":"awf.case-score/0","old":true}\n');
+  const again = await lab(where, ["run", "--yes"], { runner: fake.runner });
+  expect(again.code).toBe(0);
+  const listed = await lab(where, ["runs"]);
+  expect(listed.out).toContain("records don't read (scores.jsonl:");
+  expect(listed.out).toContain("left out of history");
+  expect(again.out).toContain("history leaves out 1 earlier run whose records don't read");
+});

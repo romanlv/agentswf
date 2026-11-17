@@ -66,8 +66,33 @@ export function workflowGraders(lab: WorkflowGraderLab, specs: readonly GraderSp
     .map((spec) => workflowGrader(lab, spec));
 }
 
+/** A grader workflow as the lab runs it: a dataset's, or the lab's own criteria judge. */
+export type GraderRun = Pick<WorkflowSpec, "name" | "file" | "readsFacts" | "onDemand"> & {
+  timeout: string;
+  /** The workflow's own arguments. */
+  argv?: readonly string[];
+  /** Added to the run's environment, over the trial's. */
+  env?: Record<string, string>;
+};
+
 function workflowGrader(lab: WorkflowGraderLab, spec: WorkflowSpec): LabGrader {
-  const timeout = spec.timeout ?? lab.dataset.dataset.timeout ?? "30m";
+  return graderWorkflow(
+    { runner: lab.runner, runRoot: lab.runRoot, now: lab.now, awf: lab.awf },
+    { ...spec, timeout: spec.timeout ?? lab.dataset.dataset.timeout ?? "30m" },
+  );
+}
+
+/**
+ * A grader that runs `spec.file` in an `awf run` of its own. `awf` gives the folder's `awf`, or
+ * undefined for this checkout's own, which the lab's criteria judge runs on.
+ */
+export function graderWorkflow(
+  lab: Pick<WorkflowGraderLab, "runner" | "runRoot" | "now"> & {
+    awf: () => Promise<AwfBin | undefined>;
+  },
+  spec: GraderRun,
+): LabGrader {
+  const { timeout } = spec;
   return {
     name: spec.name,
     costly: true,
@@ -80,17 +105,17 @@ function workflowGrader(lab: WorkflowGraderLab, spec: WorkflowSpec): LabGrader {
       const fail = (reason: string, more: object = {}) => Object.assign(new Error(reason), more);
       try {
         writeGradeFolder(dir, call, spec.readsFacts);
-        const { preload: _, ...awf } = await lab.awf();
+        const folder = await lab.awf();
         const ran = await lab.runner({
           workflow: spec.file,
           cwd,
           timeout,
-          argv: [],
+          argv: spec.argv ?? [],
           runRoot: lab.runRoot,
           id: newRunId(lab.now()),
-          awf,
+          ...(folder ? { awf: { bin: folder.bin, dir: folder.dir } } : {}),
           quiet: true,
-          env: { ...call.env, [TRIAL_ENV.grade]: dir },
+          env: { ...call.env, ...spec.env, [TRIAL_ENV.grade]: dir },
         });
         const run = ran.record;
         if (!run) {

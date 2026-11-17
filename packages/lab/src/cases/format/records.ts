@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { SEMVER } from "../../shared/version";
-import { AgentReachSchema, FactSchema } from "./settings";
+import { AgentReachSchema, AgentSchema, FactSchema } from "./settings";
 import { DATASET_ERRORS, RefusedSchema } from "./trial-file";
 
 // The records the lab writes in its store, `/0` until reviews move onto this kind: a run, a trial
@@ -229,6 +229,8 @@ export const GraderEntrySchema = Type.Object(
     /** The grader does not apply to this case, and why: neither a verdict nor numbers. */
     notApplies: Type.Optional(Type.String()),
     models: Type.Optional(Type.Array(Text)),
+    /** The harness and model a grader that runs one agent of its choosing used: the judge's. */
+    agent: Type.Optional(AgentSchema),
     ms: Type.Optional(Type.Number({ minimum: 0 })),
     estimate: Type.Optional(Type.Number({ minimum: 0 })),
     runId: Type.Optional(Text),

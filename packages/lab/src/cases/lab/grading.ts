@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Errored, GraderEntry, Previous } from "../format/records";
-import type { Fact, Key } from "../format/settings";
+import type { Agent, Fact, Key } from "../format/settings";
 import type { Answer } from "./answer";
 import { type CaseInfo, sha256 } from "./dataset";
 import { gradeExpect } from "./expect";
@@ -37,7 +37,8 @@ export type GradeCall = {
 };
 
 /** What a grader gives back: its answer, and what its own run took. */
-export type Graded = Answer & Pick<GraderEntry, "version" | "runId" | "models" | "estimate" | "ms">;
+export type Graded = Answer &
+  Pick<GraderEntry, "version" | "runId" | "models" | "estimate" | "ms" | "agent">;
 
 /** A grader the lab runs after `expect`: a dataset's own, or one a test adds. */
 export type LabGrader = {
@@ -48,6 +49,12 @@ export type LabGrader = {
   costly?: boolean;
   /** Run only by `score --grader`; never decides a verdict. */
   onDemand?: boolean;
+  /** The part of the key it reads, as a digest; absent, the whole key with `key/`. */
+  keyOf?: (info: Pick<CaseInfo, "dir" | "key" | "keyFiles">) => string;
+  /** Whether it grades a case with this key at all; absent, every case. */
+  appliesTo?: (key: Key) => boolean;
+  /** The agent it judges with, when that is a setting (the criteria judge's `judgeAgent`). */
+  agent?: Agent;
   /** Throws grading's error, with the grader's `version` on the error when it was read. */
   grade(call: GradeCall): Promise<Graded>;
 };
@@ -88,12 +95,22 @@ const hasExpect = (key: Key) => Object.keys(key.expect ?? {}).length > 0;
  * every dataset grader not marked `onDemand`, by the current `dataset.json`. A grade by any other
  * (a grader removed, made on demand, an `expect` taken out of the key) is shown, never decisive.
  */
-export function decidersOf(key: Key, graders: readonly Pick<LabGrader, "name" | "onDemand">[]) {
+export function decidersOf(
+  key: Key,
+  graders: readonly Pick<LabGrader, "name" | "onDemand" | "appliesTo">[],
+) {
   return new Set([
     ...(hasExpect(key) ? ["expect"] : []),
-    ...graders.filter((g) => !g.onDemand).map((g) => g.name),
+    ...graders.filter((g) => !g.onDemand && (g.appliesTo?.(key) ?? true)).map((g) => g.name),
   ]);
 }
+
+/** The key digest a grader's grades are kept against. */
+export const keyFor = (grader: LabGrader, info: Pick<CaseInfo, "dir" | "key" | "keyFiles">) =>
+  grader.keyOf ? grader.keyOf(info) : keyDigestOf(info);
+
+const sameAgent = (a: Agent | undefined, b: Agent | undefined) =>
+  a?.harness === b?.harness && a?.model === b?.model;
 
 /** Whether these entries fail the trial: a deciding grader's `failed`. */
 export function failsIn(entries: readonly GraderEntry[], deciders: ReadonlySet<string>): boolean {
@@ -112,11 +129,13 @@ export function staleBecause(
   entry: GraderEntry | undefined,
   key: string,
   version: string | undefined,
+  agent?: Agent,
 ): string | undefined {
   if (!entry) return "not graded";
   if (entry.errored) return "errored";
   if (entry.key !== key) return "key changed";
   if (version !== undefined && minorOf(entry.version) !== minorOf(version)) return "version";
+  if (agent && !sameAgent(entry.agent, agent)) return "agent changed";
   return undefined;
 }
 
@@ -128,9 +147,11 @@ export function staleBecause(
 export function previousFrom(
   entry: GraderEntry | undefined,
   version: string | undefined,
+  agent?: Agent,
 ): Previous | undefined {
   if (!entry?.parts || entry.errored || entry.skipped) return undefined;
   if (version !== undefined && minorOf(entry.version) !== minorOf(version)) return undefined;
+  if (agent && !sameAgent(entry.agent, agent)) return undefined;
   return { key: entry.key, parts: entry.parts };
 }
 
@@ -186,7 +207,6 @@ export async function gradeTrial(trial: GradeTrial): Promise<TrialGrades> {
       ms: Date.now() - started,
     });
   }
-  const key = keyDigestOf(info);
   const { marker: _, ...bare } = info.key;
   const inputFile = join(trial.caseDir, "input.json");
   const keyDir = join(info.dir, "key");
@@ -195,7 +215,8 @@ export async function gradeTrial(trial: GradeTrial): Promise<TrialGrades> {
     ...trial.graders.filter((g) => g.costly),
   ];
   for (const grader of ordered) {
-    const base = { grader: grader.name, key };
+    if (grader.appliesTo && !grader.appliesTo(info.key)) continue;
+    const base = { grader: grader.name, key: keyFor(grader, info) };
     if (grader.costly) {
       if (failsIn([...(trial.standing ?? []), ...entries], trial.deciders)) {
         entries.push({ ...base, reasons: [], skipped: true });

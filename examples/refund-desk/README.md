@@ -224,5 +224,9 @@ A grader marked `"onDemand": true` never runs with the trials and never decides 
 `awf-lab score --grader {name}` grades with it alone, and the report shows how often it agreed
 with the others. That's how you try a second judge on trials you already have.
 
-Still planned: `must` and `must-not` criteria in `key.md`, judged by the lab's own grader workflow,
-for prose rules the dataset doesn't want to code itself.
+A rule that belongs to one case, not every case, can be a sentence in its key instead:
+`must: [the reply apologises for the chipped lid]`, or `must-not:`. The lab's own grader workflow,
+the criteria judge, judges each sentence with three voters, on the `judgeAgent` that
+`awf-lab.json` names (`{ "harness": "claude", "model": "claude-haiku-5-5" }`); `run` refuses keys
+with criteria until it does. It costs three agent calls per sentence per trial, so a cheap judge
+model is worth trying first.

@@ -8,7 +8,7 @@ import {
   expectDigestOf,
   failsIn,
   gradeTrial,
-  keyDigestOf,
+  keyFor,
   type LabGrader,
   previousFrom,
   staleBecause,
@@ -98,15 +98,15 @@ export function planScore(args: {
         args.expect &&
         deciders.has("expect") &&
         staleBecause(newest.get("expect"), expectDigestOf(info.key), EXPECT_VERSION) !== undefined;
-      const key = keyDigestOf(info);
       const stale = (g: LabGrader) =>
-        staleBecause(newest.get(g.name), key, g.version) !== undefined;
-      const cheap = args.graders.filter((g) => !g.costly && stale(g));
+        staleBecause(newest.get(g.name), keyFor(g, info), g.version, g.agent) !== undefined;
+      const graders = args.graders.filter((g) => g.appliesTo?.(info.key) ?? true);
+      const cheap = graders.filter((g) => !g.costly && stale(g));
       const regraded = new Set([...(expect ? ["expect"] : []), ...cheap.map((g) => g.name)]);
       const standing = [...newest.values()].filter((e) => !regraded.has(e.grader));
       const costly: LabGrader[] = [];
       const maybe: LabGrader[] = [];
-      for (const g of args.graders.filter((g) => g.costly)) {
+      for (const g of graders.filter((g) => g.costly)) {
         const entry = newest.get(g.name);
         if (entry?.skipped) {
           // Skipped again while what stands fails the trial; known only after the cheap regrade.
@@ -229,7 +229,7 @@ export async function runScore(args: {
     const graders = [...item.graders, ...item.maybe];
     const regrading = new Set([...(item.expect ? ["expect"] : []), ...graders.map((g) => g.name)]);
     const standing = [...newest.values()].filter((e) => !regrading.has(e.grader));
-    const versions = new Map(graders.map((g) => [g.name, g.version]));
+    const byName = new Map(graders.map((g) => [g.name, g]));
     // Made as a trial's folders are, so a later run sweeps them if this process dies.
     const work = makeTrialFolders(args.tmp, args.run).parent;
     try {
@@ -248,7 +248,8 @@ export async function runScore(args: {
         graders,
         deciders: item.deciders,
         standing,
-        previousOf: (name) => previousFrom(newest.get(name), versions.get(name)),
+        previousOf: (name) =>
+          previousFrom(newest.get(name), byName.get(name)?.version, byName.get(name)?.agent),
         mayContinue: (made) => args.budget === undefined || spent + cost(made) < args.budget,
       });
       const entries: GraderEntry[] =

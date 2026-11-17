@@ -18,7 +18,7 @@ export const PassSchema = Type.String({
   description: '"all", or the fraction of trials that must pass, such as "2/3".',
 });
 
-export { AgentSchema } from "../../shared/config";
+export { type Agent, AgentSchema } from "../../shared/config";
 
 /** A domain as a sandbox spec names it: `example.com`, or `*.example.com` for its subdomains. */
 const DomainSchema = Type.String({ pattern: "^(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*$" });

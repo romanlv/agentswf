@@ -151,6 +151,21 @@
               "minLength": 1
             }
           },
+          "agent": {
+            "type": "object",
+            "required": ["harness", "model"],
+            "properties": {
+              "harness": {
+                "type": "string",
+                "minLength": 1
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
           "ms": {
             "type": "number",
             "minimum": 0

@@ -449,6 +449,19 @@ const LAB_RULES: Rule[] = [
     ],
     paths: ownCases,
   },
+  // The lab's own criteria judge: a workflow the lab's `awf` runs, reading its grade folder.
+  {
+    dir: `${CASES}/judge`,
+    except: ["**/*.test.ts"],
+    forbid: [
+      {
+        pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
+        reason:
+          "the criteria judge is a workflow: it imports agentswf/workflow and its own folders",
+      },
+    ],
+    paths: (target: string) => ownCases(target) && !containsPath(`${CASES}/lab`, target),
+  },
   {
     dir: `${CASES}/format`,
     except: ["**/*.test.ts"],
@@ -470,6 +483,7 @@ const LAB_RULES: Rule[] = [
       "**/*.test.ts",
       "cli.ts",
       "code-graders.ts",
+      "criteria.ts",
       "dataset.ts",
       "folders.ts",
       "git.ts",

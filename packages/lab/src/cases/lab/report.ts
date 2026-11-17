@@ -1,4 +1,7 @@
 import type { Folder, RunRecord } from "../format/records";
+import { JUDGE_CHECKED } from "../judge/version";
+import { familyOf } from "./families";
+import { minorOf } from "./grading";
 import type { CaseRow, StoredTrialView } from "./outcome";
 import { newestEntries, trialOutcome } from "./outcome";
 import { agreements, type Pooled, poolNumbers } from "./pooled";
@@ -45,6 +48,10 @@ export type RunReport = {
   criteria: number;
   /** Grades `score` would make again: a key or grader changed since; or why it couldn't tell. */
   stale?: number | { unread: string };
+  /** The judge as a person checked it; the lab's recorded one when absent. */
+  judgeChecked?: typeof JUDGE_CHECKED;
+  /** Earlier runs history leaves out: their records don't read. */
+  leftOut?: readonly number[];
   /** Whose grades decide each case, from the current dataset and keys; all when unread. */
   decidersOf?: (caseName: string) => ReadonlySet<string> | undefined;
 };
@@ -56,6 +63,70 @@ export function describePooled(pooled: Pooled): string {
   if ("count" in pooled) return `${pooled.count}/${pooled.of}${percent(pooled.count, pooled.of)}`;
   const m = median(pooled.values)!;
   return `median ${Number.isInteger(m) ? m : m.toFixed(2)}`;
+}
+
+/**
+ * What the criteria judge did, your checkout's column: splits, criteria judged from saved files,
+ * trials not judged because a cheaper grader failed them, and the marks on the judge itself.
+ */
+function judgeLines(
+  trials: readonly StoredTrialView[],
+  criteria: number,
+  person: typeof JUDGE_CHECKED,
+): string[] {
+  const own = trials.filter((t) => t.record.column === 0);
+  const judged = own.flatMap((t) => newestEntries(t.scores).filter((e) => e.grader === "criteria"));
+  if (judged.length === 0) {
+    return criteria > 0
+      ? [
+          `criteria not judged: ${criteria} ${criteria === 1 ? "criterion" : "criteria"} in the keys`,
+        ]
+      : [];
+  }
+  const lines: string[] = [];
+  const parts = judged.flatMap((e) => (e.skipped || e.errored ? [] : (e.parts ?? [])));
+  const split = parts.filter((p) => p.settled === "majority").length;
+  const unsettled = parts.filter((p) => p.settled === "unsettled").length;
+  const read = parts.filter((p) => (p.data as { readNotRun?: boolean } | undefined)?.readNotRun);
+  const skipped = judged.filter((e) => e.skipped).length;
+  lines.push(
+    [
+      `criteria judged ${parts.length}`,
+      ...(split > 0 ? [`split 2–1 ${split}`] : []),
+      ...(unsettled > 0 ? [`unsettled ${unsettled}`] : []),
+      ...(read.length > 0 ? [`read, not run ${read.length}`] : []),
+      ...(skipped > 0 ? [`not judged on ${plural(skipped, "trial")} a cheaper grader failed`] : []),
+    ].join(" · "),
+  );
+  const agent = judged.find((e) => e.agent)?.agent;
+  if (agent) {
+    // Judged as the person checked it: the same agent and `{major}.{minor}`, on every grade that
+    // judged (a skipped or errored one judged nothing).
+    const checked =
+      person !== undefined &&
+      judged
+        .filter((e) => !e.skipped && !e.errored)
+        .every(
+          (e) =>
+            minorOf(e.version) === minorOf(person.version) &&
+            e.agent?.harness === person.harness &&
+            e.agent?.model === person.model,
+        );
+    const family = familyOf(agent.model, agent.harness);
+    const shared = family
+      ? [...new Set(own.flatMap((t) => t.record.models))].filter((m) => familyOf(m) === family)
+      : [];
+    lines.push(
+      [
+        `judge: ${agent.harness}/${agent.model}${checked ? "" : ", not checked against a person"}`,
+        ...(family === undefined ? ["family unknown"] : []),
+        ...(shared.length > 0
+          ? [`shares the ${family} family with the workflow's ${shared.join(", ")}`]
+          : []),
+      ].join(" · "),
+    );
+  }
+  return lines;
 }
 
 /** The numbers and agreement lines, your checkout's column. */
@@ -90,7 +161,16 @@ function gradersLines(
 }
 
 /** `run` and `report`'s text, and the exit code from your checkout's column. */
-export function renderRun({ run, rows, trials, criteria, stale, decidersOf }: RunReport): {
+export function renderRun({
+  run,
+  rows,
+  trials,
+  criteria,
+  stale,
+  decidersOf,
+  leftOut,
+  judgeChecked = JUDGE_CHECKED,
+}: RunReport): {
   text: string;
   exit: ExitCode;
 } {
@@ -218,9 +298,10 @@ export function renderRun({ run, rows, trials, criteria, stale, decidersOf }: Ru
   } else if (typeof stale === "object") {
     lines.push(`grades: couldn't check whether any is out of date: ${stale.unread}`);
   }
-  if (criteria > 0) {
+  lines.push(...judgeLines(trials, criteria, judgeChecked));
+  if (leftOut && leftOut.length > 0) {
     lines.push(
-      `criteria not judged: ${criteria} ${criteria === 1 ? "criterion" : "criteria"} in the keys`,
+      `history leaves out ${plural(leftOut.length, "earlier run")} whose records don't read: awf-lab runs`,
     );
   }
   lines.push("sandbox: the workflow's own, its agents' reach checked against agentReach", "");
@@ -296,8 +377,11 @@ export function renderCase(
       for (const reason of entry.reasons) lines.push(`    ${reason.about}: ${reason.text}`);
       for (const part of entry.parts ?? []) {
         const settled = part.settled && part.settled !== "agreed" ? ` [${part.settled}]` : "";
+        const read = (part.data as { readNotRun?: boolean } | undefined)?.readNotRun
+          ? " (read, not run)"
+          : "";
         lines.push(
-          `    ${part.about}: ${part.verdict ?? part.label}${settled}${part.why ? ` · ${part.why}` : ""}`,
+          `    ${part.about}: ${part.verdict ?? part.label}${settled}${read}${part.why ? ` · ${part.why}` : ""}`,
         );
         // A split is worth reading vote by vote; an agreement is its why.
         if (part.settled && part.settled !== "agreed" && part.settled !== "given") {
