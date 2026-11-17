@@ -1,4 +1,5 @@
 import Type from "typebox";
+import { SEMVER } from "../../shared/version";
 import { AgentReachSchema, FactSchema } from "./settings";
 import { DATASET_ERRORS, RefusedSchema } from "./trial-file";
 
@@ -212,7 +213,11 @@ export const PartSchema = Type.Object(
 export const GraderEntrySchema = Type.Object(
   {
     grader: Text,
-    code: Digest,
+    /**
+     * The grader's version, semver: results belong to its `{major}.{minor}`, so a patch bump keeps
+     * them. Absent when the grader errored before its version was read.
+     */
+    version: Type.Optional(Type.String({ pattern: SEMVER.source })),
     key: Digest,
     verdict: Type.Optional(Type.Enum(VERDICTS)),
     numbers: Type.Optional(Type.Record(Text, NumberSchema)),

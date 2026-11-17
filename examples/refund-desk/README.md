@@ -133,6 +133,7 @@ been refunded". `refunds/graders.ts` checks the rule on every case that refunds:
 import { defineGrader } from "@agentswf/lab/cases";
 
 export const replyStatesRefund = defineGrader({
+  version: "1.0.0",
   readsFacts: true,
   grade({ facts }) {
     if (typeof facts.refunded !== "number") throw new Error("observe returned no refunded number");
@@ -175,6 +176,10 @@ named, not only that a value was false.
 
 On `late-return` it shows `replyStatesRefund: nothing was refunded`. The grader doesn't apply,
 so the verdict is `expect`'s.
+
+Every grade records the grader's `version`. When you change what the grader judges, such as
+accepting "24 dollars", bump the minor version (`1.1.0`) so its grades are told apart from the
+old ones. A patch (`1.0.1`) says it judges the same, such as after a refactor.
 
 A trial fails when any grader fails it. A grader runs after `expect`, in a Bun process of its own
 started in your checkout, so it can import your code and read the case's files from `case.dir`.

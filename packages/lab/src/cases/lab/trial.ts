@@ -33,8 +33,6 @@ import type { CaseWorkspace } from "./workspace";
 /** A grader the lab runs after `expect`: a dataset's own from `graders.ts`, or one a test adds. */
 export type LabGrader = {
   name: string;
-  /** The digest of the grader's code, stored on its entry; a test grader's name otherwise. */
-  code?: () => string;
   grade(input: {
     case: {
       name: string;
@@ -53,7 +51,7 @@ export type LabGrader = {
     /** The trial's own folder, outside the case and scratch folders, for the grader's files. */
     work: string;
     env: Record<string, string>;
-  }): Promise<Pick<GraderEntry, "verdict" | "numbers" | "reasons" | "notApplies">>;
+  }): Promise<Pick<GraderEntry, "verdict" | "numbers" | "reasons" | "notApplies" | "version">>;
 };
 
 export type TrialLab = {
@@ -88,7 +86,8 @@ function canonical(value: unknown): string {
 }
 
 /** The built-in `expect` grader's code, by version: bumped when what it decides changes. */
-const EXPECT_CODE = sha256("awf-lab expect 1");
+/** `expect`'s version: its minor goes up when it compares facts differently. */
+const EXPECT_VERSION = "1.0.0";
 
 function newRunId(now: Date): string {
   const stamp = now
@@ -312,7 +311,7 @@ async function grade(
     }
     entries.push({
       grader: "expect",
-      code: EXPECT_CODE,
+      version: EXPECT_VERSION,
       key: sha256(canonical(expected)),
       verdict: result.verdict,
       reasons: result.reasons,
@@ -324,7 +323,6 @@ async function grade(
     const started = Date.now();
     const base = {
       grader: grader.name,
-      code: grader.code?.() ?? sha256(`test grader ${grader.name}`),
       key: keyDigest,
     };
     try {
@@ -349,8 +347,10 @@ async function grade(
       });
       entries.push({ ...base, ...out, reasons: out.reasons ?? [], ms: Date.now() - started });
     } catch (error) {
+      const version = (error as { version?: unknown }).version;
       entries.push({
         ...base,
+        ...(typeof version === "string" ? { version } : {}),
         reasons: [],
         errored: { reason: (error as Error).message },
         ms: Date.now() - started,

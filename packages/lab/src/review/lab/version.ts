@@ -1,21 +1,6 @@
-/**
- * A variant's or scorer's version, in semver, as its file declares it. Results belong to
- * `{name}@{major}.{minor}`: a patch bump says the behaviour is the same, so earlier results still
- * count. What counts as the same is the researcher's call; nothing checks it.
- */
-export const DEFAULT_VERSION = "1.0.0";
+import { seriesOf } from "../../shared/version";
 
-const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-
-export function checkVersion(version: string): string | undefined {
-  return SEMVER.test(version) ? undefined : `version ${version} is not {major}.{minor}.{patch}`;
-}
-
-/** The `{major}.{minor}` results belong to. */
-export function seriesOf(version: string): string {
-  const [major, minor] = version.split(".");
-  return `${major}.${minor}`;
-}
+export { checkVersion, DEFAULT_VERSION, seriesOf } from "../../shared/version";
 
 /** Whose results a record or subject is: `{name}@{major}.{minor}`, its results folder's name. */
 export const keyOf = (identity: { name: string; version: string }) =>

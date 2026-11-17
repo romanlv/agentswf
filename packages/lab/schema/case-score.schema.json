@@ -16,15 +16,15 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["grader", "code", "key", "reasons"],
+        "required": ["grader", "key", "reasons"],
         "properties": {
           "grader": {
             "type": "string",
             "minLength": 1
           },
-          "code": {
+          "version": {
             "type": "string",
-            "pattern": "^[0-9a-f]{64}$"
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
           },
           "key": {
             "type": "string",

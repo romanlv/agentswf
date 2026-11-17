@@ -1529,8 +1529,7 @@ cases and trials asked for, start and finish times. No finish means partial.
 **A score record** (`kind: awf.case-score/0`): the trial, when it was made, and one entry per
 grader. A trial keeps every score it is given; the report reads each grader's newest entry, and an
 errored one shows the trial as errored by grading until a later `score` succeeds.
-Each entry has the grader's name and a digest of its code (a workflow grader: its file, with its
-run's id), a digest of the part of the key it reads (`expect`'s values for `expect`, each
+Each entry has the grader's name and its version (a workflow grader's, with its run's id), a digest of the part of the key it reads (`expect`'s values for `expect`, each
 criterion by its text for the judge, the whole key with `key/` for a dataset's own), its verdict,
 numbers, reasons, model and cost, its parts with their votes, and `errored` when it errored.
 
@@ -1539,7 +1538,8 @@ numbers, reasons, model and cost, its parts with their votes, and `errored` when
 `awf-lab score [{n}]` grades the last run (or run n) again. It never runs `env.ts`: not `setup`,
 the workflow, or `observe`.
 
-- **What it grades again**: a grader whose key digest or code digest no longer matches, whose
+- **What it grades again**: a grader whose key digest no longer matches or whose version's
+  `{major}.{minor}` changed, whose
   newest entry errored, or that has no entry (a draft key made final, criteria added, a grader
   added, a criterion skipped as "not judged"). Editing the note under a key's frontmatter costs
   nothing for `expect` and the judge. The judge judges only a trial's changed criteria.
@@ -1548,9 +1548,13 @@ the workflow, or `observe`.
   names none, a code grader is given none, and a grader that needs one errors as grading's error.
   A trial whose case input changed since it ran is not graded again; the report says to run that
   case again.
-- **The digests**: a code grader's covers `graders.ts` and the dataset files it imports; a grader
-  workflow's, its file and the dataset files it imports; the criteria judge's, its model, its
-  number of voters and its prompt. A file imported from outside the dataset folder is not covered.
+- **The versions** (decided 2026-11-16, replacing code digests): every grader declares a semver
+  version, as the review kind's variants and scorers do. A code grader's is `defineGrader`'s
+  `version`, a grader workflow's its `meta.version`, `1.0.0` when left out; `expect`'s and the
+  criteria judge's are the lab's, the judge's minor going up when its model, voters or prompt
+  change. A minor bump says the grader judges differently, so `score` grades again; a patch says
+  it judges the same. Whether it does is the author's call; nothing checks it, as a digest of
+  `graders.ts` couldn't either, missing the files it imports.
 
 ### The marker search
 
@@ -1973,7 +1977,8 @@ Work:
 
 - The grader interface: `defineGrader` and `gradeCase`, as code and as a workflow; `expect` moved
   behind it; the order, cheap first; the criteria judge, its voters, majority and splits, and what
-  it is given; pooled numbers; grading errors; the key's and graders' digests on a score; `score`.
+  it is given; pooled numbers; grading errors; the key's digest and the graders' versions on a
+  score; `score`.
 - The report marks `score` brings: keys changed since grading, a case edited since the run.
 - For the live check, a script calls the judge directly on each of task 1's fixtures.
 
@@ -2221,8 +2226,8 @@ these changes, taken into `records.ts`:
 - For task 3: a grader workflow gets an empty working folder of its own (`--cwd`), and may be
   given its previous parts and key digest, so a key edit judges only what changed.
 - For the reviews' move, not now: grading a run the workflow failed (the review counts its recall
-  as 0), graders identified by a version instead of a code digest (one trial holds 21 scores of
-  several scorer versions), and a key digest limited to the files a grader reads.
+  as 0), and a key digest limited to the files a grader reads. Graders identified by a version
+  instead of a code digest came early, with the code graders (2026-11-16).
 
 M3: nothing in a run's records tells a provider's stop from the workflow's own failure. The ending
 is an outcome and free text; a turn's `retryable` and `login` never reach the attempt record, and no
@@ -2363,9 +2368,13 @@ grader of its own, and this part doesn't wait on task 1's judging.
   when it has one), the result, the scratch folder and the folder the `keep` paths were saved to;
   with `readsFacts`, the facts and the stages' values. It returns `verdict`, `numbers`, `reasons`
   and `notApplies`.
-- Its entry's `code` digest is its name and `graders.ts`'s text. An edit to a module `graders.ts`
-  imports keeps the digest, so `score` can't tell that grader edited. Settle what the digest
-  covers before `score` reads it: it's a record format then.
+- A grader is identified by a version, not a code digest, as the review kind's variants and
+  scorers are (`shared/version.ts`, moved there from `review/lab/version.ts`): `defineGrader`'s
+  `version`, semver, `1.0.0` when left out, stored on every entry; `expect` is `1.0.0`. Grades
+  belong to its `{major}.{minor}`, so `score` will grade again on a minor bump and keep grades
+  across a patch. A digest of `graders.ts` would have missed edits to what it imports, and the
+  person decided a declared version is the rule. The entry's `code` field is gone; scores stored
+  before it no longer read (beta, no migration).
 - Code graders run after `expect`, every trial, even when `expect` failed: they are cheap. Pooled
   numbers in the report, `score`, grader workflows and the criteria judge are still task 3's.
 - Reviewed by two subagents, architecture and correctness, and the example's grader as a reader.
@@ -2373,7 +2382,7 @@ grader of its own, and this part doesn't wait on task 1's judging.
   20 s on a 3 s limit); empty or contradictory answers were stored; `key/` and `kept` weren't
   given; the calling session's variables reached the grader; untested claims. The example's first
   motivation was wrong: a $54 payout already fails `expect`, so the grader now checks a rule that
-  holds on every case. The digest's reach is recorded above, not fixed.
+  holds on every case. The digest became a declared version, above.
 - Proof: `code-graders.test.ts` (input, `readsFacts`, `notApplies`, each error, a lingering
   child, the digest); in `cli.test.ts`, a grader failing a trial `expect` passed, graders run
   after `expect` failed and under `setupTimeout`, and the refusals. Live, the example's

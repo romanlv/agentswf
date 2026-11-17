@@ -14,6 +14,7 @@ function dollars(text: string): number[] {
  * mention the $200 it declines.
  */
 export const replyStatesRefund = defineGrader({
+  version: "1.0.0",
   readsFacts: true,
   grade({ facts }) {
     if (typeof facts.refunded !== "number") throw new Error("observe returned no refunded number");

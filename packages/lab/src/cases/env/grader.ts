@@ -1,3 +1,4 @@
+import { checkVersion, DEFAULT_VERSION } from "../../shared/version";
 import type { Key } from "../format/settings";
 import type { Fact } from "./index";
 
@@ -50,6 +51,7 @@ export type Grade = {
 
 export type CodeGrader = {
   readonly kind: typeof GRADER_KIND;
+  readonly version: string;
   readonly readsFacts: boolean;
   grade(input: GradeInput & Partial<FactsInput>): Grade | Promise<Grade>;
 };
@@ -58,19 +60,28 @@ export type CodeGrader = {
  * A dataset's own grader, a named export of its `graders.ts`, listed by name in `dataset.json`'s
  * `graders`. It runs after `expect`, in a process of its own in your checkout. `readsFacts: true`
  * gives it the facts `observe` returned and the stages' values.
+ *
+ * `version`, semver, `1.0.0` when left out, is stored on every grade: bump its minor when the
+ * grader judges differently, so its grades are told apart; a patch says it judges the same.
  */
 export function defineGrader<R = unknown>(spec: {
+  version?: string;
   readsFacts: true;
   grade(input: GradeInput<R> & FactsInput): Grade | Promise<Grade>;
 }): CodeGrader;
 export function defineGrader<R = unknown>(spec: {
+  version?: string;
   readsFacts?: false;
   grade(input: GradeInput<R>): Grade | Promise<Grade>;
 }): CodeGrader;
 export function defineGrader(spec: {
+  version?: string;
   readsFacts?: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: either overload's input.
   grade(input: any): Grade | Promise<Grade>;
 }): CodeGrader {
-  return { kind: GRADER_KIND, readsFacts: spec.readsFacts === true, grade: spec.grade };
+  const version = spec.version ?? DEFAULT_VERSION;
+  const bad = checkVersion(version);
+  if (bad) throw new Error(`defineGrader: ${bad}`);
+  return { kind: GRADER_KIND, version, readsFacts: spec.readsFacts === true, grade: spec.grade };
 }

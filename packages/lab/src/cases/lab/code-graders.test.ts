@@ -36,6 +36,9 @@ export const throws = { kind, readsFacts: false, grade: () => { throw new Error(
 export const wrong = { kind, readsFacts: false, grade: () => ({ verdict: "maybe" }) };
 export const slow = { kind, readsFacts: false, grade: () => new Promise(() => setInterval(() => {}, 1000)) };
 export const plain = () => ({ verdict: "passed" });
+export const versioned = { kind, version: "1.2.0", readsFacts: false, grade: () => ({ verdict: "passed" }) };
+export const throwsVersioned = { kind, version: "2.0.1", readsFacts: false, grade: () => { throw new Error("broke"); } };
+export const badVersion = { kind, version: "1.2", readsFacts: false, grade: () => ({ verdict: "passed" }) };
 export const forgot = { kind, readsFacts: false, grade: () => {} };
 export const both = { kind, readsFacts: false, grade: () => ({ verdict: "failed", notApplies: "n/a" }) };
 export const lingers = {
@@ -144,10 +147,17 @@ describe("a dataset's own graders, run in a process of their own", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
-  test("the code digest changes with graders.ts", () => {
-    const { root, dataset } = setup(["sees"]);
-    const before = codeGraders(dataset, root, 1_000)[0]!.code!();
-    writeFileSync(join(dataset.dir, "graders.ts"), `${GRADERS}\n// edited\n`);
-    expect(codeGraders(dataset, root, 1_000)[0]!.code!()).not.toBe(before);
+  test("a grade carries the grader's version, kept when it throws; a bad one errors", async () => {
+    const { root, dataset, trial } = setup(["versioned", "throwsVersioned", "badVersion"]);
+    const [ok, thrown, bad] = codeGraders(dataset, root, 30_000);
+    expect((await ok!.grade(input(trial))).version).toBe("1.2.0");
+    const error = await thrown!.grade(input(trial)).catch((e) => e);
+    expect({ message: error.message, version: error.version }).toEqual({
+      message: "broke",
+      version: "2.0.1",
+    });
+    const refused = await bad!.grade(input(trial)).catch((e) => e);
+    expect(refused.message).toBe("grader badVersion: version 1.2 is not {major}.{minor}.{patch}");
+    expect(refused.version).toBeUndefined();
   });
 });

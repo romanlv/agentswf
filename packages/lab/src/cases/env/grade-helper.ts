@@ -4,7 +4,7 @@ import { type CodeGrader, GRADER_KIND } from "./grader";
 /**
  * Runs one export of a dataset's `graders.ts`, in a Bun process of its own the lab starts in your
  * checkout, so dataset code never loads into the lab's process. Reads a request file and writes
- * `{ grade }` or `{ error }` to the file the request names.
+ * `{ grade, version }` or `{ error, version? }` to the file the request names.
  */
 type Request = {
   file: string;
@@ -18,6 +18,7 @@ type Request = {
 const request = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Request;
 const answer = (value: object) => writeFileSync(request.out, JSON.stringify(value));
 
+let version: string | undefined;
 try {
   const module = (await import(request.file)) as Record<string, unknown>;
   const grader = module[request.name] as CodeGrader | undefined;
@@ -26,12 +27,13 @@ try {
       error: `${request.file} exports no grader ${request.name}: export const ${request.name} = defineGrader({ grade })`,
     });
   } else {
+    version = grader.version;
     const input = grader.readsFacts
       ? { ...request.input, facts: request.facts, stages: request.stages }
       : request.input;
-    answer({ grade: (await grader.grade(input as never)) ?? null });
+    answer({ grade: (await grader.grade(input as never)) ?? null, version });
   }
 } catch (error) {
-  answer({ error: error instanceof Error ? error.message : String(error) });
+  answer({ error: error instanceof Error ? error.message : String(error), version });
 }
 process.exit(0);
