@@ -129,17 +129,18 @@ export function failedCases(
   );
 }
 
-/** A run's rows, your checkout's column, with history. */
+/** A run's rows for a column, your checkout's by default; history is your checkout's alone. */
 export function rowsOf(
   store: string,
   run: RunRecord,
   trials: readonly StoredTrial[],
   bars: ReadonlyMap<string, CaseBar>,
+  column = 0,
 ): CaseRow[] {
-  const history = historyOf(store, run, bars);
+  const history = column === 0 ? historyOf(store, run, bars) : new Map<string, CaseVerdict[]>();
   return run.asked.map(({ case: name, trials: count }) => {
     const bar = bars.get(name) ?? { pass: "all", knownFailing: false };
-    const own = trials.filter((t) => t.record.case === name && t.record.column === 0);
+    const own = trials.filter((t) => t.record.case === name && t.record.column === column);
     return caseRow(
       name,
       own,

@@ -1852,7 +1852,7 @@ Alternatives rejected:
 - [ ] 1. By hand: ten mail cases, and whether a judge agrees with the person
 - [x] 2. The mail triage runs on cases, graded by `expect`, with a verdict and an exit code
 - [ ] 3. Criteria are judged (after task 8): built; the check against task 1 waits on task 1
-- [ ] 4. The same cases on code in another folder
+- [x] 4. The same cases on code in another folder
 - [ ] 5. web-to-cli's build runs on cases
 - [ ] 6. A past run becomes a case
 
@@ -2200,11 +2200,11 @@ side.
 
 Execution:
 
-- [ ] Plan: the folder checks, as task 2 built them for one folder; the run record's folders.
-- [ ] Implement: only this task's change, with tests.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the `Done when` items.
+- [x] Plan: the folder checks, as task 2 built them for one folder; the run record's folders.
+- [x] Implement: only this task's change, with tests.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the `Done when` items.
 
 Work:
 
@@ -3025,4 +3025,60 @@ Checks:
   an estimated $0.06; grading $3.53, about 60 times the workflow it judged, as three Sonnet voters
   judge each of a case's two or three criteria apart. The report marks the judge as sharing the
   anthropic family with the workflow's Haiku.
+
+
+### Task 4: plan (2026-11-17)
+
+- **`--against {folder}`**, repeatable: another checkout of the project (a worktree or a clone).
+  The dataset is found at the same path inside it as in your checkout, relative to the
+  repository's top; its `env.ts` there, and its code folder by the same rule as yours (the
+  nearest folder at or above `evals/`'s parent holding `node_modules/agentswf`). Your checkout
+  itself, a folder that doesn't exist, or one without that `env.ts` is refused (exit 2), and so is
+  any folder the checks before the first trial refuse, each naming the folder.
+- **What a column takes from its folder**: its `env.ts`, its code and its `awf` (started in its
+  code folder, records read back with it). The cases, keys, `dataset.json` and graders are your
+  checkout's, and the graders run in your checkout.
+- **Order**: trial 1 of every case in every column, then trial 2; a provider's error is tried once
+  more at the end of its round, per case and column.
+- **The run record** keeps a folder per column; **the report** adds, with more than one column, a
+  line per column (its folder, branch, commit, uncommitted changes, "env.ts differs", and its case
+  verdicts), the cases that came out differently (verdicts differ, or passes by 2 or more),
+  largest difference first, the count of cases with more passes on each side, "also fails in
+  {column}" on your checkout's failing lines, and "The lab does not say which is better. Read the
+  cases." (or, at one trial each, "One trial each: these are examples, not rates.") until task 9's
+  `compare`. `report --case` labels each trial with its column; `report --json` adds `columns`.
+- History, `--failed` and the exit code stay your checkout's column alone.
+
+### Task 4: departures, review and checks (2026-11-17)
+
+- **The other folder must be installed itself**: its code folder is found inside it, never above
+  it. A worktree inside your checkout with no install of its own would otherwise run your
+  checkout's code under its name. Refused, with "run bun install there".
+- **The report with columns**: each other folder in the header (path, branch, commit, changes,
+  "env.ts differs"); a table of each column's verdicts with its median time and cost per trial;
+  each other column's pooled numbers, so a dataset graded by numbers compares too; the cases that
+  came out differently, largest difference first; "more passes" each side; "also fails in";
+  errored trials of another column counted as its (`errored 1 (1 by dataset), 1 in against 1`).
+  `report --case` gives the case's tally in every column and labels each trial with its column,
+  its logs command run in that column's folder; `report --json` adds `columns` with their numbers.
+- **The plan's estimate counts grading**: the grading earlier trials were given as they ran,
+  priced apart (`est. $1.82, grading $1.80 of it`), since a judge can cost far more than the
+  workflow it judges; the time counts it too.
+- **A reason a part already says is said once** in `report --case`: dropped only when a part of
+  the same `about` has a `why`.
+
+Review: one combined review, scope and correctness (one must-fix: the code folder found above an
+uninstalled checkout; should-fix: numbers for your column alone, a reason dropped with a part
+that had no `why`, `report --case` giving your column's tally alone; nits: errored trials not
+told apart by column, time and cost pooled across columns, the estimate losing grading when the
+workflow was unpriced, Done-when items proven only loosely). All fixed, each with a test.
+
+Checks:
+
+- `bun test packages/lab`: 350 pass.
+- Live, the mail dataset's `trip-form`, `trip-moved` and `newsletter`, one trial each, against a
+  worktree of the mail project whose prompt leaves out dates and costs (run 11): your checkout
+  passed all three; the other column failed `newsletter` and `trip-form` on their date criteria
+  (the judge split 2–1 on two of them), and the exit was 0, from your checkout alone. Grading cost
+  an estimated $1.81 of the run's $1.83; the plan had said $0.02, before it counted grading.
 

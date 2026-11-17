@@ -21,6 +21,7 @@ import type { TrialLine } from "../format/trial-file";
 import { type CasesEnvironment, runCases } from "./cli";
 import type { LabGrader } from "./grading";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
+import { Refusal } from "./refusal";
 import { readTrials, runNumbers } from "./store";
 
 const roots: string[] = [];
@@ -139,7 +140,12 @@ type GraderPlay = (
 ) => { value: unknown; estimate?: number } | { outcome: "failed"; reason: string };
 
 /** A runner that plays each case's behaviours in turn, as a trial's `defineEnv` would. */
-function scripted(plays: Record<string, Behaviour[]>, grader?: GraderPlay) {
+function scripted(
+  plays: Record<string, Behaviour[]>,
+  grader?: GraderPlay,
+  /** Plays for the trials of another code folder, by its root. */
+  byRoot: Record<string, Record<string, Behaviour[]>> = {},
+) {
   const calls: RunRequest[] = [];
   const graded: { input: GradeCase; files: string[]; request: RunRequest }[] = [];
   const seen: { name: string; caseFiles: string[]; scratchFiles: string[] }[] = [];
@@ -189,9 +195,10 @@ function scripted(plays: Record<string, Behaviour[]>, grader?: GraderPlay) {
     }
     const caseDir = env[TRIAL_ENV.case]!;
     const name = readFileSync(join(caseDir, "name.txt"), "utf8");
-    const at = count.get(name) ?? 0;
-    count.set(name, at + 1);
-    const list = plays[name] ?? [pass];
+    const root = env[TRIAL_ENV.root] ?? "";
+    const at = count.get(`${root}\0${name}`) ?? 0;
+    count.set(`${root}\0${name}`, at + 1);
+    const list = (byRoot[root] ?? plays)[name] ?? [pass];
     const play = list[Math.min(at, list.length - 1)]!;
     seen.push({
       name,
@@ -1504,4 +1511,199 @@ test("a run whose records don't read is left out of history and named by runs, n
   expect(listed.out).toContain("records don't read (scores.jsonl:");
   expect(listed.out).toContain("left out of history");
   expect(again.out).toContain("history leaves out 1 earlier run whose records don't read");
+});
+
+describe("--against: the same cases on code in another folder", () => {
+  /** Your checkout and a clone of it, the other folder. */
+  function twoFolders(cases: Record<string, CaseSpec>) {
+    const where = project(cases);
+    const other = join(where.top, "other");
+    git(where.top, "clone", "-q", where.root, other);
+    // Its own install, as a checkout that runs trials has.
+    mkdirSync(join(other, "node_modules", "agentswf"), { recursive: true });
+    return { where, other };
+  }
+  const inspect = async (root: string) => ({
+    ...fakeFolder(root),
+    version: root.endsWith("other") ? "0.1.2" : "0.1.1",
+  });
+
+  test("two folders whose workflows answer differently: two columns, and the case that came out differently", async () => {
+    const { where, other } = twoFolders({ a: {}, b: {}, c: {} });
+    // The other folder's own cases, keys and graders are never read: break them.
+    writeFileSync(join(other, "evals/ds/cases/a/key.md"), "not a key");
+    addCase(join(other, "evals/ds"), "only-there", {});
+    writeFileSync(
+      join(other, "evals/ds/dataset.json"),
+      JSON.stringify({ kind: "awf.case-dataset/0", graders: ["missing"] }),
+    );
+    writeFileSync(
+      join(other, "evals/ds/graders.ts"),
+      "throw new Error('the other graders.ts loaded');",
+    );
+    const fake = scripted({ b: [fail], c: [fail] }, undefined, {
+      [other]: { a: [fail], c: [fail] },
+    });
+    const { code, out } = await lab(where, ["run", "--yes", "--against", other], {
+      runner: fake.runner,
+      inspect,
+    });
+    expect(code).toBe(1);
+    expect(fake.calls).toHaveLength(6);
+    expect(out).toContain("columns");
+    expect(out).toContain(`against 1: ${other}, branch main`);
+    expect(out).toContain("came out differently in against 1, largest difference first");
+    expect(out).toMatch(/\n {2}a\s+this checkout 1\/1 passed · against 1 0\/1 failed/);
+    expect(out).toMatch(/\n {2}b\s+this checkout 0\/1 failed · against 1 1\/1 passed/);
+    expect(out).toContain("more passes: against 1 on 1 case, this checkout on 1 case");
+    expect(out).toContain("also fails in against 1");
+    expect(out).toContain("One trial each: these are examples, not rates.");
+    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    expect(record.folders.map((f: { path: string }) => f.path)).toEqual([where.root, other]);
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.columns[0]).toMatchObject({ path: other, envDiffers: false });
+    expect(json.columns[0].cases.map((c: { verdict: string }) => c.verdict)).toEqual([
+      "failed",
+      "passed",
+      "failed",
+    ]);
+  });
+
+  test("each folder's trials run on its own awf, started there, on its own env.ts", async () => {
+    const { where, other } = twoFolders({ a: {} });
+    writeFileSync(join(other, "evals/ds/env.ts"), "export default { other: true };\n");
+    const fake = scripted({});
+    await lab(where, ["run", "--yes", "--against", other], { runner: fake.runner, inspect });
+    const theirs = fake.calls.find((c) => c.awf?.dir === other)!;
+    expect(theirs.workflow).toBe(join(other, "evals/ds/env.ts"));
+    expect(theirs.env?.[TRIAL_ENV.root]).toBe(other);
+    const trials = readTrials(storeOf(where), 1);
+    expect(trials.map((t) => [t.record.column, t.record.awf.version])).toEqual([
+      [0, "0.1.1"],
+      [1, "0.1.2"],
+    ]);
+    expect((await lab(where, ["report"])).out).toContain(", env.ts differs");
+  });
+
+  test("a case failing in the other folder alone leaves the exit code 0", async () => {
+    const { where, other } = twoFolders({ a: {} });
+    const fake = scripted({}, undefined, { [other]: { a: [fail] } });
+    const { code } = await lab(where, ["run", "--yes", "--against", other], {
+      runner: fake.runner,
+      inspect,
+    });
+    expect(code).toBe(0);
+  });
+
+  test("a folder missing what it needs stops run before the first trial: 2", async () => {
+    const { where, other } = twoFolders({ a: {} });
+    const refused = async (args: string[], extra: CasesEnvironment = {}) => {
+      const fake = scripted({});
+      const result = await lab(where, ["run", "--yes", ...args], {
+        runner: fake.runner,
+        inspect,
+        ...extra,
+      });
+      expect(result.code).toBe(2);
+      expect(fake.calls).toHaveLength(0);
+      return result.err;
+    };
+    expect(await refused(["--against", join(where.top, "nowhere")])).toContain("no such folder");
+    expect(await refused(["--against", where.root])).toContain("your checkout");
+    expect(
+      await refused(["--against", other], {
+        inspect: async (root) => {
+          if (root === other) {
+            throw new Refusal(`${root} can't run trials:\n  @agentswf/lab/cases does not resolve`);
+          }
+          return inspect(root);
+        },
+      }),
+    ).toContain("@agentswf/lab/cases does not resolve");
+    rmSync(join(other, "evals/ds/env.ts"));
+    expect(await refused(["--against", other])).toContain("no evals/ds/env.ts there");
+  });
+});
+
+test("the plan's estimate counts the grading earlier trials were given", async () => {
+  const where = project(
+    { a: keyWith("expect:\n  ok: true\n") },
+    { graders: [{ workflow: "graders/judge.ts" }] },
+  );
+  graderWorkflow(where, "judge");
+  const fake = scripted({}, judged("passed", 0.25));
+  await lab(where, ["run", "--yes"], { runner: fake.runner });
+  const again = await lab(where, ["run", "--yes", "--trials", "2"], { runner: fake.runner });
+  expect(again.err).toContain("est. $0.50, grading $0.50 of it");
+});
+
+describe("--against, its report and refusals", () => {
+  function twoFolders(cases: Record<string, CaseSpec>, dataset: object = {}) {
+    const where = project(cases, dataset);
+    const other = join(where.top, "other");
+    git(where.top, "clone", "-q", where.root, other);
+    mkdirSync(join(other, "node_modules", "agentswf"), { recursive: true });
+    return { where, other };
+  }
+  const inspect = async (root: string) => fakeFolder(root);
+
+  test("a checkout with no install of its own is refused, never one above it", async () => {
+    const where = project({ a: {} });
+    mkdirSync(join(where.root, "node_modules", "agentswf"), { recursive: true });
+    const nested = join(where.root, ".worktrees", "b");
+    git(where.root, "worktree", "add", "-q", nested);
+    const fake = scripted({});
+    const { code, err } = await lab(where, ["run", "--yes", "--against", nested], {
+      runner: fake.runner,
+      inspect,
+    });
+    expect(code).toBe(2);
+    expect(err).toContain("no agentswf installed in it");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("the cases that came out differently, largest difference first; per-column numbers, time and case tallies; score on two columns", async () => {
+    const { where, other } = twoFolders({ x: {}, y: {} }, { graders: ["counts"] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const counts = { kind: "awf.case-grader/0", version: "1.0.0", readsFacts: true,
+        grade: ({ facts }) => ({ numbers: { hits: { count: facts.ok ? 1 : 0, of: 1 } } }) };`,
+    );
+    const fake = scripted({}, undefined, {
+      [other]: { x: [fail, fail, fail], y: [pass, fail, pass] },
+    });
+    const ran = await lab(where, ["run", "--yes", "--trials", "3", "--against", other], {
+      runner: fake.runner,
+      inspect,
+    });
+    expect(ran.code).toBe(0);
+    const differ = ran.out.split("came out differently in against 1")[1]!.split("\n");
+    expect(differ[1]).toMatch(/^ {2}x\s+this checkout 3\/3 passed · against 1 0\/3 failed/);
+    expect(differ[2]).toMatch(/^ {2}y\s+this checkout 3\/3 passed · against 1 2\/3 flaky/);
+    expect(ran.out).toContain("numbers, against 1: counts hits 2/6 (33%)");
+    expect(ran.out).toContain("numbers: counts hits 6/6 (100%)");
+    expect(ran.out).toContain("time, median");
+    expect(ran.out).toContain("The lab does not say which is better. Read the cases.");
+    const one = await lab(where, ["report", "--case", "x"]);
+    expect(one.out).toContain("x · run 1 · passed 3/3\nagainst 1: failed 0/3");
+    expect(one.out).toContain("trial 1 (against 1): failed");
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.columns[0].numbers).toEqual({ counts: { hits: { count: 2, of: 6 } } });
+    const scored = await lab(where, ["score", "--yes"], { runner: fake.runner, inspect });
+    expect(scored.code).toBe(0);
+    expect(scored.out).toContain("columns");
+  });
+
+  test("a trial errored in the other column is counted as its own, and still exits 5", async () => {
+    const { where, other } = twoFolders({ a: {} });
+    const fake = scripted({}, undefined, {
+      [other]: { a: [{ setupError: "their env.ts broke" }] },
+    });
+    const { code, out } = await lab(where, ["run", "--yes", "--against", other], {
+      runner: fake.runner,
+      inspect,
+    });
+    expect(out).toContain("errored 1 (1 by dataset), 1 in against 1");
+    expect(code).toBe(0);
+  });
 });

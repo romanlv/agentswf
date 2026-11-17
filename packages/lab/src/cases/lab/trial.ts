@@ -61,6 +61,8 @@ export async function runTrial(
   info: CaseInfo,
   column: number,
   trial: number,
+  /** The column's `env.ts`: your checkout's, or the same file in a folder `--against` names. */
+  envFile: string = lab.envFile,
 ): Promise<TrialDone> {
   const { workspace, dataset } = lab;
   const started = Date.now();
@@ -114,7 +116,7 @@ export async function runTrial(
       [TRIAL_ENV.settings]: JSON.stringify(settings),
     };
     const result = await lab.runner({
-      workflow: lab.envFile,
+      workflow: envFile,
       cwd: folders.scratch,
       timeout: backstopOf(settings),
       argv: [],

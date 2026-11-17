@@ -67,6 +67,38 @@ export const CaseReportSchema = Type.Object(
         Type.Object({ unread: Type.String() }, { additionalProperties: false }),
       ]),
     ),
+    /** With `--against`: every other column, its folder and its cases' verdicts. */
+    columns: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            path: Text,
+            branch: Type.Union([Text, Type.Null()]),
+            commit: Type.Union([Text, Type.Null()]),
+            dirty: Type.Boolean(),
+            /** Its `env.ts` is not your checkout's. */
+            envDiffers: Type.Boolean(),
+            numbers: Type.Record(Text, Type.Record(Text, PooledSchema)),
+            numbersLeftOut: Type.Integer({ minimum: 0 }),
+            cases: Type.Array(
+              Type.Object(
+                {
+                  name: Text,
+                  verdict: Type.Union([
+                    Type.Enum(["passed", "failed", "flaky", "unclear"] as const),
+                    Type.Null(),
+                  ]),
+                  passed: Type.Integer({ minimum: 0 }),
+                  trials: Type.Integer({ minimum: 0 }),
+                },
+                { additionalProperties: false },
+              ),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
     /** With `--case`: its trials, each its record and every score, newest last. */
     trials: Type.Optional(Type.Array(Type.Unknown())),
   },

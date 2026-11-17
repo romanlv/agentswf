@@ -1,6 +1,6 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { findConfigFile } from "../../shared/config-file";
 import { awfLogs, processRunner, type Runner, withoutCallingSession } from "../../shared/runner";
@@ -19,6 +19,7 @@ import { criteriaJudge } from "./criteria";
 import {
   type CaseInfo,
   type DatasetInfo,
+  ENV_FILE,
   fileDigest,
   graderSpecs,
   readCases,
@@ -31,7 +32,7 @@ import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
 import { type CaseRow, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
 import { Refusal } from "./refusal";
-import { median, plural, renderCase, renderRun, seconds } from "./report";
+import { describeFolder, median, plural, renderCase, renderRun, seconds } from "./report";
 import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf, unreadableRuns } from "./runs";
 import { newCase } from "./scaffold";
 import { describePlan, planScore, runScore, type ScoreDone } from "./score";
@@ -51,13 +52,19 @@ import {
 import { runTrial, type TrialDone, type TrialLab } from "./trial";
 import { trialSettingsOf } from "./trial-settings";
 import { workflowGraders } from "./workflow-graders";
-import { type CaseWorkspace, chooseDataset, openCaseWorkspace } from "./workspace";
+import {
+  type CaseWorkspace,
+  chooseDataset,
+  codeFolderOf,
+  inside,
+  openCaseWorkspace,
+} from "./workspace";
 
 export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
 
   case new {dataset}/{case}   a case folder and its key's marker; the first time, also
                               awf-lab.json, the dataset's dataset.json and a stub env.ts
-  run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--yes]
+  run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--against {folder}] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
   report [{n}] [--case {name}] [--json]
@@ -73,6 +80,10 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   --failed          only the cases whose newest verdict was failed, flaky or unclear, each with
                     that run's trials unless --trials says
   --trials {n}      trials a case; 1 unless told
+  --against {folder}
+                    also run the cases on the code in another checkout of the project, as a
+                    column beside yours; repeatable. Its env.ts and code run; its cases, keys
+                    and graders are never read. The exit code is your checkout's
   --yes             no question before a run or a score
   --grader {name}   score with this grader alone, one marked onDemand included
   --dry-run         print score's plan and grade nothing
@@ -111,6 +122,8 @@ type Options = {
   config?: string;
   dataset?: string;
   cases?: string[];
+  /** Folders `--against` names, as given. */
+  against: string[];
   failed: boolean;
   trials?: number;
   yes: boolean;
@@ -126,7 +139,14 @@ type Options = {
 class LabBroke extends Error {}
 
 function parse(argv: readonly string[]): { command?: string; names: string[]; options: Options } {
-  const options: Options = { failed: false, yes: false, dryRun: false, json: false, help: false };
+  const options: Options = {
+    failed: false,
+    yes: false,
+    dryRun: false,
+    json: false,
+    help: false,
+    against: [],
+  };
   const positional: string[] = [];
   const rest = [...argv];
   const value = (flag: string) => {
@@ -158,6 +178,9 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
         options.trials = Number(text);
         break;
       }
+      case "--against":
+        options.against.push(value(arg));
+        break;
       case "--case":
         options.case = value(arg);
         break;
@@ -303,6 +326,7 @@ function estimate(
 ): string | undefined {
   const ms: number[] = [];
   const cost: number[] = [];
+  const grading: number[] = [];
   for (const n of runNumbers(store)) {
     let trials: StoredTrial[];
     try {
@@ -315,14 +339,25 @@ function estimate(
     for (const { record: trial, scores } of trials) {
       if (!names.includes(trial.case) || !trial.runId) continue;
       if (trialOutcome(trial, scores).outcome === "errored") continue;
-      ms.push(trial.ms);
+      // The grading the trial was given as it ran, its first score: a judge can cost far more
+      // than the workflow it judges.
+      const graded = scores[0]?.entries ?? [];
+      ms.push(trial.ms + graded.reduce((sum, e) => sum + (e.ms ?? 0), 0));
       if (trial.estimate !== undefined) cost.push(trial.estimate);
+      grading.push(graded.reduce((sum, e) => sum + (e.estimate ?? 0), 0));
     }
   }
   const time = median(ms);
   if (time === undefined) return undefined;
   const each = median(cost);
-  return `from earlier trials: about ${seconds(time * count)}${each !== undefined ? `, est. $${(each * count).toFixed(2)}` : ""}`;
+  const grades = median(grading) ?? 0;
+  const price =
+    each === undefined
+      ? grades > 0
+        ? `, grading est. $${(grades * count).toFixed(2)}, the workflow unpriced`
+        : ""
+      : `, est. $${((each + grades) * count).toFixed(2)}${grades > 0 ? `, grading $${(grades * count).toFixed(2)} of it` : ""}`;
+  return `from earlier trials: about ${seconds(time * count)}${price}`;
 }
 
 async function run(context: Context): Promise<number> {
@@ -370,19 +405,25 @@ async function run(context: Context): Promise<number> {
   }
   const folder = await folderOf();
   const state = gitState(workspace.root);
+  const columns: Column[] = [{ folder, envFile, state }];
+  for (const given of options.against) {
+    columns.push(await againstColumn(context, workspace, info, given, columns));
+  }
 
   const total = selected.reduce((n, c) => n + trialsOf(c.name), 0);
   const counts = new Set(selected.map((c) => trialsOf(c.name)));
   const plan = [
     `${info.name} · ${plural(selected.length, "case")} · ${counts.size === 1 ? `${plural([...counts][0]!, "trial")} each` : plural(total, "trial")}`,
-    `code: this checkout, ${state.branch ? `branch ${state.branch}` : "detached"}${state.commit ? `, commit ${state.commit.slice(0, 7)}` : ""}${state.dirty ? ", with uncommitted changes" : ""}`,
-    `awf: agentswf ${folder.version}`,
+    ...columns.map(
+      (c, i) =>
+        `${i === 0 ? "code" : `against ${i}`}: ${describeFolder({ path: i === 0 ? undefined : c.folder.root, ...c.state })} · agentswf ${c.folder.version}`,
+    ),
     ...[
       estimate(
         workspace.store,
         info.name,
         selected.map((c) => c.name),
-        total,
+        total * columns.length,
       ),
     ].filter((line): line is string => line !== undefined),
   ].join("\n");
@@ -405,7 +446,11 @@ async function run(context: Context): Promise<number> {
       kind: RUN_KIND,
       number,
       dataset: info.name,
-      folders: [{ path: workspace.root, ...state, env: fileDigest(envFile) }],
+      folders: columns.map((c) => ({
+        path: c.folder.root,
+        ...c.state,
+        env: fileDigest(c.envFile),
+      })),
       asked: selected.map((c) => ({ case: c.name, trials: trialsOf(c.name) })),
       started: now().toISOString(),
     };
@@ -429,14 +474,16 @@ async function run(context: Context): Promise<number> {
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
     try {
       for (let trial = 1; trial <= most; trial++) {
-        const again: CaseInfo[] = [];
+        const again: [CaseInfo, number][] = [];
         for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
-          const done = await runTrial(lab, folder, info, 0, trial);
-          shown(done);
-          if (done.record.errored?.by === "provider") again.push(info);
+          for (const [n, c] of columns.entries()) {
+            const done = await runTrial(lab, c.folder, info, n, trial, c.envFile);
+            shown(done);
+            if (done.record.errored?.by === "provider") again.push([info, n]);
+          }
         }
-        for (const info of again) {
-          const done = await runTrial(lab, folder, info, 0, trial);
+        for (const [info, n] of again) {
+          const done = await runTrial(lab, columns[n]!.folder, info, n, trial, columns[n]!.envFile);
           const retried = { ...done.record, retried: true };
           writeTrial(done.dir, retried);
           shown({ ...done, record: retried });
@@ -463,6 +510,7 @@ async function run(context: Context): Promise<number> {
   const { text, exit } = renderRun({
     run: record,
     rows,
+    others: otherColumns(workspace.store, record, trials, bars),
     trials,
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
@@ -472,6 +520,65 @@ async function run(context: Context): Promise<number> {
   return exit;
 }
 
+/** A column: a folder of code, its `env.ts` and its git state. */
+type Column = { folder: FolderSetup; envFile: string; state: ReturnType<typeof gitState> };
+
+/**
+ * A folder `--against` names: another checkout of the project, holding the dataset at the same
+ * path as yours. Only its `env.ts`, its code and its `awf` are used; its cases, keys and graders
+ * are never read. Checked as your checkout is before the first trial.
+ */
+async function againstColumn(
+  context: Context,
+  workspace: CaseWorkspace,
+  info: DatasetInfo,
+  given: string,
+  taken: readonly Column[],
+): Promise<Column> {
+  const at = resolve(context.cwd, given);
+  if (!existsSync(at)) throw new Refusal(`--against ${given}: no such folder`);
+  const dir = realpathSync(at);
+  const top = workspace.repository ?? workspace.root;
+  const datasetDir = join(dir, relative(top, info.dir));
+  const evals = join(dir, relative(top, workspace.evals));
+  if (!existsSync(join(datasetDir, ENV_FILE))) {
+    throw new Refusal(
+      `--against ${given}: no ${relative(top, join(info.dir, ENV_FILE))} there; it names another checkout of this project, holding the dataset at the same path`,
+    );
+  }
+  if (dir === workspace.root || dir === workspace.repository) {
+    throw new Refusal(`--against ${given}: that is your checkout`);
+  }
+  const root = codeFolderOf(dirname(evals));
+  // Its own install, never one above it: a worktree inside another checkout would run that one.
+  if (!inside(dir, root) || !existsSync(join(root, "node_modules", "agentswf"))) {
+    throw new Refusal(
+      `--against ${given}: no agentswf installed in it; run bun install there (its code runs on its own install)`,
+    );
+  }
+  if (taken.some((c) => c.folder.root === root)) {
+    throw new Refusal(`--against ${given}: ${root} is named twice`);
+  }
+  let envFile: string;
+  try {
+    envFile = checkEnvFile(datasetDir);
+  } catch (error) {
+    throw new Refusal(`--against ${given}: ${(error as Error).message}`);
+  }
+  const folder = await (context.environment.inspect ?? inspectFolder)(root, envFile);
+  return { folder, envFile, state: gitState(root) };
+}
+
+/** The rows of each column but yours, from the second on. */
+function otherColumns(
+  store: string,
+  run: RunRecord,
+  trials: readonly StoredTrial[],
+  bars: ReadonlyMap<string, CaseBar>,
+): CaseRow[][] {
+  return run.folders.slice(1).map((_, i) => rowsOf(store, run, trials, bars, i + 1));
+}
+
 function progress(
   stderr: (text: string) => void,
   done: TrialDone,
@@ -479,7 +586,7 @@ function progress(
 ): void {
   const view = trialOutcome(done.record, done.score ? [done.score] : [], deciders);
   stderr(
-    `  ${done.record.case} ${done.record.trial}: ${view.outcome}${done.record.retried ? " (tried again)" : ""} · ${seconds(done.record.ms)}`,
+    `  ${done.record.case} ${done.record.trial}${done.record.column > 0 ? ` (against ${done.record.column})` : ""}: ${view.outcome}${done.record.retried ? " (tried again)" : ""} · ${seconds(done.record.ms)}`,
   );
 }
 
@@ -579,6 +686,7 @@ function reportJson(args: {
   bars: ReadonlyMap<string, CaseBar>;
   stale?: CaseReport["stale"];
   withTrials?: boolean;
+  others?: readonly CaseRow[][];
 }): CaseReport {
   const { run, rows, trials, exit, bars } = args;
   const own = trials.filter((t) => t.record.column === 0);
@@ -607,7 +715,32 @@ function reportJson(args: {
     numbersLeftOut: pooled.left,
     agreement: agreements(own, (name) => bars.get(name)?.deciders),
     ...(args.stale !== undefined ? { stale: args.stale } : {}),
-    ...(args.withTrials ? { trials: own.map((t) => ({ ...t.record, scores: t.scores })) } : {}),
+    ...(args.others && args.others.length > 0
+      ? {
+          columns: args.others.map((column, i) => {
+            const { env, ...folder } = run.folders[i + 1]!;
+            const theirs = poolNumbers(trials.filter((t) => t.record.column === i + 1));
+            return {
+              ...folder,
+              envDiffers: env !== run.folders[0]!.env,
+              numbers: Object.fromEntries(
+                [...theirs.graders].map(([grader, numbers]) => [
+                  grader,
+                  Object.fromEntries(numbers),
+                ]),
+              ),
+              numbersLeftOut: theirs.left,
+              cases: column.map((row) => ({
+                name: row.name,
+                verdict: row.tally.verdict ?? null,
+                passed: row.tally.passed,
+                trials: row.tally.trials,
+              })),
+            };
+          }),
+        }
+      : {}),
+    ...(args.withTrials ? { trials: trials.map((t) => ({ ...t.record, scores: t.scores })) } : {}),
   };
   const checked = checkSchema(CaseReportSchema, report);
   if (!checked.ok) throw new Error(describeProblems("report --json", checked.problems));
@@ -670,9 +803,11 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   }
   const bars = barsOf(info, cases, graders);
   const rows = rowsOf(workspace.store, run, trials, bars);
+  const others = otherColumns(workspace.store, run, trials, bars);
   const { text, exit } = renderRun({
     run,
     rows,
+    others,
     trials,
     criteria: criteriaCount(
       cases,
@@ -685,7 +820,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
     if (!row) throw new Refusal(`run ${number} has no case ${context.options.case}`);
-    const own = trials.filter((t) => t.record.case === row.name && t.record.column === 0);
+    const own = trials.filter((t) => t.record.case === row.name);
     const runRoot = awfRunsOf(workspace.store);
     if (context.options.json) {
       context.stdout(
@@ -704,9 +839,11 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
         own,
         (runId) => {
           const bin = own.find((t) => t.record.runId === runId)?.record.awf.bin ?? "awf";
-          return `(cd ${run.folders[0]!.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
+          const column = own.find((t) => t.record.runId === runId)?.record.column ?? 0;
+          return `(cd ${run.folders[column]?.path ?? run.folders[0]!.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
         },
         bars.get(row.name)?.deciders,
+        others.map((column) => column.find((r) => r.name === row.name)),
       ),
     );
   } else if (context.options.json) {
@@ -716,6 +853,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
       trials,
       exit,
       bars,
+      others,
       ...(stale !== undefined ? { stale } : {}),
     });
     context.stdout(JSON.stringify(json, null, 2));
@@ -828,6 +966,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
   const rendered = renderRun({
     run,
     rows,
+    others: otherColumns(workspace.store, run, after, bars),
     trials: after,
     criteria: criteriaCount(
       cases,
@@ -852,7 +991,14 @@ async function score(context: Context, names: readonly string[]): Promise<number
             },
           }
         : {}),
-      report: reportJson({ run, rows, trials: after, exit, bars }),
+      report: reportJson({
+        run,
+        rows,
+        trials: after,
+        exit,
+        bars,
+        others: otherColumns(workspace.store, run, after, bars),
+      }),
     });
     return exit;
   }

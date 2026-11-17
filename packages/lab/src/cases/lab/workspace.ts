@@ -70,7 +70,7 @@ export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
 }
 
 /** The nearest folder at or above `from` holding `node_modules/agentswf`; `from` when none does. */
-function codeFolderOf(from: string): string {
+export function codeFolderOf(from: string): string {
   for (let at = from; ; at = dirname(at)) {
     if (existsSync(join(at, "node_modules", "agentswf"))) return at;
     if (dirname(at) === at) return from;
