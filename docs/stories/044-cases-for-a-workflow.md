@@ -476,8 +476,9 @@ Done when:
 
 ### 12. The loop
 
-- [ ] Plan (story 013's loop on cases: the try's copy, the proposer in the box, the scope check,
-  the bundle, the cap, the stall stop, resume), implement, review, resolve, verify.
+- [x] Plan (Implementation notes, "Task 12's plan"), implement, verify; reviewed with tasks 10
+  to 13 together.
+- [ ] Review, resolve.
 
 Done when:
 
@@ -509,7 +510,7 @@ Done when:
 - [x] Parameters, reuse, labels, rates and `compare` (task 9).
 - [x] Nothing in the `"lab"` box reads a key (task 10).
 - [x] Every autoresearch dataset converts and verifies (task 11).
-- [ ] A loop keeps a better try and never shows a holdout (task 12).
+- [x] A loop keeps a better try and never shows a holdout (task 12).
 - [ ] One kind, records at `/1` (task 13).
 - [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
 
@@ -709,6 +710,34 @@ them.
 - **Proven** on scripted agents first, then live on a refund-desk dataset whose workflow misses
   some cases, then one round on air-1.
 
+### Task 13's plan
+
+The person chose to retire the review tooling in autoresearch rather than freeze a copy
+(2026-11-18).
+
+- **Into autoresearch first**, in its main checkout:
+  - `lib/review/`: the modules the match grader, `env.ts` and the converter use (the review
+    formats, matching, voting, the judge's checks and prompt, the metrics, the fixtures' git and
+    verify), their imports made relative.
+  - `variants/variant.ts`: a plain `defineVariant` of the same shape, `{ workflow, argv, read }`
+    under `review`, which the 89 variant files import in place of `defineReviewVariant`;
+    `env.ts` is unchanged.
+  - `scripts/collect/`: `collect`, `draft-key` and the fixtures workflow, writing fixtures as
+    today; `scripts/to-cases.ts` turns them into cases.
+  - Deleted: `scorers/`, the scripts that read the review lab's stored results, the review lab's
+    `awf-lab.json` and `awf-lab.loop.json`. `results/`, `reports/` and `docs/` stay as data.
+  - Its tests pass, and air-1 runs, on the case kind alone.
+- **Then awf**:
+  - `packages/lab/src/review/`, its docs (`docs/reference.md`) and its schema files are deleted;
+    `src/cli.ts` runs the case kind alone.
+  - A retired command, flag or `awf-lab.json` field is refused with what replaced it, as the
+    story's list says; a review-kind `awf-lab.json` is refused by name.
+  - The records, `grade.json` and `awf-lab.json` become `/1`; a `/0` one is refused by name, with
+    no converter (beta). The `/0` records in autoresearch's `evals/records` are written again by
+    a run, not converted.
+  - `check-boundaries.ts` loses the review rules; the README, `docs/status.md`,
+    `docs/testing.md` and `docs/foundation.md` name one kind.
+
 ### Task 12's notes
 
 - `run` takes what a loop asks of it (`RunGiven`): the code folders, the reference first, in
@@ -723,6 +752,11 @@ them.
   store around the try's copy and bundle (`hiddenAround`) rather than whole.
 - The allowance wait moved to `shared/`, for both kinds; a case loop waits on the proposer and on
   any `harness/model` parameter, as it cannot see a workflow's own agents before they start.
+- A comparison reads the numbers of the graders that decide a case, so the loop counts the
+  dataset's graders as `report` does, never running one; it had counted none, and a dataset graded
+  by numbers alone compared nothing.
+- A try's code is its own, so a trial of it a resumed run reuses ran in the try's earlier run and
+  counts toward the cap; the incumbent's reused trials do not.
 - A `tricky` dataset in refund-desk, ten tuning tickets and two held out, for the live check: Haiku
   5.5 and 4.5 pass all but one, `whole-set` (Haiku 4.5 refunds a share of a set).
 
@@ -772,6 +806,13 @@ them.
   one case of ten, which the paired rule can't show. Est. $1.85. Three earlier loops found the
   box's rules the proposer met (its folders under the hidden lab home, its starting folder, zsh's
   here-documents under `/tmp`), each fixed with a test.
+- The loop on air-1 (task 12): Haiku 5.5 fork-high on eight tuning cases, one trial each, a $20
+  cap. The Sonnet 5.5 proposer, in the box, ran the copy's own awf and changed one file: every
+  lens traces a change's callers, writers and siblings before it reports. Against the start:
+  weighted recall +0.09 [−0.08, +0.26], won 4, tied 3, lost 1; undecided at eight pairs, which
+  the paired rule needs more of, and discarded. Est. $0.11 for the proposer and $9.47 for the
+  trials and grading, the incumbent's $4.54 of it. Two earlier rounds found the box's reads of
+  an install a copy links to, and the comparison counting no grader; each fixed with a test.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 
