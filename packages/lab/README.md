@@ -177,6 +177,8 @@ Common flags: `--cases {n}` (the first n cases, in a fixed seeded order), `--tri
 
 - [`docs/reference.md`](docs/reference.md): every term, label, metric, comparison rule, flag and
   file location.
+- [`docs/cases.md`](docs/cases.md): the case kind, cases for any workflow (story 044), which will
+  replace the review kind.
 - [`AGENTS.md`](AGENTS.md): how the package is laid out, and the rules for changing it.
 - Stories [008](../../docs/stories/008-review-scorer.md) (scoring),
   [011](../../docs/stories/011-compare-variants.md) (verdicts) and

@@ -7,7 +7,7 @@ beside `awf-lab.json` with a `dataset.json` of kind `awf.case-dataset/0` is, and
 case kind serves a workspace that names no review `datasets`, the review kind one that does. Each
 kind keeps its own flags and help.
 
-**The case kind** (story 044), `src/cases/`: `format/` (pure: `dataset.json` and `key.md` in
+**The case kind** (story 044; its rules, for a dataset's author, are `docs/cases.md`, kept current as it changes), `src/cases/`: `format/` (pure: `dataset.json` and `key.md` in
 `settings.ts`, the strict key reader `key.ts`, the trial file, the env variables, and the run,
 trial and score records), `env/` (`@agentswf/lab/cases` and the `fetch` preload: what runs in a
 trial's own process, in the project), and `lab/` (the lab's side: datasets and cases, `case new`,
