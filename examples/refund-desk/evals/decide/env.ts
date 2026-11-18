@@ -15,7 +15,8 @@ export default defineEnv({
     const daysSinceDelivery = daysBetween(order.deliveredAt, today);
 
     return {
-      argv: [ticket.id],
+      // `--vary model=…` compares the desk's model on the same tickets.
+      argv: c.params.model ? [ticket.id, "--model", c.params.model] : [ticket.id],
       stages: { read: () => ({ ticket, order, daysSinceDelivery }) },
       until: "decide",
       observe: (_result, { stages }) => {

@@ -9,6 +9,7 @@
     "partial",
     "exit",
     "params",
+    "reused",
     "cases",
     "numbers",
     "numbersLeftOut",
@@ -43,6 +44,10 @@
           "minLength": 1
         }
       }
+    },
+    "reused": {
+      "type": "integer",
+      "minimum": 0
     },
     "cases": {
       "type": "array",

@@ -949,16 +949,19 @@ describe("--failed and history across runs", () => {
     const where = project({ a: {}, b: {}, c: {} });
     const first = scripted({ a: [fail], b: [pass, fail, pass], c: [pass] });
     expect(
-      (await lab(where, ["run", "--yes", "--trials", "3"], { runner: first.runner })).code,
+      (await lab(where, ["run", "--yes", "--fresh", "--trials", "3"], { runner: first.runner }))
+        .code,
     ).toBe(1);
     const second = scripted({ a: [pass] });
-    const again = await lab(where, ["run", "--yes", "--failed", "--cases", "a"], {
+    const again = await lab(where, ["run", "--yes", "--fresh", "--failed", "--cases", "a"], {
       runner: second.runner,
     });
     expect(again.code).toBe(0);
     expect(second.calls).toHaveLength(3);
     const third = scripted({});
-    const rest = await lab(where, ["run", "--yes", "--failed"], { runner: third.runner });
+    const rest = await lab(where, ["run", "--yes", "--fresh", "--failed"], {
+      runner: third.runner,
+    });
     // a passed in run 2; b is still flaky from run 1, at its three trials.
     expect(third.calls).toHaveLength(3);
     expect(third.seen.map((s) => s.name)).toEqual(["b", "b", "b"]);
@@ -976,9 +979,11 @@ describe("--failed and history across runs", () => {
 
   test("a case's earlier verdicts show as its history", async () => {
     const where = project({ a: {} });
-    await lab(where, ["run", "--yes"], { runner: scripted({ a: [pass] }).runner });
-    await lab(where, ["run", "--yes"], { runner: scripted({ a: [pass] }).runner });
-    const last = await lab(where, ["run", "--yes"], { runner: scripted({ a: [fail] }).runner });
+    await lab(where, ["run", "--yes", "--fresh"], { runner: scripted({ a: [pass] }).runner });
+    await lab(where, ["run", "--yes", "--fresh"], { runner: scripted({ a: [pass] }).runner });
+    const last = await lab(where, ["run", "--yes", "--fresh"], {
+      runner: scripted({ a: [fail] }).runner,
+    });
     expect(last.out).toContain("history ✓✓");
     const store = readdirSync(join(where.home, ".awf/lab")).find((n) => n.startsWith("project-"))!;
     expect(runIds(join(where.home, ".awf/lab", store))).toHaveLength(3);
@@ -1678,8 +1683,10 @@ test("the plan's estimate counts the grading earlier trials were given", async (
   );
   graderWorkflow(where, "judge");
   const fake = scripted({}, judged("passed", 0.25));
-  await lab(where, ["run", "--yes"], { runner: fake.runner });
-  const again = await lab(where, ["run", "--yes", "--trials", "2"], { runner: fake.runner });
+  await lab(where, ["run", "--yes", "--fresh"], { runner: fake.runner });
+  const again = await lab(where, ["run", "--yes", "--fresh", "--trials", "2"], {
+    runner: fake.runner,
+  });
   expect(again.err).toContain("est. $0.50, grading $0.50 of it");
 });
 
@@ -2068,18 +2075,22 @@ describe("--param and --vary: a column per combination of parameters", () => {
     const where = project({ a: {}, b: {} });
     // model=a fails a; model=b fails b.
     const plays = { "model=a": { a: [fail] }, "model=b": { b: [fail] } };
-    await lab(where, ["run", "--yes", "--vary", "model=a,b"], {
+    await lab(where, ["run", "--yes", "--fresh", "--vary", "model=a,b"], {
       runner: scripted({}, undefined, {}, plays).runner,
     });
     const onB = scripted({}, undefined, {}, plays);
-    await lab(where, ["run", "--yes", "--failed", "--param", "model=b"], { runner: onB.runner });
+    await lab(where, ["run", "--yes", "--fresh", "--failed", "--param", "model=b"], {
+      runner: onB.runner,
+    });
     // Under model=b, the newest verdict that failed is b's, from the earlier run's second column.
     expect(onB.seen.map((s) => s.name)).toEqual(["b"]);
     const shown = await lab(where, ["report", "--json"]);
     const b = JSON.parse(shown.out).cases.find((c: { name: string }) => c.name === "b");
     expect(b.history).toEqual(["failed"]);
     const none = scripted({});
-    const plain = await lab(where, ["run", "--yes", "--failed"], { runner: none.runner });
+    const plain = await lab(where, ["run", "--yes", "--fresh", "--failed"], {
+      runner: none.runner,
+    });
     // Without parameters, no earlier run had that column: nothing to run again.
     expect(none.calls).toHaveLength(0);
     expect(plain.out).toContain("nothing to run");
@@ -2198,5 +2209,107 @@ describe("one store per project, run ids, and records to commit", () => {
     const { code, err } = await lab(where, ["runs"]);
     expect(code).toBe(2);
     expect(err).toContain("must be a folder inside");
+  });
+});
+
+describe("trials reused when nothing that shaped them changed", () => {
+  const commit = (dir: string) => {
+    git(dir, "add", "-A");
+    git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "change");
+  };
+
+  test("an unchanged run reuses every trial; more trials run only the difference; --fresh runs all", async () => {
+    const where = project({ a: {}, b: {} });
+    const first = scripted({});
+    await lab(where, ["run", "--yes", "--trials", "2"], { runner: first.runner });
+    expect(first.calls).toHaveLength(4);
+    const again = scripted({ a: [fail] });
+    const reused = await lab(where, ["run", "--yes", "--trials", "2"], { runner: again.runner });
+    expect(again.calls).toHaveLength(0);
+    expect(reused.code).toBe(0);
+    expect(reused.err).toContain("reuses 4 of 4 trials: nothing that shaped them changed");
+    expect(reused.out).toContain("trials 4 · reused 4");
+    const trial = readTrials(storeOf(where), nthRun(storeOf(where), 2))[0]!;
+    expect(trial.record.reused?.run).toBe(nthRun(storeOf(where), 1));
+    expect(trial.scores).toHaveLength(1);
+    // A copy is never counted twice: three trials of a run 1, 2 and 2 again need one new.
+    const more = scripted({});
+    await lab(where, ["run", "--yes", "--trials", "3"], { runner: more.runner });
+    expect(more.calls).toHaveLength(2);
+    const fresh = scripted({});
+    await lab(where, ["run", "--yes", "--fresh"], { runner: fresh.runner });
+    expect(fresh.calls).toHaveLength(2);
+  });
+
+  test("a change to what shapes a trial runs it again: the code, env.ts, a parameter, the case, the trial settings", async () => {
+    const where = project({ a: {}, b: {} });
+    const runs = async (argv: string[] = []) => {
+      const fake = scripted({});
+      await lab(where, ["run", "--yes", ...argv], { runner: fake.runner });
+      return fake.seen.map((s) => s.name).sort();
+    };
+    expect(await runs()).toEqual(["a", "b"]);
+    expect(await runs()).toEqual([]);
+    writeFileSync(join(where.root, "workflow.ts"), "export const changed = true;\n");
+    expect(await runs()).toEqual(["a", "b"]);
+    commit(where.root);
+    expect(await runs()).toEqual([]);
+    writeFileSync(join(where.ds, "env.ts"), "export default { changed: true };\n");
+    expect(await runs()).toEqual(["a", "b"]);
+    expect(await runs(["--param", "model=b"])).toEqual(["a", "b"]);
+    expect(await runs(["--param", "model=b"])).toEqual([]);
+    writeFileSync(join(where.ds, "cases/a/files/more.txt"), "more");
+    expect(await runs()).toEqual(["a"]);
+    const dataset = JSON.parse(readFileSync(join(where.ds, "dataset.json"), "utf8"));
+    writeFileSync(join(where.ds, "dataset.json"), JSON.stringify({ ...dataset, timeout: "5m" }));
+    expect(await runs()).toEqual(["a", "b"]);
+    // What only grades is not: the bar, and a dataset's graders.
+    writeFileSync(
+      join(where.ds, "dataset.json"),
+      JSON.stringify({ ...dataset, timeout: "5m", pass: "all" }),
+    );
+    expect(await runs()).toEqual([]);
+  });
+
+  test("a key edit grades the reused trials again and runs nothing", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
+    const fake = scripted({});
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(fake.calls).toHaveLength(0);
+    expect(err).toContain("grading 1 reused trial again: a key or grader changed");
+    expect(code).toBe(1);
+    const trial = readTrials(storeOf(where), nthRun(storeOf(where), 2))[0]!;
+    expect(trial.scores).toHaveLength(2);
+  });
+
+  test("never an errored or leaked trial, nor one older than reuseDays; 0 never reuses", async () => {
+    const where = project({ a: {}, b: {} }, { reuseDays: 3 });
+    const at = new Date("2026-11-10T12:00:00Z");
+    await lab(where, ["run", "--yes"], {
+      runner: scripted({ a: [{ setupError: "setup broke" }] }).runner,
+      now: () => at,
+    });
+    const later = scripted({});
+    await lab(where, ["run", "--yes"], {
+      runner: later.runner,
+      now: () => new Date("2026-11-12T12:00:00Z"),
+    });
+    expect(later.seen.map((s) => s.name)).toEqual(["a"]);
+    const past = scripted({});
+    await lab(where, ["run", "--yes"], {
+      runner: past.runner,
+      now: () => new Date("2026-11-20T12:00:00Z"),
+    });
+    expect(past.seen.map((s) => s.name).sort()).toEqual(["a", "b"]);
+    const dataset = JSON.parse(readFileSync(join(where.ds, "dataset.json"), "utf8"));
+    writeFileSync(join(where.ds, "dataset.json"), JSON.stringify({ ...dataset, reuseDays: 0 }));
+    const never = scripted({});
+    await lab(where, ["run", "--yes"], {
+      runner: never.runner,
+      now: () => new Date("2026-11-20T12:00:01Z"),
+    });
+    expect(never.calls).toHaveLength(2);
   });
 });

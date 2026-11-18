@@ -35,7 +35,7 @@ are its.
 | Command | Does |
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
-| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--param k=v] [--vary k=a,b] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key |
+| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--param k=v] [--vary k=a,b] [--fresh] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
 | `report [{run}] [--case {name}] [--json]` | the last run again, or the one named; one case in full |
 | `score [{run}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
@@ -162,6 +162,7 @@ Why this case exists.
 | `timeout`, `setupTimeout` | the body's limit (`30m`), and `setup`'s and `observe`'s (`10m`) |
 | `realHosts` | hosts the workflow's own code may reach for real |
 | `pass` | the bar for every case: `"all"` or a fraction |
+| `reuseDays` | how many days a kept trial may stand in for a new one; 14, 0 never |
 | `keep` | paths saved from the scratch folder, for graders |
 | `graders` | `"name"` (a `graders.ts` export), `{ grader, onDemand }`, or `{ workflow: "graders/x.ts", readsFacts?, onDemand?, timeout? }` |
 | `judgeAgent` | `{ harness, model }` for the criteria judge, over the workspace's |
@@ -254,6 +255,23 @@ Another checkout of the project, with its own install. Its `env.ts`, code and `a
 cases, keys, `dataset.json` and graders are never read, so what counts as a pass comes from your
 checkout. The report puts columns side by side: verdicts, time and cost, numbers, the cases that
 came out differently (largest first), "also fails in {column}". It doesn't say which is better.
+
+## Reuse
+
+A trial kept from an earlier run stands in for a new one, within `reuseDays`, when nothing that
+shaped it changed. That is one digest over: the code (every file git would hold in the folder,
+less each dataset's cases, keys, `dataset.json`, graders and `capture.ts`, `awf-lab.json` and the
+records folder; `env.ts` and what it imports stay in), the parameters, the built case, the trial
+settings of `dataset.json` (`sandbox`, `agentReach`, the timeouts, `realHosts`, `keep`), the
+folder's `agentswf` version and the lab's own trial code. Outside git, nothing is reused.
+
+- What only grades is left out, so a key, grader or bar edit runs nothing: the run grades the
+  reused trials again where their grades are out of date, as `score` would.
+- Never an errored, leaked or stopped trial. A copy is never counted twice: asking for more trials
+  runs only the difference. `--fresh` runs every trial anew.
+- A reused trial is copied into the new run with its scores and `kept/`, marked `reused` with the
+  run it ran in. The plan and the report count them, and the report gives their cost apart.
+- The model behind a name can change without the lab knowing: that is what the window is for.
 
 ## Parameters: `--param` and `--vary`
 

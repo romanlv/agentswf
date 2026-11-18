@@ -60,6 +60,13 @@ export const DatasetSchema = Type.Object(
       }),
     ),
     pass: Type.Optional(PassSchema),
+    reuseDays: Type.Optional(
+      Type.Integer({
+        minimum: 0,
+        description:
+          "How many days a stored trial may stand in for a new one when nothing that shaped it changed; 14 when absent, 0 never.",
+      }),
+    ),
     keep: Type.Optional(
       Type.Array(Text, { description: "Paths saved from the scratch folder after a trial." }),
     ),

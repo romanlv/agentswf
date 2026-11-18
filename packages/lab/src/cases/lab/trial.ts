@@ -74,6 +74,8 @@ export async function runTrial(
   envFile: string = lab.envFile,
   /** The column's parameters. */
   params: Params = {},
+  /** The trial's reuse key, from its built case's digest; absent, never reused. */
+  reuseOf: (input: string) => string | undefined = () => undefined,
 ): Promise<TrialDone> {
   const { workspace, dataset } = lab;
   const started = Date.now();
@@ -86,6 +88,7 @@ export async function runTrial(
     buildCase(dataset.dir, info, folders.dir);
     const input = folderDigest(folders.dir);
     keepInput(workspace.store, input, folders.dir);
+    const reuse = reuseOf(input);
     const needle: Needle = { marker: info.key.marker, keyFiles: info.keyFiles };
     const base: TrialRecord = {
       kind: TRIAL_KIND,
@@ -95,6 +98,7 @@ export async function runTrial(
       column,
       trial,
       params,
+      ...(reuse ? { reuse } : {}),
       awf: { bin: folder.awf.bin, version: folder.version },
       input,
       sandbox: "workflow",

@@ -18,7 +18,7 @@ the grade helper, grader workflows through `workflow-graders.ts` and a grade fol
 `gradeCase()` reads, and `score.ts`, which plans and grades kept trials again). It never
 imports `review/` and names no word of one workflow's domain (`mail`, `review`, `finding`); the
 boundary checker holds both. `lab/` is pure but for `cli.ts`, `code-graders.ts`, `dataset.ts`,
-`folders.ts`, `git.ts`, `grading.ts`, `inspect.ts`, `record-copies.ts`, `runs.ts`,
+`folders.ts`, `git.ts`, `grading.ts`, `inspect.ts`, `record-copies.ts`, `reuse.ts`, `runs.ts`,
 `scaffold.ts`, `score.ts`,
 `store.ts`, `trial.ts`, `workflow-graders.ts` and `workspace.ts`.
 

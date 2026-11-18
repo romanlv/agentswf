@@ -31,6 +31,8 @@ export const CaseReportSchema = Type.Object(
     exit: Type.Integer({ minimum: 0, maximum: 5 }),
     /** The reference column's parameters: `--param` and each `--vary`'s first value. */
     params: ParamsSchema,
+    /** Trials copied from earlier runs, as nothing that shaped them changed. */
+    reused: Type.Integer({ minimum: 0 }),
     cases: Type.Array(
       Type.Object(
         {

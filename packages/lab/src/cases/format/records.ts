@@ -148,6 +148,18 @@ export const TrialRecordSchema = Type.Object(
     trial: Type.Integer({ minimum: 1 }),
     /** The column's parameters, as `env.ts` and the graders were given them. */
     params: ParamsSchema,
+    /**
+     * What shaped the trial, as one digest: the code, the parameters, the built case, the trial
+     * settings, and the awf and lab it ran on. Absent outside git: never reused.
+     */
+    reuse: Type.Optional(Digest),
+    /** A copy of a trial that ran in an earlier run, reused as nothing that shaped it changed. */
+    reused: Type.Optional(
+      Type.Object(
+        { run: RunId, trial: Type.Integer({ minimum: 1 }) },
+        { additionalProperties: false },
+      ),
+    ),
     awf: Type.Object({ bin: Text, version: Text }, { additionalProperties: false }),
     /** The built case folder's digest; the folder is kept once, in the store's `inputs/`. */
     input: Digest,

@@ -56,6 +56,25 @@
         }
       }
     },
+    "reuse": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reused": {
+      "type": "object",
+      "required": ["run", "trial"],
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+        },
+        "trial": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "awf": {
       "type": "object",
       "required": ["bin", "version"],

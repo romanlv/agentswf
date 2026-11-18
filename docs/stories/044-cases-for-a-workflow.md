@@ -412,7 +412,7 @@ Execution:
 - [ ] Implement, step by step, each committed with its tests:
   1. [x] parameters and columns;
   2. [x] the store per project and `records`;
-  3. reuse, `--fresh`, `reuseDays`;
+  3. [x] reuse, `--fresh`, `reuseDays`;
   4. labels: `label`, `labels.jsonl`, agreement, the judge's mark;
   5. tags and rates: intervals, pass^k, pass@k, `--tags`;
   6. `compare`, with `src/compare` moved into `src/shared/`;
@@ -596,6 +596,9 @@ Open nits: `capture` looks for real runs in your checkout and the repository's t
   your checkout passed all three; exit 0.
 - refund-desk (tasks 3, 6, 8): a code grader, a tone grader workflow graded again by `score` after
   a minor bump, and a captured trial finished and run (time per stage `decide 6.2s`).
+- `--vary` and reuse (task 9): refund-desk's `decide` over `model=claude-haiku-5-5,claude-sonnet-5-5`
+  (the workflow gained `--model`): 6 trials, every case passed in both columns, Sonnet an
+  estimated $0.03 a trial to Haiku's $0.002; the same command again reused 6 of 6 and ran nothing.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 

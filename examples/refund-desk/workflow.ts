@@ -55,14 +55,20 @@ export type RefundResult = {
   refunded: number;
 };
 
-export default defineWorkflow<{ ticket: string }, RefundResult>({
+export default defineWorkflow<{ ticket: string; model: string }, RefundResult>({
   meta: {
     name: "refund-desk",
     description: "An agent answers a refund request by the shop's policy, and the code acts on it.",
   },
   prepare: ({ argv }) => {
-    if (argv.length !== 1) throw new Error("refund-desk takes one ticket id: -- {ticket}");
-    return { ticket: argv[0] as string };
+    const [ticket, flag, model] = argv;
+    const shaped = argv.length === 1 || (argv.length === 3 && flag === "--model" && model);
+    if (!ticket || !shaped) {
+      throw new Error(
+        "refund-desk takes one ticket id, and a model: -- {ticket} [--model {model}]",
+      );
+    }
+    return { ticket, model: model ?? "claude-haiku-5-5" };
   },
   async run(wf, args) {
     const read = await wf.stage("read", { result: READ }, async () => {
@@ -77,7 +83,7 @@ export default defineWorkflow<{ ticket: string }, RefundResult>({
         key: "desk",
         runtime: {
           harness: "claude",
-          model: "claude-haiku-5-5",
+          model: args.model,
           placement: "headless",
           metered: true,
         },

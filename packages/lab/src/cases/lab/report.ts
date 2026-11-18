@@ -383,9 +383,11 @@ export function renderRun({
   const blame = ["dataset", "grading", "provider", "lab"]
     .filter((who) => by(who) > 0)
     .map((who) => `${by(who)} by ${who}`);
+  const reusedCount = trials.filter((t) => t.record.reused).length;
   lines.push(
     [
       `trials ${trials.length}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""}`,
+      ...(reusedCount > 0 ? [`reused ${reusedCount}`] : []),
       `errored ${errored.length}${blame.length > 0 ? ` (${blame.join(", ")})` : ""}${elsewhere(run, errored)}`,
       `undecided ${views.filter((t) => t.view.outcome === "undecided").length}`,
       `leaked ${views.filter((t) => t.view.outcome === "leaked").length}`,
@@ -396,6 +398,9 @@ export function renderRun({
   const priced = counted.filter((t) => t.record.estimate !== undefined);
   const cost = median(priced.map((t) => t.record.estimate!));
   const total = trials.reduce((sum, t) => sum + (t.record.estimate ?? 0), 0);
+  const reusedCost = trials
+    .filter((t) => t.record.reused)
+    .reduce((sum, t) => sum + (t.record.estimate ?? 0), 0);
   const grading = trials.reduce(
     (sum, t) =>
       sum +
@@ -413,7 +418,7 @@ export function renderRun({
       [
         `time per trial, median ${seconds(ms)}`,
         ...(cost !== undefined ? [`est. cost per trial, median ${usd(cost)}`] : []),
-        `all trials ${usd(total)}${unpriced ? ", partly unpriced" : ""}`,
+        `all trials ${usd(total)}${reusedCost > 0 ? `, ${usd(reusedCost)} of it reused trials, run before` : ""}${unpriced ? ", partly unpriced" : ""}`,
         ...(grading > 0 ? [`grading ${usd(grading)}`] : []),
       ].join(" · "),
     );

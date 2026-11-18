@@ -47,6 +47,15 @@ import { agreements, poolNumbers } from "./pooled";
 import { readRecords, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import { describeFolder, median, plural, renderCase, renderRun, seconds } from "./report";
+import {
+  caseDigests,
+  codeDigest,
+  copyTrial,
+  REUSE_DAYS,
+  reusableTrials,
+  reuseKey,
+  trialShaping,
+} from "./reuse";
 import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf, unreadableRuns } from "./runs";
 import { newCase } from "./scaffold";
 import { describePlan, planScore, runScore, type ScoreDone } from "./score";
@@ -80,7 +89,7 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   case new {dataset}/{case}   a case folder and its key's marker; the first time, also
                               awf-lab.json, the dataset's dataset.json and a stub env.ts
   run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--against {folder}]
-      [--param {name}={value}] [--vary {name}={a,b}] [--yes]
+      [--param {name}={value}] [--vary {name}={a,b}] [--fresh] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
   report [{run}] [--case {name}] [--json]
@@ -103,6 +112,9 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
                     also run the cases on the code in another checkout of the project, as a
                     column beside yours; repeatable. Its env.ts and code run; its cases, keys
                     and graders are never read
+  --fresh           run every trial anew; without it, a trial kept from an earlier run stands in
+                    when nothing that shaped it changed (the code, env.ts, the parameters, the
+                    case, the trial settings), within the dataset's reuseDays, 14 by default
   --param {name}={value}
                     a parameter for every trial, which env.ts reads as c.params; repeatable
   --vary {name}={a,b}
@@ -151,6 +163,7 @@ type Options = {
   against: string[];
   /** `--param` and `--vary`, as given. */
   param: string[];
+  fresh: boolean;
   vary: string[];
   failed: boolean;
   trials?: number;
@@ -178,6 +191,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     against: [],
     param: [],
     vary: [],
+    fresh: false,
     good: false,
   };
   const positional: string[] = [];
@@ -213,6 +227,9 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       }
       case "--against":
         options.against.push(value(arg));
+        break;
+      case "--fresh":
+        options.fresh = true;
         break;
       case "--param":
         options.param.push(value(arg));
@@ -462,6 +479,34 @@ async function run(context: Context): Promise<number> {
   }
   const columns = columnsOf(codeFolders.length, combos);
 
+  // Trials that ran before on what shapes a trial now, kept within reuseDays, stand in for new ones.
+  const days = options.fresh ? 0 : (info.dataset.reuseDays ?? REUSE_DAYS);
+  const codes = codeFolders.map((c) =>
+    days > 0 ? codeDigest(c.folder.root, workspace) : undefined,
+  );
+  const settings = trialShaping(info.dataset);
+  const inputs = caseDigests(info.dir, selected, realpathSync(environment.tmp ?? tmpdir()));
+  const keyOf = (n: number, input: string) => {
+    const { folder, params } = columns[n]!;
+    const code = codes[folder];
+    const awf = codeFolders[folder]!.folder.version;
+    return code ? reuseKey({ code, params, input, settings, awf }) : undefined;
+  };
+  const stored = days > 0 ? reusableTrials(workspace.store, info.name, now(), days) : new Map();
+  const reusing = new Map<string, StoredTrial[]>();
+  const slot = (name: string, n: number) => `${name}\0${n}`;
+  for (const c of selected) {
+    for (const n of columns.keys()) {
+      const key = keyOf(n, inputs.get(c.name)!);
+      const found = key
+        ? (stored.get(key) ?? []).filter((t: StoredTrial) => t.record.case === c.name)
+        : [];
+      if (found.length > 0) reusing.set(slot(c.name, n), found.slice(0, trialsOf(c.name)));
+    }
+  }
+  const reused = [...reusing.values()].reduce((sum, list) => sum + list.length, 0);
+  const reusedIn = (name: string, n: number) => reusing.get(slot(name, n))?.length ?? 0;
+
   const total = selected.reduce((n, c) => n + trialsOf(c.name), 0);
   const counts = new Set(selected.map((c) => trialsOf(c.name)));
   const plan = [
@@ -471,12 +516,17 @@ async function run(context: Context): Promise<number> {
         `${i === 0 ? "code" : `against ${i}`}: ${describeFolder({ path: i === 0 ? undefined : c.folder.root, ...c.state })} · agentswf ${c.folder.version}`,
     ),
     ...paramLines(paramPlan, columns.length),
+    ...(reused > 0
+      ? [
+          `reuses ${reused} of ${plural(total * columns.length, "trial")}: nothing that shaped them changed; --fresh runs new ones`,
+        ]
+      : []),
     ...[
       estimate(
         workspace.store,
         info.name,
         selected.map((c) => c.name),
-        total * columns.length,
+        total * columns.length - reused,
       ),
     ].filter((line): line is string => line !== undefined),
   ].join("\n");
@@ -529,14 +579,21 @@ async function run(context: Context): Promise<number> {
     const trialIn = (n: number, info: CaseInfo, trial: number) => {
       const column = columns[n]!;
       const code = codeFolders[column.folder]!;
-      return runTrial(lab, code.folder, info, n, trial, code.envFile, column.params);
+      return runTrial(lab, code.folder, info, n, trial, code.envFile, column.params, (input) =>
+        keyOf(n, input),
+      );
     };
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
     try {
+      for (const [at, list] of reusing) {
+        const n = Number(at.split("\0")[1]);
+        for (const [i, from] of list.entries()) copyTrial(workspace.store, id, from, n, i + 1);
+      }
       for (let trial = 1; trial <= most; trial++) {
         const again: [CaseInfo, number][] = [];
         for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
           for (const n of columns.keys()) {
+            if (trial <= reusedIn(info.name, n)) continue;
             const done = await trialIn(n, info, trial);
             shown(done);
             if (done.record.errored?.by === "provider") again.push([info, n]);
@@ -549,6 +606,7 @@ async function run(context: Context): Promise<number> {
           shown({ ...done, record: retried });
         }
       }
+      if (reused > 0) await gradeReused(context, workspace, info, cases, graders, id, tmp, now);
     } catch (error) {
       record = { ...record, broke: (error as Error).message };
       writeRun(workspace.store, record);
@@ -579,6 +637,46 @@ async function run(context: Context): Promise<number> {
   });
   context.stdout(text);
   return exit;
+}
+
+/**
+ * Grades the trials a run reused where a key or grader changed since they were graded, as `score`
+ * would, with no question: the run's plan asked.
+ */
+async function gradeReused(
+  context: Context,
+  workspace: CaseWorkspace,
+  info: DatasetInfo,
+  cases: readonly CaseInfo[],
+  graders: readonly LabGrader[],
+  run: string,
+  tmp: string,
+  now: () => Date,
+): Promise<void> {
+  const trials = readTrials(workspace.store, run).filter((t) => t.record.reused);
+  const plan = planScore({
+    trials,
+    store: workspace.store,
+    datasetDir: info.dir,
+    cases,
+    graders: graders.filter((g) => !g.onDemand),
+    decidersOf: (c) => decidersOf(c.key, graders),
+    expect: true,
+    tmp,
+  });
+  if (plan.items.length === 0) return;
+  context.stderr(
+    `grading ${plural(plan.items.length, "reused trial")} again: a key or grader changed`,
+  );
+  await runScore({
+    plan,
+    tmp,
+    run,
+    store: workspace.store,
+    env: definedOf(withoutCallingSession(context.environment.env ?? process.env)),
+    now,
+    progress: context.stderr,
+  });
 }
 
 /** A folder of code, its `env.ts` and its git state. */
@@ -793,6 +891,7 @@ function reportJson(args: {
     partial: run.finished === undefined,
     exit,
     params: run.columns[0]!.params,
+    reused: trials.filter((t) => t.record.reused).length,
     cases: rows.map((row) => ({
       name: row.name,
       verdict: row.tally.verdict ?? null,

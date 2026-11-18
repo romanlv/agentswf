@@ -491,6 +491,7 @@ const LAB_RULES: Rule[] = [
       "grading.ts",
       "inspect.ts",
       "record-copies.ts",
+      "reuse.ts",
       "runs.ts",
       "scaffold.ts",
       "score.ts",
