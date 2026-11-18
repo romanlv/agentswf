@@ -9,7 +9,7 @@
   "exports": {
     "./cases": "./src/cases/env/index.ts",
     "./cases/fetch": "./src/cases/env/fetch.ts",
-    "./compare": "./src/compare/index.ts",
+    "./compare": "./src/shared/compare/index.ts",
     "./review": "./src/review/index.ts",
     "./review/*": "./src/review/*.ts"
   },

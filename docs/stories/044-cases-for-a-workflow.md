@@ -415,7 +415,7 @@ Execution:
   3. [x] reuse, `--fresh`, `reuseDays`;
   4. [x] labels: `label`, `labels.jsonl`, agreement, the judge's mark;
   5. [x] tags and rates: intervals, pass^k, pass@k, `--tags`;
-  6. `compare`, with `src/compare` moved into `src/shared/`;
+  6. [x] `compare`, with `src/compare` moved into `src/shared/`;
   7. `run --budget`, `--dry-run`, `--json`; `report --md`;
   8. the judge as a parameter.
 - [ ] Review: architecture and scope; correctness and proof.

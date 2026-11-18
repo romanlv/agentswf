@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { CAPTURE_KIND, type Capture } from "./capture";
+import { type CaseComparison, COMPARISON_KIND, type ComparisonCall } from "./compare";
 import { type CodeGrader, GRADER_KIND } from "./grader";
 
 /**
@@ -8,6 +9,8 @@ import { type CodeGrader, GRADER_KIND } from "./grader";
  *
  * - `grade`: runs one export of `graders.ts`; answers `{ grade, version }` or `{ error, version? }`.
  * - `capture`: runs the dataset's `capture.ts` on a real run; answers `{ cases }` or `{ error }`.
+ * - `compare`: runs `graders.ts`'s `compare` on two columns' trials; answers `{ verdict, version }`,
+ *   `{ none: true }` when it exports none, or `{ error }`.
  * - `versions`: each grader's declared version, without grading: a `graders.ts` export's, or a
  *   grader workflow's `meta.version` (null when it gives none); answers `{ versions }`, or
  *   `{ error }` naming the first that doesn't load.
@@ -30,6 +33,13 @@ type Request =
       out: string;
     }
   | {
+      mode: "compare";
+      /** `graders.ts`. */
+      file: string;
+      input: ComparisonCall;
+      out: string;
+    }
+  | {
       mode: "versions";
       /** `graders.ts` and the export names it should have, when the dataset has the file. */
       code?: { file: string; names: string[] };
@@ -48,7 +58,22 @@ const isGrader = (value: unknown): value is CodeGrader =>
 const noExport = (file: string, name: string) =>
   `${file} exports no grader ${name}: export const ${name} = defineGrader({ grade })`;
 
-if (request.mode === "capture") {
+if (request.mode === "compare") {
+  try {
+    const module = (await import(request.file)) as Record<string, unknown>;
+    const comparison = module.compare as Partial<CaseComparison> | undefined;
+    if (comparison === undefined) answer({ none: true });
+    else if (comparison.kind !== COMPARISON_KIND || typeof comparison.compare !== "function") {
+      answer({
+        error: `${request.file}'s compare is not a comparison: export const compare = better.paired({ primary: "passed" })`,
+      });
+    } else {
+      answer({ verdict: comparison.compare(request.input), version: comparison.version });
+    }
+  } catch (error) {
+    answer({ error: error instanceof Error ? error.message : String(error) });
+  }
+} else if (request.mode === "capture") {
   try {
     const module = (await import(request.file)) as { default?: Partial<Capture> };
     const capture = module.default;

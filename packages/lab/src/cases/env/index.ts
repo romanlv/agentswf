@@ -12,6 +12,15 @@ export {
   defineCapture,
 } from "./capture";
 export type { Case, Faked, Spies, Spy } from "./case";
+export {
+  better,
+  type CaseComparison,
+  type ComparedTrial,
+  type ComparisonCall,
+  defineComparison,
+  type MetricOptions,
+  type Verdict,
+} from "./compare";
 export { type GradeCase, gradeCase } from "./grade-case";
 export {
   type CodeGrader,

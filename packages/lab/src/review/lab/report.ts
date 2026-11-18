@@ -4,7 +4,7 @@ import type {
   Comparison,
   ComparisonInput,
   Verdict,
-} from "../../compare";
+} from "../../shared/compare";
 import { type AnswerKey, SEVERITIES } from "../format/format";
 import {
   REPORT_FORMAT,

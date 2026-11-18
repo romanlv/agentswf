@@ -1,4 +1,4 @@
-import type { MetricSpec } from "../../compare";
+import type { MetricSpec } from "../../shared/compare";
 import type { RunSummary } from "../format/scoring";
 import type { Metrics } from "./metrics";
 

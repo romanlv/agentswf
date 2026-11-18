@@ -1,5 +1,5 @@
-import type { CaseScore } from "../../compare";
-import { resolution, tieReach, varianceOf } from "../../compare/resolution";
+import type { CaseScore } from "../../shared/compare";
+import { resolution, tieReach, varianceOf } from "../../shared/compare/resolution";
 import type { AnswerKey } from "../format/format";
 import { CHECK_FORMAT, type CheckDocument } from "../format/output";
 import { namedMetrics, REVIEW_METRICS } from "../metrics/named";

@@ -339,7 +339,37 @@ independent. Each interval is 95%.
   shown" unless a sign test on the cases that changed says so (p < 0.05: six cases one way at
   the least). Two columns' own intervals can overlap while the paired difference is clear.
 - **By tag**: a line per tag, its cases passed in each column, and its failing cases.
-- Which column is better stays `compare`'s.
+- Which column is better is `compare`'s.
+
+## `compare`: what "better" means
+
+A dataset says it by exporting `compare` from `graders.ts`, built with `@agentswf/lab/cases`:
+
+```ts
+import { better } from "@agentswf/lab/cases";
+
+export const compare = better.paired({
+  primary: "match.recall",
+  guards: [{ metric: "cost", margin: 0.05 }],
+  metrics: { "match.recall": { onFailure: 0 } },
+});
+```
+
+- **`better.paired({ primary, guards?, tiebreak?, … })`**: the review loop's sequential paired
+  rule on per-case means: "worse" as soon as it shows, "better" only past an O'Brien–Fleming
+  bound at the planned looks, guards that may not get worse by their margin, tie-breakers.
+- **`better.mean(fn, { direction?, onFailure? })`**: better on the mean of a number of your own per
+  trial, paired by case.
+- **`defineComparison({ version, compare })`**: your own rule, given `{ reference, column,
+  planned }` and returning `{ verdict, stop, reason, metrics }`.
+- A metric is `passed` (1 or 0), `cost`, `seconds`, or a grader's number, `{grader}.{number}` (a
+  count as its fraction). `cost` and `seconds` are better lower, the rest higher; `metrics` says
+  otherwise, and `onFailure` what a trial whose workflow failed scores (`missing` leaves it out).
+  Errored and leaked trials are left out.
+- The report gives each column's verdict against the reference, the rule's version, its reason,
+  and whether more trials may tell; `report --json` gives it as `compare` on each column. `stop`
+  is for a loop's try: `run` still runs every trial it planned. It runs in the helper process in
+  your checkout, as code graders do.
 
 ## The key stays hidden, and how far
 

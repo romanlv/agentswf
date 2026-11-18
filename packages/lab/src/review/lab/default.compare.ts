@@ -1,6 +1,6 @@
 // The package's own comparison, `default`: story 011's decision 2. A workspace's
 // `*.compare.ts` replaces it by `comparison` in awf-lab.json, or `--comparison`.
-import { pairedComparison } from "../../compare";
+import { pairedComparison } from "../../shared/compare";
 
 export default pairedComparison({
   version: "1.1.0",

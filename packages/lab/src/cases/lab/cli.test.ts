@@ -1736,7 +1736,7 @@ describe("--against, its report and refusals", () => {
     expect(ran.out).toContain("numbers, against 1: counts hits 2/6 (33%)");
     expect(ran.out).toContain("numbers: counts hits 6/6 (100%)");
     expect(ran.out).toContain("time, median");
-    expect(ran.out).toContain("The lab does not say which is better. Read the cases.");
+    expect(ran.out).toContain("No compare in graders.ts says which is better. Read the cases.");
     const one = await lab(where, ["report", "--case", "x"]);
     expect(one.out).toMatch(/x · run \S+ · passed 3\/3\nagainst 1: failed 0\/3/);
     expect(one.out).toContain("trial 1 (against 1): failed");
@@ -2434,11 +2434,55 @@ describe("tags and rates in the report", () => {
       runner: fake.runner,
     });
     expect(out).toContain(
-      "against model=a: −100 points on 3 cases, 95% −100 to −100: no difference shown",
+      "difference from model=a: −100 points on 3 cases, 95% −100 to −100: no difference shown",
     );
     expect(out).toContain("rates, model=a: 3/3 cases passed");
     expect(out).toContain("rates, model=b: 0/3 cases passed");
     const json = JSON.parse((await lab(where, ["report", "--json"])).out);
     expect(json.columns[0].difference).toMatchObject({ cases: 3, mean: -1, shown: false });
+  });
+});
+
+describe("compare: a verdict per column, from graders.ts", () => {
+  test("the dataset's compare judges each column against the reference; run still runs every trial", async () => {
+    const where = project({ a: {}, b: {} });
+    // As defineComparison makes it; it sees the reference's and the column's trials.
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const compare = {
+  kind: "awf.case-comparison/0",
+  version: "1.2.0",
+  compare: ({ reference, column, planned }) => ({
+    verdict: column.filter((t) => t.passed).length > reference.filter((t) => t.passed).length ? "better" : "worse",
+    stop: true,
+    reason: reference.length + " and " + column.length + " trials of " + planned + " cases",
+    metrics: [],
+  }),
+};
+`,
+    );
+    const fake = scripted({ a: [fail, fail] }, undefined, {}, { "model=b": {} });
+    const { out } = await lab(where, ["run", "--yes", "--trials", "2", "--vary", "model=a,b"], {
+      runner: fake.runner,
+    });
+    expect(fake.calls).toHaveLength(8);
+    expect(out).toContain("compare 1.2.0, model=b: better · 4 and 4 trials of 2 cases");
+    expect(out).not.toContain("No compare in graders.ts");
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.columns[0].compare).toMatchObject({
+      version: "1.2.0",
+      verdict: { verdict: "better" },
+    });
+  });
+
+  test("a compare that is not a comparison is reported, not a stop", async () => {
+    const where = project({ a: {} });
+    writeFileSync(join(where.ds, "graders.ts"), "export const compare = 7;\n");
+    const { code, out } = await lab(where, ["run", "--yes", "--vary", "model=a,b"], {
+      runner: scripted({}).runner,
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("compare, model=b: could not tell:");
+    expect(out).toContain("is not a comparison");
   });
 });

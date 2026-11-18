@@ -17,7 +17,7 @@ folders and marker search, the reach check, `expect`, blame, verdicts, the repor
 the grade helper, grader workflows through `workflow-graders.ts` and a grade folder that
 `gradeCase()` reads, and `score.ts`, which plans and grades kept trials again). It never
 imports `review/` and names no word of one workflow's domain (`mail`, `review`, `finding`); the
-boundary checker holds both. `lab/` is pure but for `cli.ts`, `code-graders.ts`, `dataset.ts`,
+boundary checker holds both. `lab/` is pure but for `cli.ts`, `code-graders.ts`, `compare.ts`, `dataset.ts`,
 `folders.ts`, `git.ts`, `grading.ts`, `inspect.ts`, `labels.ts`, `record-copies.ts`, `reuse.ts`, `runs.ts`,
 `scaffold.ts`, `score.ts`,
 `store.ts`, `trial.ts`, `workflow-graders.ts` and `workspace.ts`.
@@ -41,7 +41,7 @@ per case through `awf run` and keeps the trials and scores in the workspace's re
 adds the contained mode and `summaryOf` to the shared seam). Story 008 has its terms and command
 line. Its `awf-lab.json` fields are checked only when a review dataset is used.
 
-`src/compare/` (`@agentswf/lab/compare`, story 011) turns two variants' per-case numbers into a
+`src/shared/compare/` (`@agentswf/lab/compare`, story 011) turns two variants' per-case numbers into a
 verdict: `pairedComparison` and the types a workspace's `*.compare.ts` uses. It knows nothing of
 reviews, imports nothing, and is pure; review folders may import it. `review/metrics/named.ts`
 gives a review's metrics their names, and `review/lab/default.compare.ts` is the built-in

@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { WORKFLOW_KIND } from "@agentswf/contract/workflow";
-import { COMPARISON_KIND, type Comparison } from "../../compare";
+import { COMPARISON_KIND, type Comparison } from "../../shared/compare";
 import {
   REVIEW_SCORER_KIND,
   REVIEW_VARIANT_KIND,

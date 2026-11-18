@@ -28,6 +28,7 @@ import {
 } from "./capture";
 import { codeGraders, graderVersions, runHelper } from "./code-graders";
 import { columnLabel, columnsOf, combinations, type ParamPlan, readParams } from "./columns";
+import { type ColumnVerdict, compareColumns } from "./compare";
 import { criteriaJudge } from "./criteria";
 import {
   type CaseInfo,
@@ -664,6 +665,7 @@ async function run(context: Context): Promise<number> {
   }
   const trials = readTrials(workspace.store, record.id);
   const rows = rowsOf(workspace.store, record, trials, bars);
+  const verdicts = await verdictsOf(context, workspace, info, record, trials, bars);
   const { text, exit } = renderRun({
     run: record,
     rows,
@@ -672,6 +674,7 @@ async function run(context: Context): Promise<number> {
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
     tagsOf: (name) => bars.get(name)?.tags ?? [],
+    ...(verdicts ? { verdicts } : {}),
     leftOut: unreadableRuns(workspace.store).filter((id) => id < record.id),
     ...personOf(workspace, record.dataset, trials, bars, graders),
   });
@@ -753,6 +756,27 @@ function personOf(
     ...(person ? { person } : {}),
     judgeLabeled: judgeLabeled(runs, labels, { ...agent, minor }),
   };
+}
+
+/** `compare`'s verdict on each column but the reference; undefined when the dataset has none. */
+async function verdictsOf(
+  context: Context,
+  workspace: CaseWorkspace,
+  info: DatasetInfo,
+  run: RunRecord,
+  trials: readonly StoredTrial[],
+  bars: ReadonlyMap<string, CaseBar>,
+): Promise<ColumnVerdict[] | undefined> {
+  return compareColumns({
+    run,
+    trials,
+    bars,
+    datasetDir: info.dir,
+    root: workspace.root,
+    tmp: realpathSync(context.environment.tmp ?? tmpdir()),
+    env: definedOf(withoutCallingSession(context.environment.env ?? process.env)),
+    timeoutMs: trialSettingsOf(info.name, info.dataset).setupTimeoutMs,
+  });
 }
 
 /** Whether a case carries any of these tags. */
@@ -961,6 +985,7 @@ function reportJson(args: {
   withTrials?: boolean;
   others?: readonly CaseRow[][];
   person?: PersonAgreement;
+  verdicts?: readonly ColumnVerdict[];
 }): CaseReport {
   const { run, rows, trials, exit, bars } = args;
   const own = trials.filter((t) => t.record.column === 0);
@@ -1002,6 +1027,7 @@ function reportJson(args: {
             const theirs = poolNumbers(trials.filter((t) => t.record.column === i + 1));
             return {
               label: columnLabel(run, i + 1),
+              ...(args.verdicts?.[i] ? { compare: args.verdicts[i] } : {}),
               rates: ratesOf(column),
               ...(() => {
                 const d = pairedDifference(rows, column);
@@ -1092,6 +1118,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   const rows = rowsOf(workspace.store, run, trials, bars);
   const others = otherColumns(workspace.store, run, trials, bars);
   const personal = personOf(workspace, run.dataset, trials, bars, graders);
+  const verdicts = info ? await verdictsOf(context, workspace, info, run, trials, bars) : undefined;
   const { text, exit } = renderRun({
     run,
     rows,
@@ -1104,6 +1131,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
     tagsOf: (name) => bars.get(name)?.tags ?? [],
+    ...(verdicts ? { verdicts } : {}),
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
     ...personal,
   });
@@ -1156,6 +1184,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
       others,
       ...(stale !== undefined ? { stale } : {}),
       ...(personal.person ? { person: personal.person } : {}),
+      ...(verdicts ? { verdicts } : {}),
     });
     context.stdout(JSON.stringify(json, null, 2));
   } else context.stdout(text);
@@ -1274,6 +1303,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
   const after = readTrials(workspace.store, run.id);
   const rows = rowsOf(workspace.store, run, after, bars);
   const personal = personOf(workspace, run.dataset, after, bars, graders);
+  const verdicts = await verdictsOf(context, workspace, info, run, after, bars);
   const rendered = renderRun({
     run,
     rows,
@@ -1285,6 +1315,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
     ),
     decidersOf: (name) => bars.get(name)?.deciders,
     tagsOf: (name) => bars.get(name)?.tags ?? [],
+    ...(verdicts ? { verdicts } : {}),
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
     ...personal,
   });
@@ -1312,6 +1343,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
         bars,
         others: otherColumns(workspace.store, run, after, bars),
         ...(personal.person ? { person: personal.person } : {}),
+        ...(verdicts ? { verdicts } : {}),
       }),
     });
     return exit;

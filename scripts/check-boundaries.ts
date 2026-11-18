@@ -99,7 +99,7 @@ function rules(root: string): Rule[] {
  */
 const REVIEW = "packages/lab/src/review";
 /** How two variants' numbers become a verdict: below every review folder, and knows none of them. */
-const COMPARE = "packages/lab/src/compare";
+const COMPARE = "packages/lab/src/shared/compare";
 /** The review folders that turn records into numbers and verdicts; the formats stay ours alone. */
 const COMPARE_USERS = ["metrics", "lab"];
 /** What both kinds of case share: the process seam, `awf-lab.json`'s common fields, the checks. */
@@ -484,6 +484,7 @@ const LAB_RULES: Rule[] = [
       "cli.ts",
       "capture.ts",
       "code-graders.ts",
+      "compare.ts",
       "criteria.ts",
       "dataset.ts",
       "folders.ts",

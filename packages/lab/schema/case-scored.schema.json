@@ -578,6 +578,51 @@
                 "type": "string",
                 "minLength": 1
               },
+              "compare": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": ["version", "verdict"],
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "verdict": {
+                        "type": "object",
+                        "required": ["verdict", "stop", "reason", "metrics"],
+                        "properties": {
+                          "verdict": {
+                            "enum": ["better", "worse", "tie", "undecided"]
+                          },
+                          "stop": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "metrics": {
+                            "type": "array",
+                            "items": {}
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["error"],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
               "rates": {
                 "type": "object",
                 "required": ["cases", "passed"],

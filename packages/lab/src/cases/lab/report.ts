@@ -1,5 +1,6 @@
 import type { Folder, LabelRecord, RunRecord } from "../format/records";
 import { columnLabel, sharedParams } from "./columns";
+import type { ColumnVerdict } from "./compare";
 import { familyOf } from "./families";
 import { type Agreement, JUDGE_CHECK, type PersonAgreement } from "./labels";
 import type { CaseRow, StoredTrialView } from "./outcome";
@@ -56,6 +57,8 @@ export type RunReport = {
   others?: readonly CaseRow[][];
   /** The person's labels on this run's trials, and how the lab agrees with them. */
   person?: PersonAgreement;
+  /** `compare`'s verdict on each column but the reference, in `columns` order. */
+  verdicts?: readonly ColumnVerdict[];
   /** Each case's tags, from its key as it is now. */
   tagsOf?: (caseName: string) => readonly string[];
   /** The labeled trials the current judge graded, across the dataset's runs. */
@@ -273,6 +276,7 @@ function columnLines(
   rows: readonly CaseRow[],
   others: readonly CaseRow[][],
   trials: readonly StoredTrialView[],
+  verdicts: readonly ColumnVerdict[] | undefined,
 ): string[] {
   const reference = columnLabel(run, 0);
   const width = Math.max(14, ...run.columns.map((_, i) => columnLabel(run, i).length + 2));
@@ -324,17 +328,25 @@ function columnLines(
       `more passes: ${label} on ${plural(more, "case")}, ${reference} on ${plural(fewer, "case")}`,
     );
     const difference = pairedDifference(rows, column);
-    if (difference) lines.push(`against ${reference}: ${describeDifference(difference)}`);
+    if (difference) lines.push(`difference from ${reference}: ${describeDifference(difference)}`);
+    const said = verdicts?.[i];
+    if (said && "error" in said) lines.push(`compare, ${label}: could not tell: ${said.error}`);
+    else if (said) {
+      const { verdict } = said;
+      lines.push(
+        `compare ${said.version}, ${label}: ${verdict.verdict}${verdict.stop ? "" : ", more trials may tell"} · ${verdict.reason}`,
+      );
+    }
   });
   lines.push(`rates, ${reference}: ${describeRates(ratesOf(rows))}`);
   for (const [i, column] of others.entries()) {
     lines.push(`rates, ${columnLabel(run, i + 1)}: ${describeRates(ratesOf(column))}`);
   }
-  lines.push(
-    run.asked.every((a) => a.trials === 1)
-      ? "One trial each: these are examples, not rates."
-      : "The lab does not say which is better. Read the cases.",
-  );
+  if (run.asked.every((a) => a.trials === 1)) {
+    lines.push("One trial each: these are examples, not rates.");
+  } else if (!verdicts) {
+    lines.push("No compare in graders.ts says which is better. Read the cases.");
+  }
   return lines;
 }
 
@@ -351,6 +363,7 @@ export function renderRun({
   person,
   judgeLabeled,
   tagsOf = () => [],
+  verdicts: compared,
 }: RunReport): {
   text: string;
   exit: ExitCode;
@@ -430,7 +443,7 @@ export function renderRun({
     (row) => `${row.tally.none}: `,
   );
   if (lines.at(-1) !== "") lines.push("");
-  if (others.length > 0) lines.push(...columnLines(run, rows, others, trials), "");
+  if (others.length > 0) lines.push(...columnLines(run, rows, others, trials, compared), "");
 
   const verdicts = (v: CaseVerdict) => must.filter((r) => r.tally.verdict === v).length;
   lines.push(

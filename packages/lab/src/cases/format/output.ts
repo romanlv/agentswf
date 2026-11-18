@@ -147,6 +147,27 @@ export const CaseReportSchema = Type.Object(
           {
             /** As the report names it: `against 1`, `model=b`. */
             label: Text,
+            /** What the dataset's `compare` said of it against the reference, or why it couldn't. */
+            compare: Type.Optional(
+              Type.Union([
+                Type.Object(
+                  {
+                    version: Text,
+                    verdict: Type.Object(
+                      {
+                        verdict: Type.Enum(["better", "worse", "tie", "undecided"] as const),
+                        stop: Type.Boolean(),
+                        reason: Type.String(),
+                        metrics: Type.Array(Type.Unknown()),
+                      },
+                      { additionalProperties: false },
+                    ),
+                  },
+                  { additionalProperties: false },
+                ),
+                Type.Object({ error: Type.String() }, { additionalProperties: false }),
+              ]),
+            ),
             rates: RatesSchema,
             /**
              * Its difference from the reference on the same cases, in pass fraction: the mean,
