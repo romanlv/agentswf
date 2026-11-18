@@ -62,9 +62,9 @@ Where each finding of the report went:
 
 6. **Contained variants name their effort, then the stopgap goes.** The data repository's variants
    parse `--runtime` themselves (`variants/air/workflow.ts`): read `harness/model:{effort}`, name an
-   effort in each contained variant's argv, version them (story 020, Q5), then remove
-   `hostReasoningEffort` from `packages/lab/src/review/lab/execute.ts`. Check: one contained codex
-   trial at `high` logs `high` in its rollout.
+   effort in each contained variant's argv, version them (story 020, Q5). The stopgap,
+   `hostReasoningEffort`, went with the review kind in story 044. Check: one boxed codex trial at
+   `high` logs `high` in its rollout.
 
 ## Deferred from story 013
 

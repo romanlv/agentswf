@@ -25,7 +25,7 @@
   "properties": {
     "kind": {
       "type": "string",
-      "const": "awf.case-trial/0"
+      "const": "awf.case-trial/1"
     },
     "run": {
       "type": "string",

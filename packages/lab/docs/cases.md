@@ -1,6 +1,6 @@
 # Cases: the reference
 
-The rules of `awf-lab`'s case kind as built: how a dataset is laid out, what `env.ts` can do, how
+The rules of `awf-lab` as built: how a dataset is laid out, what `env.ts` can do, how
 trials run and are graded, and what the report and exit code mean. Story
 [044](../../../docs/stories/044-cases-for-a-workflow.md) says why it works this way and what is
 still to come. A worked example is [`examples/refund-desk`](../../../examples/refund-desk/README.md).
@@ -175,7 +175,7 @@ Why this case exists.
 | `graders` | `"name"` (a `graders.ts` export), `{ grader, onDemand }`, or `{ workflow: "graders/x.ts", readsFacts?, onDemand?, timeout? }` |
 | `judgeAgent` | `{ harness, model }` for the criteria judge, over the workspace's |
 
-`awf-lab.json` (`kind: awf.lab-workspace/0`): `judgeAgent`; `store` in place of the default;
+`awf-lab.json` (`kind: awf.lab-workspace/1`): `judgeAgent`; `store` in place of the default;
 `records`, a folder inside `evals/` that each run's records are also written to, to be committed;
 `hide`, paths of the code folder, relative to it, that the lab's box hides as it hides keys, for
 tracked files that hold or quote one.

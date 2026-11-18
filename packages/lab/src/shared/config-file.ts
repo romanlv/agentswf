@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { CONFIG_FILE, type CommonConfig, CommonConfigSchema } from "./config";
+import {
+  CONFIG_FILE,
+  REVIEW_FIELDS,
+  WORKSPACE_KIND,
+  type WorkspaceConfig,
+  WorkspaceSchema,
+} from "./config";
 import { checkSchema, describeProblems } from "./validate";
 
 /**
@@ -8,32 +14,19 @@ import { checkSchema, describeProblems } from "./validate";
  * folder, or in its `evals/`, where a project keeps its cases.
  */
 export function findConfigFile(cwd: string, explicit?: string): string | undefined {
-  return locateConfigFile(cwd, explicit)?.file;
-}
-
-/**
- * The file `findConfigFile` finds, and whether it was found in an `evals/` below a folder walked,
- * where only the case kind looks: the review kind reads the nearest `awf-lab.json` of a folder.
- */
-export function locateConfigFile(
-  cwd: string,
-  explicit?: string,
-): { file: string; inEvals: boolean } | undefined {
-  if (explicit) return { file: resolve(cwd, explicit), inEvals: false };
+  if (explicit) return resolve(cwd, explicit);
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, CONFIG_FILE))) return { file: join(dir, CONFIG_FILE), inEvals: false };
-    if (existsSync(join(dir, "evals", CONFIG_FILE))) {
-      return { file: join(dir, "evals", CONFIG_FILE), inEvals: true };
-    }
+    if (existsSync(join(dir, CONFIG_FILE))) return join(dir, CONFIG_FILE);
+    if (existsSync(join(dir, "evals", CONFIG_FILE))) return join(dir, "evals", CONFIG_FILE);
     if (dirname(dir) === dir) return undefined;
   }
 }
 
-/** The file as JSON, and its common fields, checked. */
-export function readConfigFile(file: string): {
-  raw: Record<string, unknown>;
-  common: CommonConfig;
-} {
+/**
+ * The file, checked. A `/0` workspace or one holding the review kind's fields is refused by name:
+ * neither is converted.
+ */
+export function readConfigFile(file: string): WorkspaceConfig {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
@@ -43,7 +36,21 @@ export function readConfigFile(file: string): {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error(`${file} is not a JSON object`);
   }
-  const checked = checkSchema(CommonConfigSchema, raw);
+  const fields = REVIEW_FIELDS.filter((name) => name in raw);
+  if (fields.length > 0) {
+    throw new Error(
+      `${file} is the review kind's (${fields.join(", ")}), which is retired: a workspace of cases holds kind, judgeAgent, store, records and hide`,
+    );
+  }
+  const kind = (raw as { kind?: unknown }).kind;
+  if (kind !== WORKSPACE_KIND) {
+    throw new Error(
+      kind === "awf.lab-workspace/0"
+        ? `${file}: awf.lab-workspace/0 is retired; make it "kind": "${WORKSPACE_KIND}"`
+        : `${file} needs "kind": "${WORKSPACE_KIND}"`,
+    );
+  }
+  const checked = checkSchema(WorkspaceSchema, raw);
   if (!checked.ok) throw new Error(describeProblems(file, checked.problems));
-  return { raw: raw as Record<string, unknown>, common: checked.value };
+  return checked.value;
 }

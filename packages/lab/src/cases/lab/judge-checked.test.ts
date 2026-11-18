@@ -15,7 +15,7 @@ const entry = (extra: object) => ({
 function judgeLine(labeled?: { labeled: number; needsWork: number }): string {
   const { text } = renderRun({
     run: {
-      kind: "awf.case-run/0",
+      kind: "awf.case-run/1",
       id: "20261117-000000-abcd",
       dataset: "ds",
       folders: [{ path: "/p", branch: "main", commit: null, dirty: false, env: "0".repeat(64) }],
@@ -30,7 +30,7 @@ function judgeLine(labeled?: { labeled: number; needsWork: number }): string {
         record: { case: "a", column: 0, models: ["gpt-6-luna"], unused: [], kept: [] },
         scores: [
           {
-            kind: "awf.case-score/0",
+            kind: "awf.case-score/1",
             at: "2026-11-17T00:01:00.000Z",
             entries: [entry({ version: "1.0.0", agent, verdict: "passed", parts: [] })],
           },
@@ -55,12 +55,12 @@ test("only labeled trials the current judge graded count, each workflow run once
       dir: "",
       record: { runId, case: "a" },
       scores: [
-        { kind: "awf.case-score/0", at: "2026-11-17T00:00:00.000Z", entries: [entry(extra)] },
+        { kind: "awf.case-score/1", at: "2026-11-17T00:00:00.000Z", entries: [entry(extra)] },
       ],
     }) as never;
   const label = (runId: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
     runId,
-    { kind: "awf.case-label/0", runId, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
+    { kind: "awf.case-label/1", runId, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
   ];
   const labels = new Map([label("r1", "good"), label("r2", "needs-work"), label("r3", "good")]);
   const graded = { version: "1.0.2", agent, verdict: "passed" };

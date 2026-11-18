@@ -6,7 +6,7 @@
   "properties": {
     "kind": {
       "type": "string",
-      "const": "awf.case-run/0"
+      "const": "awf.case-run/1"
     },
     "id": {
       "type": "string",

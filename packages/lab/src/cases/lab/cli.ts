@@ -63,6 +63,7 @@ import {
   seconds,
   tagRows,
 } from "./report";
+import { refuseRetiredCommand, refuseRetiredFlag } from "./retired";
 import {
   caseDigests,
   codeDigest,
@@ -390,6 +391,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
         options.help = true;
         break;
       default:
+        refuseRetiredFlag(arg);
         if (arg.startsWith("-")) throw new Refusal(`unknown option ${arg}`);
         positional.push(arg);
     }
@@ -432,6 +434,9 @@ export async function runCases(
       stdout(CASES_USAGE);
       return options.help ? 0 : 2;
     }
+    if (options.allowance !== undefined && command !== "loop") {
+      throw new Refusal("--allowance is the loop's: loop {name} --allowance {percent}");
+    }
     const context: Context = {
       cwd: environment.cwd ?? process.cwd(),
       home: environment.home ?? homedir(),
@@ -464,6 +469,7 @@ export async function runCases(
           countedGraders,
         });
       default:
+        refuseRetiredCommand(command);
         throw new Refusal(`unknown command ${command}`);
     }
   } catch (error) {

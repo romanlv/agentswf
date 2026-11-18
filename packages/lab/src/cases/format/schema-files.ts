@@ -1,3 +1,4 @@
+import { WorkspaceSchema } from "../../shared/config";
 import { CaseReportSchema, ScoredSchema } from "./output";
 import {
   GradeFileSchema,
@@ -12,6 +13,7 @@ const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
 /** The case kind's published JSON Schemas, by file name under `packages/lab/schema/`. */
 export const CASE_SCHEMA_FILES = {
+  "awf-lab.schema.json": { title: "awf-lab workspace", schema: WorkspaceSchema },
   "case-dataset.schema.json": { title: "awf-lab dataset of cases", schema: DatasetSchema },
   "case-key.schema.json": { title: "awf-lab case key, its frontmatter", schema: KeySchema },
   "case-run.schema.json": { title: "awf-lab run of cases", schema: RunRecordSchema },

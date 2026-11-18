@@ -1,10 +1,9 @@
 import Type from "typebox";
 
-// `awf-lab.json`'s fields both kinds read. The review kind's own fields are its to check, when a
-// review dataset is used; the case kind ignores them.
+// `awf-lab.json`: a workspace of datasets of cases.
 
 export const CONFIG_FILE = "awf-lab.json";
-export const WORKSPACE_KIND = "awf.lab-workspace/0";
+export const WORKSPACE_KIND = "awf.lab-workspace/1";
 
 const Text = Type.String({ minLength: 1 });
 
@@ -19,13 +18,8 @@ export const AgentSchema = Type.Object(
 );
 export type Agent = Type.Static<typeof AgentSchema>;
 
-/** The common fields, as properties, so the review kind's schema can hold them too. */
-export const COMMON_FIELDS = {
-  kind: Type.Optional(
-    Type.Literal(WORKSPACE_KIND, {
-      description: "Optional until a dataset of cases is used, which needs it.",
-    }),
-  ),
+const FIELDS = {
+  kind: Type.Literal(WORKSPACE_KIND),
   judgeAgent: Type.Optional({
     ...AgentSchema,
     description: "The criteria judge's harness and model; a dataset.json may give its own.",
@@ -53,9 +47,28 @@ export const COMMON_FIELDS = {
   ),
 };
 
-/** What the case kind reads; any other field is the review kind's. */
-export const CommonConfigSchema = Type.Object(
-  { $schema: Type.Optional(Type.String()), ...COMMON_FIELDS },
-  { additionalProperties: true },
+export const WorkspaceSchema = Type.Object(
+  { $schema: Type.Optional(Type.String()), ...FIELDS },
+  { additionalProperties: false },
 );
-export type CommonConfig = Type.Static<typeof CommonConfigSchema>;
+export type WorkspaceConfig = Type.Static<typeof WorkspaceSchema>;
+
+/** The review kind's fields, retired with it: a file holding one is that kind's. */
+export const REVIEW_FIELDS = [
+  "clone",
+  "datasets",
+  "dataset",
+  "results",
+  "runs",
+  "variants",
+  "scorers",
+  "scorer",
+  "comparisons",
+  "comparison",
+  "trials",
+  "baseline",
+  "budget",
+  "sandbox",
+  "seed",
+  "holdout",
+] as const;

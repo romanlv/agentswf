@@ -12,10 +12,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import type Type from "typebox";
 import { type Checked, checkSchema, describeProblems } from "../../shared/validate";
 import {
   type RunRecord,
   RunRecordSchema,
+  retiredRecord,
   type ScoreRecord,
   ScoreRecordSchema,
   type TrialRecord,
@@ -218,6 +220,13 @@ function checked<T>(file: string, result: Checked<T>): T {
   return result.value;
 }
 
+/** A record read back: a retired `/0` one is named, any other checked against its schema. */
+function readRecord<T>(file: string, schema: Type.TSchema, value: unknown): T {
+  const retired = retiredRecord(file, value);
+  if (retired) throw new UnreadableRecord(retired);
+  return checked(file, checkSchema(schema, value)) as T;
+}
+
 function readJson(file: string): unknown {
   return parseJson(file, readFileSync(file, "utf8"));
 }
@@ -241,7 +250,7 @@ export function writeRun(store: string, run: RunRecord): void {
 export function readRunRecord(store: string, id: string): RunRecord | undefined {
   const file = join(runDirOf(store, id), RUN_FILE);
   if (!existsSync(file)) return undefined;
-  return checked(file, checkSchema(RunRecordSchema, readJson(file)));
+  return readRecord<RunRecord>(file, RunRecordSchema, readJson(file));
 }
 
 export function writeTrial(dir: string, trial: TrialRecord): void {
@@ -264,14 +273,14 @@ export type StoredTrial = { dir: string; record: TrialRecord; scores: ScoreRecor
 function readSlot(dir: string): Omit<StoredTrial, "dir"> | undefined {
   const file = join(dir, TRIAL_FILE);
   if (!existsSync(file)) return undefined;
-  const record = checked(file, checkSchema(TrialRecordSchema, readJson(file)));
+  const record = readRecord<TrialRecord>(file, TrialRecordSchema, readJson(file));
   const scoresFile = join(dir, SCORES_FILE);
   const scores = existsSync(scoresFile)
     ? readFileSync(scoresFile, "utf8")
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) =>
-          checked(scoresFile, checkSchema(ScoreRecordSchema, parseJson(scoresFile, line))),
+          readRecord<ScoreRecord>(scoresFile, ScoreRecordSchema, parseJson(scoresFile, line)),
         )
     : [];
   return { record, scores };

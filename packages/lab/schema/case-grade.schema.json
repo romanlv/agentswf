@@ -6,7 +6,7 @@
   "properties": {
     "kind": {
       "type": "string",
-      "const": "awf.case-grade/0"
+      "const": "awf.case-grade/1"
     },
     "case": {
       "type": "string",

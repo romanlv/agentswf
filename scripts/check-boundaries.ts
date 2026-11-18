@@ -65,7 +65,6 @@ function rules(root: string): Rule[] {
     seam(target) || containsPath(`${SANDBOX_SOURCE}/${directory}`, target);
   return [
     ...RULES,
-    ...reviewRules(root),
     ...LAB_RULES.filter((rule) => existsSync(join(root, rule.dir))),
     ...(existsSync(source) ? [{ dir: SANDBOX_SOURCE, files: "*.ts", paths: seam }] : []),
     ...directories.flatMap((name): Rule[] => {
@@ -93,67 +92,12 @@ function rules(root: string): Rule[] {
   ];
 }
 
-/**
- * `src/review` is organised by purpose, and a folder imports only the folders named for it: the
- * formats know nothing of ours, and evaluating never depends on building fixtures from a forge.
- */
-const REVIEW = "packages/lab/src/review";
-/** How two variants' numbers become a verdict: below every review folder, and knows none of them. */
+/** How two columns' numbers become a verdict: imports nothing, and serves any dataset. */
 const COMPARE = "packages/lab/src/shared/compare";
-/** The review folders that turn records into numbers and verdicts; the formats stay ours alone. */
-const COMPARE_USERS = ["metrics", "lab"];
-/** What both kinds of case share: the process seam, `awf-lab.json`'s common fields, the checks. */
+/** What the lab's folders share: the process seam, `awf-lab.json`, the checks, the comparison. */
 const SHARED = "packages/lab/src/shared";
-/** The case kind: never the review kind's code, and no word of any one workflow's domain. */
+/** The case kind: no word of any one workflow's domain. */
 const CASES = "packages/lab/src/cases";
-const isTest = (target: string) => /\.test(\.ts)?$/.test(target);
-const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
-  format: [],
-  fixtures: ["format"],
-  build: ["format", "fixtures"],
-  judge: ["format", "fixtures"],
-  metrics: ["format", "fixtures"],
-  lab: ["format", "fixtures", "judge", "metrics"],
-};
-
-function reviewFolders(root: string): string[] {
-  const source = join(root, REVIEW);
-  return existsSync(source)
-    ? readdirSync(source, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-    : [];
-}
-
-function reviewRules(root: string): Rule[] {
-  return reviewFolders(root)
-    .filter((name) => Object.hasOwn(REVIEW_LAYERS, name))
-    .map((name) => ({
-      dir: `${REVIEW}/${name}`,
-      paths: (target: string) =>
-        (COMPARE_USERS.includes(name) && containsPath(COMPARE, target) && !isTest(target)) ||
-        containsPath(SHARED, target) ||
-        [name, ...REVIEW_LAYERS[name]!].some((layer) => containsPath(`${REVIEW}/${layer}`, target)),
-    }));
-}
-
-/** A folder the table leaves out, or a module beside the entry, would escape the order. */
-function reviewPlacementProblems(root: string): string[] {
-  const source = join(root, REVIEW);
-  if (!existsSync(source)) return [];
-  return readdirSync(source, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isDirectory()) {
-      return Object.hasOwn(REVIEW_LAYERS, entry.name)
-        ? []
-        : [
-            `${REVIEW}/${entry.name}: a folder the review layers don't place; add it to REVIEW_LAYERS`,
-          ];
-    }
-    return entry.name.endsWith(".ts") && entry.name !== "index.ts"
-      ? [`${REVIEW}/${entry.name}: only the entry sits beside the review folders; move it into one`]
-      : [];
-  });
-}
 
 const DECISION_PROVIDER = /^packages\/engine\/src\/decisions\/openrouter(\.ts)?$/;
 const DECISION_FAKE = /^packages\/engine\/src\/decisions\/fake(\.ts)?$/;
@@ -309,7 +253,7 @@ const RULES: Rule[] = [
       ISSUES_REFS,
     ],
   },
-  // Serves any kind of case: imports nothing, not even contract, and reaches no runtime.
+  // Serves any dataset: imports nothing, not even contract, and reaches no runtime.
   {
     dir: COMPARE,
     except: ["**/*.test.ts"],
@@ -318,35 +262,6 @@ const RULES: Rule[] = [
     pure: true,
   },
   { dir: COMPARE, files: "**/*.test.ts", allow: [] },
-  // The format and the decisions about it stay pure; only the files named here do I/O.
-  {
-    dir: REVIEW,
-    except: [
-      "**/*.test.ts",
-      "**/*.workflow.ts",
-      "fixtures/git.ts",
-      "fixtures/verify.ts",
-      "fixtures/seal.ts",
-      "build/gitlab.ts",
-      "build/collect.ts",
-      "build/draft-key.ts",
-      "judge/case.ts",
-      "lab/cli.ts",
-      "lab/execute.ts",
-      "lab/provenance.ts",
-      "lab/load.ts",
-      "lab/loop/bundle.ts",
-      "lab/loop/loop.ts",
-      "lab/loop/scope.ts",
-      "lab/runner.ts",
-      "lab/store.ts",
-      "lab/workspace.ts",
-      "index.ts",
-    ],
-    pure: true,
-    paths: (target) =>
-      containsPath(REVIEW, target) || containsPath(COMPARE, target) || containsPath(SHARED, target),
-  },
   // An example imports what an author outside the repository does: `agentswf/workflow`, and
   // `agentswf/typebox` for its schemas.
   {
@@ -415,9 +330,8 @@ const RULES: Rule[] = [
 ];
 
 /**
- * The lab's two kinds: the case kind imports only itself and the shared folder, the shared folder
- * only itself, and the review kind may import the shared folder (above). Only the command-line
- * entry, `src/cli.ts`, imports both kinds. Each stays pure but for the files named as doing I/O.
+ * The lab: the case kind imports only itself and the shared folder, the shared folder only itself.
+ * Each stays pure but for the files named as doing I/O.
  */
 const ownShared = (target: string) => containsPath(SHARED, target);
 const ownCases = (target: string) => containsPath(CASES, target) || containsPath(SHARED, target);
@@ -583,11 +497,7 @@ const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 /** Every violation under `root`, a checkout laid out like this one. */
 export async function boundaryProblems(root: string): Promise<string[]> {
-  const problems = [
-    ...reviewPlacementProblems(root),
-    ...(await clientReachProblems(root)),
-    ...(await domainWordProblems(root)),
-  ];
+  const problems = [...(await clientReachProblems(root)), ...(await domainWordProblems(root))];
 
   for (const rule of rules(root)) {
     const abs = join(root, rule.dir);

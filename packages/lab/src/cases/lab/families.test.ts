@@ -15,7 +15,7 @@ test("the report marks a judge that shares the workflow's family, splits and cri
   const agent = { harness: "claude", model: "claude-haiku-5-5" };
   const { text } = renderRun({
     run: {
-      kind: "awf.case-run/0",
+      kind: "awf.case-run/1",
       id: "20261117-000000-abcd",
       dataset: "ds",
       folders: [{ path: "/p", branch: "main", commit: null, dirty: false, env: "0".repeat(64) }],
@@ -30,7 +30,7 @@ test("the report marks a judge that shares the workflow's family, splits and cri
         record: { case: "a", column: 0, models: ["claude-sonnet-5-5"], unused: [], kept: [] },
         scores: [
           {
-            kind: "awf.case-score/0",
+            kind: "awf.case-score/1",
             at: "2026-11-17T00:01:00.000Z",
             entries: [
               {

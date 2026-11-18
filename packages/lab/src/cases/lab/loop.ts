@@ -30,6 +30,7 @@ import {
   type Try,
   TrySchema,
 } from "../format/loop";
+import { retiredRecord } from "../format/records";
 import type { CaseInfo } from "./dataset";
 import { Refusal } from "./refusal";
 import type { CaseWorkspace } from "./workspace";
@@ -207,7 +208,10 @@ const writeJson = (file: string, value: unknown, flag = "w") =>
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag });
 
 function readChecked<T>(file: string, schema: Parameters<typeof checkSchema>[0]): T {
-  const checked = checkSchema(schema, JSON.parse(readFileSync(file, "utf8")));
+  const value = JSON.parse(readFileSync(file, "utf8"));
+  const retired = retiredRecord(file, value);
+  if (retired) throw new Refusal(retired);
+  const checked = checkSchema(schema, value);
   if (!checked.ok) throw new Error(describeProblems(file, checked.problems));
   return checked.value as T;
 }

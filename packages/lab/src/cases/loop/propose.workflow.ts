@@ -31,7 +31,17 @@ The rules of a try:
 
 Answer with the change, the hypothesis, the predicted effect and its cost, and what the trials must show if it holds.`;
 
-const LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+/** Every harness's effort levels: the lab may not import the harness package, so it repeats them. */
+export const LEVELS: readonly string[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+];
 
 /** `harness/model[:effort]`, headless: the box has no terminal to put an agent in. */
 export function proposerRuntime(name: string): ExecutionConfig {
@@ -41,7 +51,7 @@ export function proposerRuntime(name: string): ExecutionConfig {
   }
   const colon = name.lastIndexOf(":");
   const level = colon > slash ? name.slice(colon + 1) : undefined;
-  const effort = level && LEVELS.has(level) ? level : undefined;
+  const effort = level && LEVELS.includes(level) ? level : undefined;
   const harness = name.slice(0, slash);
   return {
     harness,

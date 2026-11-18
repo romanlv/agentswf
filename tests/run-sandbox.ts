@@ -5,15 +5,11 @@ import { join } from "node:path";
 import type { QuickCheckResult } from "../examples/quick-check/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import type { Trial } from "../packages/lab/src/review/format/records";
-import { runLab } from "../packages/lab/src/review/lab/cli";
-import { awfRunner } from "../packages/lab/src/review/lab/runner";
-import { mechanism, workspace } from "./lab-workspace";
 
 /**
- * `awf run --sandbox`, live (story 010). awf-lab runs a probe variant on a synthetic case: two
- * agents that name no sandbox, one running commands that must reach the checkout and the request
- * and nothing else, the other reading the request. Then other workflows under a run sandbox: one
+ * `awf run --sandbox`, live (story 010). A probe on a synthetic change: two agents that name no
+ * sandbox, one running commands that must reach the checkout and the request and nothing else,
+ * the other reading the request. Then other workflows under a run sandbox: one
  * that must run unchanged, one that opens its own sandbox and must be refused, and a spec that
  * can't open, which must end the run before it starts.
  */
@@ -21,14 +17,14 @@ const PROBE = join(import.meta.dir, "fixtures/run-sandbox/probe.workflow.ts");
 const QUICK_CHECK = join(import.meta.dir, "../examples/quick-check/workflow.ts");
 const SANDBOXES = join(import.meta.dir, "../examples/sandboxes/workflow.ts");
 const CASE = "app-1";
-/** What the case's key says, which no agent may see. */
-export const KEY_TEXT = mechanism(CASE, 1);
+/** What the change's key says, which no agent may see. */
+export const KEY_TEXT = `${CASE} issue 1: what goes wrong`;
 
-/** The prober's commands, by what each checks; `{request}` and `{dataset}` are awf-lab's. */
+/** The prober's commands, by what each checks, their paths filled in by `gather`. */
 export const COMMANDS = {
-  request: "cat {request}",
+  request: "cat REQUEST",
   diff: "git diff --stat origin/main...HEAD 2>/dev/null",
-  key: `cat {dataset}/${CASE}/key/key.json`,
+  key: "cat KEY",
   clone: "git -C CLONE log -1 --oneline",
   home: "ls HOME",
   gitlab: "curl -sS -m 5 -o /dev/null -I https://gitlab.com && echo reached",
@@ -62,14 +58,13 @@ export type Execution = { command: string; exitCode: number; output: string };
 
 export type Evidence = {
   provider: Provider;
-  lab: {
+  probe: {
     exitCode: number;
     log: string;
-    trial?: Trial;
     record?: OutputRecord;
     /** Whether the key the prober must not read is on the host, so a refusal is not a wrong path. */
     keyOnHost: boolean;
-    /** Every transcript of the trial's run's sandbox, joined. */
+    /** Every transcript of the probe's sandbox, joined. */
     transcripts: string;
     executions: Execution[];
   };
@@ -107,17 +102,12 @@ export function sandboxTranscripts(record: Pick<OutputRecord, "artifacts" | "san
 /** What went wrong, from what the runner gathered; empty when every check held. */
 export function problems(evidence: Evidence): string[] {
   const found: string[] = [];
-  const { lab } = evidence;
-  if (lab.exitCode !== 0) found.push(`awf-lab run exited ${lab.exitCode}: ${lab.log}`);
-  const trial = lab.trial;
-  if (trial?.run.outcome !== "completed") {
-    found.push(
-      `the trial did not succeed: ${trial?.run.outcome ?? "no trial"} ${trial?.failure ?? ""}`,
-    );
-  } else if (JSON.stringify(trial.sandbox) !== JSON.stringify({ [evidence.provider]: {} })) {
-    found.push(`the trial recorded sandbox ${JSON.stringify(trial.sandbox)}`);
+  const { probe } = evidence;
+  if (probe.exitCode !== 0) found.push(`the probe's run exited ${probe.exitCode}: ${probe.log}`);
+  if (probe.record?.outcome !== "completed") {
+    found.push(`the probe's run did not complete: ${probe.record?.outcome ?? "no record"}`);
   }
-  const boxes = lab.record?.sandboxes ?? [];
+  const boxes = probe.record?.sandboxes ?? [];
   const box = boxes[0];
   if (boxes.length !== 1 || box?.key !== "run") {
     found.push(`the run's record lists sandboxes ${boxes.map((b) => b.key).join(", ") || "none"}`);
@@ -134,7 +124,7 @@ export function problems(evidence: Evidence): string[] {
 
   const refused = REFUSED[evidence.provider];
   const expect = (key: keyof typeof COMMANDS, ok: (run: Execution) => boolean, what: string) => {
-    const runs = lab.executions.filter((run) => MARKS[key].test(run.command));
+    const runs = probe.executions.filter((run) => MARKS[key].test(run.command));
     if (runs.length === 0) found.push(`${key}: never ran`);
     for (const run of runs) {
       if (!ok(run))
@@ -153,12 +143,12 @@ export function problems(evidence: Evidence): string[] {
   expect("home", (run) => run.exitCode !== 0 && run.output.includes(refused), "home not refused");
   expect("gitlab", (run) => !run.output.includes("reached"), "gitlab reached");
   expect("write", (run) => !run.output.includes("wrote"), "checkout writable");
-  if (!lab.executions.some((run) => run.command.startsWith("head -1"))) {
+  if (!probe.executions.some((run) => run.command.startsWith("head -1"))) {
     found.push("the reader never read the request");
   }
-  if (!lab.keyOnHost) found.push("the key is not on the host, so its refusal proves nothing");
-  const value = lab.record?.outcome === "completed" ? lab.record.value : undefined;
-  if (`${lab.transcripts}${JSON.stringify(value ?? {})}`.includes(KEY_TEXT)) {
+  if (!probe.keyOnHost) found.push("the key is not on the host, so its refusal proves nothing");
+  const value = probe.record?.outcome === "completed" ? probe.record.value : undefined;
+  if (`${probe.transcripts}${JSON.stringify(value ?? {})}`.includes(KEY_TEXT)) {
     found.push("the key reached an agent");
   }
 
@@ -212,60 +202,73 @@ export async function gather(
   provider: Provider,
   signal: AbortSignal,
 ): Promise<{ evidence: Evidence; estimate: number; artifacts: string[] }> {
-  const ws = await workspace();
-  const config = join(ws.root, "awf-lab.json");
+  const top = await realpath(await mkdtemp(join(tmpdir(), "awf-run-sandbox-probe-")));
+  // The change: a checkout on branch review against origin/main, its request beside it, and a key
+  // and a clone on the host that the sandbox must not reach.
+  const checkout = join(top, "checkout");
+  const clone = join(top, "project");
+  const request = join(top, "request.md");
+  const key = join(top, "key", "key.json");
+  for (const repo of [clone, checkout]) {
+    await mkdir(join(repo, "src"), { recursive: true });
+    await writeFile(join(repo, "src/app.ts"), "export const a = 1;\n");
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "add", "-A");
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "start");
+  }
+  git(checkout, "update-ref", "refs/remotes/origin/main", "HEAD");
+  git(checkout, "checkout", "-q", "-b", "review");
+  await writeFile(join(checkout, "src/app.ts"), "export const a = 2;\n");
+  git(checkout, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "change");
+  await writeFile(request, `# Change ${CASE}\n\nIt changes a.\n`);
+  await mkdir(join(top, "key"));
+  await writeFile(key, `${JSON.stringify({ issues: [{ mechanism: KEY_TEXT }] })}\n`);
   const settings = { [provider]: {} };
-  await writeFile(
-    config,
-    JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), sandbox: settings }),
-  );
-  const clone = join(ws.root, "project");
+  const probeSpec = join(top, "sandbox.json");
+  await writeFile(probeSpec, JSON.stringify({ read: [request], ...settings }));
   // Docker creates mount ancestors under the host home; probe a real, unmounted entry instead.
   const home = join(await realpath(homedir()), ".codex");
   if (!existsSync(home))
     throw new Error("sandbox eval requires an existing host ~/.codex directory");
-  const keyOnHost = existsSync(join(ws.root, "datasets", "first", CASE, "key", "key.json"));
   const commands = Object.values(COMMANDS).map((command) =>
-    command.replace("CLONE", clone).replace("HOME", home),
+    command
+      .replace("REQUEST", request)
+      .replace("KEY", key)
+      .replace("CLONE", clone)
+      .replace("HOME", home),
   );
-  await ws.variant(
-    "probe",
-    `import { defineReviewVariant } from "@agentswf/lab/review";
-import probe from ${JSON.stringify(PROBE)};
-
-export default defineReviewVariant({
-  workflow: probe,
-  argv: ["--request", "{request}", ...${JSON.stringify(commands)}],
-  timeout: "8m",
-  read: (result) => [
-    ...result.results.map((r) => ({ text: r.command + "\\nexit " + r.exitCode + "\\n" + r.output })),
-    { text: "first line: " + result.firstLine },
-  ],
-});
-`,
-  );
-  const log: string[] = [];
-  const exitCode = await runLab(["run", "probe", "--cases", CASE, "--yes"], {
-    cwd: ws.root,
-    stdout: (text) => log.push(text),
-    stderr: (text) => {
-      log.push(text);
-      console.error(text);
+  const probeRuns = join(top, "runs");
+  const out: string[] = [];
+  const err: string[] = [];
+  const exitCode = await runOperatorCli(
+    [
+      "run",
+      "--run-root",
+      probeRuns,
+      "--cwd",
+      checkout,
+      "--timeout",
+      "8m",
+      "--sandbox",
+      probeSpec,
+      "--json",
+      PROBE,
+      "--",
+      "--request",
+      request,
+      ...commands,
+    ],
+    {
+      cwd: top,
+      signal,
+      stdout: (text) => out.push(text),
+      stderr: (text) => {
+        err.push(text);
+        console.error(text);
+      },
     },
-    runner: awfRunner(),
-    confirm: async () => true,
-  });
-  const results = join(ws.root, "results", "first");
-  const trialFile = [
-    ...new Bun.Glob(`probe@*/${CASE}/*/findings.json`).scanSync({ cwd: results }),
-  ][0];
-  const trial = trialFile
-    ? (JSON.parse(readFileSync(join(results, trialFile), "utf8")) as Trial)
-    : undefined;
-  const runs = join(ws.root, "runs");
-  const record = [...new Bun.Glob("*/*/out.json").scanSync({ cwd: runs })]
-    .map((file) => JSON.parse(readFileSync(join(runs, file), "utf8")) as OutputRecord)
-    .find((candidate) => candidate.workflow.name === "run-sandbox-probe");
+  );
+  const record = runRecordOf(out.join("\n"));
   const transcripts = record ? sandboxTranscripts(record) : "";
 
   const dir = await realpath(await mkdtemp(join(tmpdir(), "awf-run-sandbox-")));
@@ -283,12 +286,8 @@ export default defineReviewVariant({
       ["run", "--run-root", join(dir, "runs"), "--cwd", work, "--timeout", "5m", ...argv],
       { cwd: dir, signal, stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
     );
-    const text = out.join("\n").trim();
-    return {
-      exitCode: code,
-      stderr: err.join("\n"),
-      ...(text.startsWith("{") ? { record: JSON.parse(text) as OutputRecord } : {}),
-    };
+    const record = runRecordOf(out.join("\n"));
+    return { exitCode: code, stderr: err.join("\n"), ...(record ? { record } : {}) };
   };
   const quickCheck = await awf(["--sandbox", spec, "--json", QUICK_CHECK, "--", "codex"]);
   const ownSandbox = await awf(["--sandbox", spec, SANDBOXES]);
@@ -296,12 +295,11 @@ export default defineReviewVariant({
   const unopenable = await awf(["--sandbox", unopenableSpec, "--json", QUICK_CHECK, "--", "codex"]);
   const evidence: Evidence = {
     provider,
-    lab: {
+    probe: {
       exitCode,
-      log: log.join("\n"),
-      ...(trial ? { trial } : {}),
+      log: err.join("\n"),
       ...(record ? { record } : {}),
-      keyOnHost,
+      keyOnHost: existsSync(key),
       transcripts,
       executions: executionsOf(transcripts),
     },
@@ -321,7 +319,20 @@ export default defineReviewVariant({
   const estimate =
     (record?.accounting.totals.estimate ?? 0) +
     (quickCheck.record?.accounting.totals.estimate ?? 0);
-  return { evidence, estimate, artifacts: [ws.root, dir] };
+  return { evidence, estimate, artifacts: [top, dir] };
+}
+
+/** The run record `awf run --json` printed; a run that never started prints a refusal instead. */
+function runRecordOf(printed: string): OutputRecord | undefined {
+  const text = printed.trim();
+  if (!text.startsWith("{")) return undefined;
+  const value = JSON.parse(text) as Partial<OutputRecord>;
+  return "outcome" in value ? (value as OutputRecord) : undefined;
+}
+
+function git(cwd: string, ...args: string[]): void {
+  const done = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  if (done.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${done.stderr.toString()}`);
 }
 
 function outputs(runs: string): number {

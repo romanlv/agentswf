@@ -7,10 +7,10 @@ import Type from "typebox";
  * each check of the kept code on the holdout. The code itself is `start/` and `tries/{n}/code/`.
  */
 
-export const LOOP_KIND = "awf.case-loop/0";
-export const TRY_KIND = "awf.case-try/0";
-export const PROPOSAL_KIND = "awf.case-proposal/0";
-export const FINAL_KIND = "awf.case-final/0";
+export const LOOP_KIND = "awf.case-loop/1";
+export const TRY_KIND = "awf.case-try/1";
+export const PROPOSAL_KIND = "awf.case-proposal/1";
+export const FINAL_KIND = "awf.case-final/1";
 
 const Text = Type.String({ minLength: 1 });
 const Usd = Type.Number({ minimum: 0 });

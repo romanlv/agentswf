@@ -53,7 +53,7 @@ function project(cases: Record<string, CaseSpec>, dataset: object = {}) {
   const evals = join(root, "evals");
   const ds = join(evals, "ds");
   mkdirSync(ds, { recursive: true });
-  writeFileSync(join(evals, "awf-lab.json"), JSON.stringify({ kind: "awf.lab-workspace/0" }));
+  writeFileSync(join(evals, "awf-lab.json"), JSON.stringify({ kind: "awf.lab-workspace/1" }));
   writeFileSync(
     join(ds, "dataset.json"),
     JSON.stringify({
@@ -652,7 +652,7 @@ describe("the code folder", () => {
     renameSync(where.evals, join(app, "evals"));
     writeFileSync(
       join(app, "evals", "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", store: "../../runs" }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", store: "../../runs" }),
     );
     const { code, err } = await lab({ ...where, root: app }, ["run", "--yes"], {
       runner: scripted({}).runner,
@@ -736,6 +736,56 @@ describe("the checks of a folder before the first trial: exit 2", () => {
 });
 
 describe("refusals before any trial: exit 2", () => {
+  test("a /0 workspace or one of the review kind is refused by name, never converted", async () => {
+    const cases: [object, string][] = [
+      [
+        { kind: "awf.lab-workspace/0" },
+        'awf.lab-workspace/0 is retired; make it "kind": "awf.lab-workspace/1"',
+      ],
+      [
+        { datasets: "datasets", variants: ["v/*.ts"] },
+        "is the review kind's (datasets, variants), which is retired",
+      ],
+      [{}, 'needs "kind": "awf.lab-workspace/1"'],
+      [{ kind: "awf.lab-workspace/1", clones: "x" }, "clones"],
+    ];
+    for (const [config, said] of cases) {
+      const where = project({ a: {} });
+      writeFileSync(join(where.evals, "awf-lab.json"), JSON.stringify(config));
+      const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+      expect(code).toBe(2);
+      expect(err).toContain(said);
+    }
+  });
+
+  test("the older lab's commands and flags are refused with what replaced them", async () => {
+    const where = project({ a: {} });
+    const cases: [string[], string][] = [
+      [["show", "x"], "show went with the older lab: report --case {case}"],
+      [["list"], "list went with the older lab: runs"],
+      [["check"], "check went with the older lab, and nothing replaced it"],
+      [["schema"], "schema went with the older lab, and nothing replaced it"],
+      [["score", "--scorer", "m"], "--scorer went with the older lab: score --grader {name}"],
+      [["run", "--baseline", "x"], "--baseline went with the older lab: the reference column"],
+      [["run", "--comparison", "x"], "compare in the dataset's graders.ts"],
+      [["score", "--rest-from", "x"], "a grader's previous parts"],
+      [["report", "--categories", "x"], "the grader's numbers"],
+      [["loop", "l", "--source", "x"], "the loop's scope check"],
+      [["score", "--rescore", "x"], "--rescore went with the older lab, and nothing replaced it"],
+      [["run", "--only", "x"], "--only went with the older lab"],
+      [["run", "--where", "x"], "--where went with the older lab"],
+      [["run", "--allowance", "80"], "--allowance is the loop's: loop {name} --allowance"],
+      [["score", "--allowance", "off"], "--allowance is the loop's"],
+    ];
+    const fake = scripted({});
+    for (const [argv, said] of cases) {
+      const { code, err } = await lab(where, argv, { runner: fake.runner });
+      expect(code).toBe(2);
+      expect(err).toContain(said);
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
+
   test("graders a dataset can't have: no graders.ts, a missing export or workflow, the lab's own names", async () => {
     const cases: [unknown[], string][] = [
       [["accuracy"], "has no graders.ts"],
@@ -1461,7 +1511,7 @@ describe("the criteria judge, through the command line", () => {
     });
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", judgeAgent: JUDGE }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", judgeAgent: JUDGE }),
     );
     return where;
   }
@@ -1643,7 +1693,7 @@ describe("the criteria judge, through the command line", () => {
     const other = { harness: "codex", model: "gpt-6-luna" };
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", judgeAgent: other }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", judgeAgent: other }),
     );
     expect((await lab(where, ["report"])).out).toContain("1 grade out of date");
     await lab(where, ["score", "--yes"], { runner: fake.runner });
@@ -1665,7 +1715,9 @@ test("a run whose records don't read is left out of history and named by runs, n
   const again = await lab(where, ["run", "--yes"], { runner: fake.runner });
   expect(again.code).toBe(0);
   const listed = await lab(where, ["runs"]);
-  expect(listed.out).toContain("records don't read (scores.jsonl:");
+  expect(listed.out).toContain(
+    "records don't read (scores.jsonl: kind: awf.case-score/0 is from before the lab's records were /1",
+  );
   expect(listed.out).toContain("left out of history");
   expect(again.out).toContain("history leaves out 1 earlier run whose records don't read");
 });
@@ -2271,7 +2323,7 @@ describe("one store per project, run ids, and records to commit", () => {
     const where = project({ a: {} });
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", records: "records" }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", records: "records" }),
     );
     await lab(where, ["run", "--yes", "--trials", "2"], { runner: scripted({}).runner });
     const id = nthRun(storeOf(where), 1);
@@ -2334,7 +2386,7 @@ describe("one store per project, run ids, and records to commit", () => {
     const where = project({ a: {} });
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", records: "../outside" }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", records: "../outside" }),
     );
     const { code, err } = await lab(where, ["runs"]);
     expect(code).toBe(2);
@@ -2346,7 +2398,7 @@ describe("one store per project, run ids, and records to commit", () => {
     for (const path of ["../elsewhere", "/etc", "."]) {
       writeFileSync(
         join(where.evals, "awf-lab.json"),
-        JSON.stringify({ kind: "awf.lab-workspace/0", hide: [path] }),
+        JSON.stringify({ kind: "awf.lab-workspace/1", hide: [path] }),
       );
       const { code, err } = await lab(where, ["runs"]);
       expect(code).toBe(2);
@@ -2510,7 +2562,7 @@ describe("the person's labels", () => {
     const where = project({ a: {} });
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", records: "records" }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", records: "records" }),
     );
     await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
     const id = runIdOf(where, 1, "a");
@@ -2856,7 +2908,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     writeFileSync(join(where.root, "old-keys", "key.json"), "{}\n");
     writeFileSync(
       join(where.evals, "awf-lab.json"),
-      JSON.stringify({ kind: "awf.lab-workspace/0", hide: ["old-keys"] }),
+      JSON.stringify({ kind: "awf.lab-workspace/1", hide: ["old-keys"] }),
     );
     writeFileSync(join(where.root, ".gitignore"), "node_modules/\n");
     mkdirSync(join(where.root, "node_modules", "agentswf"), { recursive: true });

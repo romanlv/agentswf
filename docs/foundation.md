@@ -313,7 +313,7 @@ nothing; a feature arriving with nowhere to go does.
 | checkpoints and human approval | an `engine` admission barrier, not a signal | a person answers over routes as a participant (story 032); a barrier that stops dispatch is not built |
 | durable runs and events | `engine`, records in `contract` | built: stages and continue (ADR 0011), events, parking and timers (stories 034, 037) |
 | evals | `*.eval.ts` + a reporter | regression checks, not a system |
-| autoresearch | `packages/lab`, as a consumer of the engine — see below | the general tools here, a project's variants and fixtures in its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
+| autoresearch | `packages/lab`, as a consumer of the engine — see below | the general tools here, a project's cases in its `evals/` or its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
 | observability | shapes in `contract`, extraction in `harness` | the run's event log and `awf logs` (story 028); section 8 |
 | context usage | `harness`, beside liveness and usage | per-harness reading, same shape as usage ([[context-size]]) |
 | fast typed decisions | questions, answers and the record in `contract`; providers in `engine/src/decisions/` | built: a decision is not an agent, one stateless request recorded and costed apart ([story 006](stories/006-typed-decisions.md)) |
@@ -380,11 +380,11 @@ something a workflow author writes once.
 **Evals** answer "does this still work": `*.eval.ts` files, a reporter, a summary. No package.
 
 **Autoresearch** answers "which combination is better, faster or cheaper" — searching over workflow
-design, models, harnesses, tools and skills. Its core is comparison: fixtures with known answers, a
-scorer, and a comparison of variants with their spread. Whoever proposes the variant, a person or
+design, models, harnesses, tools and skills. Its core is comparison: cases with known answers,
+graders, and a comparison of two versions with their spread. Whoever proposes the variant, a person or
 an agent in a loop, uses the same comparison ([ADR 0002](adr/0002-autoresearch-lives-here.md)). Its
-general tools live in `packages/lab`, a project's variants and fixtures in that project's own
-repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of
+general tools live in `packages/lab`, a project's cases in that project's own `evals/`, or its own
+repository when they are private ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of
 the engine: it has a different lifecycle and a different failure mode, and it reaches the engine
 only through `awf run` and the run record, as any outside caller would.
 

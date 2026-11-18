@@ -30,9 +30,9 @@ Notes:
     become shared; `startWorkflow` and `WorkflowOwner` stay, about 1,000 lines. `LogicalAgent.run`
     and `compact` repeat about 40 lines of admission (closed and scope checks, idempotent replay,
     queueing, progress, tracking) that one helper could hold.
-  - `packages/lab/src/review/lab/cli.ts` (1,687; 1,720 on 2026-11-02): argument parsing and usage; resolving subjects
-    and selections; then one file per command (run and score, run against a baseline, loop, report,
-    show, check, list), `list`'s rendering beside `renderCheck` and `renderShow`.
+  - `packages/lab/src/cases/lab/cli.ts` (1,903 on 2026-11-18; the review kind's, 1,720, was retired
+    by story 044): argument parsing and usage; then one file per command (run, score, report,
+    capture, label, runs), as `loop-command.ts` already is.
   - `packages/harness/src/adapters/herdr.ts` (1,141): `createHerdrCommands` with `startAgent`,
     `adoptAgent`, `typeInto` → `herdr-commands.ts`; `compactInPane` and `paneOutcome` beside them.
     Story 026 moved placement out to `herdr-layout.ts` (691) and grew the file to 1,693, the pane's

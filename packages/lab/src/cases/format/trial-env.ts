@@ -24,7 +24,7 @@ export const TRIAL_ENV = {
 
 /** The files of a grade folder, as the lab writes them and `gradeCase()` reads them. */
 export const GRADE_FILES = {
-  /** `grade.json`, `kind: awf.case-grade/0`. */
+  /** `grade.json`, `kind: awf.case-grade/1`. */
   grade: "grade.json",
   /** The built case folder. */
   case: "case",

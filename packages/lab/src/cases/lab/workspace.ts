@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { Agent } from "../../shared/config";
-import { WORKSPACE_KIND } from "../../shared/config";
 import { readConfigFile } from "../../shared/config-file";
 import { discoverDatasets } from "./dataset";
 import { gitTop, projectOf } from "./git";
@@ -43,14 +42,11 @@ export function inside(dir: string, target: string): boolean {
 }
 
 export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
-  let common: ReturnType<typeof readConfigFile>["common"];
+  let common: ReturnType<typeof readConfigFile>;
   try {
-    common = readConfigFile(config).common;
+    common = readConfigFile(config);
   } catch (error) {
     throw new Refusal((error as Error).message);
-  }
-  if (common.kind !== WORKSPACE_KIND) {
-    throw new Refusal(`${config} needs "kind": "${WORKSPACE_KIND}" for datasets of cases`);
   }
   const evals = realpathSync(dirname(config));
   const repository = gitTop(evals);

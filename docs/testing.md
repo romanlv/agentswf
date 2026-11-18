@@ -3,7 +3,7 @@
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
 the run's own accounting. Every live check here runs on subscription logins, and the estimate is
 what the same tokens would cost metered, a proxy for the quota used, with one exception: claude
-headless, which `sandbox-srt`, `sandbox-docker`, `compaction`, `effort` and `review-judge` run, is billed per
+headless, which `sandbox-srt`, `sandbox-docker`, `compaction` and `effort` run, is billed per
 token even on a subscription (E3), so its share of those evals is money.
 
 ## Levels
@@ -183,21 +183,13 @@ What they cover between them:
   `tests/skills-eval.test.ts` checks these checks for free. 6 agents, ~40 s, ~$0.08, on
   subscriptions; srt must be installed, and the sandboxed cursor needs `CURSOR_API_KEY`, from the
   environment or `.env`.
-- `review-judge` — the panel judge (story 008; since story 011 match first with nothing settled, which
-  `match-first` scorers can also run as `--sure 1`) through `awf run`, on a synthetic fixture: a
-  two-file change with two planted issues, a hand-written key, and six findings with known labels.
-  The judgement must pass `checkScorerResult` and hit both planted issues; how many of the six labels
-  match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna
-  and claude sonnet judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
-  $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token
-  ([`billing-provenance`](stories/todo/billing-provenance.md)). Three runs,
-  2026-09-27: 5/6 labels, κ 0.80.
-- `run-sandbox` and `run-sandbox-docker` — `awf run --sandbox` (story 010). awf-lab runs a probe
-  variant on a synthetic case, in the workspace's sandbox: two codex agents that name no sandbox,
-  a prober on gpt-5.6-sol running fixed commands and a reader on luna. Both must be in the run's one
-  sandbox. Read from codex's transcripts, not the agents' reports: the request and `git diff
-  origin/main...HEAD` must be readable, and the case's key, the clone, `~`, GitLab and writing the
-  checkout refused, the key's text in no transcript. Then under
+- `run-sandbox` and `run-sandbox-docker` — `awf run --sandbox` (story 010). A probe on a synthetic
+  change, a checkout on its branch with its request beside it, under a run sandbox that reads the
+  request: two codex agents that name no sandbox, a prober on gpt-5.6-sol running fixed commands
+  and a reader on luna. Both must be in the run's one sandbox. Read from codex's transcripts, not
+  the agents' reports: the request and `git diff origin/main...HEAD` must be readable, and the
+  change's key, the clone, `~`, GitLab and writing the checkout refused, the key's text in no
+  transcript. Then under
   a run sandbox: quick-check must run unchanged, the `sandboxes` example must be refused for opening
   its own, and a spec that can't open must end the run before it starts, leaving no record.
   `tests/run-sandbox.test.ts` checks these checks for free. 3 agents; srt ~1 min, ~$0.05–0.17;
@@ -219,8 +211,7 @@ Not covered live, on purpose:
 - claude headless outside a sandbox, beyond what a feature needs: it is billed per token even on a
   subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
   `compaction` and `effort` run it, as a headless claude's compaction and settings are what they
-  check; and `review-judge` runs it, as
-  the panel runs its judges headless.
+  check.
 - Combinatorial deadline, admission, check-in and cleanup races stay in deterministic offline
   tests. `turn-liveness` exercises their provider integration; it does not replace fake-clock
   coverage or establish every provider's receipt/cleanup behavior.
@@ -262,7 +253,7 @@ as story 002 did to check accounting against the session files.
   harness's sandbox needs, or the engine's sandboxes; `skills` for `engine/src/skills`,
   `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
-  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `lab-cases` for
+  `run-sandbox` for `awf run --sandbox`; `lab-cases` for
   `packages/lab/src/cases/env` or how a case's trial is started; `effort` for effort, `agent.set`
   or a harness's settings flags; `tools` for workflow tools, the
   lesson, flags on `wfa tool` or `wfa result`, or a harness's shell limits; `calling-session` for

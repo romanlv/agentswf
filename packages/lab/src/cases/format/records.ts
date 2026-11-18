@@ -3,14 +3,23 @@ import { SEMVER } from "../../shared/version";
 import { AgentReachSchema, AgentSchema, FactSchema } from "./settings";
 import { DATASET_ERRORS, RefusedSchema } from "./trial-file";
 
-// The records the lab writes in its store, `/0` until reviews move onto this kind: a run, a trial
-// and a score. Each is checked against its schema before it is written and when it is read.
+// The records the lab writes in its store: a run, a trial, a score and a label; and the grade
+// folder's `grade.json`. Each is checked against its schema before it is written and when it is
+// read. A `/0` one, from before reviews moved onto cases, is named and left out, never converted.
 
-export const RUN_KIND = "awf.case-run/0";
-export const TRIAL_KIND = "awf.case-trial/0";
-export const SCORE_KIND = "awf.case-score/0";
-export const GRADE_KIND = "awf.case-grade/0";
-export const LABEL_KIND = "awf.case-label/0";
+export const RUN_KIND = "awf.case-run/1";
+export const TRIAL_KIND = "awf.case-trial/1";
+export const SCORE_KIND = "awf.case-score/1";
+export const GRADE_KIND = "awf.case-grade/1";
+export const LABEL_KIND = "awf.case-label/1";
+
+/** Why a record of a retired `/0` kind is not read; undefined for any other value. */
+export function retiredRecord(file: string, value: unknown): string | undefined {
+  const kind = (value as { kind?: unknown } | null)?.kind;
+  return typeof kind === "string" && /^awf\.case-[a-z]+\/0$/.test(kind)
+    ? `${file} is not valid:\n  kind: ${kind} is from before the lab's records were /1; left out, never converted`
+    : undefined;
+}
 
 const Text = Type.String({ minLength: 1 });
 const Time = Type.String({ format: "date-time" });

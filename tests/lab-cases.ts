@@ -70,7 +70,7 @@ const FILES: Record<string, string> = {
     "});",
     "",
   ].join("\n"),
-  "evals/awf-lab.json": JSON.stringify({ kind: "awf.lab-workspace/0" }),
+  "evals/awf-lab.json": JSON.stringify({ kind: "awf.lab-workspace/1" }),
   "evals/lookup/dataset.json": JSON.stringify({
     kind: "awf.case-dataset/0",
     sandbox: "workflow",

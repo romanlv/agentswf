@@ -6,13 +6,13 @@ import type { StoredTrial } from "./store";
 
 const label = (runId: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
   runId,
-  { kind: "awf.case-label/0", runId, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
+  { kind: "awf.case-label/1", runId, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
 ];
 const trial = (runId: string, extra: object, entries: object[]): StoredTrial =>
   ({
     dir: "",
     record: { runId, case: "a", column: 0, trial: 1, refused: [], ms: 1000, ...extra },
-    scores: [{ kind: "awf.case-score/0", at: "2026-11-17T00:00:00.000Z", entries }],
+    scores: [{ kind: "awf.case-score/1", at: "2026-11-17T00:00:00.000Z", entries }],
   }) as never;
 const passed = { grader: "expect", key: "0".repeat(64), reasons: [], verdict: "passed" };
 
