@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -8,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
 import type { Params, TrialRecord } from "../format/records";
@@ -16,13 +16,14 @@ import { type CaseInfo, folderDigest } from "./dataset";
 import { buildCase } from "./folders";
 import { trialOutcome } from "./outcome";
 import {
+  REUSED_FILE,
   readRunRecord,
   readTrials,
   runIds,
   type StoredTrial,
+  type TrialRef,
   trialDirOf,
   UnreadableRecord,
-  writeTrial,
 } from "./store";
 import type { CaseWorkspace } from "./workspace";
 
@@ -160,17 +161,17 @@ export function reusableTrials(
     for (const trial of trials.sort((a, b) => b.record.at.localeCompare(a.record.at))) {
       const { record } = trial;
       if (!reusable(record, now, days) || seen.has(record.runId!)) continue;
+      seen.add(record.runId!);
       // A trial the lab couldn't grade for its own reasons is run again rather than kept.
       if (trialOutcome(record, trial.scores).outcome === "errored") continue;
-      seen.add(record.runId!);
       byKey.set(record.reuse!, [...(byKey.get(record.reuse!) ?? []), trial]);
     }
   }
   return byKey;
 }
 
-/** Copies a stored trial into a run, as that run's trial, with its scores and kept files. */
-export function copyTrial(
+/** Puts a stored trial in a run as that run's trial: a pointer to where it ran, never a copy. */
+export function reuseTrial(
   store: string,
   run: string,
   from: StoredTrial,
@@ -179,18 +180,12 @@ export function copyTrial(
 ): void {
   const dir = trialDirOf(store, run, from.record.case, column, trial);
   mkdirSync(dir, { recursive: true });
-  writeTrial(dir, {
-    ...from.record,
-    run,
-    column,
-    trial,
-    reused: from.record.reused ?? { run: from.record.run, trial: from.record.trial },
-  });
-  for (const name of ["scores.jsonl", "trial.jsonl", "kept"]) {
-    if (existsSync(join(from.dir, name))) {
-      cpSync(join(from.dir, name), join(dir, name), { recursive: true });
-    }
-  }
+  const ref: TrialRef = from.record.reused ?? {
+    run: from.record.run,
+    column: from.record.column,
+    trial: from.record.trial,
+  };
+  writeFileSync(join(dir, REUSED_FILE), `${JSON.stringify(ref)}\n`);
 }
 
 /** Each case built once, as a trial would see it, for its digest. */

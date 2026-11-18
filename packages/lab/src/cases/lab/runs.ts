@@ -49,7 +49,8 @@ function verdictsOf(
   const verdicts = new Map<string, CaseVerdict | undefined>();
   for (const { case: name } of run.asked) {
     const own = trials.filter((t) => t.record.case === name && t.record.column === column);
-    if (own.length === 0) continue;
+    // A run that only reused trials adds nothing new: its verdict was given where they ran.
+    if (own.length === 0 || own.every((t) => t.record.reused)) continue;
     const deciders = bars.get(name)?.deciders;
     const outcomes = own.map((t) => trialOutcome(t.record, t.scores, deciders).outcome);
     verdicts.set(

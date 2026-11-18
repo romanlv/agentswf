@@ -22,6 +22,7 @@ export function comparedTrial(
   const numbers: Record<string, number> = {};
   for (const entry of newestEntries(scores)) {
     if (entry.skipped || entry.errored) continue;
+    if (deciders && !deciders.has(entry.grader)) continue;
     for (const [name, number] of Object.entries(entry.numbers ?? {})) {
       if ("value" in number) numbers[`${entry.grader}.${name}`] = number.value;
       else if (number.of > 0) numbers[`${entry.grader}.${name}`] = number.count / number.of;

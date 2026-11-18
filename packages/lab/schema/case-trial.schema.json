@@ -62,11 +62,15 @@
     },
     "reused": {
       "type": "object",
-      "required": ["run", "trial"],
+      "required": ["run", "column", "trial"],
       "properties": {
         "run": {
           "type": "string",
           "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
         },
         "trial": {
           "type": "integer",

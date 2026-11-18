@@ -44,18 +44,11 @@ import { buildCase, clearStale } from "./folders";
 import { gitState, gitTop } from "./git";
 import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
-import {
-  agreementOf,
-  appendLabel,
-  judgeLabeled,
-  mergeLabels,
-  type PersonAgreement,
-  readLabels,
-} from "./labels";
+import { agreementOf, appendLabel, judgeLabeled, type PersonAgreement, readLabels } from "./labels";
 import { type CaseRow, newestEntries, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
 import { pairedDifference, ratesOf } from "./rates";
-import { readRecords, writeRecords } from "./record-copies";
+import { readRecords, writeLabels, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import {
   describeFolder,
@@ -71,10 +64,10 @@ import {
 import {
   caseDigests,
   codeDigest,
-  copyTrial,
   REUSE_DAYS,
   reusableTrials,
   reuseKey,
+  reuseTrial,
   trialShaping,
 } from "./reuse";
 import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf, unreadableRuns } from "./runs";
@@ -449,7 +442,7 @@ function estimate(
       throw error;
     }
     for (const { record: trial, scores } of trials) {
-      if (!names.includes(trial.case) || !trial.runId) continue;
+      if (!names.includes(trial.case) || !trial.runId || trial.reused) continue;
       if (trialOutcome(trial, scores).outcome === "errored") continue;
       // The grading the trial was given as it ran, its first score: a judge can cost far more
       // than the workflow it judges.
@@ -527,7 +520,8 @@ async function run(context: Context): Promise<number> {
   const columns = columnsOf(codeFolders.length, combos);
 
   // Trials that ran before on what shapes a trial now, kept within reuseDays, stand in for new ones.
-  const days = options.fresh ? 0 : (info.dataset.reuseDays ?? REUSE_DAYS);
+  // --failed asks for new evidence on what failed: the trials that failed are never its answer.
+  const days = options.fresh || options.failed ? 0 : (info.dataset.reuseDays ?? REUSE_DAYS);
   const codes = codeFolders.map((c) =>
     days > 0 ? codeDigest(c.folder.root, workspace) : undefined,
   );
@@ -542,16 +536,37 @@ async function run(context: Context): Promise<number> {
   const stored = days > 0 ? reusableTrials(workspace.store, info.name, now(), days) : new Map();
   const reusing = new Map<string, StoredTrial[]>();
   const slot = (name: string, n: number) => `${name}\0${n}`;
+  // One workflow run stands for one trial of one column: two columns that shape trials alike,
+  // such as a clone at the same commit, each get trials of their own, or the pair is no check.
+  const taken = new Set<string>();
   for (const c of selected) {
     for (const n of columns.keys()) {
       const key = keyOf(n, inputs.get(c.name)!);
       const found = key
-        ? (stored.get(key) ?? []).filter((t: StoredTrial) => t.record.case === c.name)
+        ? (stored.get(key) ?? []).filter(
+            (t: StoredTrial) => t.record.case === c.name && !taken.has(t.record.runId!),
+          )
         : [];
-      if (found.length > 0) reusing.set(slot(c.name, n), found.slice(0, trialsOf(c.name)));
+      const chosen = found.slice(0, trialsOf(c.name));
+      for (const t of chosen) taken.add(t.record.runId!);
+      if (chosen.length > 0) reusing.set(slot(c.name, n), chosen);
     }
   }
   const reused = [...reusing.values()].reduce((sum, list) => sum + list.length, 0);
+  const tmp = realpathSync(environment.tmp ?? tmpdir());
+  const regrade =
+    reused > 0
+      ? planScore({
+          trials: [...reusing.values()].flat(),
+          store: workspace.store,
+          datasetDir: info.dir,
+          cases,
+          graders: graders.filter((g) => !g.onDemand),
+          decidersOf: (c) => decidersOf(c.key, graders),
+          expect: true,
+          tmp,
+        })
+      : undefined;
   const reusedIn = (name: string, n: number) => reusing.get(slot(name, n))?.length ?? 0;
 
   const total = selected.reduce((n, c) => n + trialsOf(c.name), 0);
@@ -566,6 +581,11 @@ async function run(context: Context): Promise<number> {
     ...(reused > 0
       ? [
           `reuses ${reused} of ${plural(total * columns.length, "trial")}: nothing that shaped them changed; --fresh runs new ones`,
+        ]
+      : []),
+    ...(regrade && regrade.items.length > 0
+      ? [
+          `grades ${plural(regrade.items.length, "reused trial")} again, a key or grader changed${regrade.estimate !== undefined ? `: est. ${dollars(regrade.estimate)}${regrade.upTo !== undefined && regrade.upTo > regrade.estimate ? `, up to ${dollars(regrade.upTo)}` : ""}` : ""}`,
         ]
       : []),
     ...[
@@ -583,7 +603,7 @@ async function run(context: Context): Promise<number> {
   }
   const withBudget =
     options.budget !== undefined
-      ? `${plan}\nstops starting trials once their estimates reach $${options.budget.toFixed(2)}`
+      ? `${plan}\nstops starting trials once their estimates reach ${dollars(options.budget)}`
       : plan;
   const confirm =
     environment.confirm ??
@@ -614,7 +634,6 @@ async function run(context: Context): Promise<number> {
       started: now().toISOString(),
     };
     writeRun(workspace.store, record);
-    const tmp = realpathSync(environment.tmp ?? tmpdir());
     clearStale(tmp);
     clearStaleTrialFiles(workspace.labHome);
     const lab: TrialLab = {
@@ -650,7 +669,22 @@ async function run(context: Context): Promise<number> {
     try {
       for (const [at, list] of reusing) {
         const n = Number(at.split("\0")[1]);
-        for (const [i, from] of list.entries()) copyTrial(workspace.store, id, from, n, i + 1);
+        for (const [i, from] of list.entries()) reuseTrial(workspace.store, id, from, n, i + 1);
+      }
+      if (regrade && regrade.items.length > 0) {
+        const done = await gradeReused(
+          context,
+          workspace,
+          info,
+          cases,
+          graders,
+          id,
+          tmp,
+          now,
+          options.budget,
+        );
+        estimated += done.estimate;
+        if (done.stopped) record = { ...record, stopped: "budget" };
       }
       for (let trial = 1; trial <= most; trial++) {
         const again: [CaseInfo, number][] = [];
@@ -668,7 +702,10 @@ async function run(context: Context): Promise<number> {
           }
         }
         for (const [info, n] of again) {
-          if (over()) break;
+          if (over()) {
+            record = { ...record, stopped: "budget" };
+            break;
+          }
           const done = await trialIn(n, info, trial);
           counted(done);
           const retried = { ...done.record, retried: true };
@@ -676,7 +713,6 @@ async function run(context: Context): Promise<number> {
           shown({ ...done, record: retried });
         }
       }
-      if (reused > 0) await gradeReused(context, workspace, info, cases, graders, id, tmp, now);
     } catch (error) {
       record = { ...record, broke: (error as Error).message };
       writeRun(workspace.store, record);
@@ -741,7 +777,8 @@ async function gradeReused(
   run: string,
   tmp: string,
   now: () => Date,
-): Promise<void> {
+  budget: number | undefined,
+): Promise<ScoreDone> {
   const trials = readTrials(workspace.store, run).filter((t) => t.record.reused);
   const plan = planScore({
     trials,
@@ -753,20 +790,26 @@ async function gradeReused(
     expect: true,
     tmp,
   });
-  if (plan.items.length === 0) return;
+  if (plan.items.length === 0) {
+    return { graded: new Map(), errored: new Map(), estimate: 0, stopped: false };
+  }
   context.stderr(
     `grading ${plural(plan.items.length, "reused trial")} again: a key or grader changed`,
   );
-  await runScore({
+  return runScore({
     plan,
     tmp,
     run,
     store: workspace.store,
     env: definedOf(withoutCallingSession(context.environment.env ?? process.env)),
+    ...(budget !== undefined ? { budget } : {}),
     now,
     progress: context.stderr,
   });
 }
+
+/** Dollars as a plan says them: cents, or four places below a cent. */
+const dollars = (usd: number) => `$${usd >= 0.01 || usd === 0 ? usd.toFixed(2) : usd.toFixed(4)}`;
 
 /**
  * The person's labels on a run's trials and how the lab agrees with them, and how many labeled
@@ -992,7 +1035,16 @@ function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: st
   const ids = runIds(workspace.store);
   const given = names[0];
   if (given === undefined) {
-    const newest = ids.at(-1);
+    // The store is the project's: another worktree's newest run is not the one you mean.
+    const yours = ids.filter((id) => {
+      try {
+        return readRunRecord(workspace.store, id)?.folders[0]?.path === workspace.root;
+      } catch (error) {
+        if (error instanceof UnreadableRecord) return false;
+        throw error;
+      }
+    });
+    const newest = yours.at(-1) ?? ids.at(-1);
     if (newest === undefined) {
       throw new Refusal(`no runs in ${workspace.store} yet; awf-lab run makes one`);
     }
@@ -1491,7 +1543,13 @@ async function captureLocked(
       `from trial ${trial.record.trial} of case ${trial.record.case} in run ${trial.record.run}`,
     );
     // The case says what a good result is; the trial it came from keeps the person's verdict.
-    labelTrial(workspace, trial, mark.mark, mark.mark === "needs-work" ? mark.note : undefined);
+    labelTrial(
+      workspace,
+      trial,
+      mark.mark,
+      mark.mark === "needs-work" ? mark.note : undefined,
+      context.environment.now ?? (() => new Date()),
+    );
     if (folderDigestOfCase(info, trial.record.case) !== trial.record.input) {
       context.stderr(
         `note: case ${trial.record.case} changed since that trial ran; its files were copied as they are now`,
@@ -1584,7 +1642,13 @@ function label(context: Context, names: readonly string[]): number {
     );
   }
   const mark = options.good ? "good" : options.clear ? "cleared" : "needs-work";
-  labelTrial(workspace, trial, mark, options.needsWork);
+  labelTrial(
+    workspace,
+    trial,
+    mark,
+    options.needsWork,
+    context.environment.now ?? (() => new Date()),
+  );
   const { record } = trial;
   context.stdout(
     mark === "cleared"
@@ -1599,16 +1663,17 @@ function labelTrial(
   trial: StoredTrial,
   mark: LabelMark,
   note: string | undefined,
+  now: () => Date,
 ): void {
   appendLabel(workspace.store, trial.record.dataset, {
     kind: LABEL_KIND,
-    trial: trial.record.runId!,
+    runId: trial.record.runId!,
     case: trial.record.case,
     mark,
     ...(note ? { note } : {}),
-    at: new Date().toISOString(),
+    at: now().toISOString(),
   });
-  if (workspace.records) mergeLabels(workspace.store, workspace.records);
+  if (workspace.records) writeLabels(workspace.store, workspace.records);
 }
 
 function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {

@@ -30,6 +30,10 @@ import {
 export const RUN_FILE = "run.json";
 export const TRIAL_FILE = "trial.json";
 export const SCORES_FILE = "scores.jsonl";
+/** In a run's trial folder in place of `trial.json`: the trial it reuses, where that one ran. */
+export const REUSED_FILE = "reused.json";
+
+export type TrialRef = { run: string; column: number; trial: number };
 
 export const awfRunsOf = (store: string) => join(store, "awf-runs");
 export const runDirOf = (store: string, id: string) => join(store, "runs", id);
@@ -257,6 +261,26 @@ export function appendScore(dir: string, score: ScoreRecord): void {
 export type StoredTrial = { dir: string; record: TrialRecord; scores: ScoreRecord[] };
 
 /** A run's trials, each with its scores, newest last. */
+function readSlot(dir: string): Omit<StoredTrial, "dir"> | undefined {
+  const file = join(dir, TRIAL_FILE);
+  if (!existsSync(file)) return undefined;
+  const record = checked(file, checkSchema(TrialRecordSchema, readJson(file)));
+  const scoresFile = join(dir, SCORES_FILE);
+  const scores = existsSync(scoresFile)
+    ? readFileSync(scoresFile, "utf8")
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) =>
+          checked(scoresFile, checkSchema(ScoreRecordSchema, parseJson(scoresFile, line))),
+        )
+    : [];
+  return { record, scores };
+}
+
+/**
+ * A run's trials, each with its scores, newest last. A reused trial is read where it ran, so its
+ * grades are one list however many runs reuse it, and shown as this run's, marked `reused`.
+ */
 export function readTrials(store: string, id: string): StoredTrial[] {
   const root = join(runDirOf(store, id), "trials");
   if (!existsSync(root)) return [];
@@ -264,19 +288,22 @@ export function readTrials(store: string, id: string): StoredTrial[] {
   for (const name of readdirSync(root).sort()) {
     for (const slot of readdirSync(join(root, name)).sort()) {
       const dir = join(root, name, slot);
-      const file = join(dir, TRIAL_FILE);
-      if (!existsSync(file)) continue;
-      const record = checked(file, checkSchema(TrialRecordSchema, readJson(file)));
-      const scoresFile = join(dir, SCORES_FILE);
-      const scores = existsSync(scoresFile)
-        ? readFileSync(scoresFile, "utf8")
-            .split("\n")
-            .filter((line) => line.trim() !== "")
-            .map((line) =>
-              checked(scoresFile, checkSchema(ScoreRecordSchema, parseJson(scoresFile, line))),
-            )
-        : [];
-      found.push({ dir, record, scores });
+      const pointer = join(dir, REUSED_FILE);
+      if (existsSync(pointer)) {
+        const ref = readJson(pointer) as TrialRef;
+        const at = trialDirOf(store, ref.run, name, ref.column, ref.trial);
+        const ran = readSlot(at);
+        if (!ran) continue; // the run it reuses is gone from this store
+        const [column, trial] = slot.split("-").map(Number) as [number, number];
+        found.push({
+          dir: at,
+          record: { ...ran.record, run: id, column, trial, reused: ref },
+          scores: ran.scores,
+        });
+        continue;
+      }
+      const ran = readSlot(dir);
+      if (ran) found.push({ dir, ...ran });
     }
   }
   return found.sort((a, b) => a.record.trial - b.record.trial || a.record.column - b.record.column);

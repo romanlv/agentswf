@@ -156,10 +156,17 @@ export const TrialRecordSchema = Type.Object(
      * settings, and the awf and lab it ran on. Absent outside git: never reused.
      */
     reuse: Type.Optional(Digest),
-    /** A copy of a trial that ran in an earlier run, reused as nothing that shaped it changed. */
+    /**
+     * Set when read through a later run that reused this trial: where it ran. Never written: the
+     * later run's folder holds `reused.json`, a pointer, and the trial's grades stay where it ran.
+     */
     reused: Type.Optional(
       Type.Object(
-        { run: RunId, trial: Type.Integer({ minimum: 1 }) },
+        {
+          run: RunId,
+          column: Type.Integer({ minimum: 0 }),
+          trial: Type.Integer({ minimum: 1 }),
+        },
         { additionalProperties: false },
       ),
     ),
@@ -342,8 +349,8 @@ export type Mark = (typeof MARKS)[number];
 export const LabelRecordSchema = Type.Object(
   {
     kind: Type.Literal(LABEL_KIND),
-    /** The trial's workflow run id. */
-    trial: Text,
+    /** The trial's workflow run id, as `awf` named it: not the lab's run id. */
+    runId: Text,
     case: Text,
     mark: Type.Enum(MARKS),
     /** Why it needs work. */

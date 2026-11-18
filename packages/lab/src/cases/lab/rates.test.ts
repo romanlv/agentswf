@@ -81,3 +81,13 @@ describe("how sure a rate is", () => {
     expect(describeDifference(few)).toContain("no difference shown");
   });
 });
+
+test("a paired difference with spread: its t interval matches worked numbers", () => {
+  const mine = ["a", "b", "c", "d"].map((n) => row(n, 1, 2));
+  // Changes of +0.5, +0.5, 0 and +0.5: mean 0.375, sd 0.25, t(3) 3.18 → ±0.398.
+  const theirs = [row("a", 2, 2), row("b", 2, 2), row("c", 1, 2), row("d", 2, 2)];
+  const d = pairedDifference(mine, theirs)!;
+  expect(d.mean).toBeCloseTo(0.375, 6);
+  near(d.interval, [-0.0225, 0.7725]);
+  expect(d.shown).toBe(false);
+});

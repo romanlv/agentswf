@@ -214,9 +214,11 @@ A trial's outcome, the first that applies:
 A case's verdict, with T trials, a bar b, need = ceil(b × T), p passed, f failed: **passed** when
 p ≥ need; **failed** when f > T/2; **flaky** when it has both; **unclear** otherwise. History shows
 the case's last five verdicts in the reference column, from earlier runs with a column of your
-checkout under the same parameters. A known-failing case that passes at three
-trials or more is "now passing". `--failed` reruns the cases whose newest verdict was failed,
-flaky or unclear, at that run's trial count.
+checkout, by its path on this machine, under the same parameters; a run that only reused trials
+adds none. Runs from another machine's records show in `runs` and `report {run}`, not in history.
+A known-failing case that passes at three trials or more is "now passing". `--failed` runs the
+cases whose newest verdict was failed, flaky or unclear again, at that run's trial count, and
+always fresh: the trials that failed are never its answer.
 
 Exit codes, from the reference column alone: **0** every case that must pass passed; **1** one
 failed; **5** none failed, but a trial errored by the dataset or grading, or leaked; **3** flaky,
@@ -274,8 +276,11 @@ folder's `agentswf` version and the lab's own trial code. Outside git, nothing i
   reused trials again where their grades are out of date, as `score` would.
 - Never an errored, leaked or stopped trial. A copy is never counted twice: asking for more trials
   runs only the difference. `--fresh` runs every trial anew.
-- A reused trial is copied into the new run with its scores and `kept/`, marked `reused` with the
-  run it ran in. The plan and the report count them, and the report gives their cost apart.
+- A reused trial is not copied: the new run's folder holds `reused.json`, a pointer to where it
+  ran, and its grades stay one list there, whichever run grades it again. One workflow run stands
+  for one trial of one column, so two columns that shape trials alike (a clone at the same
+  commit) each get their own. The plan counts reused trials and prices grading them again; that
+  grading counts towards `--budget`. The report gives their cost apart.
 - The model behind a name can change without the lab knowing: that is what the window is for.
 
 ## Parameters: `--param` and `--vary`
@@ -297,8 +302,8 @@ and models change, so it is measured on every report.
   trial, found by its workflow run's id (`report --case` prints each trial's, with the command).
   The person runs it, or tells a coding agent what was wrong. `--clear` takes it back; a newer
   label replaces an older. `capture` of a trial labels it with its mark.
-- Labels are kept in `{store}/labels/{dataset}.jsonl`, one line each, and in the records folder
-  when it is set. A label is on the workflow run, so a reused copy keeps it, and a `score` that
+- Labels are kept in `{store}/labels/{dataset}.jsonl`, one line each (the trial's workflow run
+  id as `runId`, not the lab's run id), and in the records folder when it is set, a file each. A label is on the workflow run, so a reused copy keeps it, and a `score` that
   grades again shows at once whether the lab now agrees more.
 - **Agreement**, on the run's labeled trials: of those marked good, how many the lab passed; of
   those marked needs-work, how many it failed, given apart, since a lab that passes everything
@@ -391,11 +396,15 @@ and `scores.jsonl` (every grade, newest last); each built case once, under `inpu
 and the workflows' runs under `awf-runs/`. A record the lab can't read leaves its run out of
 history, and `runs` names it.
 
-**`records`**: with it set, after each `run` and `score` the run's records are copied to
-`{records}/runs/{id}/`: the run, each trial's record, its scores and `kept/`. Not the built case,
-which is built again from the case folder and checked against the trial's digest, nor the agents'
-logs, which a grader's run can fill with a key. Every command first reads the records folder into
-the store, so a fresh clone sees the runs committed, and newer scores from elsewhere come in.
+**`records`**: with it set, `run`, `score` and `label` write their run into `{records}/runs/{id}/`,
+with the runs it reuses: the run, each trial's record or reuse pointer, `kept/`, and its grades as
+a `scores/` folder of one-line files; labels go to `{records}/labels/{dataset}/`, a file each, so
+two branches that grade or label never touch the same file. Not the built case, which is built
+again from the case folder and checked against the trial's digest, nor the agents' logs, which a
+grader's run can fill with a key. Every command first reads the records into the store, adding
+what it lacks and writing nothing in `evals/`: a fresh clone sees the runs committed and reuses
+their trials, and grades made elsewhere come in. A bare `report` or `score` takes your checkout's
+newest run, not another worktree's.
 Records hold real inputs and results: keep a dataset of private data in a private repository.
 
 Records and formats are `/0`: an incompatible change makes them `/1`, with no converter for runs

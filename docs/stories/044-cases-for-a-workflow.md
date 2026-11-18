@@ -152,7 +152,7 @@ grader's can hold a key. Run
 ids become unique across machines. The records folder is kept from agents as `evals/` is.
 
 **Reuse** (Q11). A stored trial is reused, within `reuseDays` (14), when what shaped it is
-unchanged: the code (a digest of what git would hold, less records, `hide`, and each dataset's
+unchanged: the code (a digest of what git would hold, less records and each dataset's
 cases, keys and grading code), the parameters, the case's input, `env.ts`, the trial settings in
 `dataset.json`, and the `awf` and lab versions. A key or grader change grades again and runs
 nothing. Never an errored or leaked trial. Asking for more trials runs only the difference;
@@ -163,7 +163,7 @@ person, and that drifts as criteria, prompts and models change, so it is measure
 
 - **`awf-lab label {run id} (--good | --needs-work "{note}" | --clear)`**: the person's verdict
   on one trial, found by its workflow run's id as `capture` finds it (`report --case` prints each
-  trial's). It appends to `labels.jsonl` (the trial's id, the mark, the note, when); the newest
+  trial's). It appends to the dataset's labels file (its workflow run id, the mark, the note, when); the newest
   label of a trial wins. The person runs it, or tells a coding agent what was wrong and it runs
   it. `capture` of a trial labels it. A queue that walks through unlabeled trials, or a web
   interface, comes later on the same record (see "Toward the best toolset").
@@ -413,7 +413,7 @@ Execution:
   1. [x] parameters and columns;
   2. [x] the store per project and `records`;
   3. [x] reuse, `--fresh`, `reuseDays`;
-  4. [x] labels: `label`, `labels.jsonl`, agreement, the judge's mark;
+  4. [x] labels: `label`, a labels file per dataset, agreement, the judge's mark;
   5. [x] tags and rates: intervals, pass^k, pass@k, `--tags`;
   6. [x] `compare`, with `src/compare` moved into `src/shared/`;
   7. [x] `run --budget`, `--dry-run`, `--json`; `report --md`;
@@ -573,7 +573,7 @@ Open nits: `capture` looks for real runs in your checkout and the repository's t
 - **Today's per-checkout stores** are left where they are and not read once step 2 moves to one
   store per project (beta); their records also lack `columns`, so they read as unreadable runs.
 - **The reuse key** (step 3): the code is what git would hold in the folder, less the records
-  folder, `hide`'s paths and each dataset's cases, keys, `dataset.json`, graders and
+  folder and each dataset's cases, keys, `dataset.json`, graders and
   `capture.ts`; `env.ts` and its helpers stay in it. Beside it: the parameters, the built case's
   digest, the trial settings of `dataset.json`, and the `awf` and lab versions.
 - **A fresh clone** needs each trial's record, scores and `kept/` committed; the built case is
@@ -585,6 +585,31 @@ Open nits: `capture` looks for real runs in your checkout and the repository's t
   or its last four. Records copy both ways: each command reads the records folder into the store
   (a run it lacks whole; newer scores when they extend the store's), and `run` and `score` write
   their run back, so the rest of the lab reads the store alone.
+
+### Task 9's review (steps 1–7)
+
+Two subagent reviews, architecture and correctness. Fixed, each with a test:
+
+- `--failed` reused the very trials that failed, so it learned nothing: it now always runs fresh.
+- A reused trial was a full copy: grades drifted between copies, every rerun committed a copy, and
+  history counted one workflow run in every run that reused it. It is now a pointer
+  (`reused.json`); grades stay where it ran; a run that only reused adds nothing to history.
+- Two columns that shape trials alike (an A/A check on a clone) shared one trial: each stored
+  trial now serves one column.
+- The plan didn't price, and `--budget` didn't cover, grading reused trials again: both do now.
+- Records sync lost grades when two machines graded the same run, and read-only commands rewrote
+  committed files: copies now go one way per command, scores and labels merge as unions, and in
+  the records each grade and label is a file of its own, so branches never conflict.
+- An errored trial labeled good counted twice in agreement; `compare` read numbers of graders that
+  don't decide; a bare `report` took another worktree's newest run; a label stamped the system
+  clock; the label record's `trial` field now reads `runId`, the workflow run's id.
+
+Open nits: history is keyed by the checkout's path on this machine (said in the reference); the
+code digest skips symlinked files and, for an `--against` folder, leaves out paths by your
+checkout's layout; the lab's own share of the key covers `env/` and `format/`, not `shared/`;
+pass^k is left out when cases asked different trial counts; two machines claiming one run id in
+the same second would be read as one run; labels are filed by dataset name, so a rename orphans
+them.
 
 ### Live checks
 

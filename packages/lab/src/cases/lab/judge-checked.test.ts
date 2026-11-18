@@ -58,9 +58,9 @@ test("only labeled trials the current judge graded count, each workflow run once
         { kind: "awf.case-score/0", at: "2026-11-17T00:00:00.000Z", entries: [entry(extra)] },
       ],
     }) as never;
-  const label = (trial: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
-    trial,
-    { kind: "awf.case-label/0", trial, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
+  const label = (runId: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
+    runId,
+    { kind: "awf.case-label/0", runId, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
   ];
   const labels = new Map([label("r1", "good"), label("r2", "needs-work"), label("r3", "good")]);
   const graded = { version: "1.0.2", agent, verdict: "passed" };

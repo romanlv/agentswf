@@ -1,11 +1,4 @@
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkSchema, describeProblems } from "../../shared/validate";
 import { type LabelRecord, LabelRecordSchema } from "../format/records";
@@ -47,38 +40,10 @@ export function readLabels(store: string, dataset: string): Map<string, LabelRec
   const lines = readLines(labelsFileOf(store, dataset));
   // A stable sort: two labels made in the same instant keep the order they were written in.
   for (const line of [...lines].sort((x, y) => x.at.localeCompare(y.at))) {
-    if (line.mark === "cleared") labels.delete(line.trial);
-    else labels.set(line.trial, line);
+    if (line.mark === "cleared") labels.delete(line.runId);
+    else labels.set(line.runId, line);
   }
   return labels;
-}
-
-/**
- * Makes two folders' labels files the same: every line of either, oldest first. Labels are only
- * ever added, so the union loses nothing whichever side wrote last.
- */
-export function mergeLabels(a: string, b: string): void {
-  const dir = (root: string) => join(root, "labels");
-  const names = new Set(
-    [a, b].flatMap((root) =>
-      existsSync(dir(root)) ? readdirSync(dir(root)).filter((n) => n.endsWith(".jsonl")) : [],
-    ),
-  );
-  for (const name of names) {
-    const lines = new Map<string, LabelRecord>();
-    for (const root of [a, b]) {
-      for (const line of readLines(join(dir(root), name))) lines.set(JSON.stringify(line), line);
-    }
-    const text = [...lines.values()]
-      .sort((x, y) => x.at.localeCompare(y.at))
-      .map((line) => `${JSON.stringify(line)}\n`)
-      .join("");
-    for (const root of [a, b]) {
-      mkdirSync(dir(root), { recursive: true });
-      const file = join(dir(root), name);
-      if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
-    }
-  }
 }
 
 type Tally = { labeled: number; agreed: number };
@@ -139,9 +104,16 @@ export function agreementOf(
     if (!label || label.mark === "cleared") continue;
     const deciders = decidersOf(record.case);
     const { outcome } = trialOutcome(record, scores, deciders);
-    if (outcome !== "passed" && outcome !== "failed") notCompared++;
-    else count(all, label.mark, outcome);
-    if ((label.mark === "good") !== (outcome === "passed")) {
+    if (outcome !== "passed" && outcome !== "failed") {
+      notCompared++;
+    } else {
+      count(all, label.mark, outcome);
+    }
+    // Only a verdict can disagree: an errored or undecided trial is counted as not compared.
+    if (
+      (outcome === "passed" || outcome === "failed") &&
+      (label.mark === "good") !== (outcome === "passed")
+    ) {
       disagreements.push({
         case: record.case,
         column: record.column,

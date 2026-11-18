@@ -1460,6 +1460,22 @@ describe("the criteria judge, through the command line", () => {
     estimate: 0.01,
   });
 
+  test("labels clear the judge's mark: 10 labeled trials it graded, 3 of them needs-work", async () => {
+    const where = judged();
+    await lab(where, ["run", "--yes", "--trials", "10"], { runner: scripted({}, judge).runner });
+    const trials = readTrials(storeOf(where), nthRun(storeOf(where), 1));
+    for (const [i, t] of trials.entries()) {
+      const mark = i < 3 ? ["--needs-work", "too long"] : ["--good"];
+      if (i < 9) await lab(where, ["label", t.record.runId!, ...mark]);
+    }
+    const nine = (await lab(where, ["report"])).out;
+    expect(nine).toContain("not checked against a person (labeled 9 of 10, needs-work 3 of 3");
+    await lab(where, ["label", trials[9]!.record.runId!, "--good"]);
+    const ten = (await lab(where, ["report"])).out;
+    expect(ten).toContain("judge: claude/claude-haiku-5-5\n");
+    expect(ten).toContain("labels: 10 trials · good 7, passed 7 · needs-work 3, failed 0");
+  });
+
   test("criteria are judged after expect, on the lab's own awf, recording the judge's agent", async () => {
     const where = judged();
     const fake = scripted({}, judge);
@@ -2170,13 +2186,12 @@ describe("one store per project, run ids, and records to commit", () => {
     const recorded = join(where.evals, "records/runs", id);
     expect(existsSync(join(recorded, "run.json"))).toBe(true);
     expect(readdirSync(join(recorded, "trials/a")).sort()).toEqual(["0-1", "0-2"]);
-    expect(readdirSync(join(recorded, "trials/a/0-1")).sort()).toEqual([
-      "scores.jsonl",
-      "trial.json",
-    ]);
+    // Each grade is a file of its own in the records: two branches that grade never conflict.
+    expect(readdirSync(join(recorded, "trials/a/0-1")).sort()).toEqual(["scores", "trial.json"]);
+    expect(readdirSync(join(recorded, "trials/a/0-1/scores"))).toHaveLength(1);
     commit(where.root, "records");
 
-    // Another machine: a clone, and a home with no store.
+    // Another machine: a clone, and a home with no store. It reads the run, and reuses its trials.
     const clone = join(where.top, "clone");
     git(where.top, "clone", "-q", where.root, clone);
     const elsewhere = { ...where, root: clone, home: join(where.top, "home2") };
@@ -2184,20 +2199,43 @@ describe("one store per project, run ids, and records to commit", () => {
     const shown = await lab(elsewhere, ["report", id.slice(-4)]);
     expect(shown.code).toBe(0);
     expect(shown.out).toContain(`run ${id}`);
-    // The key changes; score builds the case again from the clone's folder and grades it.
-    writeFileSync(join(clone, "evals/ds/cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
-    const scored = await lab(elsewhere, ["score", "--yes"], { runner: scripted({}).runner });
-    expect(scored.code).toBe(1);
-    const lines = readFileSync(
-      join(clone, "evals/records/runs", id, "trials/a/0-1/scores.jsonl"),
-      "utf8",
-    ).trim();
-    expect(lines.split("\n")).toHaveLength(2);
-    // Back on the first machine, the newer scores come in from the records.
-    commit(clone, "scored");
-    git(where.root, "pull", "-q", clone, "main");
-    const again = JSON.parse((await lab(where, ["report", "--json"])).out);
-    expect(again.cases[0].verdict).toBe("failed");
+    const reran = scripted({});
+    const reusedThere = await lab(elsewhere, ["run", "--yes", "--trials", "2"], {
+      runner: reran.runner,
+    });
+    expect(reran.calls).toHaveLength(0);
+    expect(reusedThere.err).toContain("reuses 2 of 2 trials");
+
+    // Both machines change the key and grade the run again; both grades survive the merge.
+    const failing = keyMd("expect:\n  ok: false\n");
+    for (const [at, dir] of [
+      [where, where.root],
+      [elsewhere, clone],
+    ] as const) {
+      writeFileSync(join(dir, "evals/ds/cases/a/key.md"), failing);
+      const scored = await lab(at, ["score", "--yes", id.slice(-4)], {
+        runner: scripted({}).runner,
+        now: () => new Date(dir === clone ? "2026-11-18T10:00:01Z" : "2026-11-18T10:00:00Z"),
+      });
+      expect(scored.code).toBe(1);
+      commit(dir, "scored");
+    }
+    git(
+      where.root,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "pull",
+      "-q",
+      "--no-rebase",
+      clone,
+      "main",
+    );
+    expect(readdirSync(join(recorded, "trials/a/0-1/scores"))).toHaveLength(3);
+    await lab(where, ["report", id.slice(-4)]);
+    const store = readTrials(storeOf(where), id).find((t) => t.record.trial === 1)!;
+    expect(store.scores).toHaveLength(3);
   });
 
   test("records must be a folder inside evals/", async () => {
@@ -2372,8 +2410,11 @@ describe("the person's labels", () => {
     await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
     const id = runIdOf(where, 1, "a");
     await lab(where, ["capture", id, "--needs-work", "too long"]);
-    const file = join(where.evals, "records/labels/ds.jsonl");
-    expect(readFileSync(file, "utf8")).toContain('"note":"too long"');
+    // Each label is a file of its own in the records: two branches that label never conflict.
+    const dir = join(where.evals, "records/labels/ds");
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(readFileSync(join(dir, files[0]!), "utf8")).toContain('"note":"too long"');
     // Another machine with the committed records sees the label.
     git(where.root, "add", "-A");
     git(where.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "labels");
@@ -2526,5 +2567,117 @@ describe("run --dry-run, --budget and --json; report --md", () => {
     expect(md).toContain("| case | model=a | model=b |");
     expect(md).toContain("| b | passed 1/1 | failed 0/1 |");
     expect(md).toContain("- **model=b**: 1/2 cases passed");
+  });
+});
+
+describe("what the review of task 9 found", () => {
+  test("--failed runs its cases fresh: the trials that failed are never its answer", async () => {
+    const where = project({ a: {}, b: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({ a: [fail] }).runner });
+    const again = scripted({});
+    const { code } = await lab(where, ["run", "--yes", "--failed"], { runner: again.runner });
+    expect(again.seen.map((t) => t.name)).toEqual(["a"]);
+    expect(code).toBe(0);
+  });
+
+  test("a run that only reused trials adds nothing to history", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    for (let i = 0; i < 3; i++) await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.reused).toBe(1);
+    expect(json.cases[0].history).toEqual(["passed"]);
+  });
+
+  test("two columns that shape trials alike never share a trial", async () => {
+    const where = project({ a: {} });
+    const other = join(where.top, "other");
+    git(where.top, "clone", "-q", where.root, other);
+    mkdirSync(join(other, "node_modules", "agentswf"), { recursive: true });
+    await lab(where, ["run", "--yes", "--against", other], { runner: scripted({}).runner });
+    await lab(where, ["run", "--yes", "--against", other], { runner: scripted({}).runner });
+    const trials = readTrials(storeOf(where), nthRun(storeOf(where), 2));
+    expect(new Set(trials.map((t) => t.record.runId)).size).toBe(2);
+  });
+
+  test("a reused trial is a pointer: its grades stay one list where it ran", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const second = nthRun(storeOf(where), 2);
+    const slot = join(storeOf(where), "runs", second, "trials/a/0-1");
+    expect(readdirSync(slot)).toEqual(["reused.json"]);
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
+    await lab(where, ["score", "--yes", second.slice(-4)], { runner: scripted({}).runner });
+    const first = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!;
+    expect(first.scores).toHaveLength(2);
+  });
+
+  test("the plan prices grading reused trials again, and --budget covers it", async () => {
+    const where = project(
+      { a: keyWith("expect:\n  ok: true\n") },
+      { graders: [{ workflow: "graders/judge.ts" }] },
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed", 0.25));
+    await lab(where, ["run", "--yes", "--trials", "2"], { runner: fake.runner });
+    writeFileSync(
+      join(where.ds, "graders/judge.ts"),
+      readFileSync(join(where.ds, "graders/judge.ts"), "utf8").replace(
+        'version: "1.0.0"',
+        'version: "1.1.0"',
+      ),
+    );
+    const again = scripted({}, judged("passed", 0.25));
+    const { code, err, out } = await lab(
+      where,
+      ["run", "--yes", "--trials", "2", "--budget", "0.2"],
+      {
+        runner: again.runner,
+      },
+    );
+    expect(err).toContain("grades 2 reused trials again, a key or grader changed: est. $0.50");
+    expect(again.graded).toHaveLength(1);
+    expect(code).toBe(3);
+    expect(out).toContain("stopped at --budget");
+  });
+
+  test("report with no run named shows your checkout's newest, not another worktree's", async () => {
+    const where = project({ a: {} });
+    const tree = join(where.top, "tree");
+    git(where.root, "worktree", "add", "-q", tree);
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    await lab({ ...where, root: tree }, ["run", "--yes", "--fresh"], {
+      runner: scripted({}).runner,
+    });
+    const mine = (await lab(where, ["report"])).out;
+    expect(mine).toContain(`run ${nthRun(storeOf(where), 1)}`);
+  });
+
+  test("never a leaked or stopped trial is reused", async () => {
+    const where = project({ a: {}, b: {} });
+    await lab(where, ["run", "--yes"], {
+      runner: scripted({
+        a: [{ stop: "out of turns" }],
+        b: [{ facts: { ok: true, leak: MARKER } }],
+      }).runner,
+    });
+    const again = scripted({});
+    await lab(where, ["run", "--yes"], { runner: again.runner });
+    expect(again.seen.map((t) => t.name).sort()).toEqual(["a", "b"]);
+  });
+
+  test("run ids stay in the order runs were made, a second apart when they share one", async () => {
+    const where = project({ a: {} });
+    const at = () => new Date("2026-11-18T10:00:00.500Z");
+    for (let i = 0; i < 3; i++) {
+      await lab(where, ["run", "--yes", "--fresh"], { runner: scripted({}).runner, now: at });
+    }
+    const ids = runIds(storeOf(where));
+    expect(ids.map((id) => id.slice(0, 15))).toEqual([
+      "20261118-100000",
+      "20261118-100001",
+      "20261118-100002",
+    ]);
   });
 });
