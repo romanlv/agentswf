@@ -744,7 +744,7 @@ describe("refusals before any trial: exit 2", () => {
       ],
       [
         { datasets: "datasets", variants: ["v/*.ts"] },
-        "is the review kind's (datasets, variants), which is retired",
+        "datasets → a folder of evals/ per dataset, holding dataset.json; variants → --param or --vary",
       ],
       [{}, 'needs "kind": "awf.lab-workspace/1"'],
       [{ kind: "awf.lab-workspace/1", clones: "x" }, "clones"],
@@ -776,6 +776,7 @@ describe("refusals before any trial: exit 2", () => {
       [["run", "--where", "x"], "--where went with the older lab"],
       [["run", "--allowance", "80"], "--allowance is the loop's: loop {name} --allowance"],
       [["score", "--allowance", "off"], "--allowance is the loop's"],
+      [["loop", "constructor", "--budget", "1"], "a loop runs code no person wrote"],
     ];
     const fake = scripted({});
     for (const [argv, said] of cases) {
@@ -2757,6 +2758,19 @@ describe("what the review of task 9 found", () => {
     expect(new Set(trials.map((t) => t.record.runId)).size).toBe(2);
   });
 
+  test("a path added to hide runs the trials again", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    mkdirSync(join(where.root, "old"));
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/1", hide: ["old"] }),
+    );
+    const again = scripted({});
+    await lab(where, ["run", "--yes"], { runner: again.runner });
+    expect(again.seen.map((t) => t.name)).toEqual(["a"]);
+  });
+
   test("a reused trial is a pointer: its grades stay one list where it ran", async () => {
     const where = project({ a: {} });
     await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
@@ -2926,7 +2940,10 @@ describe("the loop: a proposer's copy kept only when better", () => {
    * Trials pass by the quality of the code they run in; the proposer writes the qualities given,
    * one a try, and remembers what it was shown.
    */
-  function loopRunner(proposals: (number | "evals" | "copy" | "fail")[], grader?: GraderPlay) {
+  function loopRunner(
+    proposals: (number | "evals" | "copy" | "fail" | "vendored")[],
+    grader?: GraderPlay,
+  ) {
     const shown: string[] = [];
     const ran: { root: string; name: string }[] = [];
     let n = 0;
@@ -2951,7 +2968,12 @@ describe("the loop: a proposer's copy kept only when better", () => {
         const code = join(request.cwd, "code");
         if (proposal === "evals") writeFileSync(join(code, "evals/ds/env.ts"), "// changed\n");
         else if (proposal === "copy") writeFileSync(join(code, "notes.ts"), `// ${MARKER}\n`);
-        else if (proposal !== "fail") {
+        else if (proposal === "vendored") {
+          // Code where git doesn't look, beside a change it does see.
+          mkdirSync(join(code, "lib/node_modules/q"), { recursive: true });
+          writeFileSync(join(code, "lib/node_modules/q/index.ts"), "export const q = 9;\n");
+          writeFileSync(join(code, "workflow.ts"), "export const quality = 3;\n");
+        } else if (proposal !== "fail") {
           writeFileSync(join(code, "workflow.ts"), `export const quality = ${proposal};\n`);
         }
         const runDir = join(request.runRoot, "loop-proposer", request.id);
@@ -3021,7 +3043,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     expect(existsSync(join(dir, "start", "workflow.ts"))).toBe(true);
     const patch = await loop(where, ["l", "--patch"], fake.runner);
     expect(patch.out).toContain("+export const quality = 3;");
-    const final = await loop(where, ["l", "--final"], fake.runner);
+    const final = await loop(where, ["l", "--final", "--budget", "5"], fake.runner);
     expect(final.out).toContain(
       "final check 1: try 3 against the start on 1 held-out cases: better",
     );
@@ -3061,6 +3083,14 @@ describe("the loop: a proposer's copy kept only when better", () => {
     );
     expect(err).toContain("try 1: refused: evals/ds/env.ts: under evals/");
     expect(err).toContain("try 2: refused: notes.ts: holds a tuning key's marker");
+    const vendored = await loop(
+      where,
+      ["l", "--budget", "5", "--rounds", "1"],
+      loopRunner(["vendored"]).runner,
+    );
+    expect(vendored.err).toContain(
+      "try 3: refused: lib: outside git, so the scope check can't read it",
+    );
     // Only the incumbent's feedback runs: the refused copies never run a trial.
     expect(new Set(fake.ran.map((r) => r.root)).size).toBe(1);
   });
@@ -3088,6 +3118,44 @@ describe("the loop: a proposer's copy kept only when better", () => {
       loopRunner([2, 3]).runner,
     );
     expect(cheap.code).toBe(3);
+  });
+
+  test("a cap the incumbent's run reaches stops before the proposer; a larger --budget resumes", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([2]);
+    // Three tuning trials at $0.001 each: the cap is reached before the proposer would start.
+    const capped = await loop(where, ["l", "--budget", "0.002", "--program", program], fake.runner);
+    expect(capped.code).toBe(3);
+    expect(capped.out).toContain("the cap of $0.00 is spent by the incumbent's run");
+    expect(fake.shown).toHaveLength(0);
+    const raised = await loop(where, ["l", "--budget", "5"], fake.runner);
+    expect(raised.err).toContain("loop l: the cap is now $5.00, was $0.00");
+    expect(raised.err).toContain("try 1: kept");
+    const decided = JSON.parse(
+      readFileSync(join(storeOf(where), "loops/l/tries/1/try.json"), "utf8"),
+    );
+    // The capped run's trials, and the try's: none counted twice, none lost.
+    expect(decided.spend.trials).toBeCloseTo(0.006, 6);
+  });
+
+  test("an incumbent's run the lab broke during is counted when the try is proposed again", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([2]);
+    let ran = 0;
+    const breaking: Runner = async (request) => {
+      if (request.workflow !== PROPOSER && request.env?.[TRIAL_ENV.root] && ++ran === 2) {
+        throw new Error("the disk is full");
+      }
+      return fake.runner(request);
+    };
+    const cut = await loop(where, ["l", "--budget", "5", "--program", program], breaking);
+    expect(cut.code).toBe(4);
+    const resumed = await loop(where, ["l", "--budget", "5"], fake.runner);
+    expect(resumed.err).toContain("try 1: kept");
+    const decided = JSON.parse(
+      readFileSync(join(storeOf(where), "loops/l/tries/1/try.json"), "utf8"),
+    );
+    expect(decided.spend.trials).toBeCloseTo(0.006, 6);
   });
 
   test("a try cut short after its proposal resumes with it, and a loop is refused another holdout", async () => {
@@ -3127,11 +3195,19 @@ describe("the loop: a proposer's copy kept only when better", () => {
     const refused = await loop(where, ["l", "--budget", "5"], fake.runner);
     expect(refused.code).toBe(2);
     expect(refused.err).toContain("was started with another holdout");
+    const params = await loop(where, ["l", "--budget", "5", "--param", "model=x"], fake.runner);
+    expect(params.err).toContain("another holdout, params");
   });
 
   test("refused without --budget, without compare, or outside the lab's box", async () => {
     const { where, program } = loopProject(1);
     const fake = loopRunner([]);
+    expect((await loop(where, ["l", "--final"], fake.runner)).err).toContain(
+      "a final check spends: --budget {usd} is required",
+    );
+    expect(
+      (await loop(where, ["l", "--budget", "1", "--tags", "x", "--fresh"], fake.runner)).err,
+    ).toContain("a loop takes no --tags, --fresh");
     expect((await loop(where, ["l", "--program", program], fake.runner)).err).toContain(
       "--budget {usd} is required",
     );

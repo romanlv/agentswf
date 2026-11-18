@@ -39,7 +39,7 @@ import { Refusal } from "./refusal";
 import { barsOf, type CaseBar } from "./runs";
 import { awfRunsOf, newRunId, readRunRecord, readTrials, type StoredTrial } from "./store";
 import { definedOf } from "./trial";
-import type { CaseWorkspace } from "./workspace";
+import { type CaseWorkspace, inside } from "./workspace";
 
 export const PROPOSER = join(import.meta.dir, "../loop/propose.workflow.ts");
 
@@ -80,6 +80,16 @@ export async function loopCommand(
   const { options } = context;
   const [name, ...extra] = names;
   if (!name || extra.length > 0) throw new Refusal("awf-lab loop {name} --budget {usd}");
+  // A loop picks its own cases, columns and reuse: these would change what a try runs unseen.
+  const foreign = [
+    options.tags ? "--tags" : "",
+    options.against.length > 0 ? "--against" : "",
+    options.vary.length > 0 ? "--vary" : "",
+    options.failed ? "--failed" : "",
+    options.fresh ? "--fresh" : "",
+    options.holdout ? "--holdout" : "",
+  ].filter(Boolean);
+  if (foreign.length > 0) throw new Refusal(`a loop takes no ${foreign.join(", ")}`);
   const workspace = lends.workspaceOf(context);
   const dir = loopDirOf(workspace.store, name);
   if (options.patch) {
@@ -117,8 +127,16 @@ export async function loopCommand(
   deps.comparison = `graders.ts ${fileDigest(graders).slice(0, 19)}`;
 
   if (options.final) {
-    const budget = options.budget ?? Number.POSITIVE_INFINITY;
-    const outcome = await runFinal({ dir, budget }, deps);
+    if (options.budget === undefined) {
+      throw new Refusal("a final check spends: --budget {usd} is required");
+    }
+    const started = readLoop(dir);
+    if (started && JSON.stringify([...options.param].sort()) !== JSON.stringify(started.params)) {
+      throw new Refusal(
+        `loop ${name} runs under --param ${started.params.join(" ") || "none"}: its final check does too`,
+      );
+    }
+    const outcome = await runFinal({ dir, budget: options.budget }, deps);
     context.stdout(outcome.why);
     return outcome.exit;
   }
@@ -136,6 +154,7 @@ export async function loopCommand(
       tuning: options.cases ? cases.filter((c) => options.cases!.includes(c.name)) : cases,
       holdout: held.map((c) => c.name),
       trials: options.trials ?? 1,
+      params: options.param,
       rounds: options.rounds ?? 1,
       budget: options.budget,
       ...(options.program ? { program: resolve(context.cwd, options.program) } : {}),
@@ -183,7 +202,10 @@ function loopDeps(
     async waitForAllowance() {
       if (wait) await wait({ argv: named() });
     },
-    async runFolders({ folders, order, budget, stopOnVerdict, holdout }) {
+    spentIn(runIds) {
+      return runIds.reduce((sum, id) => sum + spendOf(readTrials(workspace.store, id)), 0);
+    },
+    async runFolders({ folders, order, budget, stopOnVerdict, holdout, started }) {
       let runId: string | undefined;
       const scoped: Context = {
         ...context,
@@ -207,6 +229,7 @@ function loopDeps(
         report: false,
         started: (id) => {
           runId = id;
+          started?.(id);
         },
         ...(stopOnVerdict
           ? {
@@ -321,6 +344,10 @@ function loopDeps(
               (path) => path !== workspace.store && path !== workspace.labHome,
             ),
             ...hiddenAround(workspace.labHome, [tryDir]),
+            // A store set outside the lab's home, as awf-lab.json's store may be.
+            ...(inside(workspace.labHome, workspace.store)
+              ? []
+              : hiddenAround(workspace.store, [tryDir])),
           ],
           readOnly: [join(code, workspace.evals.slice(at.top.length + 1))],
           reads: [tryDir],
@@ -394,15 +421,10 @@ function bothRan(trials: readonly StoredTrial[], columns: number): StoredTrial[]
   return trials.filter((t) => (ran.get(t.record.case)?.size ?? 0) === columns);
 }
 
-/**
- * What a run's trials and their grades are estimated at: its own, and the reused ones of the code
- * it checks. The incumbent's reused trials were counted where they ran; a try's code is its own, so
- * a trial of it reused here ran in an earlier run of the same try, one the lab broke during. A
- * second final check counts the first's again, which errs high.
- */
+/** What a run's own trials and their grades are estimated at; reused ones were counted where they ran. */
 function spendOf(trials: readonly StoredTrial[]): number {
   return trials
-    .filter((t) => !t.record.reused || t.record.column > 0)
+    .filter((t) => !t.record.reused)
     .reduce(
       (sum, t) =>
         sum +

@@ -35,6 +35,12 @@ for each agent, no model: the conformance suite, then what the provider allows a
 part of `bun test` and free, and skipped where its provider is not installed; docker's also where
 the daemon does not answer within 5 s or the default image is not built.
 
+The lab's box has its own, in `packages/lab/src/cases/lab/box.test.ts`: real srt profiles for a
+trial and for the loop's proposer, checking what each reads and writes, a workspace's key among
+them, wherever the code sits. It is skipped where `srt` is not on `PATH`; when mise selects a Node
+without srt, put the Node that has it first on `PATH`. Run it after changing `box.ts`, `trial.ts`'s
+box, `loop-command.ts`'s proposer, or how `awf run --boxed` sets sandboxes aside.
+
 The harness CLIs have one too, `tests/harness-cli.local.test.ts`: a real `awf run` of one headless
 agent on pi, codex and claude, each CLI pointed at a scripted model in place of its provider, which
 `packages/harness/src/testing/scripted-model.ts` serves over Chat Completions, Responses and

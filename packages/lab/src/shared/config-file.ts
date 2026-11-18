@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   CONFIG_FILE,
-  REVIEW_FIELDS,
+  RETIRED_FIELDS,
   WORKSPACE_KIND,
   type WorkspaceConfig,
   WorkspaceSchema,
@@ -23,7 +23,7 @@ export function findConfigFile(cwd: string, explicit?: string): string | undefin
 }
 
 /**
- * The file, checked. A `/0` workspace or one holding the review kind's fields is refused by name:
+ * The file, checked. A `/0` workspace or one holding the older lab's fields is refused by name:
  * neither is converted.
  */
 export function readConfigFile(file: string): WorkspaceConfig {
@@ -36,10 +36,11 @@ export function readConfigFile(file: string): WorkspaceConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error(`${file} is not a JSON object`);
   }
-  const fields = REVIEW_FIELDS.filter((name) => name in raw);
+  const fields = Object.keys(raw).filter((name) => Object.hasOwn(RETIRED_FIELDS, name));
   if (fields.length > 0) {
+    const went = fields.map((name) => `${name} → ${RETIRED_FIELDS[name] ?? "nothing"}`);
     throw new Error(
-      `${file} is the review kind's (${fields.join(", ")}), which is retired: a workspace of cases holds kind, judgeAgent, store, records and hide`,
+      `${file} holds the older lab's fields, retired with it: ${went.join("; ")}. A workspace of cases holds kind, judgeAgent, store, records and hide`,
     );
   }
   const kind = (raw as { kind?: unknown }).kind;

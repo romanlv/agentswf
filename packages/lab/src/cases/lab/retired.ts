@@ -32,10 +32,10 @@ const retired = (what: string, instead: string | null) =>
 
 /** Refuses a flag the older lab had. */
 export function refuseRetiredFlag(flag: string): void {
-  if (flag in FLAGS) throw retired(flag, FLAGS[flag]!);
+  if (Object.hasOwn(FLAGS, flag)) throw retired(flag, FLAGS[flag]!);
 }
 
 /** Refuses a command the older lab had. */
 export function refuseRetiredCommand(command: string): void {
-  if (command in COMMANDS) throw retired(command, COMMANDS[command]!);
+  if (Object.hasOwn(COMMANDS, command)) throw retired(command, COMMANDS[command]!);
 }

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab label",
+  "type": "object",
+  "required": ["kind", "runId", "case", "mark", "at"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-label/1"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "case": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mark": {
+      "enum": ["good", "needs-work", "cleared"]
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

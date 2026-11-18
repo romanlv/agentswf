@@ -427,24 +427,35 @@ a `compare` in `graders.ts`, and spends until `--budget`.
    changed. The proposer, in the lab's box, reads a bundle (the program, each tuning trial's facts,
    outcome and every grader's verdict, numbers, reasons and parts, the earlier tries, the rules)
    and changes a clone of the incumbent's code; it may write the clone but not its `evals/`. The
-   change is committed as the try.
+   change is committed as the try. The graders' reasons and parts may quote a tuning case's key,
+   as `expect`'s "the key wants" and a criterion's text do: the tuning cases are what the proposer
+   learns from. A held-out case, its key and its trials never reach it, and neither box reads a
+   key of the workspace, wherever the code it runs sits.
 3. **The scope check**, in code, before anything runs: a try that changed nothing, anything under
-   `evals/` or an install, or put a tuning key's marker or forty characters of its words in a
-   changed file is refused.
+   `evals/` or an install, put a tuning key's marker or about fifty characters of its words in a
+   changed file (forty-character windows, ten apart), or wrote a file git doesn't see is refused.
 4. **The run**: the incumbent and the try, as two columns, case by case in the seeded order, each
    case's trials in both before the next, until `compare` says stop, given only the cases both
    ran. On `better` the try is the incumbent; otherwise it is discarded.
-5. **Stops**: the cap (the proposer's and the trials' estimates, summed from the loop's records:
-   exit 3), three tries in a row that kept nothing, the rounds (`--rounds`, 1 unless told).
+5. **Stops**: the cap (exit 3), checked before each run and before the proposer, three tries in
+   a row that kept nothing, the rounds (`--rounds`, 1 unless told). The cap counts the
+   proposer's and the trials' estimates, summed from each try's records as it goes: the runs it
+   started, read from the store, and each proposer run's estimate, so a cut loses none of it.
+   A run stops starting trials once the cap is reached, so its last trial may cross it. A try
+   the cap stops is left undecided; a larger `--budget` on `loop {name}` raises the cap and
+   resumes it.
    `--allowance` waits before each step while a plan window the proposer, or a `harness/model`
    parameter, draws on is that far used (90% unless told; `off`).
 
 `loop {name}` again resumes: a try cut short after its proposal runs with it; before, it is
-proposed again. A loop resumed with another dataset, holdout, `graders.ts`, `--trials` or tuning
-cases is refused: its tries are judged alike. `--final` runs the kept code against the start on
-the held-out cases, each check recorded (a second says it was asked again); `--patch` prints the
-kept code against the start. Records: `{store}/loops/{name}/loop.json`, `tries/{n}/` (`code/`,
-`bundle/`, `proposal.json`, `try.json`), `finals/{k}.json`.
+proposed again, what it spent before still counted. A loop resumed with another dataset,
+holdout, `graders.ts`, `--trials`, `--param` or tuning cases is refused: its tries are judged
+alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`.
+`--final --budget {usd}` runs the kept code against the start on the held-out cases, under the
+loop's `--param`, each check recorded (a second says it was asked again); `--patch` prints the
+kept code against the start. Records: `{store}/loops/{name}/loop.json`, `cap.jsonl` (a cap a
+resume set), `tries/{n}/` (`code/`, `bundle/`, `runs.json`, `proposer.jsonl`, `proposal.json`,
+`try.json`), `finals/{k}.json`; their schemas are `schema/case-{loop,try,proposal,final}.schema.json`.
 
 ## The key stays hidden, and how far
 

@@ -4,7 +4,7 @@ Where an evaluated workflow runs, who builds that place, and how we know nothing
 answer. **Decided 2026-09-29: the run's sandbox**, built by [[010-eval-isolation|story 010]]; the
 whole run in a container followed for workflows nobody wrote (story 013, task 2).
 
-Terms are the lab's ([`packages/lab`](../../packages/lab/docs/reference.md#The%20words)): a **dataset** of
+Terms are the lab's ([`packages/lab`](../../packages/lab/README.md#The%20words)): a **dataset** of
 **cases**, each with a **key**; a **variant** is the workflow evaluated; a **trial** is one variant
 on one case; a **scorer** grades a trial against the key.
 

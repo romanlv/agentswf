@@ -118,11 +118,18 @@ export function boxProfile(paths: BoxPaths, network: readonly string[]): BoxProf
  * folder is denied whole by `boxProfile`.
  */
 export function hiddenOf(root: string, workspace: CaseWorkspace): string[] {
-  const hidden = [join(root, ".git"), workspace.store, workspace.labHome, ...ignoredOf(root)];
-  for (const path of workspace.hide ?? []) hidden.push(join(root, path));
+  const hidden = [workspace.store, workspace.labHome];
   if (workspace.records) hidden.push(workspace.records);
-  const evals = join(root, workspace.evals.slice(workspace.root.length));
-  if (existsSync(evals)) {
+  // The code folder's, and the workspace's checkout's wherever it is: another folder of code, such
+  // as a loop's copy, may reach the checkout through a read the box was given.
+  const roots = [...new Set([root, workspace.root])];
+  for (const at of roots) {
+    hidden.push(join(at, ".git"), ...ignoredOf(at));
+    for (const path of workspace.hide ?? []) hidden.push(join(at, path));
+  }
+  const ownEvals = (at: string) => join(at, workspace.evals.slice(workspace.root.length));
+  for (const evals of new Set(roots.map(ownEvals))) {
+    if (!existsSync(evals)) continue;
     for (const dataset of readdirSync(evals)) {
       const cases = join(evals, dataset, "cases");
       if (!existsSync(cases)) continue;
@@ -215,13 +222,15 @@ function installOf(name: string, path: string): string[] {
 }
 
 /** What the box reads to run the trial: bun, git, the harnesses, and the code's linked packages. */
-export function toolchainOf(root: string, path: string): string[] {
+export function toolchainOf(root: string, path: string, home = homedir()): string[] {
   const bun = realpathSync(process.execPath);
+  // An executable right under ~, as ~/bin/claude, would make its install tree the home folder.
+  const top = existsSync(home) ? realpathSync(home) : home;
   return unique([
     dirname(dirname(bun)),
     ...["git", "claude", "codex", "cursor-agent", "pi"].flatMap((name) => installOf(name, path)),
     ...linkedPackages(root),
-  ]);
+  ]).filter((dir) => dir !== top && !top.startsWith(`${dir}/`) && dir !== "/");
 }
 
 /** The box's network: agents' reach, every harness's model domains, and the hosts code reaches. */
@@ -241,8 +250,8 @@ export function boxCommand(profile: BoxProfile, file: string, srt = "srt"): stri
 
 /**
  * What the box reads of the `awf` a trial runs: its package, and when it is a checkout of awf, the
- * packages and installs beside it, as the review lab mounts them. Never that checkout's root,
- * which holds `.env`.
+ * packages and installs beside it. Never that checkout's root, which holds `.env`, nor its
+ * `examples/`, which hold datasets of their own.
  */
 export function awfReads(awf: { bin: string; preload?: string }): string[] {
   const reads: string[] = [];
@@ -254,7 +263,6 @@ export function awfReads(awf: { bin: string; preload?: string }): string[] {
       if (existsSync(join(at, "packages")) && existsSync(join(at, "package.json"))) {
         for (const entry of [
           "packages",
-          "examples",
           "node_modules",
           "package.json",
           "tsconfig.json",

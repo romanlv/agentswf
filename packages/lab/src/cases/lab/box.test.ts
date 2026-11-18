@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { awfArgv } from "../../shared/runner";
-import { boxNetwork, boxProfile, hiddenAround, hiddenOf, MODEL_DOMAINS, toolchainOf } from "./box";
+import {
+  awfReads,
+  boxNetwork,
+  boxProfile,
+  hiddenAround,
+  hiddenOf,
+  MODEL_DOMAINS,
+  toolchainOf,
+} from "./box";
 import type { CaseWorkspace } from "./workspace";
 
 const roots: string[] = [];
@@ -123,6 +131,25 @@ describe("the lab's box", () => {
     expect(reads).toContain(join(top, "pkg"));
   });
 
+  test("never reads the home folder, nor an awf checkout's examples/, which hold datasets", () => {
+    const { top, root } = project();
+    const home = join(top, "home");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(join(home, "bin", "claude"), "#!/bin/sh\n", { mode: 0o755 });
+    const reads = toolchainOf(root, `${join(home, "bin")}:/usr/bin:/bin`, home);
+    expect(reads).not.toContain(home);
+    expect(reads).toContain(join(home, "bin"));
+    const awf = join(top, "awf");
+    for (const dir of ["packages/agentswf/src", "examples/shop/evals", "node_modules"]) {
+      mkdirSync(join(awf, dir), { recursive: true });
+    }
+    writeFileSync(join(awf, "package.json"), "{}\n");
+    writeFileSync(join(awf, "packages/agentswf/src/awf.ts"), "\n");
+    const awfDirs = awfReads({ bin: join(awf, "packages/agentswf/src/awf.ts") });
+    expect(awfDirs).toContain(join(awf, "packages"));
+    expect(awfDirs).not.toContain(join(awf, "examples"));
+  });
+
   test("a boxed run asks awf to set the workflow's sandboxes aside", () => {
     const argv = awfArgv({
       workflow: "env.ts",
@@ -183,7 +210,7 @@ describe.skipIf(!srt || process.platform !== "darwin")("the box under srt", () =
 
 describe.skipIf(!srt || process.platform !== "darwin")("a loop's proposer under srt", () => {
   test("writes the try's copy but not its evals/, reads its bundle, and nothing else of the store", () => {
-    const { top, root, trial } = project();
+    const { top, root, trial, caseDir } = project();
     // The store inside the lab's home, both hidden, as on a machine.
     const labHome = join(top, "lab-home");
     const store = join(labHome, "project-1");
@@ -220,7 +247,8 @@ describe.skipIf(!srt || process.platform !== "darwin")("a loop's proposer under 
         home: join(tryDir, "proposer/home"),
         trialFile: join(tryDir, "proposer/trial.jsonl"),
         control: join(trial, "control"),
-        toolchain: [],
+        // A read that reaches the workspace's own checkout, as an install linked back into it does.
+        toolchain: [root],
         hidden: [
           ...hiddenOf(code, workspace).filter((path) => path !== store && path !== labHome),
           ...hiddenAround(labHome, [tryDir]),
@@ -241,6 +269,9 @@ describe.skipIf(!srt || process.platform !== "darwin")("a loop's proposer under 
     expect(sh(`echo x > '${join(code, "workflow.ts")}'`)).toBe(true);
     expect(sh(`echo x > '${join(code, "evals/ds/env.ts")}'`)).toBe(false);
     expect(sh(`cat '${join(bundle, "feedback.json")}'`)).toBe(true);
+    expect(sh(`cat '${join(root, "workflow.ts")}'`)).toBe(true);
+    expect(sh(`cat '${join(caseDir, "key.md")}'`)).toBe(false);
+    expect(sh(`cat '${join(caseDir, "key/answer.txt")}'`)).toBe(false);
     expect(sh(`cat '${join(store, "runs/other/trial.json")}'`)).toBe(false);
     expect(sh(`echo x > '${join(bundle, "feedback.json")}'`)).toBe(false);
     expect(sh(`mkdir -p '${join(tryDir, "proposer/home/.awf")}'`)).toBe(true);

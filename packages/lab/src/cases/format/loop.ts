@@ -66,6 +66,8 @@ export const LoopSchema = Type.Object(
     program: Text,
     proposer: Text,
     trials: Type.Integer({ minimum: 1 }),
+    /** Its `--param`s, sorted: every try and the final check run under them. */
+    params: Type.Array(Text),
     cap: Type.Object({ usd: Usd }, { additionalProperties: false }),
     /** The tuning cases in the seeded order every try runs them in. */
     tuning: Type.Array(Text),
@@ -89,7 +91,6 @@ export const TrySchema = Type.Object(
       Type.Literal("discarded"),
       Type.Literal("refused"),
       Type.Literal("failed"),
-      Type.Literal("unfinished"),
     ]),
     why: Text,
     hypothesis: Type.Optional(HypothesisSchema),

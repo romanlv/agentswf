@@ -1,8 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkSchema, describeProblems } from "../../shared/validate";
-import { type LabelRecord, LabelRecordSchema } from "../format/records";
+import { type LabelRecord, LabelRecordSchema, retiredRecord } from "../format/records";
 import { newestEntries, trialOutcome, votersOf } from "./outcome";
+import { Refusal } from "./refusal";
 import type { StoredTrial } from "./store";
 
 // The person's labels: `{store}/labels/{dataset}.jsonl`, one line per label, newest last. They
@@ -25,12 +26,20 @@ function readLines(file: string): LabelRecord[] {
     .split("\n")
     .filter((line) => line.trim() !== "")
     .flatMap((line) => {
+      let value: unknown;
       try {
-        const checked = checkSchema(LabelRecordSchema, JSON.parse(line));
-        return checked.ok ? [checked.value] : [];
+        value = JSON.parse(line);
       } catch {
         return [];
       }
+      // The person's labels never drop out unseen: a /0 one stops the command, saying so.
+      if (retiredRecord(file, value)) {
+        throw new Refusal(
+          `${file} holds labels of awf.case-label/0, from before the lab's records were /1: set their kind to awf.case-label/1, or label again`,
+        );
+      }
+      const checked = checkSchema(LabelRecordSchema, value);
+      return checked.ok ? [checked.value] : [];
     });
 }
 

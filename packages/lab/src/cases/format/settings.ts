@@ -77,7 +77,7 @@ export const DatasetSchema = Type.Object(
       Type.Array(Text, {
         uniqueItems: true,
         description:
-          "Cases set aside for a final check: run, score and report leave them out, run --holdout runs them alone, and a loop's proposer never sees them.",
+          "Cases set aside for a final check: run, --failed and history leave them out, run --holdout runs them alone, and a loop's proposer never sees them.",
       }),
     ),
     reuseDays: Type.Optional(

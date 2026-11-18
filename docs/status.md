@@ -190,7 +190,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   Its live check, a public review skill added to the codex baseline, was
   undecided at 16 cases: recall −0.01 [−0.08, +0.06], 36 s a case slower. A futility stop
   (`minGain`, 0.05 in `default` 1.1.0) now ends such a run at a look. Since story 044 the rule is
-  `better.paired`, a dataset's `compare`.
+  `better.paired`, a dataset's `compare`, and `@agentswf/lab/compare` is gone.
 - [012 — workflow tests](stories/012-workflow-tests.md): done, approved 2026-09-30. A workflow's
   test beside it scripts each agent's and decision's answers, typed by the turn's schema (`answer`,
   `reply`), and runs the real engine against them: `testWorkflow` in

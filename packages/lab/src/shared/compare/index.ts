@@ -1,12 +1,3 @@
-// How two variants' per-case numbers become a verdict: `@agentswf/lab/compare`.
+// How two columns' per-case numbers become a verdict, for `better.paired` in `cases/env/compare.ts`.
 export { compareMetric, type PairedOptions, pairedComparison, perCase } from "./paired";
-export {
-  type CaseScore,
-  COMPARISON_KIND,
-  type ComparedMetric,
-  type Comparison,
-  type ComparisonInput,
-  defineComparison,
-  type MetricSpec,
-  type Verdict,
-} from "./types";
+export type { CaseScore, ComparedMetric, MetricSpec, Verdict } from "./types";

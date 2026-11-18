@@ -1,7 +1,9 @@
 import { WorkspaceSchema } from "../../shared/config";
+import { FinalSchema, LoopSchema, ProposalSchema, TrySchema } from "./loop";
 import { CaseReportSchema, ScoredSchema } from "./output";
 import {
   GradeFileSchema,
+  LabelRecordSchema,
   PreviousSchema,
   RunRecordSchema,
   ScoreRecordSchema,
@@ -26,6 +28,11 @@ export const CASE_SCHEMA_FILES = {
   },
   "case-report.schema.json": { title: "awf-lab report --json", schema: CaseReportSchema },
   "case-scored.schema.json": { title: "awf-lab score --json", schema: ScoredSchema },
+  "case-label.schema.json": { title: "awf-lab label", schema: LabelRecordSchema },
+  "case-loop.schema.json": { title: "awf-lab loop's loop.json", schema: LoopSchema },
+  "case-try.schema.json": { title: "awf-lab loop's try.json", schema: TrySchema },
+  "case-proposal.schema.json": { title: "awf-lab loop's proposal.json", schema: ProposalSchema },
+  "case-final.schema.json": { title: "awf-lab loop's final check", schema: FinalSchema },
 } as const;
 
 export type CaseSchemaName = keyof typeof CASE_SCHEMA_FILES;

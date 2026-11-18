@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  appendFileSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -142,6 +143,34 @@ export function branchCode(parent: string, code: string, top: string): void {
   linkInstalls(top, code);
 }
 
+/**
+ * What git doesn't see in a try's copy, which the scope check can't read: anything but the
+ * installs linked as your checkout's. A try that writes code there, or replaces an install's link,
+ * is refused.
+ */
+export function outsideGit(code: string, top: string): string[] {
+  const listed = git(code, [
+    "ls-files",
+    "-z",
+    "--others",
+    "--ignored",
+    "--exclude-standard",
+    "--directory",
+  ]);
+  const problems: string[] = [];
+  for (const path of listed.split("\0").filter(Boolean)) {
+    const clean = path.replace(/\/$/, "");
+    const at = join(code, clean);
+    const linked =
+      clean.split("/").at(-1) === "node_modules" &&
+      lstatSync(at).isSymbolicLink() &&
+      existsSync(join(top, clean)) &&
+      realpathSync(at) === realpathSync(join(top, clean));
+    if (!linked) problems.push(`${clean}: outside git, so the scope check can't read it`);
+  }
+  return problems;
+}
+
 /** The paths a try changed, added, edited or deleted: its commit against its parent's. */
 export function changedFiles(code: string): string[] {
   const listed = git(code, ["diff", "--name-only", "--no-renames", "-z", "HEAD~1", "HEAD"]);
@@ -253,7 +282,7 @@ export type TryRun = {
   /** `budget`, the cap stopped it; `compare`, the comparison did. */
   stopped?: "budget" | "compare";
   verdict?: { verdict: string; stop: boolean; reason: string } | { error: string };
-  /** The estimates of what it ran: its own trials and grades, not those it reused. */
+  /** The estimates of its own trials and grades, not those it reused. */
   spend: number;
 };
 
@@ -266,7 +295,11 @@ export type LoopDeps = {
     budget: number;
     stopOnVerdict: boolean;
     holdout?: boolean;
+    /** Called with the run's id as it starts, before any trial. */
+    started?: (runId: string) => void;
   }): Promise<TryRun>;
+  /** What these runs' own trials and their grades are estimated at, from the store's records. */
+  spentIn(runIds: readonly string[]): number;
   /** The feedback of a run's column, for the proposer's bundle. */
   feedback(runId: string, column: number): unknown;
   /** The proposer, in the box: its answer and its estimate. */
@@ -296,6 +329,8 @@ export type LoopRequest = {
   /** Only the first `cases` of the seeded order, when given. */
   cases?: number;
   trials: number;
+  /** `--param`s, as `name=value`. */
+  params: readonly string[];
   rounds: number;
   budget: number;
   program?: string;
@@ -320,6 +355,7 @@ function startOrResume(request: LoopRequest, deps: LoopDeps): Loop {
       holdout: JSON.stringify([...request.holdout].sort()),
       comparison: deps.comparison,
       trials: String(request.trials),
+      params: JSON.stringify([...request.params].sort()),
       tuning: JSON.stringify(tuning),
     };
     const then = {
@@ -327,6 +363,7 @@ function startOrResume(request: LoopRequest, deps: LoopDeps): Loop {
       holdout: JSON.stringify(loop.holdout),
       comparison: loop.comparison,
       trials: String(loop.trials),
+      params: JSON.stringify(loop.params),
       tuning: JSON.stringify(loop.tuning),
     };
     const moved = (Object.keys(now) as (keyof typeof now)[]).filter((k) => now[k] !== then[k]);
@@ -358,6 +395,7 @@ function startOrResume(request: LoopRequest, deps: LoopDeps): Loop {
     program: digestOf(readFileSync(request.program)),
     proposer: request.proposer,
     trials: request.trials,
+    params: [...request.params].sort(),
     cap: { usd: request.budget },
     tuning,
     holdout: [...request.holdout].sort(),
@@ -365,6 +403,59 @@ function startOrResume(request: LoopRequest, deps: LoopDeps): Loop {
   };
   writeJson(join(dir, "loop.json"), made, "wx");
   return made;
+}
+
+/**
+ * The loop's cap: `loop.json`'s, or the last a resume set. A resume's `--budget` that differs sets
+ * it again, kept in `cap.jsonl` beside the loop, so a capped loop goes on.
+ */
+function capOf(dir: string, loop: Loop, budget: number, deps: LoopDeps): number {
+  const file = join(dir, "cap.jsonl");
+  const set = existsSync(file)
+    ? readFileSync(file, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => (JSON.parse(line) as { usd: number }).usd)
+    : [];
+  const current = set.at(-1) ?? loop.cap.usd;
+  if (!Number.isFinite(budget) || budget === current) return current;
+  appendFileSync(file, `${JSON.stringify({ usd: budget, at: deps.now().toISOString() })}\n`);
+  deps.log(`loop ${loop.name}: the cap is now ${usd(budget)}, was ${usd(current)}`);
+  return budget;
+}
+
+/**
+ * What a try has spent, kept as it goes so a cut loses none of it: the runs it started, in
+ * `runs.json`, whose trials and grades the store's records price; and each proposer run's
+ * estimate, in `proposer.jsonl`. Both sit outside what the proposer's box may write.
+ */
+function tryLedger(tryDir: string, deps: LoopDeps) {
+  const runsFile = join(tryDir, "runs.json");
+  const proposerFile = join(tryDir, "proposer.jsonl");
+  const runs = (): string[] =>
+    existsSync(runsFile) ? (JSON.parse(readFileSync(runsFile, "utf8")) as string[]) : [];
+  const proposer = () =>
+    existsSync(proposerFile)
+      ? readFileSync(proposerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .reduce((sum, line) => sum + (JSON.parse(line) as { usd: number }).usd, 0)
+      : 0;
+  const spend = () => ({ proposer: proposer(), trials: deps.spentIn(runs()) });
+  return {
+    started(runId: string) {
+      mkdirSync(tryDir, { recursive: true });
+      writeJson(runsFile, [...new Set([...runs(), runId])]);
+    },
+    proposed(usd: number, runId?: string) {
+      appendFileSync(proposerFile, `${JSON.stringify({ usd, ...(runId ? { runId } : {}) })}\n`);
+    },
+    spend,
+    total: () => {
+      const { proposer, trials } = spend();
+      return proposer + trials;
+    },
+  };
 }
 
 const digestOf = (bytes: Uint8Array) =>
@@ -386,10 +477,13 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
   const tuning = loop.tuning.flatMap((name) => byName.get(name) ?? []);
   const evals = relative(request.top, request.workspace.evals);
   const tries = readTries(dir);
+  const cap = capOf(dir, loop, request.budget, deps);
   let spent = tries.reduce((sum, t) => sum + t.spend.proposer + t.spend.trials, 0);
+  const capped = (what: string): LoopOutcome => ({
+    exit: 3,
+    why: `the cap of ${usd(cap)} is spent${what}: a larger --budget resumes it`,
+  });
   for (let round = 0; round < request.rounds; round++) {
-    const left = loop.cap.usd - spent;
-    if (left <= 0) return { exit: 3, why: `the cap of ${usd(loop.cap.usd)} is spent` };
     const recent = tries.slice(-STALL);
     if (recent.length === STALL && recent.every((t) => t.decision !== "kept")) {
       return { exit: 0, why: `${STALL} tries in a row kept nothing: look before spending more` };
@@ -398,8 +492,20 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     const parent = incumbentOf(tries);
     const tryDir = join(dir, "tries", String(n));
     const code = codeOf(dir, n);
-    const decide = (fields: Omit<Try, "kind" | "n" | "at" | "parent">) => {
-      const record: Try = { kind: TRY_KIND, n, at: deps.now().toISOString(), parent, ...fields };
+    // What this try has spent, from records it keeps across a cut: the runs it started, read from
+    // the store, and what each proposer run was estimated at.
+    const ledger = tryLedger(tryDir, deps);
+    const left = () => cap - spent - ledger.total();
+    if (left() <= 0) return capped("");
+    const decide = (fields: Omit<Try, "kind" | "n" | "at" | "parent" | "spend">) => {
+      const record: Try = {
+        kind: TRY_KIND,
+        n,
+        at: deps.now().toISOString(),
+        parent,
+        ...fields,
+        spend: ledger.spend(),
+      };
       writeJson(join(tryDir, "try.json"), record, "wx");
       tries.push(record);
       spent += record.spend.proposer + record.spend.trials;
@@ -413,33 +519,23 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
       existsSync(proposalFile) && existsSync(code)
         ? readChecked<Proposal>(proposalFile, ProposalSchema)
         : undefined;
-    let feedbackSpend = proposal?.feedback ?? 0;
-    if (proposal) {
-      deps.log(
-        `try ${n}: resumed against try ${parent}, ${usd(left - feedbackSpend - proposal.spend)} left`,
-      );
-    } else {
-      rmSync(tryDir, { recursive: true, force: true });
+    if (proposal) deps.log(`try ${n}: resumed against try ${parent}, ${usd(left())} left`);
+    else {
+      for (const part of ["code", "bundle"]) {
+        rmSync(join(tryDir, part), { recursive: true, force: true });
+      }
       mkdirSync(tryDir, { recursive: true });
       await deps.waitForAllowance();
       deps.log(`try ${n}: the incumbent, try ${parent}, on ${tuning.length} tuning cases`);
       const fed = await deps.runFolders({
         folders: [codeOf(dir, parent)],
         order: loop.tuning,
-        budget: left,
+        budget: left(),
         stopOnVerdict: false,
+        started: ledger.started,
       });
-      feedbackSpend = fed.spend;
-      if (fed.stopped === "budget") {
-        decide({
-          decision: "unfinished",
-          why: `the cap stopped the incumbent's run ${fed.runId} before it proposed`,
-          changed: [],
-          runId: fed.runId,
-          spend: { proposer: 0, trials: feedbackSpend },
-        });
-        return { exit: 3, why: `the cap ended try ${n}` };
-      }
+      if (fed.stopped === "budget" || left() <= 0)
+        return capped(` by the incumbent's run ${fed.runId}`);
       branchCode(codeOf(dir, parent), code, request.top);
       const bundle = join(tryDir, "bundle");
       mkdirSync(bundle, { recursive: true });
@@ -460,17 +556,17 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
         comparison: loop.comparison,
         cases: tuning.length,
         trials: loop.trials,
-        spendLeft: Number((left - feedbackSpend).toFixed(2)),
+        spendLeft: Number(left().toFixed(2)),
       });
       await deps.waitForAllowance();
       deps.log(`try ${n}: proposing against try ${parent}`);
       const answer = await deps.propose({ tryDir, code, bundle, proposer: loop.proposer });
+      ledger.proposed(answer.spend, answer.runId);
       if (!answer.hypothesis) {
         decide({
           decision: "failed",
           why: answer.why ?? "the proposer gave no hypothesis",
           changed: [],
-          spend: { proposer: answer.spend, trials: feedbackSpend },
         });
         continue;
       }
@@ -479,55 +575,44 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
         kind: PROPOSAL_KIND,
         hypothesis: answer.hypothesis,
         spend: answer.spend,
-        feedback: feedbackSpend,
+        feedback: fed.spend,
         ...(answer.runId ? { runId: answer.runId } : {}),
       };
       writeJson(proposalFile, proposal, "wx");
     }
-    const { hypothesis, spend: proposer } = proposal;
+    const { hypothesis } = proposal;
     const changed = changedFiles(code);
-    const problems = outOfScope(code, changed, evals, tuning);
+    const problems = [
+      ...outOfScope(code, changed, evals, tuning),
+      ...outsideGit(code, request.top),
+    ];
     if (problems.length > 0) {
-      decide({
-        decision: "refused",
-        why: problems.join("; "),
-        hypothesis,
-        changed,
-        spend: { proposer, trials: feedbackSpend },
-      });
+      decide({ decision: "refused", why: problems.join("; "), hypothesis, changed });
       continue;
     }
+    if (left() <= 0) return capped(` by try ${n}'s proposer`);
     await deps.waitForAllowance();
     const ran = await deps.runFolders({
       folders: [codeOf(dir, parent), code],
       order: loop.tuning,
-      budget: Math.max(0, left - feedbackSpend - proposer),
+      budget: left(),
       stopOnVerdict: true,
+      started: ledger.started,
     });
+    if (ran.stopped === "budget") return capped(` during try ${n}'s run ${ran.runId}`);
     const verdict = ran.verdict && "verdict" in ran.verdict ? ran.verdict : undefined;
-    const capped = ran.stopped === "budget";
-    const record = decide({
-      decision: capped
-        ? "unfinished"
-        : !verdict
-          ? "failed"
-          : verdict.verdict === "better"
-            ? "kept"
-            : "discarded",
-      why: capped
-        ? `the cap stopped run ${ran.runId}`
-        : verdict
-          ? `${verdict.verdict}${verdict.stop ? "" : ", not stopped"}: ${verdict.reason}`
-          : ran.verdict && "error" in ran.verdict
-            ? `the comparison failed: ${ran.verdict.error}`
-            : "no comparison: the dataset has no compare",
+    decide({
+      decision: !verdict ? "failed" : verdict.verdict === "better" ? "kept" : "discarded",
+      why: verdict
+        ? `${verdict.verdict}${verdict.stop ? "" : ", not stopped"}: ${verdict.reason}`
+        : ran.verdict && "error" in ran.verdict
+          ? `the comparison failed: ${ran.verdict.error}`
+          : "no comparison: the dataset has no compare",
       hypothesis,
       changed,
       runId: ran.runId,
       verdict: verdict?.verdict ?? null,
-      spend: { proposer, trials: feedbackSpend + ran.spend },
     });
-    if (capped) return { exit: 3, why: `the cap ended try ${n}: ${record.why}` };
   }
   return { exit: 0, why: `${request.rounds} round${request.rounds === 1 ? "" : "s"} run` };
 }

@@ -88,7 +88,7 @@
         "minLength": 1
       },
       "uniqueItems": true,
-      "description": "Cases set aside for a final check: run, score and report leave them out, run --holdout runs them alone, and a loop's proposer never sees them."
+      "description": "Cases set aside for a final check: run, --failed and history leave them out, run --holdout runs them alone, and a loop's proposer never sees them."
     },
     "reuseDays": {
       "type": "integer",

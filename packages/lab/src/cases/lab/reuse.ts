@@ -113,8 +113,10 @@ export function labSideDigest(): string {
 }
 
 /** The settings of `dataset.json` that shape a trial, not its grading. */
-export function trialShaping(dataset: Dataset): object {
+export function trialShaping(dataset: Dataset, hide: readonly string[] = []): object {
   return {
+    // What the box hides: a path added after a leak is found makes earlier trials run again.
+    hide: [...hide].sort(),
     sandbox: dataset.sandbox,
     agentReach: dataset.agentReach,
     timeout: dataset.timeout ?? null,

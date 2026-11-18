@@ -391,8 +391,10 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
         options.help = true;
         break;
       default:
-        refuseRetiredFlag(arg);
-        if (arg.startsWith("-")) throw new Refusal(`unknown option ${arg}`);
+        if (arg.startsWith("-")) {
+          refuseRetiredFlag(arg);
+          throw new Refusal(`unknown option ${arg}`);
+        }
         positional.push(arg);
     }
   }
@@ -662,7 +664,7 @@ async function run(context: Context, given: RunGiven = {}): Promise<number> {
   const codes = codeFolders.map((c) =>
     days > 0 ? codeDigest(c.folder.root, workspace) : undefined,
   );
-  const settings = trialShaping(info.dataset);
+  const settings = trialShaping(info.dataset, workspace.hide);
   const inputs = caseDigests(info.dir, selected, realpathSync(environment.tmp ?? tmpdir()));
   const keyOf = (n: number, input: string) => {
     const { folder, params } = columns[n]!;

@@ -18,14 +18,13 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 
 ## Where it stands
 
-2026-11-17, on branch `workflow-cases`, not merged.
+2026-11-18, on branch `workflow-cases`, not merged.
 
 | | |
 | --- | --- |
-| **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 12, the loop |
-| **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
-| **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
+| **Built** | tasks 9 to 13: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; the lab's box; air-1 on cases, `hide`; the loop; one kind, records at `/1`. Before them: cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
+| **Next** | the person's review of tasks 10 to 13 |
+| **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15); the open points in "Task 13's notes" |
 
 Tried live: the mail dataset (21 trials, all 7 cases passed, 36 criteria judged), the same against
 a worktree with a worse prompt (the other column failed 2 of 3), and refund-desk with a grader
@@ -92,7 +91,9 @@ The commands, the file formats and every rule: [`packages/lab/docs/cases.md`](..
 
 In scope: everything under "What is left", and what is built (the reference). Out of scope:
 
-- Any change to `engine` or `contract`. Given stages and `until` are the lab's own `wf`.
+- Any change to `engine` or `contract` but the small ones the person chose for task 10
+  (`awf run --boxed`, `AWF_CONTROL_ROOT`, a start time where `ps` is forbidden). Given stages and
+  `until` are the lab's own `wf`.
 - Faking what agents' own commands reach inside a sandbox (Q9); their reach is checked instead.
 - An engine-enforced ceiling on a workflow's own sandboxes; under `"lab"` the box replaces them.
 - Converting the review kind's stored runs; fixtures and keys are converted.
@@ -125,12 +126,12 @@ In scope: everything under "What is left", and what is built (the reference). Ou
 - `packages/lab/src/cases/`: `format/` (pure: settings, keys, records), `env/`
   (`@agentswf/lab/cases`, run in the project's process), `lab/` (the lab's side), `judge/` (the
   criteria judge). `packages/lab/AGENTS.md` lists the files allowed I/O.
-- `packages/lab/src/review/`: the review kind, until task 13. `src/compare/` (domain-free
-  comparison rules) moves into `src/shared/` with task 9.
-- `scripts/check-boundaries.ts`: `cases/` never imports `review/`, names no domain word, and keeps
-  `format/` pure.
+- `packages/lab/src/shared/`: the process seam, `awf-lab.json`, the plan-window wait, the checks,
+  and `compare/`, the paired rule `better.paired` wraps.
+- `scripts/check-boundaries.ts`: `cases/` imports only itself and `shared/`, names no domain word,
+  and keeps `format/` pure.
 - Outside: `examples/refund-desk/evals/`; the mail project's `evals/` (`mini-workflows`, branch
-  `evals`); autoresearch's `evals/air-1/graders/match.ts` (branch `workflow-cases`).
+  `evals`); autoresearch's `evals/air-1/`, `lib/review/` and `scripts/collect/` (branch `main`).
 
 ## What is left
 
@@ -245,8 +246,8 @@ retired command and flag is refused with what replaced it; the records, `grade.j
   grader's name, a criterion's text), the dataset layout and its reserved names, the exit codes,
   and the files people write (`key.md`, `dataset.json`, `awf-lab.json`). Their next incompatible
   change makes them `/1`, with a converter.
-- **Records** (run, trial, score, grade, label) are `/0` until task 13 makes them `/1`; old records are
-  refused by name, with no converter (beta).
+- **Records** (run, trial, score, grade, label, the loop's) and `awf-lab.json` are `/1` since task 13;
+  a `/0` one is refused or left out by name, with no converter (beta).
 - **Unstable**: the code shapes people write against (`defineEnv`, `c`, a grader's result,
   `compare`).
 
@@ -288,7 +289,8 @@ Settled by the owner, newest first:
 - **Reviews and the loop move onto cases on this branch** (2026-11-16): building them beside the
   design shows what it gets wrong while it can change.
 - **Q10, one outer box, `"lab"`**: the whole trial in one sandbox from any provider, keys outside
-  it, the workflow's own sandboxes set aside inside (srt doesn't nest on macOS). No engine change.
+  it, the workflow's own sandboxes set aside inside (srt doesn't nest on macOS). Building it took a
+  small engine change, which the person chose: `awf run --boxed` (task 10's notes).
 - **Q11, trials reused when unchanged**, within a window, keyed on separate digests so a key edit
   runs nothing.
 - **Q12, one store per project, records committable**.
@@ -337,9 +339,9 @@ statistical thresholds for "came out differently" at a few trials (the list is f
 - [x] 8. Grader workflows and `score`
 - [x] 9. Parameters, reuse, labels, rates and `compare` (the live labels are the person's)
 - [x] 10. The `"lab"` box (srt; Docker later)
-- [ ] 11. The review datasets on cases
-- [ ] 12. The loop, for any dataset
-- [ ] 13. One kind: the review kind retired, records at `/1`
+- [x] 11. The review datasets on cases
+- [x] 12. The loop, for any dataset
+- [x] 13. One kind: the review kind retired, records at `/1`
 
 Order from here: 9, 10, 11, 12, 13. Tasks 1 and 5 wait on the person; 3's last check follows
 1 (the judge on its held-out third), and 6's follows 5 (a real run of each workflow captured).
@@ -477,8 +479,7 @@ Done when:
 ### 12. The loop
 
 - [x] Plan (Implementation notes, "Task 12's plan"), implement, verify; reviewed with tasks 10
-  to 13 together.
-- [ ] Review, resolve.
+  to 13 together, resolved ("Review of tasks 10 to 13").
 
 Done when:
 
@@ -490,8 +491,8 @@ Done when:
 
 ### 13. One kind
 
-- [ ] Plan (what is deleted, what moves to autoresearch first, the docs and site), implement,
-  review, resolve, verify.
+- [x] Plan (Implementation notes, "Task 13's plan"), implement, review (with tasks 10 to 12),
+  resolve, verify.
 
 Done when:
 
@@ -511,8 +512,8 @@ Done when:
 - [x] Nothing in the `"lab"` box reads a key (task 10).
 - [x] Every autoresearch dataset converts and verifies (task 11).
 - [x] A loop keeps a better try and never shows a holdout (task 12).
-- [ ] One kind, records at `/1` (task 13).
-- [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
+- [x] One kind, records at `/1` (task 13).
+- [x] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
 
 Live, still open: the builds dataset (task 5); the judge on task 1's held-out part (task 3); a
 real run of each workflow captured (task 6); air-1 on both labs (task 11); the loop (task 12).
@@ -737,6 +738,65 @@ The person chose to retire the review tooling in autoresearch rather than freeze
     a run, not converted.
   - `check-boundaries.ts` loses the review rules; the README, `docs/status.md`,
     `docs/testing.md` and `docs/foundation.md` name one kind.
+
+### Task 13's notes
+
+- autoresearch took `lib/review/` (formats, fixtures, matching, voting, metrics, the judge's
+  checks), `scripts/collect/` (`collect`, `draft-key`, the fixtures workflow, `verify-set`) and
+  `variants/variant.ts` (`defineVariant`); its scorers, the scripts that read the review lab's
+  results, both review `awf-lab.json` files, and the oracle and comments variants, which read the
+  key a trial may not, are gone. Its tests (84) pass and air-1 ran a trial on `/1`.
+- awf: `src/review/`, its 18 schema files, `@agentswf/lab/review` and `@agentswf/lab/compare` are
+  gone; `retired.ts` refuses each retired command and flag with what replaced it, and
+  `config-file.ts` each retired `awf-lab.json` field; `/0` records are named and left out, `/0`
+  labels stop the command. `run-sandbox`'s live check drives its probe with `awf run --sandbox`
+  directly, passing live ($0.04); its stale check counted a JSON refusal as a record.
+- The proposer's effort levels lacked `ultra`; the harness test found it once it pointed there.
+- The mail project's `evals/awf-lab.json` (`mini-workflows`, branch `evals`) is still `/0`, so it
+  is refused until its kind is `awf.lab-workspace/1`: the person's to change.
+
+### Review of tasks 10 to 13
+
+Two reviewers, architecture and correctness, on `8642a47e..21bca0e8`. Resolved:
+
+- **A loop's boxes read the workspace's keys** (both, must-fix): a copy's awf resolves into your
+  checkout, whose `examples/` the box was given whole, while the keys hidden were the copy's. Both
+  boxes now hide the workspace checkout's keys, history, ignored files and `hide` paths as well as
+  the code folder's; the box reads no awf `examples/` and never the home folder or above it. An
+  srt test reads the workspace through a given path and must be refused its key.
+- **The cap could be crossed, and a cut lost spend** (must-fix, should-fix): a try's spend is now
+  summed from records kept as it goes (`runs.json`, the runs it started, priced from the store;
+  `proposer.jsonl`), the cap is checked before the proposer and before the try's run, and a try
+  the cap stops is left undecided. A run's last trial may still cross the cap, as `--budget` does
+  everywhere.
+- **A resume's `--budget` was ignored** (both): a different one sets the cap, kept in `cap.jsonl`.
+- **`--final` spent uncapped** (both): it needs `--budget`, and runs under the loop's `--param`,
+  now in `loop.json` and compared on resume. A loop refuses `--tags`, `--against`, `--vary`,
+  `--failed`, `--fresh` and `--holdout`.
+- **Code outside git escaped the scope check**: a try with anything git doesn't see but the
+  linked installs is refused.
+- **`/0` labels dropped silently**: they stop the command, named.
+- **`awf-lab.json`'s retired fields** each name where they went; **`@agentswf/lab/compare`**, the
+  retired comparison-file API, is no longer published; **`hide`** is in the reuse key; retired
+  names are looked up as own keys, so a loop named `constructor` is no retired command; the loop's
+  and the label's records have published schemas; the story, ADR 0003, two dead links,
+  `testing.md` (the box's srt test) and the holdout schema's text are current.
+- **The proposer's bundle quotes tuning keys**: kept, and said so in `cases.md`: the tuning
+  cases are what it learns from, and the scope check refuses copying them; a holdout never
+  reaches it. The paste check is sure from about fifty characters, as `cases.md` now says.
+
+Open, for the person:
+
+- `awf run --boxed` is a published flag the run record doesn't note: a boxed run's agents read as
+  host agents. A field on the attempt record would say so; a record-format change, so not made
+  here.
+- A loop's state (`loops/{name}/`) lives only in the store, while its runs reach the committed
+  records folder: a clone sees runs naming code folders it lacks. Keep loop runs out of
+  `records`, or commit the loop's own records.
+- Three tries that kept nothing stop a loop for good; a flag to go on is not built.
+- A proposer run that prints no record counts $0, though its run folder may hold some spend.
+- `"network": "any"` from task 10's plan is neither built nor needed yet.
+- autoresearch's `bun.lock` still names the old bin path; a `bun install` there rewrites it.
 
 ### Task 12's notes
 

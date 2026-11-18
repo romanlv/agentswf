@@ -69,3 +69,11 @@ key (`key.md`, `key/`) beside it.
   it lives in the project's repository, which is the project's to keep private. Nothing here
   changes for review fixtures until reviews move onto the new kind
   ([[044-cases-for-a-workflow|story 044]]).
+
+## Amended (story 044, 2026-11-18)
+
+What is general turned out to be cases for any workflow, not the review fixture format. The
+review tools (the fixture format, its checker, `collect`, `draft-key` and the match grader) moved
+to the project's own autoresearch repository, beside its fixture sets, and `packages/lab` keeps
+only the case lab: datasets of cases, graders, comparison and the loop. The split stands; its line
+moved.

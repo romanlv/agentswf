@@ -53,22 +53,22 @@ export const WorkspaceSchema = Type.Object(
 );
 export type WorkspaceConfig = Type.Static<typeof WorkspaceSchema>;
 
-/** The review kind's fields, retired with it: a file holding one is that kind's. */
-export const REVIEW_FIELDS = [
-  "clone",
-  "datasets",
-  "dataset",
-  "results",
-  "runs",
-  "variants",
-  "scorers",
-  "scorer",
-  "comparisons",
-  "comparison",
-  "trials",
-  "baseline",
-  "budget",
-  "sandbox",
-  "seed",
-  "holdout",
-] as const;
+/** The older lab's fields, retired with it, each with where it went, or null when nowhere. */
+export const RETIRED_FIELDS: Readonly<Record<string, string | null>> = {
+  clone: "a case's own files, built by env.ts",
+  datasets: "a folder of evals/ per dataset, holding dataset.json",
+  dataset: "--dataset",
+  results: "the store, and records",
+  runs: "the store",
+  variants: "--param or --vary, read by env.ts",
+  scorers: "dataset.json's graders",
+  scorer: "dataset.json's graders",
+  comparisons: "compare in the dataset's graders.ts",
+  comparison: "compare in the dataset's graders.ts",
+  trials: "--trials",
+  baseline: "the reference column",
+  budget: "--budget",
+  sandbox: "dataset.json's sandbox",
+  seed: null,
+  holdout: "dataset.json's holdout",
+};

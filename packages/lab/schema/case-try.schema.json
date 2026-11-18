@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab loop's try.json",
+  "type": "object",
+  "required": ["kind", "n", "at", "parent", "decision", "why", "changed", "spend"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-try/1"
+    },
+    "n": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "kept"
+        },
+        {
+          "type": "string",
+          "const": "discarded"
+        },
+        {
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hypothesis": {
+      "type": "object",
+      "required": ["change", "hypothesis", "predicted", "mechanism"],
+      "properties": {
+        "change": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What changed, in a sentence."
+        },
+        "hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why it should do better."
+        },
+        "predicted": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effect expected on the comparison's numbers, and its cost."
+        },
+        "mechanism": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the trials must show if the hypothesis holds."
+        }
+      },
+      "additionalProperties": false
+    },
+    "changed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "spend": {
+      "type": "object",
+      "required": ["proposer", "trials"],
+      "properties": {
+        "proposer": {
+          "type": "number",
+          "minimum": 0
+        },
+        "trials": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

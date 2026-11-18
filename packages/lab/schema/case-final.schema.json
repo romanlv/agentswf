@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab loop's final check",
+  "type": "object",
+  "required": ["kind", "k", "at", "incumbent", "runId", "verdict", "why", "spend"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-final/1"
+    },
+    "k": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "incumbent": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spend": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

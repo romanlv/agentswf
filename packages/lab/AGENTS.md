@@ -27,7 +27,7 @@ argv, starting this checkout's `awf` or a folder's own bin with a preload, recor
 finds and reads it, in a folder or its `evals/`, and refuses a `/0` one or the older lab's by
 name), the plan-window wait (`allowance.ts`), and the schema checks (`validate.ts`). It imports
 nothing of `src/cases/` and is pure but for `runner.ts`, `config-file.ts` and `allowance.ts`.
-`src/shared/compare/` (`@agentswf/lab/compare`) turns two columns' per-case numbers into a verdict:
+`src/shared/compare/` turns two columns' per-case numbers into a verdict:
 `pairedComparison`, which `better.paired` wraps. It imports nothing, and is pure.
 
 It is a consumer of the engine (ADR 0002): it may import `@agentswf/contract`, never a harness;

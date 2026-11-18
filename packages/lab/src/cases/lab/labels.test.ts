@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { LabelRecord } from "../format/records";
 import { comparedTrial } from "./compare";
-import { agreementOf } from "./labels";
+import { agreementOf, readLabels } from "./labels";
 import type { StoredTrial } from "./store";
 
 const label = (runId: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
@@ -49,4 +52,18 @@ test("compare sees the numbers of the graders that decide, not an on-demand one'
   )!;
   expect(seen.numbers).toEqual({ "match.recall": 0.4 });
   expect(seen).toMatchObject({ passed: true, workflowFailed: false, seconds: 1 });
+});
+
+test("a /0 label stops the command, named, rather than dropping out of the person's labels", () => {
+  const store = mkdtempSync(join(tmpdir(), "awf-lab-labels-"));
+  try {
+    mkdirSync(join(store, "labels"));
+    writeFileSync(
+      join(store, "labels", "ds.jsonl"),
+      `${JSON.stringify({ kind: "awf.case-label/0", runId: "r", case: "a", mark: "good", at: "2026-11-17T00:00:00.000Z" })}\n`,
+    );
+    expect(() => readLabels(store, "ds")).toThrow("holds labels of awf.case-label/0");
+  } finally {
+    rmSync(store, { recursive: true, force: true });
+  }
 });
