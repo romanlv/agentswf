@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { type AllowanceSource, awfAllowance, waitingOnAllowance } from "../../shared/allowance";
 import { defaultBranch } from "../fixtures/git";
 import { SET_FILE } from "../fixtures/set";
 import { CATEGORIES, type Category, SEVERITIES } from "../format/format";
@@ -23,7 +24,6 @@ import { categoryOf } from "../judge/panel";
 import { agreement } from "../metrics/metrics";
 import { type Address, formatAddress, parseAddress } from "./address";
 import { reportSubject, runAgainst, standing } from "./against";
-import { type AllowanceSource, waitingOnAllowance } from "./allowance";
 import { buildCheck, checkLines, renderCheck } from "./check";
 import {
   type CaseInfo,
@@ -68,7 +68,7 @@ import {
   renderReport,
   usd,
 } from "./report";
-import { awfAllowance, awfRunner, type Runner } from "./runner";
+import { awfRunner, type Runner } from "./runner";
 import { selectCases } from "./selection";
 import { buildShow, renderShow } from "./show";
 import { inventory, runDirOf, scoresBy } from "./store";

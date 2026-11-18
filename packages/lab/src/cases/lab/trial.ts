@@ -181,6 +181,8 @@ export async function runTrial(
             HOME: home,
             TMPDIR: join(home, "tmp"),
             CLAUDE_CODE_TMPDIR: join(home, "tmp"),
+            // zsh makes a here-document's file under `/tmp` unless told otherwise.
+            TMPPREFIX: join(home, "tmp", "zsh"),
             AWF_CONTROL_ROOT: control,
           }
         : {}),
@@ -349,7 +351,9 @@ function stageTimes(
   return { stageMs: Object.fromEntries(ran.map((s) => [s.stage, s.spanMs])) };
 }
 
-function definedOf(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+export function definedOf(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
   return Object.fromEntries(
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );

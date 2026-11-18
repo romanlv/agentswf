@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "nod
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import type { AllowanceSource } from "../../shared/allowance";
 import { findConfigFile } from "../../shared/config-file";
 import { awfLogs, processRunner, type Runner, withoutCallingSession } from "../../shared/runner";
 import { checkSchema, describeProblems } from "../../shared/validate";
@@ -45,6 +46,7 @@ import { gitState, gitTop } from "./git";
 import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
 import { agreementOf, appendLabel, judgeLabeled, type PersonAgreement, readLabels } from "./labels";
+import { loopCommand } from "./loop-command";
 import { type CaseRow, newestEntries, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
 import { pairedDifference, ratesOf } from "./rates";
@@ -117,6 +119,16 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   label {run id} (--good | --needs-work {note} | --clear)
                               the person's verdict on a trial, by its workflow run's id (report
                               --case shows them); the report gives the lab's agreement with it
+  loop {name} --budget {usd} [--program {file}] [--proposer {harness/model}] [--rounds {n}]
+       [--trials {n}] [--cases {a,b}] [--param …] [--allowance {pct|off}] [--dataset {name}]
+                              a proposer changes a copy of the code from the tuning cases'
+                              feedback, the copy runs against the incumbent case by case until
+                              the dataset's compare stops it, and it is kept only when better; the
+                              first run names its program and starts from your checkout; again,
+                              it resumes
+  loop {name} --final [--budget {usd}]
+                              the kept code against the start on the held-out cases, once
+  loop {name} --patch         the kept code against the start, as a patch
   runs                        the runs kept, newest first
 
   --dataset {name}  the dataset: a folder beside awf-lab.json holding a dataset.json; with one,
@@ -151,6 +163,13 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   --dry-run         print the plan of run or score, and run or grade nothing
   --budget {usd}    run stops starting trials, and score before a grader workflow, once their
                     estimates reach it: exit 3
+  --program {file}  a loop's steering, the operator's, read by its proposer each try
+  --proposer {harness/model}
+                    the loop's proposer; claude/claude-sonnet-5-5 unless told
+  --rounds {n}      the loop's tries this time; 1 unless told
+  --allowance {pct|off}
+                    a loop waits while a plan window its agents draw on is this far used; 90
+                    unless told
   --json            the report, or score's plan and report, as JSON
   --md              the report as Markdown, to paste into a pull request or an issue
 
@@ -177,12 +196,14 @@ export type CasesEnvironment = {
   env?: Readonly<Record<string, string | undefined>>;
   /** The checks of a folder before the first trial; absent, the real ones. */
   inspect?: (root: string, envFile: string) => Promise<FolderSetup>;
+  /** `awf allowance --json`, for a loop's wait; absent, the operator's, unless the runner is scripted. */
+  allowance?: AllowanceSource;
   /** Graders a test adds after `expect`, before the dataset's own. */
   graders?: readonly LabGrader[];
   now?: () => Date;
 };
 
-type Options = {
+export type Options = {
   config?: string;
   dataset?: string;
   cases?: string[];
@@ -211,6 +232,12 @@ type Options = {
   budget?: number;
   json: boolean;
   help: boolean;
+  program?: string;
+  proposer?: string;
+  rounds?: number;
+  allowance?: number | "off";
+  final: boolean;
+  patch: boolean;
 };
 
 /** The lab broke during a run: exit 4. */
@@ -232,6 +259,8 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     md: false,
     judges: [],
     good: false,
+    final: false,
+    patch: false,
   };
   const positional: string[] = [];
   const rest = [...argv];
@@ -330,6 +359,32 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
         options.budget = usd;
         break;
       }
+      case "--program":
+        options.program = value(arg);
+        break;
+      case "--proposer":
+        options.proposer = value(arg);
+        break;
+      case "--rounds": {
+        const text = value(arg);
+        if (!/^[1-9][0-9]*$/.test(text)) throw new Refusal("--rounds is a whole number from 1");
+        options.rounds = Number(text);
+        break;
+      }
+      case "--allowance": {
+        const text = value(arg);
+        if (text === "off") options.allowance = "off";
+        else if (/^[0-9]+$/.test(text) && Number(text) >= 1 && Number(text) <= 100) {
+          options.allowance = Number(text);
+        } else throw new Refusal("--allowance is a percent from 1 to 100, or off");
+        break;
+      }
+      case "--final":
+        options.final = true;
+        break;
+      case "--patch":
+        options.patch = true;
+        break;
       case "--help":
       case "-h":
         options.help = true;
@@ -343,7 +398,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
   return { ...(command ? { command } : {}), names, options };
 }
 
-type Context = {
+export type Context = {
   cwd: string;
   home: string;
   options: Options;
@@ -400,6 +455,8 @@ export async function runCases(
         return runs(context);
       case "label":
         return label(context, names);
+      case "loop":
+        return await loopCommand(context, names, { run, verdictsOf, workspaceOf, loadDataset });
       default:
         throw new Refusal(`unknown command ${command}`);
     }
@@ -506,7 +563,22 @@ function estimate(
   return `from earlier trials: about ${seconds(time * count)}${price}`;
 }
 
-async function run(context: Context): Promise<number> {
+/**
+ * What a loop asks of `run` beyond its options: the code folders, the reference first, in place of
+ * your checkout and `--against`; the cases in this order; each case's trials in every column before
+ * the next case; and after each case whether to stop, from the trials so far.
+ */
+export type RunGiven = {
+  folders?: readonly string[];
+  order?: readonly string[];
+  stop?: (run: RunRecord, trials: readonly StoredTrial[]) => Promise<boolean>;
+  /** Told the run's id once it has one. */
+  started?: (id: string) => void;
+  /** Off, the report is not printed: the loop prints its own line. */
+  report?: boolean;
+};
+
+async function run(context: Context, given: RunGiven = {}): Promise<number> {
   const { options, environment, stderr } = context;
   const workspace = workspaceOf(context);
   const { info, cases } = loadDataset(workspace, options.dataset, options.holdout);
@@ -530,6 +602,10 @@ async function run(context: Context): Promise<number> {
     }
   }
   let selected = options.cases ? cases.filter((c) => options.cases!.includes(c.name)) : cases;
+  if (given.order) {
+    const known = new Map(cases.map((c) => [c.name, c]));
+    selected = given.order.flatMap((name) => known.get(name) ?? []);
+  }
   if (options.tags) selected = selected.filter((c) => tagged(c, options.tags!));
   const failed = options.failed
     ? failedCases(workspace.store, info.name, workspace.root, combos[0]!, bars)
@@ -555,11 +631,16 @@ async function run(context: Context): Promise<number> {
       `keys in ${info.name} have criteria: name a judgeAgent ({ "harness", "model" }) in awf-lab.json or dataset.json`,
     );
   }
-  const folder = await folderOf();
-  const state = gitState(workspace.root);
-  const codeFolders: CodeFolder[] = [{ folder, envFile, state }];
-  for (const given of options.against) {
-    codeFolders.push(await againstFolder(context, workspace, info, given, codeFolders));
+  const codeFolders: CodeFolder[] = [];
+  if (given.folders) {
+    for (const dir of given.folders) {
+      codeFolders.push(await againstFolder(context, workspace, info, dir, codeFolders));
+    }
+  } else {
+    codeFolders.push({ folder: await folderOf(), envFile, state: gitState(workspace.root) });
+    for (const dir of options.against) {
+      codeFolders.push(await againstFolder(context, workspace, info, dir, codeFolders));
+    }
   }
   const columns = columnsOf(codeFolders.length, combos);
 
@@ -678,6 +759,7 @@ async function run(context: Context): Promise<number> {
       started: now().toISOString(),
     };
     writeRun(workspace.store, record);
+    given.started?.(id);
     clearStale(tmp);
     clearStaleTrialFiles(workspace.labHome);
     const lab: TrialLab = {
@@ -701,6 +783,8 @@ async function run(context: Context): Promise<number> {
         keyOf(n, input),
       );
     };
+    // Trial t of every case, then t + 1; under a loop's `stop`, a case's every trial first.
+    const passes: { cases: CaseInfo[]; trial: number }[] = [];
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
     // What this run's own trials and their grading are estimated at, for --budget.
     let estimated = 0;
@@ -730,9 +814,20 @@ async function run(context: Context): Promise<number> {
         estimated += done.estimate;
         if (done.stopped) record = { ...record, stopped: "budget" };
       }
-      for (let trial = 1; trial <= most; trial++) {
+      if (given.stop) {
+        for (const c of selected) {
+          for (let trial = 1; trial <= trialsOf(c.name); trial++)
+            passes.push({ cases: [c], trial });
+        }
+      } else {
+        for (let trial = 1; trial <= most; trial++) {
+          passes.push({ cases: selected.filter((c) => trialsOf(c.name) >= trial), trial });
+        }
+      }
+      for (const [p, { cases: inPass, trial }] of passes.entries()) {
+        if (record.stopped) break;
         const again: [CaseInfo, number][] = [];
-        for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
+        for (const info of inPass) {
           for (const n of columns.keys()) {
             if (trial <= reusedIn(info.name, n)) continue;
             if (over()) {
@@ -755,6 +850,14 @@ async function run(context: Context): Promise<number> {
           const retried = { ...done.record, retried: true };
           writeTrial(done.dir, retried);
           shown({ ...done, record: retried });
+        }
+        // A case is whole once its last trial ran: the comparison may stop the rest.
+        const next = passes[p + 1];
+        const whole = !next || next.cases[0] !== inPass[0];
+        if (given.stop && whole && !record.stopped) {
+          if (await given.stop(record, readTrials(workspace.store, id))) {
+            record = { ...record, stopped: "compare" };
+          }
         }
       }
     } catch (error) {
@@ -790,7 +893,8 @@ async function run(context: Context): Promise<number> {
     ...personOf(workspace, record.dataset, trials, bars, graders),
   });
   // A budget stop leaves trials unrun: 3, unless the report already exits worse.
-  const stoppedExit = record.stopped && exit === 0 ? 3 : exit;
+  const stoppedExit = record.stopped === "budget" && exit === 0 ? 3 : exit;
+  if (given.report === false) return stoppedExit;
   if (options.json) {
     const { person } = personOf(workspace, record.dataset, trials, bars, graders);
     const json = reportJson({

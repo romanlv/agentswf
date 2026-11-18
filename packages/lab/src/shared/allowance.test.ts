@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AllowanceReport, HarnessAllowance } from "@agentswf/contract/records";
+
+/** A run as the wait reads it: its arguments, and enough else to tell runs apart. */
+type RunRequest = { workflow: string; argv: readonly string[] };
+type Runner = (request: RunRequest) => Promise<{ exitCode: number }>;
+
 import { blocking, runtimesIn, waitingOnAllowance } from "./allowance";
-import type { Runner, RunRequest } from "./runner";
 
 const T0 = Date.parse("2026-10-05T16:00:00Z");
 const RESET = "2026-10-05T20:00:00.000Z";
@@ -32,14 +36,7 @@ const report = (...harnesses: HarnessAllowance[]): AllowanceReport => ({
   readAt: new Date(T0).toISOString(),
   harnesses,
 });
-const request = (...argv: string[]): RunRequest => ({
-  workflow: "w.ts",
-  cwd: "/",
-  timeout: "1m",
-  argv,
-  runRoot: "/runs",
-  id: "r",
-});
+const request = (...argv: string[]): RunRequest => ({ workflow: "w.ts", argv });
 
 describe("the runtimes a run draws on", () => {
   test("are the harness/model arguments of a known harness", () => {
@@ -85,7 +82,7 @@ describe("a runner that waits on the allowance", () => {
     const ran: RunRequest[] = [];
     const runner: Runner = async (run) => {
       ran.push(run);
-      return { exitCode: 0, stderr: "", ms: 0 };
+      return { exitCode: 0 };
     };
     const gated = waitingOnAllowance(
       runner,

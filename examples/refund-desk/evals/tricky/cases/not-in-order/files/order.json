@@ -1,0 +1,6 @@
+{
+  "id": "O-not-in-order",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-08T10:00:00Z",
+  "items": [{ "name": "Teapot", "price": 32 }, { "name": "Strainer", "price": 6 }]
+}

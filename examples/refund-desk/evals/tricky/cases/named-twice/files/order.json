@@ -1,0 +1,6 @@
+{
+  "id": "O-named-twice",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-03T10:00:00Z",
+  "items": [{ "name": "Kettle", "price": 30 }, { "name": "Tea tin", "price": 9 }]
+}

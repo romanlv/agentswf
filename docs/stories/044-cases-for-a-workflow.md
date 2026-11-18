@@ -709,6 +709,23 @@ them.
 - **Proven** on scripted agents first, then live on a refund-desk dataset whose workflow misses
   some cases, then one round on air-1.
 
+### Task 12's notes
+
+- `run` takes what a loop asks of it (`RunGiven`): the code folders, the reference first, in
+  place of your checkout; the case order; each case's trials in every column before the next; and
+  a stop check after each case. A run the comparison stopped is `stopped: "compare"`, which exits
+  as the report does, not 3.
+- A try's run holds the incumbent's reused trials of every case from its start, so the loop gives
+  `compare` only the cases both columns ran.
+- A try is committed as soon as the proposer answers, so a resumed try reads its change from that
+  commit; a run the lab broke during stops the loop undecided, and it resumes with the try.
+- srt lets a denied folder win over a writable one inside it, so the proposer's box hides the
+  store around the try's copy and bundle (`hiddenAround`) rather than whole.
+- The allowance wait moved to `shared/`, for both kinds; a case loop waits on the proposer and on
+  any `harness/model` parameter, as it cannot see a workflow's own agents before they start.
+- A `tricky` dataset in refund-desk, ten tuning tickets and two held out, for the live check: Haiku
+  5.5 and 4.5 pass all but one, `whole-set` (Haiku 4.5 refunds a share of a set).
+
 ### Task 10's notes
 
 - Two more small engine changes, inside the person's: `AWF_CONTROL_ROOT` moves the engine's
@@ -748,6 +765,13 @@ them.
   65/83 (0.78). Recall agrees on the same findings; precision moves 0.11 between the two
   graders on the same findings, the Sonnet voter's own spread, as far as it moves between the
   labs. The run predates `hide`, so it shows the labs agree, not that nothing leaked.
+- The loop on refund-desk (task 12): `tricky` on Haiku 4.5, two trials, a $5 cap, two rounds of
+  a Sonnet 5.5 proposer in the lab's box. Each try changed `workflow.ts` alone (an item counts as
+  named when a group it belongs to is), ran against the start on all ten tuning cases with the
+  start's trials reused, and was discarded as a tie: try 2 won `whole-set` once in two trials,
+  one case of ten, which the paired rule can't show. Est. $1.85. Three earlier loops found the
+  box's rules the proposer met (its folders under the hidden lab home, its starting folder, zsh's
+  here-documents under `/tmp`), each fixed with a test.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 

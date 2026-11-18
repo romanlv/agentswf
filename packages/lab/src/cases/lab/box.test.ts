@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { awfArgv } from "../../shared/runner";
-import { boxNetwork, boxProfile, hiddenOf, MODEL_DOMAINS } from "./box";
+import { boxNetwork, boxProfile, hiddenAround, hiddenOf, MODEL_DOMAINS } from "./box";
 import type { CaseWorkspace } from "./workspace";
 
 const roots: string[] = [];
@@ -166,5 +166,87 @@ describe.skipIf(!srt || process.platform !== "darwin")("the box under srt", () =
     } finally {
       rmSync(canary, { force: true });
     }
+  }, 60_000);
+});
+
+describe.skipIf(!srt || process.platform !== "darwin")("a loop's proposer under srt", () => {
+  test("writes the try's copy but not its evals/, reads its bundle, and nothing else of the store", () => {
+    const { top, root, trial } = project();
+    // The store inside the lab's home, both hidden, as on a machine.
+    const labHome = join(top, "lab-home");
+    const store = join(labHome, "project-1");
+    // A try's copy and bundle inside the store, as a loop keeps them.
+    const tryDir = join(store, "loops/l/tries/1");
+    const code = join(tryDir, "code");
+    const bundle = join(tryDir, "bundle");
+    for (const dir of [
+      join(code, "evals/ds"),
+      bundle,
+      join(store, "runs/other"),
+      join(labHome, "trials"),
+      join(tryDir, "proposer/home"),
+      join(tryDir, "proposer/runs"),
+    ]) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(code, "evals/ds/env.ts"), "export default {};\n");
+    writeFileSync(join(bundle, "feedback.json"), "[]\n");
+    writeFileSync(join(store, "runs/other/trial.json"), "{}\n");
+    const workspace: CaseWorkspace = {
+      config: join(root, "evals/awf-lab.json"),
+      evals: join(root, "evals"),
+      root,
+      store,
+      labHome,
+    };
+    const profile = boxProfile(
+      {
+        root,
+        caseDir: bundle,
+        scratch: code,
+        runRoot: join(tryDir, "proposer/runs"),
+        home: join(tryDir, "proposer/home"),
+        trialFile: join(tryDir, "proposer/trial.jsonl"),
+        control: join(trial, "control"),
+        toolchain: [],
+        hidden: [
+          ...hiddenOf(code, workspace).filter((path) => path !== store && path !== labHome),
+          ...hiddenAround(labHome, [tryDir]),
+        ],
+        readOnly: [join(code, "evals")],
+        reads: [tryDir],
+      },
+      [],
+    );
+    const file = join(top, "proposer-box.json");
+    writeFileSync(file, JSON.stringify(profile));
+    const sh = (script: string) =>
+      Bun.spawnSync([srt!, "-s", file, "--", "/bin/sh", "-c", script], {
+        cwd: code,
+        stdout: "ignore",
+        stderr: "ignore",
+      }).exitCode === 0;
+    expect(sh(`echo x > '${join(code, "workflow.ts")}'`)).toBe(true);
+    expect(sh(`echo x > '${join(code, "evals/ds/env.ts")}'`)).toBe(false);
+    expect(sh(`cat '${join(bundle, "feedback.json")}'`)).toBe(true);
+    expect(sh(`cat '${join(store, "runs/other/trial.json")}'`)).toBe(false);
+    expect(sh(`echo x > '${join(bundle, "feedback.json")}'`)).toBe(false);
+    expect(sh(`mkdir -p '${join(tryDir, "proposer/home/.awf")}'`)).toBe(true);
+    // An agent's shell is zsh, whose here-documents go to TMPPREFIX, under the box's home.
+    const tmp = join(tryDir, "proposer/home/tmp");
+    mkdirSync(tmp, { recursive: true });
+    const zsh = Bun.spawnSync(
+      [srt!, "-s", file, "--", "/bin/zsh", "-c", `cat > '${join(code, "notes.ts")}' <<'E'\nx\nE`],
+      {
+        cwd: code,
+        env: { ...process.env, TMPPREFIX: join(tmp, "zsh") },
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
+    expect(zsh.exitCode).toBe(0);
+    // The proposer's agent starts in the try's folder.
+    expect(sh(`cd '${tryDir}' && ls`)).toBe(true);
+    expect(sh(`echo x > '${join(tryDir, "planted.json")}'`)).toBe(false);
   }, 60_000);
 });

@@ -452,9 +452,9 @@ export function renderRun({
           `against ${i + 1}: ${describeFolder(folder)}${folder.env !== run.folders[0]!.env ? ", env.ts differs" : ""}`,
       ),
     ...(sharedParams(run).length > 0 ? [`params: ${sharedParams(run).join(" ")}`] : []),
-    ...(run.stopped === "budget"
+    ...(run.stopped
       ? [
-          `stopped at --budget: ${plural(Math.max(0, run.asked.reduce((n, a) => n + a.trials, 0) * run.columns.length - trials.length), "trial")} not run`,
+          `${run.stopped === "budget" ? "stopped at --budget" : "stopped by the comparison"}: ${plural(Math.max(0, run.asked.reduce((n, a) => n + a.trials, 0) * run.columns.length - trials.length), "trial")} not run`,
         ]
       : []),
     ...(run.columns.length > run.folders.length

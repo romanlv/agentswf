@@ -1,0 +1,7 @@
+{
+  "kind": "awf.case-dataset/0",
+  "sandbox": { "lab": "srt" },
+  "agentReach": { "network": [] },
+  "timeout": "5m",
+  "holdout": ["two-broken", "late-plea"]
+}

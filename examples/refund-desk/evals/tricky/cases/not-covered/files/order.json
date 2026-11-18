@@ -1,0 +1,6 @@
+{
+  "id": "O-not-covered",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-05T10:00:00Z",
+  "items": [{ "name": "Scarf", "price": 25 }]
+}

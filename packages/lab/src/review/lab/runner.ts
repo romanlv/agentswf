@@ -1,5 +1,4 @@
 import { basename, dirname, join } from "node:path";
-import type { AllowanceReport } from "@agentswf/contract/records";
 import {
   AWF,
   awfArgv,
@@ -102,27 +101,6 @@ export function awfRunner(): Runner {
     const { exitCode, stdout, stderr, ms } = await spawnAwf(argv, { env: runEnvironment() });
     return { exitCode, stderr, ms, ...parseRecord(stdout) };
   };
-}
-
-/** `awf allowance --json`, as the operator's own login reads it; undefined when it printed none. */
-export async function awfAllowance(
-  harnesses: readonly string[],
-): Promise<AllowanceReport | undefined> {
-  // A pane read takes up to 90 s; past three minutes awf is stuck, and the run goes ahead.
-  const child = Bun.spawn(awfCommand(undefined, ["allowance", "--json", ...harnesses]), {
-    stdout: "pipe",
-    stderr: "ignore",
-    stdin: "ignore",
-    timeout: 180_000,
-  });
-  const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-  try {
-    const report = JSON.parse(stdout) as AllowanceReport | { code: string };
-    // A refusal, which has a code and no report's fields, is none.
-    return "code" in report || report.v !== 1 ? undefined : report;
-  } catch {
-    return undefined;
-  }
 }
 
 // awf fails a run whose agent outlived the shutdown grace, though the workflow may have finished:

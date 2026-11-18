@@ -67,6 +67,10 @@ export type BoxPaths = {
   toolchain: readonly string[];
   /** Paths inside an allowed one that nothing in the box reads: keys, `.git`, records, the store. */
   hidden: readonly string[];
+  /** Paths inside the scratch folder that the box reads but never writes: a loop's `evals/`. */
+  readOnly?: readonly string[];
+  /** More the box reads: a loop's try folder, the proposer's working folder. */
+  reads?: readonly string[];
 };
 
 const unique = (xs: readonly string[]) => [...new Set(xs)];
@@ -92,6 +96,7 @@ export function boxProfile(paths: BoxPaths, network: readonly string[]): BoxProf
         paths.home,
         dirname(paths.trialFile),
         real(paths.control),
+        ...(paths.reads ?? []),
         ...paths.toolchain,
       ]),
       allowWrite: unique([
@@ -102,7 +107,7 @@ export function boxProfile(paths: BoxPaths, network: readonly string[]): BoxProf
         real(paths.control),
       ]),
       // srt applies a deny nested in an allowed path after the allow.
-      denyWrite: unique([...paths.hidden, paths.root, paths.caseDir]),
+      denyWrite: unique([...paths.hidden, paths.root, paths.caseDir, ...(paths.readOnly ?? [])]),
     },
   };
 }
@@ -156,6 +161,23 @@ function ignoredOf(root: string): string[] {
     .map((path) => path.replace(/\/$/, ""))
     .filter((path) => !path.split("/").includes("node_modules"))
     .map((path) => join(root, path));
+}
+
+/**
+ * Everything under `dir` but the paths to `keep`: each folder on the way to one, its other
+ * entries. srt lets a denied folder win over a path allowed inside it for writes, so a folder the
+ * box must write inside a hidden one is kept by hiding around it.
+ */
+export function hiddenAround(dir: string, keep: readonly string[]): string[] {
+  if (keep.includes(dir) || !existsSync(dir)) return [];
+  const toward = keep.filter((path) => path.startsWith(`${dir}/`));
+  if (toward.length === 0) return [dir];
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    return toward.some((k) => k === path || k.startsWith(`${path}/`))
+      ? hiddenAround(path, toward)
+      : [path];
+  });
 }
 
 /** The realpath an installed package's link leads to, for each link in `node_modules`. */

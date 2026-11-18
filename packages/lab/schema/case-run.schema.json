@@ -114,8 +114,16 @@
       "type": "string"
     },
     "stopped": {
-      "type": "string",
-      "const": "budget"
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "budget"
+        },
+        {
+          "type": "string",
+          "const": "compare"
+        }
+      ]
     }
   },
   "additionalProperties": false

@@ -1,5 +1,5 @@
 import type { AllowanceReport, AllowanceWindow } from "@agentswf/contract/records";
-import type { Runner } from "./runner";
+import { awfCommand } from "./runner";
 
 /**
  * The harnesses `awf allowance` knows, as `awf allowance --help` lists them: the lab may not import
@@ -73,8 +73,8 @@ function names(model: string, scope: string): boolean {
  * can't be read hold nothing; each is said once. A waiting run keeps the job slot and the budget
  * its plan admitted it with. A run already started is not stopped.
  */
-export function waitingOnAllowance(
-  runner: Runner,
+export function waitingOnAllowance<R extends { argv: readonly string[] }, T>(
+  runner: (request: R) => Promise<T>,
   read: AllowanceSource,
   options: {
     limit: number;
@@ -82,7 +82,7 @@ export function waitingOnAllowance(
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
   },
-): Runner {
+): (request: R) => Promise<T> {
   const { limit, log } = options;
   const now = options.now ?? Date.now;
   const sleep =
@@ -161,4 +161,25 @@ export function waitingOnAllowance(
     }
     return runner(request);
   };
+}
+
+/** `awf allowance --json`, as the operator's own login reads it; undefined when it printed none. */
+export async function awfAllowance(
+  harnesses: readonly string[],
+): Promise<AllowanceReport | undefined> {
+  // A pane read takes up to 90 s; past three minutes awf is stuck, and the run goes ahead.
+  const child = Bun.spawn(awfCommand(undefined, ["allowance", "--json", ...harnesses]), {
+    stdout: "pipe",
+    stderr: "ignore",
+    stdin: "ignore",
+    timeout: 180_000,
+  });
+  const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  try {
+    const report = JSON.parse(stdout) as AllowanceReport | { code: string };
+    // A refusal, which has a code and no report's fields, is none.
+    return "code" in report || report.v !== 1 ? undefined : report;
+  } catch {
+    return undefined;
+  }
 }

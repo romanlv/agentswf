@@ -430,7 +430,7 @@ const LAB_RULES: Rule[] = [
   { dir: SHARED, paths: ownShared, forbid: [NO_AGENTSWF] },
   {
     dir: SHARED,
-    except: ["**/*.test.ts", "runner.ts", "config-file.ts"],
+    except: ["**/*.test.ts", "runner.ts", "config-file.ts", "allowance.ts"],
     pure: true,
     paths: ownShared,
   },
@@ -458,6 +458,18 @@ const LAB_RULES: Rule[] = [
         pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
         reason:
           "the criteria judge is a workflow: it imports agentswf/workflow and its own folders",
+      },
+    ],
+    paths: (target: string) => ownCases(target) && !containsPath(`${CASES}/lab`, target),
+  },
+  // A loop's proposer: a workflow the lab's `awf` runs in the lab's box.
+  {
+    dir: `${CASES}/loop`,
+    except: ["**/*.test.ts"],
+    forbid: [
+      {
+        pattern: /^(@agentswf\/|agentswf(?!\/workflow$))/,
+        reason: "the proposer is a workflow: it imports agentswf/workflow and the case formats",
       },
     ],
     paths: (target: string) => ownCases(target) && !containsPath(`${CASES}/lab`, target),
@@ -493,6 +505,8 @@ const LAB_RULES: Rule[] = [
       "grading.ts",
       "inspect.ts",
       "labels.ts",
+      "loop.ts",
+      "loop-command.ts",
       "record-copies.ts",
       "reuse.ts",
       "runs.ts",
@@ -508,7 +522,7 @@ const LAB_RULES: Rule[] = [
 ];
 
 /** Words of one workflow's domain, which the case kind never names (story 044). */
-const DOMAIN_WORDS = /mail|review|finding/i;
+const DOMAIN_WORDS = /\b(mail|review|finding)/i;
 
 /** `source` without its comments, strings and template text kept. */
 export function withoutComments(source: string): string {

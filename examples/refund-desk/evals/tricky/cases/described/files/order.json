@@ -1,0 +1,11 @@
+{
+  "id": "O-described",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-07T10:00:00Z",
+  "items": [
+    { "name": "Bowl, blue glaze", "price": 14.5 },
+    { "name": "Bowl, white", "price": 14.5 },
+    { "name": "Cup, blue glaze", "price": 9.75 },
+    { "name": "Cup, white", "price": 9.75 }
+  ]
+}

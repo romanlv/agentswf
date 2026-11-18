@@ -40,6 +40,8 @@ are its.
 | `score [{run}] [--grader {name} \| --judge {harness}/{model} [--voters n]] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
 | `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
+| `loop {name} --budget {usd} [--program {file}] [--proposer h/m] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}]` | a proposer changes a copy of the code, kept only when `compare` says better |
+| `loop {name} --final [--budget {usd}]`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
@@ -410,6 +412,39 @@ workflow's own sandboxes aside and its agents run in the box as host agents.
 - **Reach**: the box is each agent's reach, recorded as the trial's. Web search is a model's own
   tool and is not stopped by the box; `agentReach.webSearch` is not enforced under it.
 - Docker is not built yet; macOS's srt is.
+
+## The loop: `awf-lab loop {name}`
+
+A proposer agent changes a copy of your code, the copy runs against the code it changed, and it
+is kept only when the dataset's `compare` says better. It needs `"sandbox": { "lab": "srt" }` and
+a `compare` in `graders.ts`, and spends until `--budget`.
+
+1. **The first run** names `--program`, the operator's steering, which the proposer reads every
+   try, and copies your repository as it stands into the store: what git would hold, less each
+   dataset's `cases/` and the records folder, its installs linked. The start is the incumbent.
+2. **Each try**: the incumbent runs on the tuning cases, the dataset's cases but the holdout, in
+   an order seeded by the loop's name (`--cases` picks some); its trials are reused where nothing
+   changed. The proposer, in the lab's box, reads a bundle (the program, each tuning trial's facts,
+   outcome and every grader's verdict, numbers, reasons and parts, the earlier tries, the rules)
+   and changes a clone of the incumbent's code; it may write the clone but not its `evals/`. The
+   change is committed as the try.
+3. **The scope check**, in code, before anything runs: a try that changed nothing, anything under
+   `evals/` or an install, or put a tuning key's marker or forty characters of its words in a
+   changed file is refused.
+4. **The run**: the incumbent and the try, as two columns, case by case in the seeded order, each
+   case's trials in both before the next, until `compare` says stop, given only the cases both
+   ran. On `better` the try is the incumbent; otherwise it is discarded.
+5. **Stops**: the cap (the proposer's and the trials' estimates, summed from the loop's records:
+   exit 3), three tries in a row that kept nothing, the rounds (`--rounds`, 1 unless told).
+   `--allowance` waits before each step while a plan window the proposer, or a `harness/model`
+   parameter, draws on is that far used (90% unless told; `off`).
+
+`loop {name}` again resumes: a try cut short after its proposal runs with it; before, it is
+proposed again. A loop resumed with another dataset, holdout, `graders.ts`, `--trials` or tuning
+cases is refused: its tries are judged alike. `--final` runs the kept code against the start on
+the held-out cases, each check recorded (a second says it was asked again); `--patch` prints the
+kept code against the start. Records: `{store}/loops/{name}/loop.json`, `tries/{n}/` (`code/`,
+`bundle/`, `proposal.json`, `try.json`), `finals/{k}.json`.
 
 ## The key stays hidden, and how far
 

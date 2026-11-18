@@ -22,6 +22,7 @@ import type { TrialLine } from "../format/trial-file";
 import { type CasesEnvironment, runCases } from "./cli";
 import type { LabGrader } from "./grading";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
+import { PROPOSER } from "./loop-command";
 import { Refusal } from "./refusal";
 import { readTrials, runIds } from "./store";
 
@@ -2826,5 +2827,227 @@ describe("holdouts: cases set aside for a final check", () => {
     expect((await lab(bad, ["run", "--yes"], { runner: plain.runner })).err).toContain(
       "holdout names no case nope",
     );
+  });
+});
+
+describe("the loop: a proposer's copy kept only when better", () => {
+  const COMPARE = `export const compare = {
+  kind: "awf.case-comparison/0",
+  version: "1.0.0",
+  compare: ({ reference, column, planned }) => {
+    const r = reference.filter((t) => t.passed).length;
+    const c = column.filter((t) => t.passed).length;
+    const cases = new Set(column.map((t) => t.case)).size;
+    const verdict = c > r ? "better" : c < r ? "worse" : "tie";
+    return { verdict, stop: verdict === "worse" || cases >= planned, reason: c + " against " + r + " passed of " + cases + " cases", metrics: [] };
+  },
+};
+`;
+
+  /** A project whose workflow.ts says how good it is: the higher its `quality`, the more pass. */
+  function loopProject(quality: number) {
+    const where = project(
+      { a: {}, b: {}, c: {}, h: {} },
+      { sandbox: { lab: "srt" }, holdout: ["h"] },
+    );
+    writeFileSync(join(where.root, "workflow.ts"), `export const quality = ${quality};\n`);
+    writeFileSync(join(where.ds, "graders.ts"), COMPARE);
+    writeFileSync(join(where.root, ".gitignore"), "node_modules/\n");
+    mkdirSync(join(where.root, "node_modules", "agentswf"), { recursive: true });
+    git(where.root, "add", "-A");
+    git(where.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "workflow");
+    const program = join(where.top, "program.md");
+    writeFileSync(program, "Make it pass more cases.\n");
+    return { where, program };
+  }
+
+  const qualityOf = (root: string) =>
+    Number(/quality = (\d+)/.exec(readFileSync(join(root, "workflow.ts"), "utf8"))![1]);
+
+  /**
+   * Trials pass by the quality of the code they run in; the proposer writes the qualities given,
+   * one a try, and remembers what it was shown.
+   */
+  function loopRunner(proposals: (number | "evals" | "copy" | "fail")[]) {
+    const shown: string[] = [];
+    const ran: { root: string; name: string }[] = [];
+    let n = 0;
+    const plays = (root: string) => {
+      const q = qualityOf(root);
+      // The quality each case needs to pass: the held-out one as much as the hardest.
+      const needs: Record<string, number> = { a: 1, b: 2, c: 3, h: 3 };
+      return Object.fromEntries(
+        Object.entries(needs).map(([name, at]) => [name, [q >= at ? pass : fail]]),
+      );
+    };
+    const runner: Runner = async (request) => {
+      const env = request.env ?? {};
+      if (request.workflow === PROPOSER) {
+        const proposal = proposals[n++] ?? "fail";
+        const bundle = join(request.cwd, "bundle");
+        shown.push(
+          readdirSync(bundle)
+            .map((f) => readFileSync(join(bundle, f), "utf8"))
+            .join("\n"),
+        );
+        const code = join(request.cwd, "code");
+        if (proposal === "evals") writeFileSync(join(code, "evals/ds/env.ts"), "// changed\n");
+        else if (proposal === "copy") writeFileSync(join(code, "notes.ts"), `// ${MARKER}\n`);
+        else if (proposal !== "fail") {
+          writeFileSync(join(code, "workflow.ts"), `export const quality = ${proposal};\n`);
+        }
+        const runDir = join(request.runRoot, "loop-proposer", request.id);
+        mkdirSync(runDir, { recursive: true });
+        return proposal === "fail"
+          ? {
+              exitCode: 1,
+              stderr: "",
+              ms: 5,
+              record: record(request, runDir, "failed", { reason: "no answer" }),
+            }
+          : {
+              exitCode: 0,
+              stderr: "",
+              ms: 5,
+              record: record(request, runDir, "completed", {
+                value: {
+                  change: `quality ${proposal}`,
+                  hypothesis: "more passes",
+                  predicted: "+1 case",
+                  mechanism: "the case passes",
+                },
+              }),
+            };
+      }
+      const root = env[TRIAL_ENV.root]!;
+      const name = readFileSync(join(env[TRIAL_ENV.case]!, "name.txt"), "utf8");
+      ran.push({ root, name });
+      return scripted(plays(root)).runner(request);
+    };
+    return { runner, shown, ran };
+  }
+
+  const loop = (where: ReturnType<typeof project>, argv: string[], runner: Runner) =>
+    lab(where, ["loop", ...argv], { runner });
+
+  test("keeps a better try, drops a worse one, and compares each with the last kept; never shows a holdout", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([2, 1, 3]);
+    const first = await loop(
+      where,
+      ["l", "--budget", "5", "--program", program, "--rounds", "3"],
+      fake.runner,
+    );
+    expect(first.err).toContain("try 1: kept");
+    expect(first.err).toContain("try 2: discarded: worse");
+    expect(first.err).toContain("try 3: kept");
+    expect(first.code).toBe(0);
+    const dir = join(storeOf(where), "loops", "l");
+    const tries = readdirSync(join(dir, "tries"))
+      .sort()
+      .map((n) => JSON.parse(readFileSync(join(dir, "tries", n, "try.json"), "utf8")));
+    expect(tries.map((t) => [t.n, t.parent, t.decision])).toEqual([
+      [1, 0, "kept"],
+      [2, 1, "discarded"],
+      [3, 1, "kept"],
+    ]);
+    expect(tries[0].changed).toEqual(["workflow.ts"]);
+    // The held-out case is never run by a try, nor in what the proposer reads.
+    expect(fake.ran.some((r) => r.name === "h")).toBe(false);
+    for (const text of fake.shown) expect(text).not.toContain('"h"');
+    // The copies hold no case.
+    expect(existsSync(join(dir, "start", "evals/ds/cases"))).toBe(false);
+    const patch = await loop(where, ["l", "--patch"], fake.runner);
+    expect(patch.out).toContain("+export const quality = 3;");
+    const final = await loop(where, ["l", "--final"], fake.runner);
+    expect(final.out).toContain(
+      "final check 1: try 3 against the start on 1 held-out cases: better",
+    );
+    expect(fake.ran.filter((r) => r.name === "h")).toHaveLength(2);
+  });
+
+  test("a try that changes evals/ or copies a tuning key is refused before it runs", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner(["evals", "copy"]);
+    const { err } = await loop(
+      where,
+      ["l", "--budget", "5", "--program", program, "--rounds", "2"],
+      fake.runner,
+    );
+    expect(err).toContain("try 1: refused: evals/ds/env.ts: under evals/");
+    expect(err).toContain("try 2: refused: notes.ts: holds a tuning key's marker");
+    // Only the incumbent's feedback runs: the refused copies never run a trial.
+    expect(new Set(fake.ran.map((r) => r.root)).size).toBe(1);
+  });
+
+  test("stops at the cap with exit 3, after three tries that kept nothing, and resumes by name", async () => {
+    const { where, program } = loopProject(1);
+    const stalled = loopRunner(["fail", "fail", "fail", 2]);
+    const third = await loop(
+      where,
+      ["l", "--budget", "5", "--program", program, "--rounds", "4"],
+      stalled.runner,
+    );
+    expect(third.out).toContain("3 tries in a row kept nothing");
+    const capped = await loop(
+      where,
+      ["l", "--budget", "5", "--rounds", "1"],
+      loopRunner([2]).runner,
+    );
+    // The cap and the tries are the loop's own, kept from its start.
+    expect(capped.out).toContain("3 tries in a row kept nothing");
+    const other = loopProject(1);
+    const cheap = await loop(
+      other.where,
+      ["l", "--budget", "0.002", "--program", other.program, "--rounds", "5"],
+      loopRunner([2, 3]).runner,
+    );
+    expect(cheap.code).toBe(3);
+  });
+
+  test("a try cut short after its proposal resumes with it, and a loop is refused another holdout", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([2]);
+    let broken = true;
+    const breaking: Runner = async (request) => {
+      const root = request.env?.[TRIAL_ENV.root] ?? "";
+      if (broken && root.includes("/tries/1/")) throw new Error("the disk is full");
+      return fake.runner(request);
+    };
+    const cut = await loop(where, ["l", "--budget", "5", "--program", program], breaking);
+    expect(cut.code).toBe(4);
+    broken = false;
+    const resumed = await loop(where, ["l", "--budget", "5"], fake.runner);
+    expect(resumed.err).toContain("try 1: resumed against try 0");
+    expect(resumed.err).toContain("try 1: kept");
+    expect(fake.shown).toHaveLength(1);
+    writeFileSync(
+      join(where.ds, "dataset.json"),
+      JSON.stringify({
+        kind: "awf.case-dataset/0",
+        sandbox: { lab: "srt" },
+        agentReach: { network: [] },
+        holdout: ["c"],
+      }),
+    );
+    const refused = await loop(where, ["l", "--budget", "5"], fake.runner);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("was started with another holdout");
+  });
+
+  test("refused without --budget, without compare, or outside the lab's box", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([]);
+    expect((await loop(where, ["l", "--program", program], fake.runner)).err).toContain(
+      "--budget {usd} is required",
+    );
+    rmSync(join(where.ds, "graders.ts"));
+    expect(
+      (await loop(where, ["l", "--budget", "1", "--program", program], fake.runner)).err,
+    ).toContain("needs compare in graders.ts");
+    const plain = project({ a: {} });
+    expect(
+      (await loop(plain, ["l", "--budget", "1", "--program", program], fake.runner)).err,
+    ).toContain('"sandbox": { "lab": "srt" }');
   });
 });
