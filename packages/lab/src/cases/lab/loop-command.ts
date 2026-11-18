@@ -19,6 +19,7 @@ import type { Context, Options, RunGiven } from "./cli";
 import type { ColumnVerdict } from "./compare";
 import { type CaseInfo, type DatasetInfo, fileDigest } from "./dataset";
 import { gitState } from "./git";
+import type { LabGrader } from "./grading";
 import { checkEnvFile, inspectFolder } from "./inspect";
 import {
   codeOf,
@@ -54,6 +55,12 @@ export type LoopLends = {
     bars: ReadonlyMap<string, CaseBar>,
   ) => Promise<ColumnVerdict[] | undefined>;
   workspaceOf: (context: Context) => CaseWorkspace;
+  /** The dataset's graders, counted, never run: whose numbers a comparison reads. */
+  countedGraders: (
+    context: Context,
+    workspace: CaseWorkspace,
+    info: DatasetInfo,
+  ) => Promise<readonly Pick<LabGrader, "name" | "onDemand">[]>;
   loadDataset: (
     workspace: CaseWorkspace,
     name?: string,
@@ -101,7 +108,11 @@ export async function loopCommand(
     );
   }
   const top = workspace.repository ?? workspace.root;
-  const bars = barsOf(info, [...cases, ...held], []);
+  const bars = barsOf(
+    info,
+    [...cases, ...held],
+    await lends.countedGraders(context, workspace, info),
+  );
   const deps = loopDeps(context, lends, { workspace, info, bars, top, dir, name });
   deps.comparison = `graders.ts ${fileDigest(graders).slice(0, 19)}`;
 

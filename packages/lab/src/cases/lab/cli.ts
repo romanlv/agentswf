@@ -456,7 +456,13 @@ export async function runCases(
       case "label":
         return label(context, names);
       case "loop":
-        return await loopCommand(context, names, { run, verdictsOf, workspaceOf, loadDataset });
+        return await loopCommand(context, names, {
+          run,
+          verdictsOf,
+          workspaceOf,
+          loadDataset,
+          countedGraders,
+        });
       default:
         throw new Refusal(`unknown command ${command}`);
     }
@@ -1110,6 +1116,17 @@ function progress(
  * the first grade: a grader that doesn't load stops the command (exit 2). Grader workflows run on
  * your checkout's `awf`, which `folder` gives when one is first needed.
  */
+/** The dataset's graders, only counted, never run, so no folder is inspected. */
+function countedGraders(context: Context, workspace: CaseWorkspace, info: DatasetInfo) {
+  return datasetGraders(
+    context,
+    workspace,
+    info,
+    () => Promise.reject(new Error("counting graders runs none")),
+    () => new Date(),
+  );
+}
+
 async function datasetGraders(
   context: Context,
   workspace: CaseWorkspace,
@@ -1348,14 +1365,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   const trials = readTrials(workspace.store, run.id);
   if (info) {
     try {
-      // A grader workflow is only counted here, never run, so no folder is inspected.
-      graders = await datasetGraders(
-        context,
-        workspace,
-        info,
-        () => Promise.reject(new Error("report runs no grader")),
-        () => new Date(),
-      );
+      graders = await countedGraders(context, workspace, info);
       stale = staleGrades(context, info, cases, trials, graders);
     } catch (error) {
       stale = { unread: (error as Error).message };

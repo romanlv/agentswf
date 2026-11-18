@@ -2845,13 +2845,13 @@ describe("the loop: a proposer's copy kept only when better", () => {
 `;
 
   /** A project whose workflow.ts says how good it is: the higher its `quality`, the more pass. */
-  function loopProject(quality: number) {
+  function loopProject(quality: number, dataset: object = {}, compare = COMPARE) {
     const where = project(
       { a: {}, b: {}, c: {}, h: {} },
-      { sandbox: { lab: "srt" }, holdout: ["h"] },
+      { sandbox: { lab: "srt" }, holdout: ["h"], ...dataset },
     );
     writeFileSync(join(where.root, "workflow.ts"), `export const quality = ${quality};\n`);
-    writeFileSync(join(where.ds, "graders.ts"), COMPARE);
+    writeFileSync(join(where.ds, "graders.ts"), compare);
     mkdirSync(join(where.root, "old-keys"));
     writeFileSync(join(where.root, "old-keys", "key.json"), "{}\n");
     writeFileSync(
@@ -2874,7 +2874,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
    * Trials pass by the quality of the code they run in; the proposer writes the qualities given,
    * one a try, and remembers what it was shown.
    */
-  function loopRunner(proposals: (number | "evals" | "copy" | "fail")[]) {
+  function loopRunner(proposals: (number | "evals" | "copy" | "fail")[], grader?: GraderPlay) {
     const shown: string[] = [];
     const ran: { root: string; name: string }[] = [];
     let n = 0;
@@ -2925,10 +2925,12 @@ describe("the loop: a proposer's copy kept only when better", () => {
               }),
             };
       }
-      const root = env[TRIAL_ENV.root]!;
+      const root = env[TRIAL_ENV.root];
+      // A grader's run is no trial: it grades one.
+      if (root === undefined) return scripted({}, grader).runner(request);
       const name = readFileSync(join(env[TRIAL_ENV.case]!, "name.txt"), "utf8");
       ran.push({ root, name });
-      return scripted(plays(root)).runner(request);
+      return scripted(plays(root), grader).runner(request);
     };
     return { runner, shown, ran };
   }
@@ -2972,6 +2974,29 @@ describe("the loop: a proposer's copy kept only when better", () => {
       "final check 1: try 3 against the start on 1 held-out cases: better",
     );
     expect(fake.ran.filter((r) => r.name === "h")).toHaveLength(2);
+  });
+
+  test("a dataset graded by numbers alone is compared on them", async () => {
+    const byNumbers = `export const compare = {
+  kind: "awf.case-comparison/0",
+  version: "1.0.0",
+  compare: ({ column, planned }) => {
+    const n = column.filter((t) => t.numbers["judge.recall"] !== undefined).length;
+    return { verdict: n > 0 ? "better" : "tie", stop: n >= planned, reason: n + " with judge.recall", metrics: [] };
+  },
+};
+`;
+    const { where, program } = loopProject(
+      3,
+      { graders: [{ workflow: "graders/judge.ts" }] },
+      byNumbers,
+    );
+    graderWorkflow(where, "judge");
+    git(where.root, "add", "-A");
+    git(where.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "judge");
+    const fake = loopRunner([4], judged("passed", 0.01));
+    const { err } = await loop(where, ["l", "--budget", "5", "--program", program], fake.runner);
+    expect(err).toContain("try 1: kept: better: 3 with judge.recall");
   });
 
   test("a try that changes evals/ or copies a tuning key is refused before it runs", async () => {
