@@ -243,7 +243,7 @@ export async function runScore(args: {
         kept: join(trial.dir, "kept"),
         work,
         env: args.env,
-        params: {},
+        params: trial.record.params,
         expect: item.expect,
         graders,
         deciders: item.deciders,

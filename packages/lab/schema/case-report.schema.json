@@ -8,6 +8,7 @@
     "dataset",
     "partial",
     "exit",
+    "params",
     "cases",
     "numbers",
     "numbersLeftOut",
@@ -33,6 +34,15 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 5
+    },
+    "params": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*$": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "cases": {
       "type": "array",
@@ -228,16 +238,22 @@
       "items": {
         "type": "object",
         "required": [
+          "label",
           "path",
           "branch",
           "commit",
           "dirty",
+          "params",
           "envDiffers",
           "numbers",
           "numbersLeftOut",
           "cases"
         ],
         "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
           "path": {
             "type": "string",
             "minLength": 1
@@ -266,6 +282,15 @@
           },
           "dirty": {
             "type": "boolean"
+          },
+          "params": {
+            "type": "object",
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           },
           "envDiffers": {
             "type": "boolean"

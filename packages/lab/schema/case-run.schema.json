@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "awf-lab run of cases",
   "type": "object",
-  "required": ["kind", "number", "dataset", "folders", "asked", "started"],
+  "required": ["kind", "number", "dataset", "folders", "columns", "asked", "started"],
   "properties": {
     "kind": {
       "type": "string",
@@ -54,6 +54,30 @@
           "env": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["folder", "params"],
+        "properties": {
+          "folder": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "params": {
+            "type": "object",
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
         "additionalProperties": false

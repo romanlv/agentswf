@@ -1,5 +1,6 @@
 import type { Folder, RunRecord } from "../format/records";
 import { JUDGE_CHECKED } from "../judge/version";
+import { columnLabel, sharedParams } from "./columns";
 import { familyOf } from "./families";
 import { minorOf } from "./grading";
 import type { CaseRow, StoredTrialView } from "./outcome";
@@ -51,7 +52,7 @@ export type RunReport = {
   criteria: number;
   /** Grades `score` would make again: a key or grader changed since; or why it couldn't tell. */
   stale?: number | { unread: string };
-  /** The rows of each other column, from `--against`, in the run's folders' order. */
+  /** The rows of each column but the reference, in the run's `columns` order. */
   others?: readonly CaseRow[][];
   /** The judge as a person checked it; the lab's recorded one when absent. */
   judgeChecked?: typeof JUDGE_CHECKED;
@@ -166,12 +167,12 @@ function pooledText(pooled: ReturnType<typeof poolNumbers>): string {
 }
 
 /** Of these trials, how many are another column's, said after a count. */
-function elsewhere(trials: readonly StoredTrialView[]): string {
+function elsewhere(run: RunRecord, trials: readonly StoredTrialView[]): string {
   const counts = new Map<number, number>();
   for (const t of trials) {
     if (t.record.column > 0) counts.set(t.record.column, (counts.get(t.record.column) ?? 0) + 1);
   }
-  return [...counts].map(([column, n]) => `, ${n} in against ${column}`).join("");
+  return [...counts].map(([column, n]) => `, ${n} in ${columnLabel(run, column)}`).join("");
 }
 
 /** The numbers and agreement lines, your checkout's column. */
@@ -210,8 +211,10 @@ function columnLines(
   others: readonly CaseRow[][],
   trials: readonly StoredTrialView[],
 ): string[] {
+  const reference = columnLabel(run, 0);
+  const width = Math.max(14, ...run.columns.map((_, i) => columnLabel(run, i).length + 2));
   const lines = [
-    `${"columns".padEnd(16)}passed  failed  flaky  unclear  time, median  est. cost, median`,
+    `${"columns".padEnd(width + 2)}passed  failed  flaky  unclear  time, median  est. cost, median`,
   ];
   const row = (label: string, list: readonly CaseRow[], column: number) => {
     const n = (v: CaseVerdict) => String(list.filter((r) => r.tally.verdict === v).length);
@@ -221,18 +224,20 @@ function columnLines(
       ran.flatMap((t) => (t.record.estimate !== undefined ? [t.record.estimate] : [])),
     );
     lines.push(
-      `  ${label.padEnd(14)}${n("passed").padEnd(8)}${n("failed").padEnd(8)}${n("flaky").padEnd(7)}${n("unclear").padEnd(9)}${(ms !== undefined ? seconds(ms) : "-").padEnd(14)}${cost !== undefined ? usd(cost) : "-"}`,
+      `  ${label.padEnd(width)}${n("passed").padEnd(8)}${n("failed").padEnd(8)}${n("flaky").padEnd(7)}${n("unclear").padEnd(9)}${(ms !== undefined ? seconds(ms) : "-").padEnd(14)}${cost !== undefined ? usd(cost) : "-"}`,
     );
   };
-  row("this checkout", rows, 0);
-  for (const [i, column] of others.entries()) row(`against ${i + 1}`, column, i + 1);
+  row(reference, rows, 0);
+  for (const [i, column] of others.entries()) row(columnLabel(run, i + 1), column, i + 1);
   // A dataset graded by numbers compares by them: each other column's, as yours are below.
   for (const i of others.keys()) {
     const pooled = poolNumbers(trials.filter((t) => t.record.column === i + 1));
-    if (pooled.graders.size > 0) lines.push(`  numbers, against ${i + 1}: ${pooledText(pooled)}`);
+    if (pooled.graders.size > 0) {
+      lines.push(`  numbers, ${columnLabel(run, i + 1)}: ${pooledText(pooled)}`);
+    }
   }
   others.forEach((column, i) => {
-    const label = `against ${i + 1}`;
+    const label = columnLabel(run, i + 1);
     const pairs = rows.flatMap((mine) => {
       const theirs = column.find((r) => r.name === mine.name);
       return theirs ? [{ mine, theirs, gap: theirs.tally.passed - mine.tally.passed }] : [];
@@ -246,14 +251,14 @@ function columnLines(
       lines.push(`came out differently in ${label}, largest difference first`);
       for (const { mine, theirs } of differ) {
         lines.push(
-          `  ${mine.name.padEnd(20)} this checkout ${show(mine)} · ${label} ${show(theirs)}`,
+          `  ${mine.name.padEnd(20)} ${reference} ${show(mine)} · ${label} ${show(theirs)}`,
         );
       }
     } else lines.push(`no case came out differently in ${label}`);
     const more = pairs.filter((p) => p.gap > 0).length;
     const fewer = pairs.filter((p) => p.gap < 0).length;
     lines.push(
-      `more passes: ${label} on ${plural(more, "case")}, this checkout on ${plural(fewer, "case")}`,
+      `more passes: ${label} on ${plural(more, "case")}, ${reference} on ${plural(fewer, "case")}`,
     );
   });
   lines.push(
@@ -293,6 +298,10 @@ export function renderRun({
         (folder, i) =>
           `against ${i + 1}: ${describeFolder(folder)}${folder.env !== run.folders[0]!.env ? ", env.ts differs" : ""}`,
       ),
+    ...(sharedParams(run).length > 0 ? [`params: ${sharedParams(run).join(" ")}`] : []),
+    ...(run.columns.length > run.folders.length
+      ? [`reference column: ${columnLabel(run, 0)}; the exit code and history are its`]
+      : []),
     "",
   ];
   const line = (row: CaseRow, extra = "") => {
@@ -300,7 +309,9 @@ export function renderRun({
       row.history.length > 0 ? `   history ${row.history.map((v) => MARK[v]).join("")}` : "";
     const alsoFails = others.flatMap((column, i) => {
       const there = column.find((r) => r.name === row.name)?.tally.verdict;
-      return failing(row.tally.verdict) && failing(there) ? [`also fails in against ${i + 1}`] : [];
+      return failing(row.tally.verdict) && failing(there)
+        ? [`also fails in ${columnLabel(run, i + 1)}`]
+        : [];
     });
     const said = [
       ...row.notes,
@@ -374,8 +385,8 @@ export function renderRun({
     .map((who) => `${by(who)} by ${who}`);
   lines.push(
     [
-      `trials ${trials.length}${run.folders.length > 1 ? ` in ${run.folders.length} columns` : ""}`,
-      `errored ${errored.length}${blame.length > 0 ? ` (${blame.join(", ")})` : ""}${elsewhere(errored)}`,
+      `trials ${trials.length}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""}`,
+      `errored ${errored.length}${blame.length > 0 ? ` (${blame.join(", ")})` : ""}${elsewhere(run, errored)}`,
       `undecided ${views.filter((t) => t.view.outcome === "undecided").length}`,
       `leaked ${views.filter((t) => t.view.outcome === "leaked").length}`,
     ].join(" · "),
@@ -453,7 +464,7 @@ export function renderCase(
     `${r.tally.verdict ?? r.tally.none ?? "no trials"} ${r.tally.passed}/${r.tally.trials}`;
   const lines = [
     `${row.name} · run ${run.number} · ${tally(row)}`,
-    ...others.flatMap((other, i) => (other ? [`against ${i + 1}: ${tally(other)}`] : [])),
+    ...others.flatMap((other, i) => (other ? [`${columnLabel(run, i + 1)}: ${tally(other)}`] : [])),
   ];
   const stages = stageLine(trials.filter((t) => t.record.column === 0));
   if (stages) lines.push(`time per stage, median: ${stages}`);
@@ -462,7 +473,7 @@ export function renderCase(
     const view = trialOutcome(record, trial.scores, deciders);
     lines.push(
       "",
-      `trial ${record.trial}${record.column > 0 ? ` (against ${record.column})` : ""}: ${view.outcome}${record.runId ? ` · run ${record.runId}` : ""} · ${seconds(record.ms)}`,
+      `trial ${record.trial}${record.column > 0 ? ` (${columnLabel(run, record.column)})` : ""}: ${view.outcome}${record.runId ? ` · run ${record.runId}` : ""} · ${seconds(record.ms)}`,
     );
     if (record.errored) {
       lines.push(

@@ -56,6 +56,12 @@ export function refuse(what: string, by: Refused["by"], message: string): Error 
   return new Error(message);
 }
 
+/** The trial's parameters, `{}` when the lab gave none. */
+export function trialParams(): Record<string, string> {
+  const text = process.env[TRIAL_ENV.params];
+  return text ? (JSON.parse(text) as Record<string, string>) : {};
+}
+
 export function trialSettings(): TrialSettings | undefined {
   const text = process.env[TRIAL_ENV.settings];
   return text ? (JSON.parse(text) as TrialSettings) : undefined;

@@ -26,6 +26,7 @@ import {
   writeCase,
 } from "./capture";
 import { codeGraders, graderVersions, runHelper } from "./code-graders";
+import { columnLabel, columnsOf, combinations, type ParamPlan, readParams } from "./columns";
 import { criteriaJudge } from "./criteria";
 import {
   type CaseInfo,
@@ -76,7 +77,8 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
 
   case new {dataset}/{case}   a case folder and its key's marker; the first time, also
                               awf-lab.json, the dataset's dataset.json and a stub env.ts
-  run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--against {folder}] [--yes]
+  run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--against {folder}]
+      [--param {name}={value}] [--vary {name}={a,b}] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
   report [{n}] [--case {name}] [--json]
@@ -98,7 +100,13 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   --against {folder}
                     also run the cases on the code in another checkout of the project, as a
                     column beside yours; repeatable. Its env.ts and code run; its cases, keys
-                    and graders are never read. The exit code is your checkout's
+                    and graders are never read
+  --param {name}={value}
+                    a parameter for every trial, which env.ts reads as c.params; repeatable
+  --vary {name}={a,b}
+                    a column for each value, each folder; repeatable, every combination run.
+                    The reference column is your checkout under each --vary's first value: the
+                    exit code, history and --failed are its
   --yes             no question before a run or a score
   --grader {name}   score with this grader alone, one marked onDemand included
   --dry-run         print score's plan and grade nothing
@@ -139,6 +147,9 @@ type Options = {
   cases?: string[];
   /** Folders `--against` names, as given. */
   against: string[];
+  /** `--param` and `--vary`, as given. */
+  param: string[];
+  vary: string[];
   failed: boolean;
   trials?: number;
   yes: boolean;
@@ -163,6 +174,8 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     json: false,
     help: false,
     against: [],
+    param: [],
+    vary: [],
     good: false,
   };
   const positional: string[] = [];
@@ -198,6 +211,12 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       }
       case "--against":
         options.against.push(value(arg));
+        break;
+      case "--param":
+        options.param.push(value(arg));
+        break;
+      case "--vary":
+        options.vary.push(value(arg));
         break;
       case "--case":
         options.case = value(arg);
@@ -396,6 +415,8 @@ async function run(context: Context): Promise<number> {
     (inspected ??= (environment.inspect ?? inspectFolder)(workspace.root, checkEnvFile(info.dir)));
   const graders = await datasetGraders(context, workspace, info, folderOf, now);
   const bars = barsOf(info, cases, graders);
+  const paramPlan = readParams(options.param, options.vary);
+  const combos = combinations(paramPlan);
   const byName = new Map(cases.map((c) => [c.name, c]));
   for (const name of options.cases ?? []) {
     if (!byName.has(name)) {
@@ -406,7 +427,7 @@ async function run(context: Context): Promise<number> {
   }
   let selected = options.cases ? cases.filter((c) => options.cases!.includes(c.name)) : cases;
   const failed = options.failed
-    ? failedCases(workspace.store, info.name, workspace.root, bars)
+    ? failedCases(workspace.store, info.name, workspace.root, combos[0]!, bars)
     : undefined;
   if (failed) selected = selected.filter((c) => failed.has(c.name));
   if (selected.length === 0) {
@@ -431,19 +452,21 @@ async function run(context: Context): Promise<number> {
   }
   const folder = await folderOf();
   const state = gitState(workspace.root);
-  const columns: Column[] = [{ folder, envFile, state }];
+  const codeFolders: CodeFolder[] = [{ folder, envFile, state }];
   for (const given of options.against) {
-    columns.push(await againstColumn(context, workspace, info, given, columns));
+    codeFolders.push(await againstFolder(context, workspace, info, given, codeFolders));
   }
+  const columns = columnsOf(codeFolders.length, combos);
 
   const total = selected.reduce((n, c) => n + trialsOf(c.name), 0);
   const counts = new Set(selected.map((c) => trialsOf(c.name)));
   const plan = [
     `${info.name} · ${plural(selected.length, "case")} · ${counts.size === 1 ? `${plural([...counts][0]!, "trial")} each` : plural(total, "trial")}`,
-    ...columns.map(
+    ...codeFolders.map(
       (c, i) =>
         `${i === 0 ? "code" : `against ${i}`}: ${describeFolder({ path: i === 0 ? undefined : c.folder.root, ...c.state })} · agentswf ${c.folder.version}`,
     ),
+    ...paramLines(paramPlan, columns.length),
     ...[
       estimate(
         workspace.store,
@@ -472,11 +495,12 @@ async function run(context: Context): Promise<number> {
       kind: RUN_KIND,
       number,
       dataset: info.name,
-      folders: columns.map((c) => ({
+      folders: codeFolders.map((c) => ({
         path: c.folder.root,
         ...c.state,
         env: fileDigest(c.envFile),
       })),
+      columns,
       asked: selected.map((c) => ({ case: c.name, trials: trialsOf(c.name) })),
       started: now().toISOString(),
     };
@@ -496,20 +520,26 @@ async function run(context: Context): Promise<number> {
       graders,
       now,
     };
-    const shown = (done: TrialDone) => progress(stderr, done, bars.get(done.record.case)?.deciders);
+    const shown = (done: TrialDone) =>
+      progress(stderr, record!, done, bars.get(done.record.case)?.deciders);
+    const trialIn = (n: number, info: CaseInfo, trial: number) => {
+      const column = columns[n]!;
+      const code = codeFolders[column.folder]!;
+      return runTrial(lab, code.folder, info, n, trial, code.envFile, column.params);
+    };
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
     try {
       for (let trial = 1; trial <= most; trial++) {
         const again: [CaseInfo, number][] = [];
         for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
-          for (const [n, c] of columns.entries()) {
-            const done = await runTrial(lab, c.folder, info, n, trial, c.envFile);
+          for (const n of columns.keys()) {
+            const done = await trialIn(n, info, trial);
             shown(done);
             if (done.record.errored?.by === "provider") again.push([info, n]);
           }
         }
         for (const [info, n] of again) {
-          const done = await runTrial(lab, columns[n]!.folder, info, n, trial, columns[n]!.envFile);
+          const done = await trialIn(n, info, trial);
           const retried = { ...done.record, retried: true };
           writeTrial(done.dir, retried);
           shown({ ...done, record: retried });
@@ -546,21 +576,34 @@ async function run(context: Context): Promise<number> {
   return exit;
 }
 
-/** A column: a folder of code, its `env.ts` and its git state. */
-type Column = { folder: FolderSetup; envFile: string; state: ReturnType<typeof gitState> };
+/** A folder of code, its `env.ts` and its git state. */
+type CodeFolder = { folder: FolderSetup; envFile: string; state: ReturnType<typeof gitState> };
+
+/** The plan's lines for parameters: those every column shares, and what varies. */
+function paramLines(plan: ParamPlan, columns: number): string[] {
+  const fixed = Object.entries(plan.fixed).map(([name, value]) => `${name}=${value}`);
+  return [
+    ...(fixed.length > 0 ? [`params: ${fixed.join(" ")}`] : []),
+    ...(plan.varied.length > 0
+      ? [
+          `vary: ${plan.varied.map(([name, values]) => `${name}=${values.join(",")}`).join(" ")} · ${plural(columns, "column")}, the first value of each the reference`,
+        ]
+      : []),
+  ];
+}
 
 /**
  * A folder `--against` names: another checkout of the project, holding the dataset at the same
  * path as yours. Only its `env.ts`, its code and its `awf` are used; its cases, keys and graders
  * are never read. Checked as your checkout is before the first trial.
  */
-async function againstColumn(
+async function againstFolder(
   context: Context,
   workspace: CaseWorkspace,
   info: DatasetInfo,
   given: string,
-  taken: readonly Column[],
-): Promise<Column> {
+  taken: readonly CodeFolder[],
+): Promise<CodeFolder> {
   const at = resolve(context.cwd, given);
   if (!existsSync(at)) throw new Refusal(`--against ${given}: no such folder`);
   const dir = realpathSync(at);
@@ -602,17 +645,18 @@ function otherColumns(
   trials: readonly StoredTrial[],
   bars: ReadonlyMap<string, CaseBar>,
 ): CaseRow[][] {
-  return run.folders.slice(1).map((_, i) => rowsOf(store, run, trials, bars, i + 1));
+  return run.columns.slice(1).map((_, i) => rowsOf(store, run, trials, bars, i + 1));
 }
 
 function progress(
   stderr: (text: string) => void,
+  run: RunRecord,
   done: TrialDone,
   deciders: ReadonlySet<string> | undefined,
 ): void {
   const view = trialOutcome(done.record, done.score ? [done.score] : [], deciders);
   stderr(
-    `  ${done.record.case} ${done.record.trial}${done.record.column > 0 ? ` (against ${done.record.column})` : ""}: ${view.outcome}${done.record.retried ? " (tried again)" : ""} · ${seconds(done.record.ms)}`,
+    `  ${done.record.case} ${done.record.trial}${done.record.column > 0 ? ` (${columnLabel(run, done.record.column)})` : ""}: ${view.outcome}${done.record.retried ? " (tried again)" : ""} · ${seconds(done.record.ms)}`,
   );
 }
 
@@ -723,6 +767,7 @@ function reportJson(args: {
     dataset: run.dataset,
     partial: run.finished === undefined,
     exit,
+    params: run.columns[0]!.params,
     cases: rows.map((row) => ({
       name: row.name,
       verdict: row.tally.verdict ?? null,
@@ -744,10 +789,13 @@ function reportJson(args: {
     ...(args.others && args.others.length > 0
       ? {
           columns: args.others.map((column, i) => {
-            const { env, ...folder } = run.folders[i + 1]!;
+            const { folder: at, params } = run.columns[i + 1]!;
+            const { env, ...folder } = run.folders[at]!;
             const theirs = poolNumbers(trials.filter((t) => t.record.column === i + 1));
             return {
+              label: columnLabel(run, i + 1),
               ...folder,
+              params,
               envDiffers: env !== run.folders[0]!.env,
               numbers: Object.fromEntries(
                 [...theirs.graders].map(([grader, numbers]) => [
@@ -866,7 +914,8 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
         (runId) => {
           const bin = own.find((t) => t.record.runId === runId)?.record.awf.bin ?? "awf";
           const column = own.find((t) => t.record.runId === runId)?.record.column ?? 0;
-          return `(cd ${run.folders[column]?.path ?? run.folders[0]!.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
+          const folder = run.folders[run.columns[column]?.folder ?? 0] ?? run.folders[0]!;
+          return `(cd ${folder.path} && bun --no-env-file ${bin} logs ${runId} --run-root ${runRoot})`;
         },
         bars.get(row.name)?.deciders,
         others.map((column) => column.find((r) => r.name === row.name)),

@@ -1,5 +1,6 @@
 import { criteriaOf } from "../format/key";
-import type { RunRecord } from "../format/records";
+import type { Params, RunRecord } from "../format/records";
+import { columnLike } from "./columns";
 import type { CaseInfo, DatasetInfo } from "./dataset";
 import { decidersOf, type LabGrader } from "./grading";
 import { type CaseRow, caseRow, trialOutcome } from "./outcome";
@@ -32,15 +33,16 @@ export function barsOf(
 
 const asked = (run: RunRecord, name: string) => run.asked.find((a) => a.case === name)?.trials ?? 0;
 
-/** Each case's verdict in a run, your checkout's column. */
+/** Each case's verdict in one column of a run. */
 function verdictsOf(
   run: RunRecord,
   trials: readonly StoredTrial[],
   bars: ReadonlyMap<string, CaseBar>,
+  column: number,
 ): Map<string, CaseVerdict | undefined> {
   const verdicts = new Map<string, CaseVerdict | undefined>();
   for (const { case: name } of run.asked) {
-    const own = trials.filter((t) => t.record.case === name && t.record.column === 0);
+    const own = trials.filter((t) => t.record.case === name && t.record.column === column);
     if (own.length === 0) continue;
     const deciders = bars.get(name)?.deciders;
     const outcomes = own.map((t) => trialOutcome(t.record, t.scores, deciders).outcome);
@@ -53,14 +55,15 @@ function verdictsOf(
 }
 
 /**
- * Earlier runs of the same dataset and checkout, oldest first, each with its verdicts. A run whose
- * records this lab can't read (written before a `/0` record changed shape) is left out; `runs`
- * names it.
+ * Earlier runs of the same dataset with a column of this checkout under these parameters, oldest
+ * first, each with that column's verdicts. A run whose records this lab can't read (written
+ * before a `/0` record changed shape) is left out; `runs` names it.
  */
 function earlier(
   store: string,
   dataset: string,
   root: string,
+  params: Params,
   before: number,
   bars: ReadonlyMap<string, CaseBar>,
 ): { run: RunRecord; verdicts: Map<string, CaseVerdict | undefined> }[] {
@@ -69,8 +72,10 @@ function earlier(
     .flatMap((n) => {
       try {
         const run = readRunRecord(store, n);
-        if (!run || run.dataset !== dataset || run.folders[0]?.path !== root) return [];
-        return [{ run, verdicts: verdictsOf(run, readTrials(store, n), bars) }];
+        if (!run || run.dataset !== dataset) return [];
+        const column = columnLike(run, root, params);
+        if (column === undefined) return [];
+        return [{ run, verdicts: verdictsOf(run, readTrials(store, n), bars, column) }];
       } catch (error) {
         if (error instanceof UnreadableRecord) return [];
         throw error;
@@ -92,14 +97,16 @@ export function unreadableRuns(store: string): number[] {
   });
 }
 
-/** Up to five earlier verdicts of each case, newest last. */
+/** Up to five earlier verdicts of each case in the run's reference column, newest last. */
 export function historyOf(
   store: string,
   run: RunRecord,
   bars: ReadonlyMap<string, CaseBar>,
 ): Map<string, CaseVerdict[]> {
   const history = new Map<string, CaseVerdict[]>();
-  for (const { verdicts } of earlier(store, run.dataset, run.folders[0]!.path, run.number, bars)) {
+  const { path } = run.folders[0]!;
+  const { params } = run.columns[0]!;
+  for (const { verdicts } of earlier(store, run.dataset, path, params, run.number, bars)) {
     for (const [name, verdict] of verdicts) {
       if (!verdict) continue;
       history.set(name, [...(history.get(name) ?? []), verdict].slice(-5));
@@ -109,17 +116,19 @@ export function historyOf(
 }
 
 /**
- * `--failed`: the cases whose newest verdict in your checkout's column is failed, flaky or
- * unclear, each with the trials of the run that gave it.
+ * `--failed`: the cases whose newest verdict in the reference column (your checkout under these
+ * parameters) is failed, flaky or unclear, each with the trials of the run that gave it.
  */
 export function failedCases(
   store: string,
   dataset: string,
   root: string,
+  params: Params,
   bars: ReadonlyMap<string, CaseBar>,
 ): Map<string, number> {
   const newest = new Map<string, { verdict: CaseVerdict | undefined; trials: number }>();
-  for (const { run, verdicts } of earlier(store, dataset, root, Number.POSITIVE_INFINITY, bars)) {
+  const runs = earlier(store, dataset, root, params, Number.POSITIVE_INFINITY, bars);
+  for (const { run, verdicts } of runs) {
     for (const [name, verdict] of verdicts) newest.set(name, { verdict, trials: asked(run, name) });
   }
   return new Map(
@@ -129,7 +138,7 @@ export function failedCases(
   );
 }
 
-/** A run's rows for a column, your checkout's by default; history is your checkout's alone. */
+/** A run's rows for a column, the reference column by default, which alone has history. */
 export function rowsOf(
   store: string,
   run: RunRecord,

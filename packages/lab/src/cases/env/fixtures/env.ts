@@ -53,6 +53,7 @@ export default defineEnv({
           gathered: JSON.stringify(stages.gather ?? null),
           requests: c.http.requests.map((request) => `${request.method} ${request.url}`).join("|"),
           none: input.facts === "null" ? null : "x",
+          params: JSON.stringify(c.params),
         };
       },
     };

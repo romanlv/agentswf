@@ -9,6 +9,7 @@
     "case",
     "column",
     "trial",
+    "params",
     "awf",
     "input",
     "sandbox",
@@ -45,6 +46,15 @@
     "trial": {
       "type": "integer",
       "minimum": 1
+    },
+    "params": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*$": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "awf": {
       "type": "object",

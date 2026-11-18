@@ -3,7 +3,7 @@ import type { DatasetError, Phase } from "../format/trial-file";
 import { type Case, makeCase } from "./case";
 import { fileOf, Mocks } from "./mock";
 import { copiedModule, missingStageNames } from "./sources";
-import { shared, trialSettings, writeLine } from "./state";
+import { shared, trialParams, trialSettings, writeLine } from "./state";
 
 export {
   type Capture,
@@ -286,6 +286,7 @@ async function runTrial<M extends WorkflowModule>(
     dir: caseDir,
     scratch: process.env[TRIAL_ENV.scratch] ?? wf.cwd,
     root: process.env[TRIAL_ENV.root] ?? process.cwd(),
+    params: trialParams(),
   };
 
   trial.enter("setup");

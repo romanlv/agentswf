@@ -148,6 +148,8 @@ function scripted(
   grader?: GraderPlay,
   /** Plays for the trials of another code folder, by its root. */
   byRoot: Record<string, Record<string, Behaviour[]>> = {},
+  /** Plays for the trials under some parameters, by them as `name=value`, space-separated. */
+  byParams: Record<string, Record<string, Behaviour[]>> = {},
 ) {
   const calls: RunRequest[] = [];
   const graded: { input: GradeCase; files: string[]; request: RunRequest }[] = [];
@@ -199,9 +201,12 @@ function scripted(
     const caseDir = env[TRIAL_ENV.case]!;
     const name = readFileSync(join(caseDir, "name.txt"), "utf8");
     const root = env[TRIAL_ENV.root] ?? "";
-    const at = count.get(`${root}\0${name}`) ?? 0;
-    count.set(`${root}\0${name}`, at + 1);
-    const list = (byRoot[root] ?? plays)[name] ?? [pass];
+    const params = Object.entries(JSON.parse(env[TRIAL_ENV.params] ?? "{}") as object)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ");
+    const at = count.get(`${root}\0${params}\0${name}`) ?? 0;
+    count.set(`${root}\0${params}\0${name}`, at + 1);
+    const list = (byParams[params] ?? byRoot[root] ?? plays)[name] ?? [pass];
     const play = list[Math.min(at, list.length - 1)]!;
     seen.push({
       name,
@@ -1925,5 +1930,150 @@ describe("capture, what it refuses and keeps whole", () => {
     // Nothing half-made is left among the cases.
     expect(readdirSync(join(where.ds, "cases")).sort()).toEqual(["a", "c"]);
     expect(readdirSync(where.ds).filter((n) => n.startsWith(".capture-"))).toEqual([]);
+  });
+});
+
+describe("--param and --vary: a column per combination of parameters", () => {
+  const paramsOf = (calls: readonly RunRequest[]) =>
+    calls.map((c) => JSON.parse(c.env?.[TRIAL_ENV.params] ?? "null"));
+
+  test("--vary runs every combination, each trial and grader given its parameters; the reference column decides the exit code", async () => {
+    const where = project({ a: {}, b: {} });
+    const given: Record<string, string>[] = [];
+    const sees: LabGrader = {
+      name: "sees",
+      grade: async (call) => {
+        given.push(call.params);
+        return { verdict: "passed", reasons: [] };
+      },
+    };
+    // model=b fails a; the reference column, model=a, passes both.
+    const fake = scripted(
+      {},
+      undefined,
+      {},
+      {
+        "tz=utc model=b effort=low": { a: [fail] },
+        "tz=utc model=b effort=high": { a: [fail] },
+      },
+    );
+    const { code, out } = await lab(
+      where,
+      ["run", "--yes", "--param", "tz=utc", "--vary", "model=a,b", "--vary", "effort=low,high"],
+      { runner: fake.runner, graders: [sees] },
+    );
+    expect(code).toBe(0);
+    expect(fake.calls).toHaveLength(8);
+    expect(new Set(paramsOf(fake.calls).map((p) => JSON.stringify(p)))).toEqual(
+      new Set([
+        JSON.stringify({ tz: "utc", model: "a", effort: "low" }),
+        JSON.stringify({ tz: "utc", model: "a", effort: "high" }),
+        JSON.stringify({ tz: "utc", model: "b", effort: "low" }),
+        JSON.stringify({ tz: "utc", model: "b", effort: "high" }),
+      ]),
+    );
+    expect(given).toHaveLength(8);
+    expect(given.every((p) => p.tz === "utc")).toBe(true);
+    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    expect(record.columns).toEqual([
+      { folder: 0, params: { tz: "utc", model: "a", effort: "low" } },
+      { folder: 0, params: { tz: "utc", model: "a", effort: "high" } },
+      { folder: 0, params: { tz: "utc", model: "b", effort: "low" } },
+      { folder: 0, params: { tz: "utc", model: "b", effort: "high" } },
+    ]);
+    const trial = JSON.parse(
+      readFileSync(join(storeOf(where), "runs/1/trials/a/2-1/trial.json"), "utf8"),
+    );
+    expect(trial).toMatchObject({ column: 2, params: { model: "b", effort: "low" } });
+    expect(out).toContain("params: tz=utc");
+    expect(out).toContain(
+      "reference column: model=a effort=low; the exit code and history are its",
+    );
+    expect(out).toMatch(/\n {2}model=b effort=low\s+1\s+1\s/);
+    expect(out).toContain("came out differently in model=b effort=high");
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.params).toEqual({ tz: "utc", model: "a", effort: "low" });
+    expect(json.columns.map((c: { label: string }) => c.label)).toEqual([
+      "model=a effort=high",
+      "model=b effort=low",
+      "model=b effort=high",
+    ]);
+  });
+
+  test("a failure in the reference column alone sets the exit code; another column's never does", async () => {
+    const where = project({ a: {} });
+    const fake = scripted({}, undefined, {}, { "model=a": { a: [fail] } });
+    const { code } = await lab(where, ["run", "--yes", "--vary", "model=b,a"], {
+      runner: fake.runner,
+    });
+    expect(code).toBe(0);
+    const again = scripted({}, undefined, {}, { "model=a": { a: [fail] } });
+    expect(
+      (await lab(where, ["run", "--yes", "--vary", "model=a,b"], { runner: again.runner })).code,
+    ).toBe(1);
+  });
+
+  test("--vary with --against: each folder under each combination, the folders outermost", async () => {
+    const where = project({ a: {} });
+    const other = join(where.top, "other");
+    git(where.top, "clone", "-q", where.root, other);
+    mkdirSync(join(other, "node_modules", "agentswf"), { recursive: true });
+    const fake = scripted({});
+    const { out } = await lab(where, ["run", "--yes", "--against", other, "--vary", "model=a,b"], {
+      runner: fake.runner,
+    });
+    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    expect(record.columns).toEqual([
+      { folder: 0, params: { model: "a" } },
+      { folder: 0, params: { model: "b" } },
+      { folder: 1, params: { model: "a" } },
+      { folder: 1, params: { model: "b" } },
+    ]);
+    expect(fake.calls.map((c) => c.env?.[TRIAL_ENV.root])).toEqual([
+      where.root,
+      where.root,
+      other,
+      other,
+    ]);
+    expect(out).toContain("against 1 model=b");
+  });
+
+  test("history and --failed follow the reference column: your checkout under the same parameters", async () => {
+    const where = project({ a: {}, b: {} });
+    // model=a fails a; model=b fails b.
+    const plays = { "model=a": { a: [fail] }, "model=b": { b: [fail] } };
+    await lab(where, ["run", "--yes", "--vary", "model=a,b"], {
+      runner: scripted({}, undefined, {}, plays).runner,
+    });
+    const onB = scripted({}, undefined, {}, plays);
+    await lab(where, ["run", "--yes", "--failed", "--param", "model=b"], { runner: onB.runner });
+    // Under model=b, the newest verdict that failed is b's, from the earlier run's second column.
+    expect(onB.seen.map((s) => s.name)).toEqual(["b"]);
+    const shown = await lab(where, ["report", "--json"]);
+    const b = JSON.parse(shown.out).cases.find((c: { name: string }) => c.name === "b");
+    expect(b.history).toEqual(["failed"]);
+    const none = scripted({});
+    const plain = await lab(where, ["run", "--yes", "--failed"], { runner: none.runner });
+    // Without parameters, no earlier run had that column: nothing to run again.
+    expect(none.calls).toHaveLength(0);
+    expect(plain.out).toContain("nothing to run");
+  });
+
+  test("bad parameters are refused before any trial", async () => {
+    const where = project({ a: {} });
+    const refused = async (argv: string[]) => {
+      const { code, err } = await lab(where, ["run", "--yes", ...argv], {
+        runner: scripted({}).runner,
+      });
+      expect(code).toBe(2);
+      return err;
+    };
+    expect(await refused(["--param", "model"])).toContain("give {name}={value}");
+    expect(await refused(["--param", "1x=a"])).toContain("give {name}={value}");
+    expect(await refused(["--param", "judge.model=a"])).toContain("give {name}={value}");
+    expect(await refused(["--param", "m=a", "--vary", "m=b,c"])).toContain("m is given twice");
+    expect(await refused(["--vary", "m=a"])).toContain("one is --param m=a");
+    expect(await refused(["--vary", "m=a,,b"])).toContain("none empty");
+    expect(await refused(["--vary", "m=a,a"])).toContain("each value once");
   });
 });

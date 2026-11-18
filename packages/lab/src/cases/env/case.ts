@@ -37,6 +37,11 @@ export type Case = {
   readonly scratch: string;
   /** The code folder: your checkout, or the folder `--against` names. */
   readonly root: string;
+  /**
+   * The trial's parameters, from `--param` and `--vary`: `{}` without them. Turn them into argv or
+   * a module to load; a value is always a string.
+   */
+  readonly params: Readonly<Record<string, string>>;
   /** A JSON file of the case folder, parsed. */
   // biome-ignore lint/suspicious/noExplicitAny: typed by the reader, as `JSON.parse` is.
   json<T = any>(name: string): T;
@@ -59,7 +64,12 @@ export type Case = {
   cleanup(fn: () => unknown): void;
 };
 
-export type CaseFolders = { dir: string; scratch: string; root: string };
+export type CaseFolders = {
+  dir: string;
+  scratch: string;
+  root: string;
+  params: Record<string, string>;
+};
 
 export function makeCase(folders: CaseFolders, mocks: Mocks, cleanups: (() => unknown)[]): Case {
   const read = (name: string) => readFileSync(join(folders.dir, name), "utf8");
@@ -86,6 +96,7 @@ export function makeCase(folders: CaseFolders, mocks: Mocks, cleanups: (() => un
     dir: folders.dir,
     scratch: folders.scratch,
     root: folders.root,
+    params: Object.freeze({ ...folders.params }),
     json: (name) => JSON.parse(read(name)),
     text: read,
     mock: (module, fakes, options) =>

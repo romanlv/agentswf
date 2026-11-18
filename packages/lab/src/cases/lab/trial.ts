@@ -4,6 +4,7 @@ import { runLogLine, type SandboxRecord } from "@agentswf/contract/records";
 import { type AwfBin, loginRefused, type Runner, withoutCallingSession } from "../../shared/runner";
 import {
   type Errored,
+  type Params,
   SCORE_KIND,
   type ScoreRecord,
   TRIAL_KIND,
@@ -63,6 +64,8 @@ export async function runTrial(
   trial: number,
   /** The column's `env.ts`: your checkout's, or the same file in a folder `--against` names. */
   envFile: string = lab.envFile,
+  /** The column's parameters. */
+  params: Params = {},
 ): Promise<TrialDone> {
   const { workspace, dataset } = lab;
   const started = Date.now();
@@ -83,6 +86,7 @@ export async function runTrial(
       case: info.name,
       column,
       trial,
+      params,
       awf: { bin: folder.awf.bin, version: folder.version },
       input,
       sandbox: "workflow",
@@ -114,6 +118,7 @@ export async function runTrial(
       [TRIAL_ENV.scratch]: folders.scratch,
       [TRIAL_ENV.root]: folder.root,
       [TRIAL_ENV.settings]: JSON.stringify(settings),
+      [TRIAL_ENV.params]: JSON.stringify(params),
     };
     const result = await lab.runner({
       workflow: envFile,
@@ -229,7 +234,7 @@ export async function runTrial(
         kept: join(dir, "kept"),
         work: folders.parent,
         env: definedOf(withoutCallingSession(lab.env)),
-        params: {},
+        params,
         expect: Object.keys(info.key.expect ?? {}).length > 0,
         graders: lab.graders.filter((g) => !g.onDemand),
         deciders: decidersOf(info.key, lab.graders),

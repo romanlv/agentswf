@@ -26,8 +26,9 @@
     "params": {
       "type": "object",
       "patternProperties": {
-        "^.*$": {
-          "type": "string"
+        "^[A-Za-z][A-Za-z0-9_-]*$": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

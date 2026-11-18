@@ -30,6 +30,27 @@ export const FolderSchema = Type.Object(
 );
 export type Folder = Type.Static<typeof FolderSchema>;
 
+/**
+ * A parameter's name: plain words a dataset's `env.ts` reads as `c.params`. A dot is kept for the
+ * lab's own parameters.
+ */
+export const PARAM_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+/** The parameters a trial ran under, each a string. */
+export const ParamsSchema = Type.Record(Type.String({ pattern: PARAM_NAME.source }), Text);
+export type Params = Type.Static<typeof ParamsSchema>;
+
+/** A column of the report: a folder of code and the parameters its trials ran under. */
+export const ColumnSchema = Type.Object(
+  {
+    /** The folder's index in the run's `folders`. */
+    folder: Type.Integer({ minimum: 0 }),
+    params: ParamsSchema,
+  },
+  { additionalProperties: false },
+);
+export type Column = Type.Static<typeof ColumnSchema>;
+
 /** `{store}/runs/{n}/run.json`. No `finished` means partial. */
 export const RunRecordSchema = Type.Object(
   {
@@ -37,6 +58,11 @@ export const RunRecordSchema = Type.Object(
     number: Type.Integer({ minimum: 1 }),
     dataset: Text,
     folders: Type.Array(FolderSchema, { minItems: 1 }),
+    /**
+     * Each folder under each combination of parameters, the folders outermost. The first is the
+     * reference column: your checkout under `--param` and each `--vary`'s first value.
+     */
+    columns: Type.Array(ColumnSchema, { minItems: 1 }),
     asked: Type.Array(
       Type.Object(
         { case: Text, trials: Type.Integer({ minimum: 1 }) },
@@ -115,9 +141,11 @@ export const TrialRecordSchema = Type.Object(
     run: Type.Integer({ minimum: 1 }),
     dataset: Text,
     case: Text,
-    /** The folder's index in the run's `folders`. */
+    /** The column's index in the run's `columns`. */
     column: Type.Integer({ minimum: 0 }),
     trial: Type.Integer({ minimum: 1 }),
+    /** The column's parameters, as `env.ts` and the graders were given them. */
+    params: ParamsSchema,
     awf: Type.Object({ bin: Text, version: Text }, { additionalProperties: false }),
     /** The built case folder's digest; a copy is kept beside this record, in `input/`. */
     input: Digest,
@@ -279,7 +307,7 @@ export const GradeFileSchema = Type.Object(
     /** The trial's working folder, during the trial; null under `score`, which has none. */
     scratch: Type.Union([Text, Type.Null()]),
     /** The trial's parameters. */
-    params: Type.Record(Type.String(), Type.String()),
+    params: ParamsSchema,
     readsFacts: Type.Boolean(),
   },
   { additionalProperties: false },

@@ -25,14 +25,17 @@ evals/                         in your project, beside your workflows
 ```
 
 A **trial** is one run of the workflow on one case. A **run** is one `awf-lab run`, with all its
-trials. A **column** is one folder of code: your checkout, and each `--against` folder.
+trials. A **column** is one folder of code under one set of parameters: your checkout, each
+`--against` folder, and each combination of `--vary`'s values. The **reference column** is your
+checkout under `--param` and each `--vary`'s first value: the exit code, history and `--failed`
+are its.
 
 ## Commands
 
 | Command | Does |
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
-| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--yes]` | each case, each trial, in throwaway folders, graded against its key |
+| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--param k=v] [--vary k=a,b] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key |
 | `report [{n}] [--case {name}] [--json]` | the last run again, or run n; one case in full |
 | `score [{n}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
@@ -88,6 +91,7 @@ keeps real copies of what it took. A workflow already loaded before `setup` is r
 | `c.fake<T>(fakes, { name? })` | a strict typed stand-in for an object a factory returns |
 | `c.http(routes)`, `c.http.requests` | answers the workflow's `fetch` by `"{METHOD} {URLPattern}"` |
 | `c.cleanup(fn)` | teardown, after `observe`, even when the run fails |
+| `c.params` | the trial's parameters, `{ name: "value" }`; `{}` without `--param` or `--vary` |
 
 - **`c.mock`** is `spyOn` on each export, typed by the module, so a wrong fake is a type error. A
   call to an export not faked throws "no fake for mail.delete in this case" and errors the trial
@@ -199,11 +203,12 @@ A trial's outcome, the first that applies:
 
 A case's verdict, with T trials, a bar b, need = ceil(b × T), p passed, f failed: **passed** when
 p ≥ need; **failed** when f > T/2; **flaky** when it has both; **unclear** otherwise. History shows
-the case's last five verdicts in your checkout's column. A known-failing case that passes at three
+the case's last five verdicts in the reference column, from earlier runs with a column of your
+checkout under the same parameters. A known-failing case that passes at three
 trials or more is "now passing". `--failed` reruns the cases whose newest verdict was failed,
 flaky or unclear, at that run's trial count.
 
-Exit codes, from your checkout's column alone: **0** every case that must pass passed; **1** one
+Exit codes, from the reference column alone: **0** every case that must pass passed; **1** one
 failed; **5** none failed, but a trial errored by the dataset or grading, or leaked; **3** flaky,
 unclear, partial, a budget stop, or nothing graded; **2** refused before any trial; **4** the lab
 broke. Known-failing cases never change it by their verdict.
@@ -211,7 +216,7 @@ broke. Known-failing cases never change it by their verdict.
 ## Grading
 
 A grader is given the case (folder, input, key without its marker, `key/`), the result, the saved
-files, the scratch folder during the trial, `params` (`{}` until task 9's parameters), and with `readsFacts` the facts and stages'
+files, the scratch folder during the trial, `params`, and with `readsFacts` the facts and stages'
 values. It returns `verdict?`, `numbers?` (`{ count, of }` summed per column, or `{ value }`
 shown as a median), `reasons`, `parts?` (one per thing judged, with `label`, `why`, `settled`,
 `votes`), or `notApplies` alone.
@@ -245,6 +250,16 @@ Another checkout of the project, with its own install. Its `env.ts`, code and `a
 cases, keys, `dataset.json` and graders are never read, so what counts as a pass comes from your
 checkout. The report puts columns side by side: verdicts, time and cost, numbers, the cases that
 came out differently (largest first), "also fails in {column}". It doesn't say which is better.
+
+## Parameters: `--param` and `--vary`
+
+`--param {name}={value}` sets a parameter for every trial; `--vary {name}={a,b}` makes a column for
+each value, and with more than one, every combination, in each folder. `env.ts` reads them as
+`c.params` (the lab passes them in `AWF_LAB_PARAMS`) and turns them into argv or a module to load;
+graders get them as `params`. A name is a letter then letters, digits, `-` or `_`; a value is a
+string. A column is named by the folder and the parameters that differ, such as `model=b` or
+`against 1 model=b`. A setting with many named combinations, such as review variants, is one
+parameter whose value `env.ts` looks up in its own table: `--vary variant=lenses,fork`.
 
 ## `capture`
 

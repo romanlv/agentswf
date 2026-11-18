@@ -405,11 +405,12 @@ says "met" is caught.
 
 Execution:
 
-- [ ] Plan: the reuse key file by file; what a fresh clone needs to grade again, and its size;
+- [x] Plan: the reuse key file by file; what a fresh clone needs to grade again, and its size;
   how parameters key history and the run record's columns;
   what becomes of today's per-checkout stores; how autoresearch's variants map onto parameters.
+  (Under Implementation notes, "Task 9's plan".)
 - [ ] Implement, step by step, each committed with its tests:
-  1. parameters and columns;
+  1. [x] parameters and columns;
   2. the store per project and `records`;
   3. reuse, `--fresh`, `reuseDays`;
   4. labels: `label`, `labels.jsonl`, agreement, the judge's mark;
@@ -555,6 +556,30 @@ proposed, and why.
 
 Open nits: `capture` looks for real runs in your checkout and the repository's top only, not in a
 `.awf` higher up; a budget stop exits 1 or 5 when the report already exits worse.
+
+### Task 9's plan
+
+- **Columns**: the run record keeps `folders` and gains `columns`, each `{ folder, params }`, the
+  folders outermost, so column 0 is the reference; a trial's `column` indexes `columns` and the
+  trial records its `params`. A column is named by its folder (`against 1`) and the parameters
+  that differ between columns (`model=b`).
+- **History and `--failed`** read, in each earlier run, the column of your checkout under the
+  reference column's parameters, wherever it sits; a run with no such column adds nothing.
+- **Parameters** are strings, named a letter then letters, digits, `-` or `_`; a dot is kept for
+  the lab's own (step 8's judge). `--vary` needs two values or more.
+- **autoresearch's variants** are named combinations of a workflow, `--shape` and `--runtime`,
+  not a grid: one parameter, `--vary variant=…`, whose value `env.ts` looks up in its own table.
+  The lab needs no feature for it.
+- **Today's per-checkout stores** are left where they are and not read once step 2 moves to one
+  store per project (beta); their records also lack `columns`, so they read as unreadable runs.
+- **The reuse key** (step 3): the code is what git would hold in the folder, less the records
+  folder, `hide`'s paths and each dataset's cases, keys, `dataset.json`, graders and
+  `capture.ts`; `env.ts` and its helpers stay in it. Beside it: the parameters, the built case's
+  digest, the trial settings of `dataset.json`, and the `awf` and lab versions.
+- **A fresh clone** needs each trial's record, scores and `kept/` committed; the built case is
+  not committed but built again from the case folder and checked against the trial's `input`
+  digest, so a case edited since is "run it again", as `score` does now. The size is measured on
+  the mail and refund-desk records at step 2.
 
 ### Live checks
 

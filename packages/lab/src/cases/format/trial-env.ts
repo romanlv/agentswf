@@ -16,6 +16,8 @@ export const TRIAL_ENV = {
   root: "AWF_LAB_ROOT",
   /** `TrialSettings` as JSON. */
   settings: "AWF_LAB_SETTINGS",
+  /** The trial's parameters, `{ name: value }` as JSON. */
+  params: "AWF_LAB_PARAMS",
   /** A grader workflow's grade folder, which `gradeCase()` reads. */
   grade: "AWF_LAB_GRADE",
 } as const;

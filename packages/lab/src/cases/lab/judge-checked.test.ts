@@ -18,6 +18,7 @@ function judgeLine(entries: object[]): string {
       number: 1,
       dataset: "ds",
       folders: [{ path: "/p", branch: "main", commit: null, dirty: false, env: "0".repeat(64) }],
+      columns: [{ folder: 0, params: {} }],
       asked: [{ case: "a", trials: entries.length }],
       started: "2026-11-17T00:00:00.000Z",
       finished: "2026-11-17T00:01:00.000Z",

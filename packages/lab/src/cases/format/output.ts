@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { OUTCOMES } from "./records";
+import { OUTCOMES, ParamsSchema } from "./records";
 
 // What `report --json` and `score --json` print: `/0`, like the records, until task 13.
 
@@ -29,6 +29,8 @@ export const CaseReportSchema = Type.Object(
     dataset: Text,
     partial: Type.Boolean(),
     exit: Type.Integer({ minimum: 0, maximum: 5 }),
+    /** The reference column's parameters: `--param` and each `--vary`'s first value. */
+    params: ParamsSchema,
     cases: Type.Array(
       Type.Object(
         {
@@ -67,15 +69,18 @@ export const CaseReportSchema = Type.Object(
         Type.Object({ unread: Type.String() }, { additionalProperties: false }),
       ]),
     ),
-    /** With `--against`: every other column, its folder and its cases' verdicts. */
+    /** With `--against` or `--vary`: every other column, its folder, parameters and verdicts. */
     columns: Type.Optional(
       Type.Array(
         Type.Object(
           {
+            /** As the report names it: `against 1`, `model=b`. */
+            label: Text,
             path: Text,
             branch: Type.Union([Text, Type.Null()]),
             commit: Type.Union([Text, Type.Null()]),
             dirty: Type.Boolean(),
+            params: ParamsSchema,
             /** Its `env.ts` is not your checkout's. */
             envDiffers: Type.Boolean(),
             numbers: Type.Record(Text, Type.Record(Text, PooledSchema)),

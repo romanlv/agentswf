@@ -30,6 +30,8 @@ type Run = {
   env?: string;
   input?: Record<string, unknown>;
   settings?: Partial<TrialSettings>;
+  /** The trial's parameters, as `--param` and `--vary` give them. */
+  params?: Record<string, string>;
   /** Run without the lab's variables, as a person running env.ts by hand would. */
   bare?: boolean;
   /** Sent to the trial's process once its body has begun. */
@@ -59,6 +61,7 @@ async function trial(run: Run): Promise<Trial> {
       [TRIAL_ENV.scratch]: scratch,
       [TRIAL_ENV.root]: REPO,
       [TRIAL_ENV.settings]: JSON.stringify(settings),
+      ...(run.params ? { [TRIAL_ENV.params]: JSON.stringify(run.params) } : {}),
     });
   }
   const child = Bun.spawn(
@@ -133,6 +136,7 @@ const real = Bun.serve({
 
 const runs = {
   plain: { input: { scenario: "plain", argv: ["plain"] } },
+  params: { input: { scenario: "plain", argv: ["plain"] }, params: { model: "b", tz: "utc" } },
   catchRefused: { input: { scenario: "plain", argv: ["catch-refused"] } },
   fetch: {
     input: {
@@ -210,6 +214,11 @@ afterAll(() => {
 });
 
 describe("a trial that completes", () => {
+  test("c.params holds the trial's parameters, {} without them", () => {
+    expect(endOf(results.params)?.facts.params).toBe(JSON.stringify({ model: "b", tz: "utc" }));
+    expect(endOf(results.plain)?.facts.params).toBe("{}");
+  });
+
   test("writes each phase, the workflow, unused fakes and the facts, and returns the value", () => {
     const t = results.plain;
     expect(t.exitCode).toBe(0);
@@ -223,6 +232,7 @@ describe("a trial that completes", () => {
         gathered: '["a","b"]',
         requests: "",
         none: "x",
+        params: "{}",
       },
       stages: { gather: ["a", "b"], decide: { count: 2, sent: ["a", "b"] } },
       given: [],
