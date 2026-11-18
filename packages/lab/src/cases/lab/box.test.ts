@@ -30,6 +30,9 @@ function project() {
   writeFileSync(join(evals, "ds/dataset.json"), "{}\n");
   writeFileSync(join(caseDir, "key.md"), "the key\n");
   writeFileSync(join(caseDir, "key/answer.txt"), "the answer\n");
+  // An older lab's fixtures, tracked, holding a key: hidden only by `hide`.
+  mkdirSync(join(root, "datasets/old"), { recursive: true });
+  writeFileSync(join(root, "datasets/old/key.json"), "the old key\n");
   git(root, "init", "-q");
   git(root, "add", "-A");
   git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
@@ -52,6 +55,7 @@ function project() {
     root,
     store,
     labHome: join(top, "lab-home"),
+    hide: ["datasets"],
   };
   const profile = boxProfile(
     {
@@ -79,6 +83,7 @@ describe("the lab's box", () => {
       join(caseDir, "key"),
       join(root, ".git"),
       join(root, ".env"),
+      join(root, "datasets"),
       store,
       realpathSync(homedir()),
     ]) {
@@ -146,6 +151,7 @@ describe.skipIf(!srt || process.platform !== "darwin")("the box under srt", () =
       expect(read(join(caseDir, "key.md"))).toBe(false);
       expect(read(join(caseDir, "key/answer.txt"))).toBe(false);
       expect(read(join(root, ".env"))).toBe(false);
+      expect(read(join(root, "datasets/old/key.json"))).toBe(false);
       expect(read(join(root, ".git/HEAD"))).toBe(false);
       expect(read(join(store, "record.json"))).toBe(false);
       expect(read(canary)).toBe(false);

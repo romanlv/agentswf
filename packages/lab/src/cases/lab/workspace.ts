@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { Agent } from "../../shared/config";
 import { WORKSPACE_KIND } from "../../shared/config";
 import { readConfigFile } from "../../shared/config-file";
@@ -26,6 +26,8 @@ export type CaseWorkspace = {
   store: string;
   /** A folder inside `evals/` every run's records are also written to, to be committed. */
   records?: string;
+  /** Paths relative to a code folder the lab's box hides, as it hides keys. */
+  hide?: string[];
   /** Where the lock and the trial files live, whatever `store` says: `~/.awf/lab`. */
   labHome: string;
   judgeAgent?: Agent;
@@ -75,6 +77,19 @@ export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
       throw new Refusal(`${config}: records ${records} must be a folder inside ${evals}`);
     }
   }
+  const hide = (common.hide ?? []).map((path) => {
+    const relativePath = normalize(path).replace(/\/+$/, "");
+    if (
+      isAbsolute(relativePath) ||
+      !inside(root, join(root, relativePath)) ||
+      relativePath === "."
+    ) {
+      throw new Refusal(
+        `${config}: hide ${path} must be a path inside the code folder, relative to it`,
+      );
+    }
+    return relativePath;
+  });
   return {
     config,
     evals,
@@ -82,6 +97,7 @@ export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
     ...(repository ? { repository } : {}),
     store,
     ...(records ? { records } : {}),
+    ...(hide.length > 0 ? { hide } : {}),
     labHome,
     ...(common.judgeAgent ? { judgeAgent: common.judgeAgent } : {}),
   };

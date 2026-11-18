@@ -942,6 +942,26 @@ describe("the key stays hidden", () => {
     expect(code).toBe(5);
     expect(out).toContain("leaked 1");
   });
+
+  test("a marker in a commit no ref reaches, after a reset, is caught", async () => {
+    const runner: Runner = async (request) => {
+      const repo = join(request.cwd, "repo");
+      mkdirSync(repo);
+      git(repo, "init", "-q", "-b", "main");
+      writeFileSync(join(repo, "a.md"), "plain");
+      git(repo, "add", "-A");
+      git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
+      writeFileSync(join(repo, "k.md"), MARKER);
+      git(repo, "add", "-A");
+      git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "k");
+      git(repo, "reset", "-q", "--hard", "HEAD~1");
+      git(repo, "reflog", "expire", "--expire=now", "--all");
+      return scripted({}).runner(request);
+    };
+    const { code, out } = await run({ a: {} }, {}, 1, { runner });
+    expect(code).toBe(5);
+    expect(out).toContain("leaked 1");
+  });
 });
 
 describe("--failed and history across runs", () => {
@@ -2318,6 +2338,19 @@ describe("one store per project, run ids, and records to commit", () => {
     const { code, err } = await lab(where, ["runs"]);
     expect(code).toBe(2);
     expect(err).toContain("must be a folder inside");
+  });
+
+  test("hide names paths inside the code folder only", async () => {
+    const where = project({ a: {} });
+    for (const path of ["../elsewhere", "/etc", "."]) {
+      writeFileSync(
+        join(where.evals, "awf-lab.json"),
+        JSON.stringify({ kind: "awf.lab-workspace/0", hide: [path] }),
+      );
+      const { code, err } = await lab(where, ["runs"]);
+      expect(code).toBe(2);
+      expect(err).toContain(`hide ${path} must be a path inside the code folder`);
+    }
   });
 });
 

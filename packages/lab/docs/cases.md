@@ -174,7 +174,9 @@ Why this case exists.
 | `judgeAgent` | `{ harness, model }` for the criteria judge, over the workspace's |
 
 `awf-lab.json` (`kind: awf.lab-workspace/0`): `judgeAgent`; `store` in place of the default;
-`records`, a folder inside `evals/` that each run's records are also written to, to be committed.
+`records`, a folder inside `evals/` that each run's records are also written to, to be committed;
+`hide`, paths of the code folder, relative to it, that the lab's box hides as it hides keys, for
+tracked files that hold or quote one.
 
 ## A trial
 
@@ -397,8 +399,8 @@ workflow's own sandboxes aside and its agents run in the box as host agents.
 - **Reads**: the system, the toolchain (bun, git, each harness's executable and install tree), the
   code folder and what its `node_modules` links lead to, the case and scratch folders.
 - **Hidden inside them**: `.git` (history holds committed keys), every case's `key.md` and `key/`,
-  what git ignores but `node_modules` (a `.env`), the records folder, the store; the home folder
-  whole.
+  what git ignores but `node_modules` (a `.env`), the records folder, `hide`'s paths, the store;
+  the home folder whole.
 - **Writes**: the scratch folder, and the trial's own run root, home, temp folder and engine
   sockets; the run's records move into the store after.
 - **Network**: `agentReach.network`, every harness's model domains and `realHosts`.

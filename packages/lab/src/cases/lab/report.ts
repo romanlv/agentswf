@@ -514,7 +514,10 @@ export function renderRun({
   section(
     "no verdict",
     rows.filter((r) => r.tally.none),
-    (row) => `${row.tally.none}: `,
+    (row) => {
+      const said = row.notes.length > 0 || row.why || row.tally.note;
+      return said ? `${row.tally.none}: ` : `${row.tally.none}`;
+    },
   );
   if (lines.at(-1) !== "") lines.push("");
   if (others.length > 0) lines.push(...columnLines(run, rows, others, trials, compared), "");

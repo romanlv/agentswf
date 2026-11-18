@@ -23,7 +23,7 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 | | |
 | --- | --- |
 | **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 11, the review datasets on cases |
+| **Next** | task 12, the loop |
 | **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
 | **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
 
@@ -358,8 +358,10 @@ Answered: Q1–Q9 in the design, Q10–Q14 under Decisions.
 
 - **M1.** Whether web-to-cli's build minds that its run's id is the lab's, not the request's. In
   task 5's plan.
-- **M6.** How long the marker search takes on a restored review checkout, and whether it must skip
-  the shared bundle's commits. In task 11's plan.
+
+M6 was answered in task 11: `git grep` over each of a 13,700-commit history's commits took 182 s
+a search; reading every object once takes under a second, and also finds a commit no ref reaches.
+The search never needs to skip the shared history.
 
 M2–M5 were answered in task 2: the grader interface carries the review scorer (with parts,
 labels, votes and `notApplies`); a provider's stop can't be told from the run's records except a
@@ -460,8 +462,8 @@ Done when:
 
 ### 11. The review datasets on cases
 
-- [ ] Plan (the converter and verifier, in autoresearch; the review `env.ts`; the grader's
-  modules copied into autoresearch; air-1's `compare`; M6), implement, review, resolve, verify.
+- [x] Plan (Implementation notes, "Task 11's plan"; the grader's modules move with task 13),
+  implement, verify; reviewed with tasks 10 to 13 together after task 12.
 
 Done when:
 
@@ -506,7 +508,7 @@ Done when:
   a leaked marker caught; `score` grades again on a changed key, version or grader.
 - [x] Parameters, reuse, labels, rates and `compare` (task 9).
 - [x] Nothing in the `"lab"` box reads a key (task 10).
-- [ ] Every autoresearch dataset converts and verifies (task 11).
+- [x] Every autoresearch dataset converts and verifies (task 11).
 - [ ] A loop keeps a better try and never shows a holdout (task 12).
 - [ ] One kind, records at `/1` (task 13).
 - [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
@@ -644,6 +646,69 @@ them.
 - **Docker** after srt, with the review lab's `docker run` (`--cap-drop ALL`, the operator's uid,
   mounts only), its image holding bun, git and the harnesses.
 
+### Task 11's plan
+
+- **Where it lives**: everything of air-1 is autoresearch's, in `evals/air-1/`: the converter
+  `scripts/to-cases.ts`, `checkout.ts`, `env.ts`, `graders.ts`, `graders/match.ts`, the cases.
+  awf gains only what any dataset needs: `hide` and a faster key search.
+- **The history** is a chain of bundles in the dataset's `files/history/`, not one cut: one cut
+  at the common ancestor of every base left each case bundle carrying the history from there to
+  its own base, 117 MB over 60 cases. In order of their bases, each case's cut is the common
+  ancestor of its own base and every later case's, so a case reads the chain to its cut and
+  nothing after its base: 28 bundles, 131 MB in the first, 8 MB of case bundles in all, committed
+  (autoresearch has no remote, so no host's file limit applies).
+- **`env.ts`** restores the checkout into the scratch folder: branch `review` at the head, the
+  default branch and `origin/{branch}` at the base, as the review lab did. `--param
+  variant={name}` loads `variants/{name}.variant.ts`, whose default export is the workflow with its
+  argv and `read`; `observe` writes the findings to `findings.json`, kept for the grader.
+- **In the box** claude agents run headless and metered: a terminal pane is started outside the
+  box. `variants/runtime.ts` reads `AUTORESEARCH_PLACEMENT`, which `env.ts` sets.
+- **The grader** reads `fixture.json` and `request.md` from the case and the findings from
+  `kept/`, and restores the checkout into its own working folder only when voters are needed.
+- **`hide`** in `awf-lab.json`: paths of the code folder the box hides as it hides keys.
+  autoresearch's tracked `datasets/` and `results/` quote keys word for word; a test keeps that
+  so.
+- **The review lab's stored trials** stand in for its side of the live comparison: the same
+  variant, the same grader, on the same cases.
+- **The review modules the grader and `env.ts` import** (about 2,500 lines of `review/format`,
+  `judge` and `metrics`) move into autoresearch with task 13, beside its 74 variant files, which
+  import `defineReviewVariant`: one move when the review kind goes, not two copies meanwhile.
+- autoresearch is worked on in its main checkout; its `node_modules` links point at this branch
+  until it merges.
+
+### Task 12's plan
+
+- **The command**: `awf-lab loop {name} --budget {usd} [--dataset] [--program {file}]
+  [--proposer {harness/model}] [--trials {n}] [--rounds {n}] [--allowance {pct}]`; the first run
+  needs `--program`, the operator's steering, and starts from your checkout as it stands. `loop
+  {name}` again resumes; `--final` checks the kept incumbent against the start on the holdout,
+  once; `--patch` prints the incumbent as a patch against the start. Only a dataset under `"lab"`
+  with a `compare` loops.
+- **A try's code** is a copy in the store, `loops/{name}/tries/{n}/code`: the files git holds in
+  the incumbent's folder, less each dataset's `cases/`, with `node_modules` linked to your
+  checkout's. It runs as an `--against` folder does: its `env.ts` and code, the checkout's cases
+  and graders. The start is copied once, `loops/{name}/start`.
+- **The proposer** is the lab's own workflow, run in the lab's box: it reads the try's copy, which
+  it may write but for `evals/`, and a bundle: the program, each tuning case's facts, grades and
+  graders' reasons for the incumbent's trials, the history of tries, the rules (the comparison's
+  version, the cases, the spend left). Never a holdout case, a key or a case's files.
+- **The scope check**, in code, before anything runs the try: the files changed against the
+  incumbent, none under `evals/` or `node_modules`; no changed file holds a tuning key's marker or
+  forty characters of its text; at least one file changed.
+- **The try runs** case by case in a seeded order of the tuning cases, the incumbent and the try
+  as two columns, until `compare` says stop or the cases end; the incumbent's trials are reused
+  across tries. It is kept on `better` only.
+- **Stops**: the cap (`--budget`, the proposer's and the trials' estimates summed from the loop's
+  records; exit 3), three tries in a row kept nothing, the rounds. `--allowance` waits while a
+  plan window the agents draw on is that far used, as the review lab's did.
+- **Records**: `loop.json` (the start, the program's digest, the holdout, the comparison, the
+  trials, the cap, the proposer), `tries/{n}/try.json` (the hypothesis, the changed files, the
+  decision and why, the runs, the spend), `finals/{k}.json`. A try cut short after its proposal
+  resumes with it; before, it is proposed again. A loop resumed with another holdout, comparison
+  or trials is refused.
+- **Proven** on scripted agents first, then live on a refund-desk dataset whose workflow misses
+  some cases, then one round on air-1.
+
 ### Task 10's notes
 
 - Two more small engine changes, inside the person's: `AWF_CONTROL_ROOT` moves the engine's
@@ -675,6 +740,14 @@ them.
 - The lab's box (task 10): refund-desk's `decide`, its three cases in srt, `awf run --boxed`, the
   workflow's inline srt set aside and its claude agent run inside the box with a fresh home and
   `CLAUDE_CODE_OAUTH_TOKEN`: every case passed.
+- air-1 on both labs (task 11): Haiku 5.5 fork-high (`c-haiku55-fork-high`) on air-2119,
+  air-2148 and air-2154, two trials each, in the lab's box: 6 trials, none errored or leaked, est.
+  $1.39 for the trials and $1.48 for grading. Weighted recall 22/30 (0.73), precision 75/106
+  (0.71). The review lab's stored trials of the same variant on those cases: 0.60 and 0.89 under
+  its `match-sonnet`; the same stored findings under the case lab's `match`: 18/30 (0.60) and
+  65/83 (0.78). Recall agrees on the same findings; precision moves 0.11 between the two
+  graders on the same findings, the Sonnet voter's own spread, as far as it moves between the
+  labs. The run predates `hide`, so it shows the labs agree, not that nothing leaked.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 

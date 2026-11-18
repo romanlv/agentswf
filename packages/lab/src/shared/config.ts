@@ -44,6 +44,13 @@ export const COMMON_FIELDS = {
         "A folder inside evals/ the run, trial and score records are also written to, to be committed, so a fresh clone sees them.",
     }),
   ),
+  hide: Type.Optional(
+    Type.Array(Type.String({ minLength: 1 }), {
+      uniqueItems: true,
+      description:
+        "Paths in the code folder, relative to it, the lab's box hides as it hides keys: tracked files that hold or quote a key, such as an older lab's fixtures.",
+    }),
+  ),
 };
 
 /** What the case kind reads; any other field is the review kind's. */

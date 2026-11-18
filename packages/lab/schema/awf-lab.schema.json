@@ -44,6 +44,15 @@
       "minLength": 1,
       "description": "A folder inside evals/ the run, trial and score records are also written to, to be committed, so a fresh clone sees them."
     },
+    "hide": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Paths in the code folder, relative to it, the lab's box hides as it hides keys: tracked files that hold or quote a key, such as an older lab's fixtures."
+    },
     "clone": {
       "type": "string",
       "minLength": 1,

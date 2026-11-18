@@ -47,33 +47,40 @@ export function gitState(dir: string): {
   };
 }
 
-/** Commits in batches, so a long history never overflows a command line. */
-function allCommits(dir: string): string[] {
-  const { ok, out } = git(dir, ["rev-list", "--all"]);
-  return ok ? out.split("\n").filter(Boolean) : [];
-}
-
-/** Whether any commit of the repository at `dir` holds `text` in any file. */
+/**
+ * Whether any object of the repository at `dir` holds `text`: every commit, tree and blob read
+ * once, whether a ref reaches it or not. One pass, not a grep of each commit's tree, which took
+ * minutes on a long history (story 044's M6).
+ */
 export function historyHolds(dir: string, text: string): boolean {
-  const commits = allCommits(dir);
-  for (let at = 0; at < commits.length; at += 200) {
-    const batch = commits.slice(at, at + 200);
-    const run = git(dir, ["grep", "-l", "-F", "--no-color", "-e", text, ...batch, "--"]);
-    if (run.ok && run.out.trim() !== "") return true;
-  }
-  return false;
+  const run = Bun.spawnSync(
+    [
+      "sh",
+      "-c",
+      'git -C "$1" cat-file --batch-all-objects --batch --unordered | grep -aqF -e "$2"',
+      "sh",
+      dir,
+      text,
+    ],
+    { stdout: "ignore", stderr: "ignore", stdin: "ignore" },
+  );
+  return run.exitCode === 0;
 }
 
-/** Every blob id reachable in the repository at `dir`. */
+/** Every blob id in the repository at `dir`, whether a ref reaches it or not. */
 export function blobIds(dir: string): Set<string> {
-  const { ok, out } = git(dir, ["rev-list", "--all", "--objects"]);
+  const { ok, out } = git(dir, [
+    "cat-file",
+    "--batch-all-objects",
+    "--unordered",
+    "--batch-check=%(objectname) %(objecttype)",
+  ]);
+  if (!ok) return new Set();
   return new Set(
-    ok
-      ? out
-          .split("\n")
-          .map((line) => line.split(" ")[0]!)
-          .filter(Boolean)
-      : [],
+    out
+      .split("\n")
+      .filter((line) => line.endsWith(" blob"))
+      .map((line) => line.slice(0, line.indexOf(" "))),
   );
 }
 

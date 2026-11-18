@@ -109,11 +109,12 @@ export function boxProfile(paths: BoxPaths, network: readonly string[]): BoxProf
 
 /**
  * What the box hides inside the code folder it lets the trial read: `.git` (a committed key is in
- * its history), every dataset's keys, the records folder and the store. The home folder is denied
- * whole by `boxProfile`.
+ * its history), every dataset's keys, the records folder, `hide`'s paths and the store. The home
+ * folder is denied whole by `boxProfile`.
  */
 export function hiddenOf(root: string, workspace: CaseWorkspace): string[] {
   const hidden = [join(root, ".git"), workspace.store, workspace.labHome, ...ignoredOf(root)];
+  for (const path of workspace.hide ?? []) hidden.push(join(root, path));
   if (workspace.records) hidden.push(workspace.records);
   const evals = join(root, workspace.evals.slice(workspace.root.length));
   if (existsSync(evals)) {
