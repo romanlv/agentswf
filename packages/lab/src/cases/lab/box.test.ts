@@ -140,7 +140,12 @@ describe("the lab's box", () => {
     expect(reads).not.toContain(home);
     expect(reads).toContain(join(home, "bin"));
     const awf = join(top, "awf");
-    for (const dir of ["packages/agentswf/src", "examples/shop/evals", "node_modules"]) {
+    for (const dir of [
+      "packages/agentswf/src",
+      "examples/shop/evals",
+      "examples/node_modules",
+      "node_modules",
+    ]) {
       mkdirSync(join(awf, dir), { recursive: true });
     }
     writeFileSync(join(awf, "package.json"), "{}\n");
@@ -148,6 +153,7 @@ describe("the lab's box", () => {
     const awfDirs = awfReads({ bin: join(awf, "packages/agentswf/src/awf.ts") });
     expect(awfDirs).toContain(join(awf, "packages"));
     expect(awfDirs).not.toContain(join(awf, "examples"));
+    expect(awfDirs).toContain(join(awf, "examples/node_modules"));
   });
 
   test("a boxed run asks awf to set the workflow's sandboxes aside", () => {

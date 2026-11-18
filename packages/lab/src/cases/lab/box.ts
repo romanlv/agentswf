@@ -264,6 +264,8 @@ export function awfReads(awf: { bin: string; preload?: string }): string[] {
         for (const entry of [
           "packages",
           "node_modules",
+          // The examples' install, which a project under examples/ links; not their datasets.
+          "examples/node_modules",
           "package.json",
           "tsconfig.json",
           "bunfig.toml",

@@ -873,6 +873,12 @@ Open, for the person:
   the paired rule needs more of, and discarded. Est. $0.11 for the proposer and $9.47 for the
   trials and grading, the incumbent's $4.54 of it. Two earlier rounds found the box's reads of
   an install a copy links to, and the comparison counting no grader; each fixed with a test.
+- The loop after the review (tasks 10 to 13): refund-desk's `tricky`, Haiku 4.5, two trials, a $3
+  cap, `desk4`. Its first round's proposer could not load awf: the box no longer read awf's
+  `examples/`, so not the install a copy under it links; it reads `examples/node_modules` now.
+  The second: the proposer changed `workflow.ts`, the try tied the start on all ten cases and was
+  discarded; its ledger counted $0.08 for the proposer and $1.10 for the trials, the incumbent's
+  reused trials not again. Est. $1.71 for the loop.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 
