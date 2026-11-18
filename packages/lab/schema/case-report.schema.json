@@ -10,6 +10,8 @@
     "exit",
     "params",
     "reused",
+    "rates",
+    "tags",
     "cases",
     "numbers",
     "numbersLeftOut",
@@ -48,6 +50,98 @@
     "reused": {
       "type": "integer",
       "minimum": 0
+    },
+    "rates": {
+      "type": "object",
+      "required": ["cases", "passed"],
+      "properties": {
+        "cases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interval": {
+          "type": "array",
+          "additionalItems": false,
+          "items": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 2
+        },
+        "mean": {
+          "type": "object",
+          "required": ["mean"],
+          "properties": {
+            "mean": {
+              "type": "number"
+            },
+            "interval": {
+              "type": "array",
+              "additionalItems": false,
+              "items": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "passAll": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passAny": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "cases", "passed", "failing"],
+        "properties": {
+          "tag": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "cases": {
       "type": "array",
@@ -362,6 +456,7 @@
         "type": "object",
         "required": [
           "label",
+          "rates",
           "path",
           "branch",
           "commit",
@@ -376,6 +471,99 @@
           "label": {
             "type": "string",
             "minLength": 1
+          },
+          "rates": {
+            "type": "object",
+            "required": ["cases", "passed"],
+            "properties": {
+              "cases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "interval": {
+                "type": "array",
+                "additionalItems": false,
+                "items": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "minItems": 2
+              },
+              "mean": {
+                "type": "object",
+                "required": ["mean"],
+                "properties": {
+                  "mean": {
+                    "type": "number"
+                  },
+                  "interval": {
+                    "type": "array",
+                    "additionalItems": false,
+                    "items": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "minItems": 2
+                  }
+                },
+                "additionalProperties": false
+              },
+              "k": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "passAll": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passAny": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "difference": {
+            "type": "object",
+            "required": ["cases", "mean", "shown"],
+            "properties": {
+              "cases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mean": {
+                "type": "number"
+              },
+              "interval": {
+                "type": "array",
+                "additionalItems": false,
+                "items": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "minItems": 2
+              },
+              "shown": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
           },
           "path": {
             "type": "string",

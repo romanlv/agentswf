@@ -73,11 +73,11 @@ export function canonical(value: unknown): string {
 export const expectDigestOf = (key: Key) => sha256(canonical(key.expect ?? {}));
 
 /**
- * The part of the key a dataset's grader reads: the whole key but its marker, and each `key/`
- * file by its digest. A marker change grades nothing again; a `key/` edit does.
+ * The part of the key a dataset's grader reads: the whole key but its marker and tags, and each
+ * `key/` file by its digest. A marker or tag change grades nothing again; a `key/` edit does.
  */
 export function keyDigestOf(info: Pick<CaseInfo, "dir" | "key" | "keyFiles">): string {
-  const { marker: _, ...key } = info.key;
+  const { marker: _, tags: __, ...key } = info.key;
   const files = Object.fromEntries(
     info.keyFiles.map((f) => [relative(join(info.dir, "key"), f.path), f.digest]),
   );

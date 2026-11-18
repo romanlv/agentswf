@@ -2393,3 +2393,52 @@ describe("the person's labels", () => {
     expect((await lab(where, ["label", id, "--good", "--clear"])).code).toBe(2);
   });
 });
+
+describe("tags and rates in the report", () => {
+  const tagged = (tags: string, expect = "ok: true") =>
+    keyMd(`expect:\n  ${expect}\ntags: [${tags}]\n`);
+
+  test("tags group the report and --tags picks cases on run and score; editing tags grades nothing", async () => {
+    const where = project({
+      a: { key: tagged("forms, school") },
+      b: { key: tagged("school") },
+      c: { key: tagged("newsletter") },
+    });
+    const first = await lab(where, ["run", "--yes", "--trials", "2"], {
+      runner: scripted({ b: [fail, fail] }).runner,
+    });
+    expect(first.out).toContain("by tag:");
+    expect(first.out).toMatch(/\n {2}forms\s+1\/1 passed\n/);
+    expect(first.out).toMatch(/\n {2}school\s+1\/2 passed · failing: b\n/);
+    expect(first.out).toContain("rate: 2/3 cases passed, 95% ");
+    expect(first.out).toContain("pass^2 2/3 · pass@2 2/3");
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.tags).toContainEqual({ tag: "school", cases: 2, passed: 1, failing: ["b"] });
+    expect(json.rates).toMatchObject({ cases: 3, passed: 2, k: 2, passAll: 2, passAny: 2 });
+
+    const picked = scripted({});
+    await lab(where, ["run", "--yes", "--fresh", "--tags", "forms,newsletter"], {
+      runner: picked.runner,
+    });
+    expect(picked.seen.map((s) => s.name).sort()).toEqual(["a", "c"]);
+
+    writeFileSync(join(where.ds, "cases/a/key.md"), tagged("forms, school, trips"));
+    const scored = await lab(where, ["score", "--yes"], { runner: scripted({}).runner });
+    expect(scored.err).toMatch(/nothing in run \S+ to grade again/);
+  });
+
+  test("columns give each one's rates and its paired difference from the reference", async () => {
+    const where = project({ a: {}, b: {}, c: {} });
+    const fake = scripted({}, undefined, {}, { "model=b": { a: [fail], b: [fail], c: [fail] } });
+    const { out } = await lab(where, ["run", "--yes", "--vary", "model=a,b"], {
+      runner: fake.runner,
+    });
+    expect(out).toContain(
+      "against model=a: −100 points on 3 cases, 95% −100 to −100: no difference shown",
+    );
+    expect(out).toContain("rates, model=a: 3/3 cases passed");
+    expect(out).toContain("rates, model=b: 0/3 cases passed");
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.columns[0].difference).toMatchObject({ cases: 3, mean: -1, shown: false });
+  });
+});

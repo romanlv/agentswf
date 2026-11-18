@@ -53,6 +53,7 @@ import {
 } from "./labels";
 import { type CaseRow, newestEntries, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
+import { pairedDifference, ratesOf } from "./rates";
 import { readRecords, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import {
@@ -63,6 +64,7 @@ import {
   renderCase,
   renderRun,
   seconds,
+  tagRows,
 } from "./report";
 import {
   caseDigests,
@@ -105,13 +107,13 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
 
   case new {dataset}/{case}   a case folder and its key's marker; the first time, also
                               awf-lab.json, the dataset's dataset.json and a stub env.ts
-  run [--dataset {name}] [--cases {a,b}] [--failed] [--trials {n}] [--against {folder}]
+  run [--dataset {name}] [--cases {a,b}] [--tags {a,b}] [--failed] [--trials {n}] [--against {folder}]
       [--param {name}={value}] [--vary {name}={a,b}] [--fresh] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
   report [{run}] [--case {name}] [--json]
                               the last run again, or the run named by its id or last 4 characters
-  score [{run}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]
+  score [{run}] [--grader {name}] [--tags {a,b}] [--yes] [--dry-run] [--budget {usd}] [--json]
                               grade the last run, or the one named, again without running a trial: each
                               grader whose key or version changed, or that errored
   capture {run id} (--good | --needs-work {note}) [--dataset {name}]
@@ -135,6 +137,7 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   --fresh           run every trial anew; without it, a trial kept from an earlier run stands in
                     when nothing that shaped it changed (the code, env.ts, the parameters, the
                     case, the trial settings), within the dataset's reuseDays, 14 by default
+  --tags {a,b}      only the cases whose key lists one of these tags; on run and score
   --param {name}={value}
                     a parameter for every trial, which env.ts reads as c.params; repeatable
   --vary {name}={a,b}
@@ -185,6 +188,7 @@ type Options = {
   param: string[];
   fresh: boolean;
   clear: boolean;
+  tags?: string[];
   vary: string[];
   failed: boolean;
   trials?: number;
@@ -249,6 +253,12 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       }
       case "--against":
         options.against.push(value(arg));
+        break;
+      case "--tags":
+        options.tags = value(arg)
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
         break;
       case "--clear":
         options.clear = true;
@@ -474,6 +484,7 @@ async function run(context: Context): Promise<number> {
     }
   }
   let selected = options.cases ? cases.filter((c) => options.cases!.includes(c.name)) : cases;
+  if (options.tags) selected = selected.filter((c) => tagged(c, options.tags!));
   const failed = options.failed
     ? failedCases(workspace.store, info.name, workspace.root, combos[0]!, bars)
     : undefined;
@@ -660,6 +671,7 @@ async function run(context: Context): Promise<number> {
     trials,
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
+    tagsOf: (name) => bars.get(name)?.tags ?? [],
     leftOut: unreadableRuns(workspace.store).filter((id) => id < record.id),
     ...personOf(workspace, record.dataset, trials, bars, graders),
   });
@@ -742,6 +754,10 @@ function personOf(
     judgeLabeled: judgeLabeled(runs, labels, { ...agent, minor }),
   };
 }
+
+/** Whether a case carries any of these tags. */
+const tagged = (info: CaseInfo, tags: readonly string[]) =>
+  (info.key.tags ?? []).some((t) => tags.includes(t));
 
 /** A folder of code, its `env.ts` and its git state. */
 type CodeFolder = { folder: FolderSetup; envFile: string; state: ReturnType<typeof gitState> };
@@ -957,6 +973,8 @@ function reportJson(args: {
     exit,
     params: run.columns[0]!.params,
     reused: trials.filter((t) => t.record.reused).length,
+    rates: ratesOf(rows),
+    tags: tagRows(rows, (name) => bars.get(name)?.tags ?? []),
     cases: rows.map((row) => ({
       name: row.name,
       verdict: row.tally.verdict ?? null,
@@ -984,6 +1002,11 @@ function reportJson(args: {
             const theirs = poolNumbers(trials.filter((t) => t.record.column === i + 1));
             return {
               label: columnLabel(run, i + 1),
+              rates: ratesOf(column),
+              ...(() => {
+                const d = pairedDifference(rows, column);
+                return d ? { difference: d } : {};
+              })(),
               ...folder,
               params,
               envDiffers: env !== run.folders[0]!.env,
@@ -1080,6 +1103,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     ),
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
+    tagsOf: (name) => bars.get(name)?.tags ?? [],
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
     ...personal,
   });
@@ -1176,8 +1200,14 @@ async function score(context: Context, names: readonly string[]): Promise<number
   } else chosen = graders.filter((g) => !g.onDemand);
   const tmp = realpathSync(environment.tmp ?? tmpdir());
   const trials = readTrials(workspace.store, run.id);
+  const byCase = new Map(cases.map((c) => [c.name, c]));
   const plan = planScore({
-    trials,
+    trials: options.tags
+      ? trials.filter((t) => {
+          const info = byCase.get(t.record.case);
+          return info !== undefined && tagged(info, options.tags!);
+        })
+      : trials,
     store: workspace.store,
     datasetDir: info.dir,
     cases,
@@ -1254,6 +1284,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
       run.asked.map((a) => a.case),
     ),
     decidersOf: (name) => bars.get(name)?.deciders,
+    tagsOf: (name) => bars.get(name)?.tags ?? [],
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
     ...personal,
   });

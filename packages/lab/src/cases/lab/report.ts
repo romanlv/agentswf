@@ -5,6 +5,7 @@ import { type Agreement, JUDGE_CHECK, type PersonAgreement } from "./labels";
 import type { CaseRow, StoredTrialView } from "./outcome";
 import { newestEntries, trialOutcome } from "./outcome";
 import { agreements, type Pooled, poolNumbers } from "./pooled";
+import { describeDifference, describeRates, pairedDifference, ratesOf } from "./rates";
 import { type CaseVerdict, type ExitCode, exitCodeOf } from "./verdict";
 
 const MARK: Record<CaseVerdict, string> = { passed: "✓", failed: "✗", flaky: "~", unclear: "?" };
@@ -55,6 +56,8 @@ export type RunReport = {
   others?: readonly CaseRow[][];
   /** The person's labels on this run's trials, and how the lab agrees with them. */
   person?: PersonAgreement;
+  /** Each case's tags, from its key as it is now. */
+  tagsOf?: (caseName: string) => readonly string[];
   /** The labeled trials the current judge graded, across the dataset's runs. */
   judgeLabeled?: { labeled: number; needsWork: number };
   /** Earlier runs history leaves out: their records don't read. */
@@ -198,6 +201,43 @@ function personLines(run: RunRecord, person: PersonAgreement): string[] {
   return lines;
 }
 
+/** Each case's tags, and how each column did on them: passed of cases, and which failed. */
+export function tagRows(
+  rows: readonly CaseRow[],
+  tagsOf: (name: string) => readonly string[],
+): { tag: string; cases: number; passed: number; failing: string[] }[] {
+  const tags = [...new Set(rows.flatMap((r) => tagsOf(r.name)))].sort();
+  return tags.map((tag) => {
+    const tagged = rows.filter((r) => tagsOf(r.name).includes(tag) && r.tally.verdict);
+    return {
+      tag,
+      cases: tagged.length,
+      passed: tagged.filter((r) => r.tally.verdict === "passed").length,
+      failing: tagged.filter((r) => failing(r.tally.verdict)).map((r) => r.name),
+    };
+  });
+}
+
+function tagLines(
+  run: RunRecord,
+  rows: readonly CaseRow[],
+  others: readonly CaseRow[][],
+  tagsOf: (name: string) => readonly string[],
+): string[] {
+  const mine = tagRows(rows, tagsOf);
+  if (mine.length === 0) return [];
+  const theirs = others.map((column) => tagRows(column, tagsOf));
+  return [
+    "by tag:",
+    ...mine.map((t, i) => {
+      const elsewhere = theirs.map(
+        (column, c) => ` · ${columnLabel(run, c + 1)} ${column[i]!.passed}/${column[i]!.cases}`,
+      );
+      return `  ${t.tag.padEnd(16)} ${t.passed}/${t.cases} passed${elsewhere.join("")}${t.failing.length > 0 ? ` · failing: ${t.failing.join(", ")}` : ""}`;
+    }),
+  ];
+}
+
 /** The numbers and agreement lines, your checkout's column. */
 function gradersLines(
   trials: readonly StoredTrialView[],
@@ -283,7 +323,13 @@ function columnLines(
     lines.push(
       `more passes: ${label} on ${plural(more, "case")}, ${reference} on ${plural(fewer, "case")}`,
     );
+    const difference = pairedDifference(rows, column);
+    if (difference) lines.push(`against ${reference}: ${describeDifference(difference)}`);
   });
+  lines.push(`rates, ${reference}: ${describeRates(ratesOf(rows))}`);
+  for (const [i, column] of others.entries()) {
+    lines.push(`rates, ${columnLabel(run, i + 1)}: ${describeRates(ratesOf(column))}`);
+  }
   lines.push(
     run.asked.every((a) => a.trials === 1)
       ? "One trial each: these are examples, not rates."
@@ -304,6 +350,7 @@ export function renderRun({
   others = [],
   person,
   judgeLabeled,
+  tagsOf = () => [],
 }: RunReport): {
   text: string;
   exit: ExitCode;
@@ -398,6 +445,11 @@ export function renderRun({
         : []),
     ].join(" · "),
   );
+  if (others.length === 0 && ratesOf(rows).cases > 0) {
+    lines.push(`rate: ${describeRates(ratesOf(rows))}`);
+  }
+  const tags = tagLines(run, rows, others, tagsOf);
+  if (tags.length > 0) lines.push(...tags);
   const views = trials.map((t) => ({
     ...t,
     view: trialOutcome(t.record, t.scores, decidersOf?.(t.record.case)),

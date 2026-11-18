@@ -62,6 +62,16 @@
       "type": "boolean",
       "const": true
     },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Plain words the report groups cases by, and --tags picks them by; no grader reads them."
+    },
     "captured": {
       "type": "object",
       "required": ["run", "mark"],

@@ -11,7 +11,12 @@ import { type CaseVerdict, caseVerdict } from "./verdict";
  * A case's bar, whether it is known failing, and whose grades decide its trials: all from its key
  * and the dataset as they are now.
  */
-export type CaseBar = { pass: string; knownFailing: boolean; deciders?: ReadonlySet<string> };
+export type CaseBar = {
+  pass: string;
+  knownFailing: boolean;
+  deciders?: ReadonlySet<string>;
+  tags: readonly string[];
+};
 
 /** `graders`: every grader that may decide besides `expect`, the dataset's and a test's. */
 export function barsOf(
@@ -25,6 +30,7 @@ export function barsOf(
       {
         pass: c.key.pass ?? dataset?.dataset.pass ?? "all",
         knownFailing: c.key["known-failing"] === true,
+        tags: c.key.tags ?? [],
         ...(graders ? { deciders: decidersOf(c.key, graders) } : {}),
       },
     ]),
@@ -149,7 +155,7 @@ export function rowsOf(
 ): CaseRow[] {
   const history = column === 0 ? historyOf(store, run, bars) : new Map<string, CaseVerdict[]>();
   return run.asked.map(({ case: name, trials: count }) => {
-    const bar = bars.get(name) ?? { pass: "all", knownFailing: false };
+    const bar = bars.get(name) ?? { pass: "all", knownFailing: false, tags: [] };
     const own = trials.filter((t) => t.record.case === name && t.record.column === column);
     return caseRow(
       name,

@@ -184,9 +184,9 @@ each case's pass fraction with an interval from the spread across cases, never f
 as if independent; and at k trials, **pass^k** (every trial passed: what a workflow that must work
 every time is judged on) and **pass@k** (at least one). Between a column and the reference, the
 report gives the difference on the same cases, with its own interval from the per-case
-differences: two columns' intervals can overlap while the paired difference is clear. An
-interval of the difference that holds 0 says no difference is shown; which is better is
-`compare`'s.
+differences: two columns' intervals can overlap while the paired difference is clear. Whether
+a difference is shown is a sign test on the cases that changed, since an interval from a few
+cases' spread says too much; which is better is `compare`'s.
 
 **`compare`** (Q14). A dataset says what "better" means by exporting `compare` from `graders.ts`:
 `better.paired({ primary, guards?, tiebreak? })`, the review loop's sequential paired rule, which
@@ -414,7 +414,7 @@ Execution:
   2. [x] the store per project and `records`;
   3. [x] reuse, `--fresh`, `reuseDays`;
   4. [x] labels: `label`, `labels.jsonl`, agreement, the judge's mark;
-  5. tags and rates: intervals, pass^k, pass@k, `--tags`;
+  5. [x] tags and rates: intervals, pass^k, pass@k, `--tags`;
   6. `compare`, with `src/compare` moved into `src/shared/`;
   7. `run --budget`, `--dry-run`, `--json`; `report --md`;
   8. the judge as a parameter.

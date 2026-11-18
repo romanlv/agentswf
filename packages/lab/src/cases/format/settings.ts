@@ -126,6 +126,14 @@ export const KeySchema = Type.Object(
     "known-failing": Type.Optional(Type.Literal(true)),
     pass: Type.Optional(PassSchema),
     draft: Type.Optional(Type.Literal(true)),
+    tags: Type.Optional(
+      Type.Array(Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }), {
+        minItems: 1,
+        uniqueItems: true,
+        description:
+          "Plain words the report groups cases by, and --tags picks them by; no grader reads them.",
+      }),
+    ),
     captured: Type.Optional(
       Type.Object(
         {

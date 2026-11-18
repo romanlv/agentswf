@@ -12,6 +12,26 @@ const Tally = Type.Object(
   { additionalProperties: false },
 );
 const Counts = Type.Record(Text, Type.Integer({ minimum: 0 }));
+const Interval = Type.Tuple([Type.Number(), Type.Number()]);
+/** A column's rates: cases passed with a 95% interval, cases being the units; see rates.ts. */
+const RatesSchema = Type.Object(
+  {
+    cases: Type.Integer({ minimum: 0 }),
+    passed: Type.Integer({ minimum: 0 }),
+    interval: Type.Optional(Interval),
+    mean: Type.Optional(
+      Type.Object(
+        { mean: Type.Number(), interval: Type.Optional(Interval) },
+        { additionalProperties: false },
+      ),
+    ),
+    k: Type.Optional(Type.Integer({ minimum: 2 })),
+    passAll: Type.Optional(Type.Integer({ minimum: 0 })),
+    passAny: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
 /** Trials labeled one way, and how many the lab or a grader agreed on. */
 const LabelTally = Type.Object(
   { labeled: Type.Integer({ minimum: 0 }), agreed: Type.Integer({ minimum: 0 }) },
@@ -38,6 +58,20 @@ export const CaseReportSchema = Type.Object(
     params: ParamsSchema,
     /** Trials copied from earlier runs, as nothing that shaped them changed. */
     reused: Type.Integer({ minimum: 0 }),
+    /** The reference column's rates. */
+    rates: RatesSchema,
+    /** Each tag of the cases: how many passed in the reference column, and which failed. */
+    tags: Type.Array(
+      Type.Object(
+        {
+          tag: Text,
+          cases: Type.Integer({ minimum: 0 }),
+          passed: Type.Integer({ minimum: 0 }),
+          failing: Type.Array(Text),
+        },
+        { additionalProperties: false },
+      ),
+    ),
     cases: Type.Array(
       Type.Object(
         {
@@ -113,6 +147,22 @@ export const CaseReportSchema = Type.Object(
           {
             /** As the report names it: `against 1`, `model=b`. */
             label: Text,
+            rates: RatesSchema,
+            /**
+             * Its difference from the reference on the same cases, in pass fraction: the mean,
+             * a 95% interval from the per-case differences, and whether a sign test shows one.
+             */
+            difference: Type.Optional(
+              Type.Object(
+                {
+                  cases: Type.Integer({ minimum: 0 }),
+                  mean: Type.Number(),
+                  interval: Type.Optional(Interval),
+                  shown: Type.Boolean(),
+                },
+                { additionalProperties: false },
+              ),
+            ),
             path: Text,
             branch: Type.Union([Text, Type.Null()]),
             commit: Type.Union([Text, Type.Null()]),

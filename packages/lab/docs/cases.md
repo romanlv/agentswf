@@ -35,9 +35,9 @@ are its.
 | Command | Does |
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
-| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--param k=v] [--vary k=a,b] [--fresh] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
+| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--param k=v] [--vary k=a,b] [--fresh] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
 | `report [{run}] [--case {name}] [--json]` | the last run again, or the one named; one case in full |
-| `score [{run}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
+| `score [{run}] [--grader {name}] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
 | `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
 | `runs` | the runs kept, newest first |
@@ -147,8 +147,9 @@ Why this case exists.
   starting `_` are reserved: a non-empty `error` fact fails the trial as the workflow's.
 - **`must`, `must-not`**: criteria, sentences the judge decides. A criterion is known by its text:
   edit it and it is judged again.
-- **Optional**: `known-failing: true`, `pass: 2/3` (this case's bar), `draft: true` and `captured`
-  (from `capture`; a draft is never graded).
+- **Optional**: `known-failing: true`, `pass: 2/3` (this case's bar), `draft: true`, `captured`
+  (from `capture`; a draft is never graded), and `tags: [forms, school]`, plain words the report
+  groups cases by and `--tags` picks them by. No grader reads tags: editing them grades nothing.
 - **`marker`**: random words `case new` writes, a tripwire for a leaked key.
 - Read strictly (YAML 1.2 core): an unknown field is refused, and `no` is not a boolean.
 
@@ -323,6 +324,22 @@ grading's cost apart, each dataset grader's pooled numbers, median time per stag
 whether it shares a family with the workflow's model, grades out of date, and runs history left
 out. `report --case` shows each trial's result, facts, votes and reasons, and the command for its
 agents' logs. `--json` output is `awf.case-report/0`; schemas are in `schema/`.
+
+## Rates: how sure
+
+Cases are the independent units: a case's trials share its input and are never pooled as if
+independent. Each interval is 95%.
+
+- **Cases passed**, with Wilson's interval: `5/7 cases passed, 95% 36–92%`.
+- With more than one trial a case, **the mean of each case's pass fraction**, its interval from
+  the spread across cases (Student's t); at k trials a case, **pass^k** (cases whose k trials all
+  passed: what a workflow that must work every time is judged on) and **pass@k** (any passed).
+- With columns, each column's rates and its **difference from the reference on the same cases**:
+  the mean change in pass fraction, an interval from the per-case changes, and "no difference
+  shown" unless a sign test on the cases that changed says so (p < 0.05: six cases one way at
+  the least). Two columns' own intervals can overlap while the paired difference is clear.
+- **By tag**: a line per tag, its cases passed in each column, and its failing cases.
+- Which column is better stays `compare`'s.
 
 ## The key stays hidden, and how far
 
