@@ -410,8 +410,11 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
         ? readChecked<Proposal>(proposalFile, ProposalSchema)
         : undefined;
     let feedbackSpend = proposal?.feedback ?? 0;
-    if (proposal) deps.log(`try ${n}: resumed against try ${parent}, ${usd(left)} left`);
-    else {
+    if (proposal) {
+      deps.log(
+        `try ${n}: resumed against try ${parent}, ${usd(left - feedbackSpend - proposal.spend)} left`,
+      );
+    } else {
       rmSync(tryDir, { recursive: true, force: true });
       mkdirSync(tryDir, { recursive: true });
       await deps.waitForAllowance();

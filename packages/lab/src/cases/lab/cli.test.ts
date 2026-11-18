@@ -3041,19 +3041,28 @@ describe("the loop: a proposer's copy kept only when better", () => {
   test("a try cut short after its proposal resumes with it, and a loop is refused another holdout", async () => {
     const { where, program } = loopProject(1);
     const fake = loopRunner([2]);
+    // The try's first trial runs before the lab breaks: the resumed run reuses it.
+    let ranOfTry = 0;
     let broken = true;
     const breaking: Runner = async (request) => {
       const root = request.env?.[TRIAL_ENV.root] ?? "";
-      if (broken && root.includes("/tries/1/")) throw new Error("the disk is full");
+      if (broken && root.includes("/tries/1/") && ++ranOfTry > 1) {
+        throw new Error("the disk is full");
+      }
       return fake.runner(request);
     };
     const cut = await loop(where, ["l", "--budget", "5", "--program", program], breaking);
     expect(cut.code).toBe(4);
     broken = false;
     const resumed = await loop(where, ["l", "--budget", "5"], fake.runner);
-    expect(resumed.err).toContain("try 1: resumed against try 0");
+    expect(resumed.err).toContain("try 1: resumed against try 0, $5.00 left");
     expect(resumed.err).toContain("try 1: kept");
     expect(fake.shown).toHaveLength(1);
+    // Every trial of the try's code counts once, the reused one too: three each column, $0.001 each.
+    const decided = JSON.parse(
+      readFileSync(join(storeOf(where), "loops/l/tries/1/try.json"), "utf8"),
+    );
+    expect(decided.spend.trials).toBeCloseTo(0.006, 6);
     writeFileSync(
       join(where.ds, "dataset.json"),
       JSON.stringify({

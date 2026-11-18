@@ -394,10 +394,15 @@ function bothRan(trials: readonly StoredTrial[], columns: number): StoredTrial[]
   return trials.filter((t) => (ran.get(t.record.case)?.size ?? 0) === columns);
 }
 
-/** What a run's own trials and their grades are estimated at; reused ones cost it nothing. */
+/**
+ * What a run's trials and their grades are estimated at: its own, and the reused ones of the code
+ * it checks. The incumbent's reused trials were counted where they ran; a try's code is its own, so
+ * a trial of it reused here ran in an earlier run of the same try, one the lab broke during. A
+ * second final check counts the first's again, which errs high.
+ */
 function spendOf(trials: readonly StoredTrial[]): number {
   return trials
-    .filter((t) => !t.record.reused)
+    .filter((t) => !t.record.reused || t.record.column > 0)
     .reduce(
       (sum, t) =>
         sum +
