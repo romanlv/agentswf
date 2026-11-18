@@ -185,6 +185,8 @@ function linkedPackages(root: string): string[] {
   const found: string[] = [];
   const modules = join(root, "node_modules");
   if (!existsSync(modules)) return found;
+  // A loop's copy links your checkout's install whole: the folder it leads to is read too.
+  if (lstatSync(modules).isSymbolicLink()) found.push(realpathSync(modules));
   const look = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const at = join(dir, name);

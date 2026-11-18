@@ -274,9 +274,11 @@ function loopDeps(
         }));
     },
     async propose({ tryDir, code, bundle, proposer }) {
+      // The copy's own install, which its box reads, not your checkout's.
+      const copyRoot = join(code, workspace.root.slice(at.top.length));
       const folder = await (environment.inspect ?? inspectFolder)(
-        workspace.root,
-        checkEnvFile(info.dir),
+        copyRoot,
+        checkEnvFile(join(copyRoot, info.dir.slice(workspace.root.length))),
       );
       const id = newRunId((environment.now ?? (() => new Date()))());
       const own = join(tryDir, "proposer");

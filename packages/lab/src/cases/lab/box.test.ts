@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { awfArgv } from "../../shared/runner";
-import { boxNetwork, boxProfile, hiddenAround, hiddenOf, MODEL_DOMAINS } from "./box";
+import { boxNetwork, boxProfile, hiddenAround, hiddenOf, MODEL_DOMAINS, toolchainOf } from "./box";
 import type { CaseWorkspace } from "./workspace";
 
 const roots: string[] = [];
@@ -109,6 +109,18 @@ describe("the lab's box", () => {
       ]),
     );
     expect(domains).not.toContain("localhost");
+  });
+
+  test("a copy whose node_modules links an install reads the install's folder and its links", () => {
+    const { top, root } = project();
+    const copy = join(top, "copy");
+    mkdirSync(copy);
+    symlinkSync(join(root, "node_modules"), join(copy, "node_modules"));
+    mkdirSync(join(top, "pkg"));
+    symlinkSync(join(top, "pkg"), join(root, "node_modules", "linked"));
+    const reads = toolchainOf(copy, "/usr/bin:/bin");
+    expect(reads).toContain(join(root, "node_modules"));
+    expect(reads).toContain(join(top, "pkg"));
   });
 
   test("a boxed run asks awf to set the workflow's sandboxes aside", () => {
