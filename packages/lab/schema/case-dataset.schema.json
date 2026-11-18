@@ -12,9 +12,26 @@
       "const": "awf.case-dataset/0"
     },
     "sandbox": {
-      "type": "string",
-      "const": "workflow",
-      "description": "Trust the sandboxes the workflow opens itself: the one setting in /0."
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "workflow",
+          "description": "Trust the sandboxes the workflow opens itself."
+        },
+        {
+          "type": "object",
+          "required": ["lab"],
+          "properties": {
+            "lab": {
+              "type": "string",
+              "const": "srt"
+            }
+          },
+          "additionalProperties": false,
+          "description": "The lab's box: the whole trial (awf run, env.ts, the workflow and its agents) in one srt sandbox that reads no key, the workflow's own sandboxes set aside."
+        }
+      ],
+      "description": "Where a trial runs: the workflow's own sandboxes, or the lab's box."
     },
     "agentReach": {
       "type": "object",

@@ -99,8 +99,16 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "sandbox": {
-      "type": "string",
-      "const": "workflow"
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "workflow"
+        },
+        {
+          "type": "string",
+          "const": "lab"
+        }
+      ]
     },
     "agentReach": {
       "type": "object",

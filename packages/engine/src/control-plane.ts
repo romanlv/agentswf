@@ -52,9 +52,10 @@ export type ResultControlPlane = {
 /**
  * `/tmp`, not the system temp dir, which on macOS is a long `/var/folders/…/T/`. Agents type the
  * launcher's path into a shell, and a cheap model was seen dropping the `/` before `T` there, every
- * retry. It also keeps sockets far inside `sun_path`, 104 bytes on macOS.
+ * retry. It also keeps sockets far inside `sun_path`, 104 bytes on macOS. `AWF_CONTROL_ROOT` moves
+ * it, for a run its caller boxes whole (`awf run --boxed`), whose box writes no `/tmp` but its own.
  */
-export const CONTROL_PLANE_ROOT = "/tmp";
+export const CONTROL_PLANE_ROOT = process.env.AWF_CONTROL_ROOT || "/tmp";
 
 export async function startResultControlPlane(options: {
   /**

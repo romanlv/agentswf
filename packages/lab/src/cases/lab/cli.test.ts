@@ -2752,3 +2752,24 @@ describe("what the review of task 9 found", () => {
     ]);
   });
 });
+
+describe('the lab\'s box: "sandbox": { "lab": "srt" }', () => {
+  test("the trial's awf runs boxed, inside srt, with a home, a temp folder and a trial file of its own", async () => {
+    const where = project({ a: {} }, { sandbox: { lab: "srt" } });
+    const fake = scripted({});
+    const { code, out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
+    expect(code).toBe(0);
+    const [request] = fake.calls;
+    expect(request!.boxed).toBe(true);
+    expect(request!.box?.slice(0, 2)).toEqual(["srt", "-s"]);
+    const parent = join(request!.cwd, "..");
+    expect(request!.env?.HOME).toBe(join(parent, "home"));
+    expect(request!.env?.TMPDIR).toBe(join(parent, "home", "tmp"));
+    expect(request!.env?.[TRIAL_ENV.trial]).toBe(join(parent, "trial.jsonl"));
+    expect(request!.runRoot).toBe(join(parent, "runs"));
+    const trial = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!;
+    expect(trial.record.sandbox).toBe("lab");
+    expect(trial.record.reach?.sandboxes[0]).toMatchObject({ key: "lab", provider: "srt" });
+    expect(out).toContain("passed 1");
+  });
+});

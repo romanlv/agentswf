@@ -606,7 +606,12 @@ export function renderRun({
       `history leaves out ${plural(leftOut.length, "earlier run")} whose records don't read: awf-lab runs`,
     );
   }
-  lines.push("sandbox: the workflow's own, its agents' reach checked against agentReach", "");
+  lines.push(
+    trials.some((t) => t.record.sandbox === "lab")
+      ? "sandbox: the lab's box around each trial, srt, reading no key; the workflow's own set aside"
+      : "sandbox: the workflow's own, its agents' reach checked against agentReach",
+    "",
+  );
   const why =
     exit === 3
       ? partial

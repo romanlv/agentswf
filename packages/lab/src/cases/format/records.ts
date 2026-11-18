@@ -173,7 +173,8 @@ export const TrialRecordSchema = Type.Object(
     awf: Type.Object({ bin: Text, version: Text }, { additionalProperties: false }),
     /** The built case folder's digest; the folder is kept once, in the store's `inputs/`. */
     input: Digest,
-    sandbox: Type.Literal("workflow"),
+    /** `workflow`: the workflow's own sandboxes; `lab`: the lab's box around the whole trial. */
+    sandbox: Type.Union([Type.Literal("workflow"), Type.Literal("lab")]),
     agentReach: AgentReachSchema,
     models: Type.Array(Text),
     at: Time,

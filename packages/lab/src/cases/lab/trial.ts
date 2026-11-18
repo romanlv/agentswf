@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runLogLine, type SandboxRecord } from "@agentswf/contract/records";
 import { type AwfBin, loginRefused, type Runner, withoutCallingSession } from "../../shared/runner";
@@ -12,6 +12,16 @@ import {
 } from "../format/records";
 import { TRIAL_ENV } from "../format/trial-env";
 import { blame, readTrialLines } from "./blame";
+import {
+  awfReads,
+  type BoxProfile,
+  boxCommand,
+  boxNetwork,
+  boxProfile,
+  boxReach,
+  hiddenOf,
+  toolchainOf,
+} from "./box";
 import { type CaseInfo, type DatasetInfo, folderDigest } from "./dataset";
 import {
   buildCase,
@@ -83,7 +93,10 @@ export async function runTrial(
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const folders = makeTrialFolders(lab.tmp, lab.run);
-  const trialFile = trialFileOf(workspace.labHome);
+  // In the lab's box, everything the trial's process writes is in its own folder: the box denies
+  // the home folder, so `~/.awf/lab` too.
+  const boxed = dataset.dataset.sandbox !== "workflow";
+  const trialFile = boxed ? join(folders.parent, "trial.jsonl") : trialFileOf(workspace.labHome);
   try {
     buildCase(dataset.dir, info, folders.dir);
     const input = folderDigest(folders.dir);
@@ -101,7 +114,7 @@ export async function runTrial(
       ...(reuse ? { reuse } : {}),
       awf: { bin: folder.awf.bin, version: folder.version },
       input,
-      sandbox: "workflow",
+      sandbox: boxed ? "lab" : "workflow",
       agentReach: dataset.dataset.agentReach,
       models: [],
       at: lab.now().toISOString(),
@@ -121,7 +134,37 @@ export async function runTrial(
     writeFileSync(trialFile, "");
     const settings = trialSettingsOf(dataset.name, dataset.dataset, dataset.dir);
     const id = newRunId(lab.now());
-    const runRoot = awfRunsOf(workspace.store);
+    const storeRuns = awfRunsOf(workspace.store);
+    const runRoot = boxed ? join(folders.parent, "runs") : storeRuns;
+    const home = join(folders.parent, "home");
+    // `/private/tmp` on macOS: the box denies `/tmp`, the link, and allows only the real path.
+    const control = join(
+      existsSync("/private/tmp") ? "/private/tmp" : "/tmp",
+      `awf-lab-${id.slice(-8)}`,
+    );
+    let box: { command: string[]; profile: BoxProfile } | undefined;
+    if (boxed) {
+      mkdirSync(runRoot, { recursive: true });
+      mkdirSync(join(home, "tmp"), { recursive: true });
+      // Short, as the engine's sockets need: under `/tmp`, the trial's own, removed after.
+      mkdirSync(control, { recursive: true });
+      const path = [folder.bin, lab.env.PATH].filter(Boolean).join(":");
+      const profile = boxProfile(
+        {
+          root: folder.root,
+          caseDir: folders.dir,
+          scratch: folders.scratch,
+          runRoot,
+          home,
+          trialFile,
+          control,
+          toolchain: [...toolchainOf(folder.root, path), ...awfReads(folder.awf)],
+          hidden: hiddenOf(folder.root, workspace),
+        },
+        boxNetwork(dataset.dataset.agentReach, settings.realHosts),
+      );
+      box = { command: boxCommand(profile, join(folders.parent, "box.json")), profile };
+    }
     const env: Record<string, string> = {
       ...definedOf(withoutCallingSession(lab.env)),
       PATH: [folder.bin, lab.env.PATH].filter(Boolean).join(":"),
@@ -131,6 +174,16 @@ export async function runTrial(
       [TRIAL_ENV.root]: folder.root,
       [TRIAL_ENV.settings]: JSON.stringify(settings),
       [TRIAL_ENV.params]: JSON.stringify(params),
+      // A fresh home: the operator's holds harness state, and transcripts that can hold a key.
+      // Harnesses that make their own folder under `/tmp` are pointed at the box's.
+      ...(boxed
+        ? {
+            HOME: home,
+            TMPDIR: join(home, "tmp"),
+            CLAUDE_CODE_TMPDIR: join(home, "tmp"),
+            AWF_CONTROL_ROOT: control,
+          }
+        : {}),
     };
     const result = await lab.runner({
       workflow: envFile,
@@ -142,7 +195,11 @@ export async function runTrial(
       awf: folder.awf,
       quiet: true,
       env,
+      ...(box ? { boxed: true as const, box: box.command } : {}),
     });
+    // The box's run records move into the store, where `awf logs` and history find them.
+    if (boxed && existsSync(runRoot)) cpSync(runRoot, storeRuns, { recursive: true });
+    if (boxed) rmSync(control, { recursive: true, force: true });
     // The lab's own failures to read what the trial left: its result says nothing of the workflow.
     const unread: string[] = [];
     if (result.unread) unread.push(result.unread);
@@ -159,14 +216,21 @@ export async function runTrial(
       loginRefused: run !== undefined && loginRefused(run),
     });
 
-    const runDir = run?.artifacts ?? findRunDir(runRoot, id);
-    const reach = runDir
-      ? checkReach({
-          ...readAgents(runDir),
-          sandboxes: sandboxesOf(runDir, run?.sandboxes),
-          agentReach: dataset.dataset.agentReach,
-        })
+    const boxedDir = run?.artifacts?.startsWith(runRoot)
+      ? join(storeRuns, run.artifacts.slice(runRoot.length))
       : undefined;
+    const runDir = boxed
+      ? (boxedDir ?? findRunDir(storeRuns, id))
+      : (run?.artifacts ?? findRunDir(runRoot, id));
+    const reach = box
+      ? boxReach(box.profile, runDir ? readAgents(runDir).opened.map((a) => a.agent) : [])
+      : runDir
+        ? checkReach({
+            ...readAgents(runDir),
+            sandboxes: sandboxesOf(runDir, run?.sandboxes),
+            agentReach: dataset.dataset.agentReach,
+          })
+        : undefined;
 
     const kept = keepFiles(folders.scratch, dataset.dataset.keep ?? [], join(dir, "kept"));
     const ref = run?.ref ?? (run ? `${run.workflow.name}/${run.runId}` : undefined);
@@ -175,7 +239,7 @@ export async function runTrial(
       facts: blamed.facts ?? null,
       result: blamed.result ?? null,
     });
-    const logs = ref ? await lab.logs(folder.awf, runRoot, ref, env) : undefined;
+    const logs = ref ? await lab.logs(folder.awf, storeRuns, ref, env) : undefined;
     if (logs && "unread" in logs) unread.push(logs.unread);
     if (run && !runDir) unread.push(`no folder for run ${run.runId} under ${runRoot}`);
     const leaks = [

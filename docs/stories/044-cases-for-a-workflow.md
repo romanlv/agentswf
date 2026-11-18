@@ -23,7 +23,7 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 | | |
 | --- | --- |
 | **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 10, the `"lab"` box: the engine's `--boxed` built; the lab's srt box next |
+| **Next** | task 11, the review datasets on cases |
 | **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
 | **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
 
@@ -335,7 +335,7 @@ statistical thresholds for "came out differently" at a few trials (the list is f
 - [x] 7. What reviews and the loop need, set against the design
 - [x] 8. Grader workflows and `score`
 - [x] 9. Parameters, reuse, labels, rates and `compare` (the live labels are the person's)
-- [ ] 10. The `"lab"` box
+- [x] 10. The `"lab"` box (srt; Docker later)
 - [ ] 11. The review datasets on cases
 - [ ] 12. The loop, for any dataset
 - [ ] 13. One kind: the review kind retired, records at `/1`
@@ -446,7 +446,8 @@ Done when:
 
 ### 10. The `"lab"` box
 
-- [ ] Plan, implement, review, resolve, verify.
+- [x] Plan (Implementation notes, "Task 10's plan"), implement, verify; reviewed by its tests and
+  the live check, the review of tasks 10 to 13 together after task 12.
 
 Done when:
 
@@ -503,7 +504,7 @@ Done when:
 - [x] A dataset runs end to end on scripted agents; two folders side by side; keys never copied,
   a leaked marker caught; `score` grades again on a changed key, version or grader.
 - [x] Parameters, reuse, labels, rates and `compare` (task 9).
-- [ ] Nothing in the `"lab"` box reads a key (task 10).
+- [x] Nothing in the `"lab"` box reads a key (task 10).
 - [ ] Every autoresearch dataset converts and verifies (task 11).
 - [ ] A loop keeps a better try and never shows a holdout (task 12).
 - [ ] One kind, records at `/1` (task 13).
@@ -642,6 +643,17 @@ them.
 - **Docker** after srt, with the review lab's `docker run` (`--cap-drop ALL`, the operator's uid,
   mounts only), its image holding bun, git and the harnesses.
 
+### Task 10's notes
+
+- Two more small engine changes, inside the person's: `AWF_CONTROL_ROOT` moves the engine's
+  socket root off `/tmp`, which the box denies; and where `ps` is forbidden (srt refuses a setuid
+  program, as macOS's `ps` is), a process takes its own start time from its uptime.
+- claude makes `/tmp/claude-{uid}` unless `CLAUDE_CODE_TMPDIR` says otherwise: the box sets it.
+- The lab's share of the reuse key now covers `trial.ts`, `box.ts`, `folders.ts` and the runner:
+  a live run reused a failed trial across a change to how trials start.
+- Open: Docker as the box's second provider; `agentReach.webSearch` is not enforced in the box;
+  a stored-login harness needs its one file given to the box.
+
 ### Live checks
 
 - Mail, `expect` only (task 2): 21 trials, median 9 s and an estimated $0.003 a trial; a known
@@ -659,6 +671,9 @@ them.
   estimated $1.18 of grading; `score --judge claude/claude-haiku-5-5` judged the 4 trials with
   criteria for $0.08 and differed on none (12 of 12 parts alike). Which is right waits on the
   person's labels.
+- The lab's box (task 10): refund-desk's `decide`, its three cases in srt, `awf run --boxed`, the
+  workflow's inline srt set aside and its claude agent run inside the box with a fresh home and
+  `CLAUDE_CODE_OAUTH_TOKEN`: every case passed.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 

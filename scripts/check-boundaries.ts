@@ -482,6 +482,7 @@ const LAB_RULES: Rule[] = [
     except: [
       "**/*.test.ts",
       "cli.ts",
+      "box.ts",
       "capture.ts",
       "code-graders.ts",
       "compare.ts",

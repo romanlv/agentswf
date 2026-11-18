@@ -162,7 +162,7 @@ Why this case exists.
 
 | Field | Means |
 | --- | --- |
-| `sandbox` | required; `"workflow"`: trust the sandboxes the workflow opens (task 10 adds `"lab"`) |
+| `sandbox` | required; `"workflow"`: trust the sandboxes the workflow opens; `{ "lab": "srt" }`: the lab's box around each whole trial |
 | `agentReach` | required; `{ network: [domains], webSearch?, sockets? }`: what agents may reach beyond their model domains |
 | `timeout`, `setupTimeout` | the body's limit (`30m`), and `setup`'s and `observe`'s (`10m`) |
 | `realHosts` | hosts the workflow's own code may reach for real |
@@ -386,6 +386,27 @@ export const compare = better.paired({
   and whether more trials may tell; `report --json` gives it as `compare` on each column. `stop`
   is for a loop's try: `run` still runs every trial it planned. It runs in the helper process in
   your checkout, as code graders do.
+
+## The lab's box: `"sandbox": { "lab": "srt" }`
+
+The whole trial, `awf run --boxed` with `env.ts`, the workflow's code and its agents, runs in one
+srt sandbox, so code an agent wrote reads no key. srt does not nest, so `--boxed` sets the
+workflow's own sandboxes aside and its agents run in the box as host agents.
+
+- **Reads**: the system, the toolchain (bun, git, each harness's executable and install tree), the
+  code folder and what its `node_modules` links lead to, the case and scratch folders.
+- **Hidden inside them**: `.git` (history holds committed keys), every case's `key.md` and `key/`,
+  what git ignores but `node_modules` (a `.env`), the records folder, the store; the home folder
+  whole.
+- **Writes**: the scratch folder, and the trial's own run root, home, temp folder and engine
+  sockets; the run's records move into the store after.
+- **Network**: `agentReach.network`, every harness's model domains and `realHosts`.
+- **Logins**: the home is fresh, so an agent logs in from the environment, as claude does with
+  `CLAUDE_CODE_OAUTH_TOKEN`; the operator's harness state, which can hold earlier judging's
+  transcripts, is never in the box.
+- **Reach**: the box is each agent's reach, recorded as the trial's. Web search is a model's own
+  tool and is not stopped by the box; `agentReach.webSearch` is not enforced under it.
+- Docker is not built yet; macOS's srt is.
 
 ## The key stays hidden, and how far
 

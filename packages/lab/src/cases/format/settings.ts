@@ -42,9 +42,22 @@ export const DatasetSchema = Type.Object(
   {
     $schema: Type.Optional(Type.String()),
     kind: Type.Literal(DATASET_KIND),
-    sandbox: Type.Literal("workflow", {
-      description: "Trust the sandboxes the workflow opens itself: the one setting in /0.",
-    }),
+    sandbox: Type.Union(
+      [
+        Type.Literal("workflow", {
+          description: "Trust the sandboxes the workflow opens itself.",
+        }),
+        Type.Object(
+          { lab: Type.Literal("srt") },
+          {
+            additionalProperties: false,
+            description:
+              "The lab's box: the whole trial (awf run, env.ts, the workflow and its agents) in one srt sandbox that reads no key, the workflow's own sandboxes set aside.",
+          },
+        ),
+      ],
+      { description: "Where a trial runs: the workflow's own sandboxes, or the lab's box." },
+    ),
     agentReach: AgentReachSchema,
     timeout: Type.Optional({
       ...DurationSchema,

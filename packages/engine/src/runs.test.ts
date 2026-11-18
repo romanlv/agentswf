@@ -343,6 +343,17 @@ describe("runs", () => {
     expect(processStart(2 ** 22 + 12345)).toBeUndefined();
   });
 
+  test("where ps is forbidden, as srt forbids a setuid ps, this process still knows its start", () => {
+    const forbidden: Ps = () => ({ stdout: "", stderr: "", exitCode: 126 });
+    const own = processStart(process.pid, forbidden);
+    expect(own).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // Within a second of what ps itself says.
+    const said = Date.parse(processStart(process.pid)!);
+    expect(Math.abs(Date.parse(own!) - said)).toBeLessThanOrEqual(1000);
+    // Another process's start stays unknown.
+    expect(processStart(process.pid + 1, forbidden)).toBeUndefined();
+  });
+
   test("a process is there with its start, gone, or unknown where ps could not say", () => {
     const answered =
       (stdout: string, exitCode: number | null = 0, stderr = ""): Ps =>

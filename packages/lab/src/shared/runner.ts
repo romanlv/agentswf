@@ -33,6 +33,10 @@ export type RunRequest = {
   env?: Readonly<Record<string, string>>;
   /** `awf run --quiet`. */
   quiet?: boolean;
+  /** `awf run --boxed`: the caller boxes the whole run, and the workflow's sandboxes are set aside. */
+  boxed?: true;
+  /** The command the whole `awf run` process starts inside, such as `srt -s {profile} --`. */
+  box?: readonly string[];
 };
 
 /** `awf run`'s record: never parked, as `awf run` refuses a workflow with events. */
@@ -75,6 +79,7 @@ export function awfArgv(request: RunRequest): string[] {
     "--cwd",
     request.cwd,
     ...(request.sandbox ? ["--sandbox", request.sandbox] : []),
+    ...(request.boxed ? ["--boxed"] : []),
     request.workflow,
     "--",
     ...request.argv,
@@ -128,7 +133,7 @@ export async function spawnAwf(
 export function processRunner(): Runner {
   return async (request) => {
     const { exitCode, stdout, stderr, ms } = await spawnAwf(
-      awfCommand(request.awf, awfArgv(request)),
+      [...(request.box ?? []), ...awfCommand(request.awf, awfArgv(request))],
       {
         ...(request.awf ? { cwd: request.awf.dir } : {}),
         env: runEnvironment(request.env),

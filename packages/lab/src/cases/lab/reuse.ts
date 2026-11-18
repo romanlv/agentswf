@@ -101,6 +101,13 @@ export function labSideDigest(): string {
         .update("\0");
     }
   }
+  // And the lab code that starts a trial, builds its folders and boxes it.
+  for (const file of ["trial.ts", "box.ts", "folders.ts", "../../shared/runner.ts"]) {
+    hash
+      .update(`${file}\0`)
+      .update(readFileSync(join(import.meta.dir, file)))
+      .update("\0");
+  }
   labDigest = hash.digest("hex");
   return labDigest;
 }
