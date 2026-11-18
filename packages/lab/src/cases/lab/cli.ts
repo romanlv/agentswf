@@ -13,7 +13,8 @@ import {
   type Scored,
   ScoredSchema,
 } from "../format/output";
-import { RUN_KIND, type RunRecord } from "../format/records";
+import { LABEL_KIND, type Mark as LabelMark, RUN_KIND, type RunRecord } from "../format/records";
+import { JUDGE_VERSION } from "../judge/version";
 import {
   CAPTURE_FILE,
   capturedKey,
@@ -42,11 +43,27 @@ import { buildCase, clearStale } from "./folders";
 import { gitState, gitTop } from "./git";
 import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
-import { type CaseRow, trialOutcome } from "./outcome";
+import {
+  agreementOf,
+  appendLabel,
+  judgeLabeled,
+  mergeLabels,
+  type PersonAgreement,
+  readLabels,
+} from "./labels";
+import { type CaseRow, newestEntries, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
 import { readRecords, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
-import { describeFolder, median, plural, renderCase, renderRun, seconds } from "./report";
+import {
+  describeFolder,
+  median,
+  plural,
+  type RunReport,
+  renderCase,
+  renderRun,
+  seconds,
+} from "./report";
 import {
   caseDigests,
   codeDigest,
@@ -100,6 +117,9 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
   capture {run id} (--good | --needs-work {note}) [--dataset {name}]
                               a case from a past run: a trial's, from its case, or a real one,
                               through the dataset's capture.ts; its key a draft to finish
+  label {run id} (--good | --needs-work {note} | --clear)
+                              the person's verdict on a trial, by its workflow run's id (report
+                              --case shows them); the report gives the lab's agreement with it
   runs                        the runs kept, newest first
 
   --dataset {name}  the dataset: a folder beside awf-lab.json holding a dataset.json; with one,
@@ -164,6 +184,7 @@ type Options = {
   /** `--param` and `--vary`, as given. */
   param: string[];
   fresh: boolean;
+  clear: boolean;
   vary: string[];
   failed: boolean;
   trials?: number;
@@ -192,6 +213,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     param: [],
     vary: [],
     fresh: false,
+    clear: false,
     good: false,
   };
   const positional: string[] = [];
@@ -227,6 +249,9 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       }
       case "--against":
         options.against.push(value(arg));
+        break;
+      case "--clear":
+        options.clear = true;
         break;
       case "--fresh":
         options.fresh = true;
@@ -335,6 +360,8 @@ export async function runCases(
         return await captureCommand(context, names);
       case "runs":
         return runs(context);
+      case "label":
+        return label(context, names);
       default:
         throw new Refusal(`unknown command ${command}`);
     }
@@ -634,6 +661,7 @@ async function run(context: Context): Promise<number> {
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
     leftOut: unreadableRuns(workspace.store).filter((id) => id < record.id),
+    ...personOf(workspace, record.dataset, trials, bars, graders),
   });
   context.stdout(text);
   return exit;
@@ -677,6 +705,42 @@ async function gradeReused(
     now,
     progress: context.stderr,
   });
+}
+
+/**
+ * The person's labels on a run's trials and how the lab agrees with them, and how many labeled
+ * trials the current judge graded across the dataset's runs, for its "checked" mark.
+ */
+function personOf(
+  workspace: CaseWorkspace,
+  dataset: string,
+  trials: readonly StoredTrial[],
+  bars: ReadonlyMap<string, CaseBar>,
+  graders: readonly LabGrader[] | undefined,
+): Pick<RunReport, "person" | "judgeLabeled"> {
+  const labels = readLabels(workspace.store, dataset);
+  const person = agreementOf(trials, labels, (name) => bars.get(name)?.deciders);
+  const judge = graders?.find((g) => g.name === "criteria");
+  const agent =
+    judge?.agent ??
+    trials.flatMap((t) => newestEntries(t.scores)).find((e) => e.grader === "criteria")?.agent;
+  const version = judge?.version ?? JUDGE_VERSION;
+  if (!agent) return person ? { person } : {};
+  const runs = runIds(workspace.store).flatMap((id) => {
+    try {
+      return readRunRecord(workspace.store, id)?.dataset === dataset
+        ? [readTrials(workspace.store, id)]
+        : [];
+    } catch (error) {
+      if (error instanceof UnreadableRecord) return [];
+      throw error;
+    }
+  });
+  const minor = version.split(".").slice(0, 2).join(".");
+  return {
+    ...(person ? { person } : {}),
+    judgeLabeled: judgeLabeled(runs, labels, { ...agent, minor }),
+  };
 }
 
 /** A folder of code, its `env.ts` and its git state. */
@@ -880,6 +944,7 @@ function reportJson(args: {
   stale?: CaseReport["stale"];
   withTrials?: boolean;
   others?: readonly CaseRow[][];
+  person?: PersonAgreement;
 }): CaseReport {
   const { run, rows, trials, exit, bars } = args;
   const own = trials.filter((t) => t.record.column === 0);
@@ -909,6 +974,7 @@ function reportJson(args: {
     ),
     numbersLeftOut: pooled.left,
     agreement: agreements(own, (name) => bars.get(name)?.deciders),
+    ...(args.person ? { labels: args.person } : {}),
     ...(args.stale !== undefined ? { stale: args.stale } : {}),
     ...(args.others && args.others.length > 0
       ? {
@@ -1002,6 +1068,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   const bars = barsOf(info, cases, graders);
   const rows = rowsOf(workspace.store, run, trials, bars);
   const others = otherColumns(workspace.store, run, trials, bars);
+  const personal = personOf(workspace, run.dataset, trials, bars, graders);
   const { text, exit } = renderRun({
     run,
     rows,
@@ -1014,6 +1081,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
+    ...personal,
   });
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
@@ -1023,7 +1091,15 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     if (context.options.json) {
       context.stdout(
         JSON.stringify(
-          reportJson({ run, rows: [row], trials: own, exit, bars, withTrials: true }),
+          reportJson({
+            run,
+            rows: [row],
+            trials: own,
+            exit,
+            bars,
+            withTrials: true,
+            ...(personal.person ? { person: personal.person } : {}),
+          }),
           null,
           2,
         ),
@@ -1043,6 +1119,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
         },
         bars.get(row.name)?.deciders,
         others.map((column) => column.find((r) => r.name === row.name)),
+        readLabels(workspace.store, run.dataset),
       ),
     );
   } else if (context.options.json) {
@@ -1054,6 +1131,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
       bars,
       others,
       ...(stale !== undefined ? { stale } : {}),
+      ...(personal.person ? { person: personal.person } : {}),
     });
     context.stdout(JSON.stringify(json, null, 2));
   } else context.stdout(text);
@@ -1165,6 +1243,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
   const bars = barsOf(info, cases, graders);
   const after = readTrials(workspace.store, run.id);
   const rows = rowsOf(workspace.store, run, after, bars);
+  const personal = personOf(workspace, run.dataset, after, bars, graders);
   const rendered = renderRun({
     run,
     rows,
@@ -1176,6 +1255,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
     ),
     decidersOf: (name) => bars.get(name)?.deciders,
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
+    ...personal,
   });
   // A budget stop leaves grades unmade: 3, unless the report already exits worse.
   const exit = done?.stopped && rendered.exit === 0 ? 3 : rendered.exit;
@@ -1200,6 +1280,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
         exit,
         bars,
         others: otherColumns(workspace.store, run, after, bars),
+        ...(personal.person ? { person: personal.person } : {}),
       }),
     });
     return exit;
@@ -1289,6 +1370,8 @@ async function captureLocked(
       dir,
       `from trial ${trial.record.trial} of case ${trial.record.case} in run ${trial.record.run}`,
     );
+    // The case says what a good result is; the trial it came from keeps the person's verdict.
+    labelTrial(workspace, trial, mark.mark, mark.mark === "needs-work" ? mark.note : undefined);
     if (folderDigestOfCase(info, trial.record.case) !== trial.record.input) {
       context.stderr(
         `note: case ${trial.record.case} changed since that trial ran; its files were copied as they are now`,
@@ -1361,6 +1444,51 @@ function folderDigestOfCase(info: DatasetInfo, name: string): string | undefined
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * `label`: the person's verdict on one trial, found by its workflow run's id, as `capture` finds
+ * it. A coding agent the person told what was wrong runs it too, and a web interface would.
+ */
+function label(context: Context, names: readonly string[]): number {
+  const { options } = context;
+  const usage = 'awf-lab label {run id} (--good | --needs-work "{note}" | --clear)';
+  const given = [options.good, options.needsWork !== undefined, options.clear].filter(Boolean);
+  if (names.length !== 1 || given.length !== 1) throw new Refusal(usage);
+  const workspace = workspaceOf(context);
+  const runId = names[0]!;
+  const trial = findTrial(workspace.store, runId);
+  if (!trial) {
+    throw new Refusal(
+      `no trial ran as ${runId} in ${workspace.store}; awf-lab report --case {name} shows each trial's run id`,
+    );
+  }
+  const mark = options.good ? "good" : options.clear ? "cleared" : "needs-work";
+  labelTrial(workspace, trial, mark, options.needsWork);
+  const { record } = trial;
+  context.stdout(
+    mark === "cleared"
+      ? `cleared the label of ${record.case} trial ${record.trial}`
+      : `labeled ${record.case} trial ${record.trial} ${mark}${options.needsWork ? `: ${options.needsWork}` : ""}`,
+  );
+  return 0;
+}
+
+function labelTrial(
+  workspace: CaseWorkspace,
+  trial: StoredTrial,
+  mark: LabelMark,
+  note: string | undefined,
+): void {
+  appendLabel(workspace.store, trial.record.dataset, {
+    kind: LABEL_KIND,
+    trial: trial.record.runId!,
+    case: trial.record.case,
+    mark,
+    ...(note ? { note } : {}),
+    at: new Date().toISOString(),
+  });
+  if (workspace.records) mergeLabels(workspace.store, workspace.records);
 }
 
 function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {

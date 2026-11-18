@@ -10,6 +10,7 @@ export const RUN_KIND = "awf.case-run/0";
 export const TRIAL_KIND = "awf.case-trial/0";
 export const SCORE_KIND = "awf.case-score/0";
 export const GRADE_KIND = "awf.case-grade/0";
+export const LABEL_KIND = "awf.case-label/0";
 
 const Text = Type.String({ minLength: 1 });
 const Time = Type.String({ format: "date-time" });
@@ -327,3 +328,26 @@ export const GradeFileSchema = Type.Object(
   { additionalProperties: false },
 );
 export type GradeFile = Type.Static<typeof GradeFileSchema>;
+
+export const MARKS = ["good", "needs-work", "cleared"] as const;
+export type Mark = (typeof MARKS)[number];
+
+/**
+ * A line of `{store}/labels/{dataset}.jsonl`: the person's verdict on one trial, found by its
+ * workflow run's id, so a reused copy keeps it. The newest line of a trial wins; `cleared` takes
+ * a label back.
+ */
+export const LabelRecordSchema = Type.Object(
+  {
+    kind: Type.Literal(LABEL_KIND),
+    /** The trial's workflow run id. */
+    trial: Text,
+    case: Text,
+    mark: Type.Enum(MARKS),
+    /** Why it needs work. */
+    note: Type.Optional(Text),
+    at: Time,
+  },
+  { additionalProperties: false },
+);
+export type LabelRecord = Type.Static<typeof LabelRecordSchema>;

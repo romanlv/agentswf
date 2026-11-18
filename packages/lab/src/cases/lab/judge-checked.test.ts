@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
+import type { LabelRecord } from "../format/records";
+import { judgeLabeled } from "./labels";
 import { renderRun } from "./report";
+import type { StoredTrial } from "./store";
 
-// The judge as a person checked it: until task 1 records one, the lab ships none.
-const CHECKED = { version: "1.0.0", harness: "claude", model: "claude-haiku-5-5" };
-
+const agent = { harness: "claude", model: "claude-haiku-5-5" };
 const entry = (extra: object) => ({
   grader: "criteria",
   key: "0".repeat(64),
@@ -11,7 +12,7 @@ const entry = (extra: object) => ({
   ...extra,
 });
 
-function judgeLine(entries: object[]): string {
+function judgeLine(labeled?: { labeled: number; needsWork: number }): string {
   const { text } = renderRun({
     run: {
       kind: "awf.case-run/0",
@@ -19,40 +20,58 @@ function judgeLine(entries: object[]): string {
       dataset: "ds",
       folders: [{ path: "/p", branch: "main", commit: null, dirty: false, env: "0".repeat(64) }],
       columns: [{ folder: 0, params: {} }],
-      asked: [{ case: "a", trials: entries.length }],
+      asked: [{ case: "a", trials: 1 }],
       started: "2026-11-17T00:00:00.000Z",
       finished: "2026-11-17T00:01:00.000Z",
     },
     rows: [],
-    trials: entries.map(
-      (e) =>
-        ({
-          record: { case: "a", column: 0, models: ["gpt-6-luna"], unused: [], kept: [] },
-          scores: [{ kind: "awf.case-score/0", at: "2026-11-17T00:01:00.000Z", entries: [e] }],
-        }) as never,
-    ),
+    trials: [
+      {
+        record: { case: "a", column: 0, models: ["gpt-6-luna"], unused: [], kept: [] },
+        scores: [
+          {
+            kind: "awf.case-score/0",
+            at: "2026-11-17T00:01:00.000Z",
+            entries: [entry({ version: "1.0.0", agent, verdict: "passed", parts: [] })],
+          },
+        ],
+      } as never,
+    ],
     criteria: 1,
-    judgeChecked: CHECKED,
+    ...(labeled ? { judgeLabeled: labeled } : {}),
   });
   return text.split("\n").find((l) => l.startsWith("judge:"))!;
 }
 
-const agent = { harness: "claude", model: "claude-haiku-5-5" };
-const judged = entry({ version: "1.0.1", agent, verdict: "passed", parts: [] });
-
-test("a judge on the checked agent and minor is not marked, a skipped or errored trial aside", () => {
-  expect(judgeLine([judged, entry({ skipped: true }), entry({ errored: { reason: "x" } })])).toBe(
-    "judge: claude/claude-haiku-5-5",
-  );
+test("the judge is checked at 10 labeled trials it graded, 3 of them needs-work", () => {
+  expect(judgeLine()).toContain("not checked against a person (labeled 0 of 10, needs-work 0 of 3");
+  expect(judgeLine({ labeled: 12, needsWork: 2 })).toContain("not checked against a person");
+  expect(judgeLine({ labeled: 10, needsWork: 3 })).toBe("judge: claude/claude-haiku-5-5");
 });
 
-test("another model or minor marks the judge not checked against a person", () => {
-  expect(
-    judgeLine([
-      entry({ version: "1.0.1", agent: { ...agent, model: "claude-sonnet-5-5" }, parts: [] }),
-    ]),
-  ).toContain("not checked against a person");
-  expect(judgeLine([entry({ version: "1.1.0", agent, parts: [] })])).toContain(
-    "not checked against a person",
-  );
+test("only labeled trials the current judge graded count, each workflow run once", () => {
+  const trial = (runId: string, extra: object): StoredTrial =>
+    ({
+      dir: "",
+      record: { runId, case: "a" },
+      scores: [
+        { kind: "awf.case-score/0", at: "2026-11-17T00:00:00.000Z", entries: [entry(extra)] },
+      ],
+    }) as never;
+  const label = (trial: string, mark: LabelRecord["mark"]): [string, LabelRecord] => [
+    trial,
+    { kind: "awf.case-label/0", trial, case: "a", mark, at: "2026-11-17T00:00:00.000Z" },
+  ];
+  const labels = new Map([label("r1", "good"), label("r2", "needs-work"), label("r3", "good")]);
+  const graded = { version: "1.0.2", agent, verdict: "passed" };
+  const runs = [
+    [trial("r1", graded), trial("r2", graded)],
+    // A reused copy of r1 counts once; r3 was judged by another model, r4 has no label.
+    [trial("r1", graded), trial("r3", { ...graded, agent: { ...agent, model: "other" } })],
+    [trial("r4", graded), trial("r2", { ...graded, version: "1.1.0" })],
+  ];
+  expect(judgeLabeled(runs, labels, { ...agent, minor: "1.0" })).toEqual({
+    labeled: 2,
+    needsWork: 1,
+  });
 });

@@ -39,6 +39,7 @@ are its.
 | `report [{run}] [--case {name}] [--json]` | the last run again, or the one named; one case in full |
 | `score [{run}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
+| `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
@@ -282,6 +283,27 @@ graders get them as `params`. A name is a letter then letters, digits, `-` or `_
 string. A column is named by the folder and the parameters that differ, such as `model=b` or
 `against 1 model=b`. A setting with many named combinations, such as review variants, is one
 parameter whose value `env.ts` looks up in its own table: `--vary variant=lenses,fork`.
+
+## Labels
+
+A grade is only as good as its agreement with the person, and that drifts as criteria, prompts
+and models change, so it is measured on every report.
+
+- **`awf-lab label {run id} --good`**, or **`--needs-work "{note}"`**: the person's verdict on one
+  trial, found by its workflow run's id (`report --case` prints each trial's, with the command).
+  The person runs it, or tells a coding agent what was wrong. `--clear` takes it back; a newer
+  label replaces an older. `capture` of a trial labels it with its mark.
+- Labels are kept in `{store}/labels/{dataset}.jsonl`, one line each, and in the records folder
+  when it is set. A label is on the workflow run, so a reused copy keeps it, and a `score` that
+  grades again shows at once whether the lab now agrees more.
+- **Agreement**, on the run's labeled trials: of those marked good, how many the lab passed; of
+  those marked needs-work, how many it failed, given apart, since a lab that passes everything
+  agrees with a mostly good set. The same for each deciding grader, the judge by its agent and
+  version; each disagreement is listed with its note. `report --json` gives it as `labels`.
+- **The judge's mark**: the report says "not checked against a person" until the person labeled
+  10 trials of the dataset that the current judge (its agent and `{major}.{minor}`) graded, 3 of
+  them needs-work, counted across runs.
+- A label is the verdict on the trial, not on each criterion; the note says why.
 
 ## `capture`
 

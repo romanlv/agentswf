@@ -326,6 +326,124 @@
             "additionalProperties": false
           }
         },
+        "labels": {
+          "type": "object",
+          "required": ["good", "needsWork", "notCompared", "graders", "disagreements"],
+          "properties": {
+            "good": {
+              "type": "object",
+              "required": ["labeled", "agreed"],
+              "properties": {
+                "labeled": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agreed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "needsWork": {
+              "type": "object",
+              "required": ["labeled", "agreed"],
+              "properties": {
+                "labeled": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agreed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "notCompared": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["grader", "good", "needsWork"],
+                "properties": {
+                  "grader": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "good": {
+                    "type": "object",
+                    "required": ["labeled", "agreed"],
+                    "properties": {
+                      "labeled": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "agreed": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "needsWork": {
+                    "type": "object",
+                    "required": ["labeled", "agreed"],
+                    "properties": {
+                      "labeled": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "agreed": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "disagreements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["case", "column", "trial", "mark", "outcome"],
+                "properties": {
+                  "case": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "trial": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "mark": {
+                    "enum": ["good", "needs-work"]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "stale": {
           "anyOf": [
             {

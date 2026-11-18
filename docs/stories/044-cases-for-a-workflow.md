@@ -413,7 +413,7 @@ Execution:
   1. [x] parameters and columns;
   2. [x] the store per project and `records`;
   3. [x] reuse, `--fresh`, `reuseDays`;
-  4. labels: `label`, `labels.jsonl`, agreement, the judge's mark;
+  4. [x] labels: `label`, `labels.jsonl`, agreement, the judge's mark;
   5. tags and rates: intervals, pass^k, pass@k, `--tags`;
   6. `compare`, with `src/compare` moved into `src/shared/`;
   7. `run --budget`, `--dry-run`, `--json`; `report --md`;

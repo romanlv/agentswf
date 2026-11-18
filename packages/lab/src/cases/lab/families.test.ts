@@ -59,7 +59,7 @@ test("the report marks a judge that shares the workflow's family, splits and cri
   });
   expect(text).toContain("criteria judged 2 · split 2–1 1 · read, not run 1");
   expect(text).toContain(
-    "judge: claude/claude-haiku-5-5, not checked against a person · shares the anthropic family with the workflow's claude-sonnet-5-5",
+    "judge: claude/claude-haiku-5-5, not checked against a person (labeled 0 of 10, needs-work 0 of 3: awf-lab label) · shares the anthropic family with the workflow's claude-sonnet-5-5",
   );
 });
 

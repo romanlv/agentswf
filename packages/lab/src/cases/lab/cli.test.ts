@@ -2313,3 +2313,83 @@ describe("trials reused when nothing that shaped them changed", () => {
     expect(never.calls).toHaveLength(2);
   });
 });
+
+describe("the person's labels", () => {
+  const runIdOf = (where: { home: string }, run: number, name: string, trial = 1) =>
+    readTrials(storeOf(where), nthRun(storeOf(where), run)).find(
+      (t) => t.record.case === name && t.record.trial === trial,
+    )!.record.runId!;
+
+  test("labels give agreement for good and needs-work apart, with each disagreement", async () => {
+    const where = project({ a: {}, b: {}, c: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({ c: [fail] }).runner });
+    expect((await lab(where, ["label", runIdOf(where, 1, "a"), "--good"])).out).toBe(
+      "labeled a trial 1 good",
+    );
+    // The lab passed b; the person says it needs work. The lab failed c; the person agrees.
+    await lab(where, ["label", runIdOf(where, 1, "b"), "--needs-work", "the date is wrong"]);
+    await lab(where, ["label", runIdOf(where, 1, "c"), "--needs-work", "no reply"]);
+    const { out } = await lab(where, ["report"]);
+    expect(out).toContain("labels: 3 trials · good 1, passed 1 · needs-work 2, failed 1");
+    expect(out).toContain("  expect: good 1, passed 1 · needs-work 2, failed 1");
+    expect(out).toContain(
+      "  disagrees: b trial 1 labeled needs-work: the date is wrong; the lab: passed",
+    );
+    const json = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(json.labels).toMatchObject({
+      good: { labeled: 1, agreed: 1 },
+      needsWork: { labeled: 2, agreed: 1 },
+      notCompared: 0,
+    });
+    const shown = await lab(where, ["report", "--case", "b"]);
+    expect(shown.out).toContain("labeled needs-work: the date is wrong");
+  });
+
+  test("a label survives reuse, follows a score that grades again, and a newer one or --clear replaces it", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const id = runIdOf(where, 1, "a");
+    await lab(where, ["label", id, "--needs-work", "wrong"]);
+    // Reused: the copy is the same workflow run, so it keeps the label.
+    const reused = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(reused.out).toContain("labels: 1 trial · needs-work 1, failed 0");
+    // The key is fixed to fail it: score grades again, and the lab now agrees.
+    writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
+    const scored = await lab(where, ["score", "--yes"], { runner: scripted({}).runner });
+    expect(scored.out).toContain("labels: 1 trial · needs-work 1, failed 1");
+    await lab(where, ["label", id, "--good"]);
+    expect((await lab(where, ["report"])).out).toContain("labels: 1 trial · good 1, passed 0");
+    expect((await lab(where, ["label", id, "--clear"])).out).toBe("cleared the label of a trial 1");
+    expect((await lab(where, ["report"])).out).not.toContain("labels:");
+  });
+
+  test("capture of a trial labels it; labels go to the records folder and come back", async () => {
+    const where = project({ a: {} });
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", records: "records" }),
+    );
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const id = runIdOf(where, 1, "a");
+    await lab(where, ["capture", id, "--needs-work", "too long"]);
+    const file = join(where.evals, "records/labels/ds.jsonl");
+    expect(readFileSync(file, "utf8")).toContain('"note":"too long"');
+    // Another machine with the committed records sees the label.
+    git(where.root, "add", "-A");
+    git(where.root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "labels");
+    const clone = join(where.top, "clone");
+    git(where.top, "clone", "-q", where.root, clone);
+    const elsewhere = { ...where, root: clone, home: join(where.top, "home2") };
+    mkdirSync(elsewhere.home);
+    expect((await lab(elsewhere, ["report"])).out).toContain("labels: 1 trial · needs-work 1");
+  });
+
+  test("label refuses an unknown trial and a missing or doubled verdict", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const id = runIdOf(where, 1, "a");
+    expect((await lab(where, ["label", "nope", "--good"])).err).toContain("no trial ran as nope");
+    expect((await lab(where, ["label", id])).code).toBe(2);
+    expect((await lab(where, ["label", id, "--good", "--clear"])).code).toBe(2);
+  });
+});

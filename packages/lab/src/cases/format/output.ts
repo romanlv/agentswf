@@ -12,6 +12,11 @@ const Tally = Type.Object(
   { additionalProperties: false },
 );
 const Counts = Type.Record(Text, Type.Integer({ minimum: 0 }));
+/** Trials labeled one way, and how many the lab or a grader agreed on. */
+const LabelTally = Type.Object(
+  { labeled: Type.Integer({ minimum: 0 }), agreed: Type.Integer({ minimum: 0 }) },
+  { additionalProperties: false },
+);
 
 /** A grader's number, pooled over a column's trials: counts summed, or every value. */
 const PooledSchema = Type.Union([
@@ -61,6 +66,36 @@ export const CaseReportSchema = Type.Object(
     agreement: Type.Array(
       Type.Object(
         { a: Text, b: Text, verdicts: Tally, parts: Tally },
+        { additionalProperties: false },
+      ),
+    ),
+    /** The person's labels on the run's trials, and the lab's agreement with them. */
+    labels: Type.Optional(
+      Type.Object(
+        {
+          good: LabelTally,
+          needsWork: LabelTally,
+          notCompared: Type.Integer({ minimum: 0 }),
+          graders: Type.Array(
+            Type.Object(
+              { grader: Text, good: LabelTally, needsWork: LabelTally },
+              { additionalProperties: false },
+            ),
+          ),
+          disagreements: Type.Array(
+            Type.Object(
+              {
+                case: Text,
+                column: Type.Integer({ minimum: 0 }),
+                trial: Type.Integer({ minimum: 1 }),
+                mark: Type.Enum(["good", "needs-work"] as const),
+                note: Type.Optional(Text),
+                outcome: Text,
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        },
         { additionalProperties: false },
       ),
     ),

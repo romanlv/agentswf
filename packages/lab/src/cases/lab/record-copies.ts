@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { mergeLabels } from "./labels";
 import { RUN_FILE, RUN_ID, runDirOf, SCORES_FILE, TRIAL_FILE } from "./store";
 
 // `records` in awf-lab.json: a folder inside evals/ that holds a copy of each run's records, at
@@ -48,6 +49,7 @@ function copyRun(from: string, to: string): void {
 
 /** Writes a run's records into the records folder. */
 export function writeRecords(store: string, records: string, id: string): void {
+  mergeLabels(store, records);
   const from = runDirOf(store, id);
   if (!existsSync(join(from, RUN_FILE))) return;
   copyRun(from, join(records, "runs", id));
@@ -59,6 +61,7 @@ export function writeRecords(store: string, records: string, id: string): void {
  * extend the store's, as when the run was graded again elsewhere.
  */
 export function readRecords(store: string, records: string): void {
+  mergeLabels(store, records);
   const from = join(records, "runs");
   for (const id of runsOf(from)) {
     const theirs = join(from, id);

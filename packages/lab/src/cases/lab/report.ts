@@ -1,8 +1,7 @@
-import type { Folder, RunRecord } from "../format/records";
-import { JUDGE_CHECKED } from "../judge/version";
+import type { Folder, LabelRecord, RunRecord } from "../format/records";
 import { columnLabel, sharedParams } from "./columns";
 import { familyOf } from "./families";
-import { minorOf } from "./grading";
+import { type Agreement, JUDGE_CHECK, type PersonAgreement } from "./labels";
 import type { CaseRow, StoredTrialView } from "./outcome";
 import { newestEntries, trialOutcome } from "./outcome";
 import { agreements, type Pooled, poolNumbers } from "./pooled";
@@ -54,8 +53,10 @@ export type RunReport = {
   stale?: number | { unread: string };
   /** The rows of each column but the reference, in the run's `columns` order. */
   others?: readonly CaseRow[][];
-  /** The judge as a person checked it; the lab's recorded one when absent. */
-  judgeChecked?: typeof JUDGE_CHECKED;
+  /** The person's labels on this run's trials, and how the lab agrees with them. */
+  person?: PersonAgreement;
+  /** The labeled trials the current judge graded, across the dataset's runs. */
+  judgeLabeled?: { labeled: number; needsWork: number };
   /** Earlier runs history leaves out: their records don't read. */
   leftOut?: readonly string[];
   /** Whose grades decide each case, from the current dataset and keys; all when unread. */
@@ -78,7 +79,7 @@ export function describePooled(pooled: Pooled): string {
 function judgeLines(
   trials: readonly StoredTrialView[],
   criteria: number,
-  person: typeof JUDGE_CHECKED,
+  labeled: { labeled: number; needsWork: number } | undefined,
 ): string[] {
   const own = trials.filter((t) => t.record.column === 0);
   const judged = own.flatMap((t) => newestEntries(t.scores).filter((e) => e.grader === "criteria"));
@@ -106,25 +107,20 @@ function judgeLines(
   );
   const agent = judged.find((e) => e.agent)?.agent;
   if (agent) {
-    // Judged as the person checked it: the same agent and `{major}.{minor}`, on every grade that
-    // judged (a skipped or errored one judged nothing).
-    const checked =
-      person !== undefined &&
-      judged
-        .filter((e) => !e.skipped && !e.errored)
-        .every(
-          (e) =>
-            minorOf(e.version) === minorOf(person.version) &&
-            e.agent?.harness === person.harness &&
-            e.agent?.model === person.model,
-        );
+    // Checked once the person labeled enough trials this judge graded, some of them needing
+    // work: a judge that passes everything can't clear it on good ones alone.
+    const have = labeled ?? { labeled: 0, needsWork: 0 };
+    const checked = have.labeled >= JUDGE_CHECK.labeled && have.needsWork >= JUDGE_CHECK.needsWork;
+    const short = checked
+      ? ""
+      : `, not checked against a person (labeled ${have.labeled} of ${JUDGE_CHECK.labeled}, needs-work ${have.needsWork} of ${JUDGE_CHECK.needsWork}: awf-lab label)`;
     const family = familyOf(agent.model, agent.harness);
     const shared = family
       ? [...new Set(own.flatMap((t) => t.record.models))].filter((m) => familyOf(m) === family)
       : [];
     lines.push(
       [
-        `judge: ${agent.harness}/${agent.model}${checked ? "" : ", not checked against a person"}`,
+        `judge: ${agent.harness}/${agent.model}${short}`,
         ...(family === undefined ? ["family unknown"] : []),
         ...(shared.length > 0
           ? [`shares the ${family} family with the workflow's ${shared.join(", ")}`]
@@ -173,6 +169,33 @@ function elsewhere(run: RunRecord, trials: readonly StoredTrialView[]): string {
     if (t.record.column > 0) counts.set(t.record.column, (counts.get(t.record.column) ?? 0) + 1);
   }
   return [...counts].map(([column, n]) => `, ${n} in ${columnLabel(run, column)}`).join("");
+}
+
+const agreed = (a: Agreement) =>
+  [
+    ...(a.good.labeled > 0 ? [`good ${a.good.labeled}, passed ${a.good.agreed}`] : []),
+    ...(a.needsWork.labeled > 0
+      ? [`needs-work ${a.needsWork.labeled}, failed ${a.needsWork.agreed}`]
+      : []),
+  ].join(" · ");
+
+/**
+ * The person's labels against the lab's verdicts: good and needs-work apart, since a lab that
+ * passes everything agrees with a mostly good set; each deciding grader's; each disagreement.
+ */
+function personLines(run: RunRecord, person: PersonAgreement): string[] {
+  const labeled = person.good.labeled + person.needsWork.labeled + person.notCompared;
+  const lines = [
+    `labels: ${plural(labeled, "trial")} · ${agreed(person) || "none compared"}${person.notCompared > 0 ? ` · ${person.notCompared} neither passed nor failed` : ""}`,
+  ];
+  for (const grader of person.graders) lines.push(`  ${grader.grader}: ${agreed(grader)}`);
+  for (const d of person.disagreements) {
+    const where = d.column > 0 ? ` (${columnLabel(run, d.column)})` : "";
+    lines.push(
+      `  disagrees: ${d.case} trial ${d.trial}${where} labeled ${d.mark}${d.note ? `: ${d.note}` : ""}; the lab: ${d.outcome}`,
+    );
+  }
+  return lines;
 }
 
 /** The numbers and agreement lines, your checkout's column. */
@@ -279,7 +302,8 @@ export function renderRun({
   decidersOf,
   leftOut,
   others = [],
-  judgeChecked = JUDGE_CHECKED,
+  person,
+  judgeLabeled,
 }: RunReport): {
   text: string;
   exit: ExitCode;
@@ -436,7 +460,8 @@ export function renderRun({
   } else if (typeof stale === "object") {
     lines.push(`grades: couldn't check whether any is out of date: ${stale.unread}`);
   }
-  lines.push(...judgeLines(trials, criteria, judgeChecked));
+  lines.push(...judgeLines(trials, criteria, judgeLabeled));
+  if (person) lines.push(...personLines(run, person));
   if (leftOut && leftOut.length > 0) {
     lines.push(
       `history leaves out ${plural(leftOut.length, "earlier run")} whose records don't read: awf-lab runs`,
@@ -464,6 +489,8 @@ export function renderCase(
   deciders?: ReadonlySet<string>,
   /** This case's row in each other column. */
   others: readonly (CaseRow | undefined)[] = [],
+  /** The person's labels, by workflow run id. */
+  labels: ReadonlyMap<string, LabelRecord> = new Map(),
 ): string {
   const tally = (r: CaseRow) =>
     `${r.tally.verdict ?? r.tally.none ?? "no trials"} ${r.tally.passed}/${r.tally.trials}`;
@@ -480,6 +507,10 @@ export function renderCase(
       "",
       `trial ${record.trial}${record.column > 0 ? ` (${columnLabel(run, record.column)})` : ""}: ${view.outcome}${record.runId ? ` · run ${record.runId}` : ""} · ${seconds(record.ms)}`,
     );
+    const label = record.runId ? labels.get(record.runId) : undefined;
+    if (label) lines.push(`  labeled ${label.mark}${label.note ? `: ${label.note}` : ""}`);
+    else if (record.runId)
+      lines.push(`  label: awf-lab label ${record.runId} --good | --needs-work "{note}"`);
     if (record.errored) {
       lines.push(
         `  errored by ${record.errored.by} in ${record.errored.phase}${record.errored.code ? ` (${record.errored.code})` : ""}: ${record.errored.reason}`,
