@@ -1488,11 +1488,15 @@ holds what the workflow left. Not on an errored trial, or one failed because the
 Added 2026-11-17: a grade is only as good as its agreement with the person, and that agreement
 drifts as criteria, prompts and models change, so it is measured on every run, not once.
 
-- **`awf-lab label {run id} (--good | --needs-work "{note}")`**: the person's verdict on a trial,
-  found as `capture` finds one, by its workflow run's id. `--good`: a result the person would
-  accept; `--needs-work`: one they would not, and why. `capture` of a trial labels it with its
-  mark. A newer label replaces the older; `--clear` removes it. Only the person labels: agents in
-  the box can't reach the records (task 10).
+- **Where a person labels: a file.** Each run's folder holds `labels.md`, written by the lab: a
+  section per trial, with its case, what it returned, the lab's verdict and a blank
+  `verdict:` line. The person opens it (the report prints its path) and writes `good`, or
+  `needs-work: {note}`; the lab reads it on `report` and `score`. A trial already labeled in an
+  earlier run, such as a reused one, comes filled in.
+- **`awf-lab label {run id} (--good | --needs-work "{note}" | --clear)`** writes the same line,
+  for a coding agent told by the person what was wrong, and is the seam a web interface would
+  call later. `capture` of a trial labels it with its mark. A label says what the person
+  judged, whoever wrote it down; agents in a loop's box can't reach the records (task 10).
 - **Agreement**, on a run's labeled trials: of those marked good, how many the lab passed; of
   those marked needs-work, how many it failed. The two are given apart, since a lab that passes
   everything agrees with a mostly good set. The same for each grader that decided, the criteria
@@ -1672,9 +1676,8 @@ Each entry has the grader's name and its version (a workflow grader's, with its 
 criterion by its text for the judge, the whole key with `key/` for a dataset's own), its verdict,
 numbers, reasons, harness and model, cost, its parts with their votes, and `errored` when it errored.
 
-**A label record** (`kind: awf.case-label/0`): the trial (the lab's run and the workflow run's
-id), the mark, the note, when it was made; kept beside the score records, in `records` when set,
-so labels are committed with the rest.
+**Labels** are each run's `labels.md`, beside its records, in `records` when set, so they are
+committed with the rest; a trial's label is its newest, read across runs by the trial's id.
 
 ### Grading again: `score`
 
@@ -2407,7 +2410,7 @@ Steps, each committed with its tests:
    decides the exit code and `--failed`.
 2. The store per project and `records`; shared files kept once.
 3. Reuse, `--fresh`, `reuseDays`.
-4. Labels: `label`, the label record, agreement in the report, the judge's "checked" mark from
+4. Labels: `labels.md` per run and `label`, agreement in the report, the judge's "checked" mark from
    labels; `capture` of a trial labels it.
 5. Tags and rates: `tags` in the key, `--tags {a,b}` on `run` and `score`, the rates with
    intervals, pass^k and pass@k, per column and in `--json`.
