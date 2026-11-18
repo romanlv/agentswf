@@ -133,6 +133,8 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
                     when nothing that shaped it changed (the code, env.ts, the parameters, the
                     case, the trial settings), within the dataset's reuseDays, 14 by default
   --tags {a,b}      only the cases whose key lists one of these tags; on run and score
+  --holdout         run the cases dataset.json holds out, alone: every other command leaves them
+                    out, so a final check runs once on cases nothing was tuned on
   --param {name}={value}
                     a parameter for every trial, which env.ts reads as c.params; repeatable
   --vary {name}={a,b}
@@ -189,6 +191,8 @@ type Options = {
   /** `--param` and `--vary`, as given. */
   param: string[];
   fresh: boolean;
+  /** `run --holdout`: the held-out cases alone. */
+  holdout: boolean;
   clear: boolean;
   md: boolean;
   /** `score --judge {harness}/{model}`, repeatable, and `--voters`. */
@@ -223,6 +227,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     param: [],
     vary: [],
     fresh: false,
+    holdout: false,
     clear: false,
     md: false,
     judges: [],
@@ -279,6 +284,9 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
       }
       case "--md":
         options.md = true;
+        break;
+      case "--holdout":
+        options.holdout = true;
         break;
       case "--clear":
         options.clear = true;
@@ -417,13 +425,28 @@ function caseCommand(context: Context, names: readonly string[]): number {
   return 0;
 }
 
+/**
+ * A dataset and its cases: those not held out, or with `holdout` the held-out ones alone, so
+ * nothing tuned on the rest ever sees them unasked.
+ */
 function loadDataset(
   workspace: CaseWorkspace,
   name?: string,
+  /** `all` for a kept run's report or score: its cases are whichever it ran. */
+  holdout: boolean | "all" = false,
 ): { info: DatasetInfo; cases: CaseInfo[] } {
   const chosen = chooseDataset(workspace, name);
   const info = readDataset(chosen.name, chosen.dir);
-  return { info, cases: readCases(info) };
+  const all = readCases(info);
+  const held = new Set(info.dataset.holdout ?? []);
+  const unknown = [...held].filter((name) => !all.some((c) => c.name === name));
+  if (unknown.length > 0) {
+    throw new Refusal(`${info.name}'s holdout names no case ${unknown.join(", ")}`);
+  }
+  return {
+    info,
+    cases: holdout === "all" ? all : all.filter((c) => held.has(c.name) === holdout),
+  };
 }
 
 async function askOperator(
@@ -486,7 +509,10 @@ function estimate(
 async function run(context: Context): Promise<number> {
   const { options, environment, stderr } = context;
   const workspace = workspaceOf(context);
-  const { info, cases } = loadDataset(workspace, options.dataset);
+  const { info, cases } = loadDataset(workspace, options.dataset, options.holdout);
+  if (options.holdout && cases.length === 0) {
+    throw new Refusal(`${info.name} holds out no case: name them in dataset.json's holdout`);
+  }
   const now = environment.now ?? (() => new Date());
   let inspected: Promise<FolderSetup> | undefined;
   const folderOf = () =>
@@ -1208,7 +1234,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   let info: DatasetInfo | undefined;
   let cases: CaseInfo[] = [];
   try {
-    ({ info, cases } = loadDataset(workspace, run.dataset));
+    ({ info, cases } = loadDataset(workspace, run.dataset, "all"));
   } catch {
     // A dataset since removed or broken: its run still reads, at the default bar, every grade
     // deciding.
@@ -1331,7 +1357,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
     names,
     "awf-lab score [{run}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]",
   );
-  const { info, cases } = loadDataset(workspace, run.dataset);
+  const { info, cases } = loadDataset(workspace, run.dataset, "all");
   const now = environment.now ?? (() => new Date());
   let inspected: Promise<FolderSetup> | undefined;
   const graders = await datasetGraders(

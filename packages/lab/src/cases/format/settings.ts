@@ -73,6 +73,13 @@ export const DatasetSchema = Type.Object(
       }),
     ),
     pass: Type.Optional(PassSchema),
+    holdout: Type.Optional(
+      Type.Array(Text, {
+        uniqueItems: true,
+        description:
+          "Cases set aside for a final check: run, score and report leave them out, run --holdout runs them alone, and a loop's proposer never sees them.",
+      }),
+    ),
     reuseDays: Type.Optional(
       Type.Integer({
         minimum: 0,

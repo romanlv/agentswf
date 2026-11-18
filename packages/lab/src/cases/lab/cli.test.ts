@@ -2773,3 +2773,25 @@ describe('the lab\'s box: "sandbox": { "lab": "srt" }', () => {
     expect(out).toContain("passed 1");
   });
 });
+
+describe("holdouts: cases set aside for a final check", () => {
+  test("run, --failed and history leave held-out cases out; run --holdout runs them alone", async () => {
+    const where = project({ a: {}, b: {}, kept: {} }, { holdout: ["kept"] });
+    const plain = scripted({});
+    await lab(where, ["run", "--yes"], { runner: plain.runner });
+    expect(plain.seen.map((s) => s.name).sort()).toEqual(["a", "b"]);
+    const named = await lab(where, ["run", "--yes", "--cases", "kept"], { runner: plain.runner });
+    expect(named.code).toBe(2);
+    expect(named.err).toContain("no case kept");
+    const held = scripted({});
+    const final = await lab(where, ["run", "--yes", "--holdout"], { runner: held.runner });
+    expect(held.seen.map((s) => s.name)).toEqual(["kept"]);
+    expect(final.code).toBe(0);
+    // The held-out run reports and scores with its own case.
+    expect((await lab(where, ["report"])).out).toContain("ds · 1 case");
+    const bad = project({ a: {} }, { holdout: ["nope"] });
+    expect((await lab(bad, ["run", "--yes"], { runner: plain.runner })).err).toContain(
+      "holdout names no case nope",
+    );
+  });
+});

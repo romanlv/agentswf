@@ -275,6 +275,7 @@ What this story leaves for later, in the order it would pay off:
 
 Settled by the owner, newest first:
 
+- **Live spend for tasks 11 and 12** (2026-11-18): $25 each, every run given `--budget`.
 - **Judges compared beside the one that decides** (2026-11-18): `score --judge` keeps another
   judge's grades with its agent and voters, marked `beside`; only `judgeAgent` decides. Rejected:
   a grader per judge (its identity in names records pair by) and columns of grading (mixes what
