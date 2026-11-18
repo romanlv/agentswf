@@ -93,14 +93,18 @@ function linkInstalls(top: string, code: string): void {
 }
 
 /**
- * The start: what git would hold in your repository, less each dataset's cases and the records
- * folder, copied into `code` and committed there, its installs linked.
+ * The start: what git would hold in your repository, less each dataset's cases, the records
+ * folder and `hide`'s paths, copied into `code` and committed there, its installs linked.
  */
 export function copyStart(top: string, code: string, workspace: CaseWorkspace): void {
   const listed = git(top, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
   const evals = relative(top, workspace.evals);
   const records = workspace.records ? relative(top, workspace.records) : undefined;
+  // `hide`'s paths hold what the box hides as it does keys: a copy never has them.
+  const hidden = (workspace.hide ?? []).map((h) => join(relative(top, workspace.root), h));
+  const under = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
   const left = (path: string) =>
+    hidden.some((dir) => under(path, dir)) ||
     (records !== undefined && (path === records || path.startsWith(`${records}/`))) ||
     (path.startsWith(`${evals}/`) && path.slice(evals.length + 1).split("/")[1] === "cases");
   mkdirSync(code, { recursive: true });

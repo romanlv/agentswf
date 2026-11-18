@@ -2852,6 +2852,12 @@ describe("the loop: a proposer's copy kept only when better", () => {
     );
     writeFileSync(join(where.root, "workflow.ts"), `export const quality = ${quality};\n`);
     writeFileSync(join(where.ds, "graders.ts"), COMPARE);
+    mkdirSync(join(where.root, "old-keys"));
+    writeFileSync(join(where.root, "old-keys", "key.json"), "{}\n");
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", hide: ["old-keys"] }),
+    );
     writeFileSync(join(where.root, ".gitignore"), "node_modules/\n");
     mkdirSync(join(where.root, "node_modules", "agentswf"), { recursive: true });
     git(where.root, "add", "-A");
@@ -2955,8 +2961,10 @@ describe("the loop: a proposer's copy kept only when better", () => {
     // The held-out case is never run by a try, nor in what the proposer reads.
     expect(fake.ran.some((r) => r.name === "h")).toBe(false);
     for (const text of fake.shown) expect(text).not.toContain('"h"');
-    // The copies hold no case.
+    // The copies hold no case, nor what hide names.
     expect(existsSync(join(dir, "start", "evals/ds/cases"))).toBe(false);
+    expect(existsSync(join(dir, "start", "old-keys"))).toBe(false);
+    expect(existsSync(join(dir, "start", "workflow.ts"))).toBe(true);
     const patch = await loop(where, ["l", "--patch"], fake.runner);
     expect(patch.out).toContain("+export const quality = 3;");
     const final = await loop(where, ["l", "--final"], fake.runner);
