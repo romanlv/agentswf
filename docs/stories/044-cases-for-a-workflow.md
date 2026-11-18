@@ -1289,7 +1289,8 @@ Out of scope:
   Paths stay the workflow's, checked in each workflow's task (2 and 5, and 9 for the records folder) to keep agents out of the
   home folder, the store, `evals/` and the records folder.
 - **`key.md`** frontmatter: `kind: awf.case-key/0`, `marker`, and optionally `expect`, `must`, `must-not` (lists of sentences),
-  `known-failing: true`, `pass` (this case's bar), `draft: true` and `captured` (task 6). It is read
+  `known-failing: true`, `pass` (this case's bar), `draft: true`, `captured` (task 6) and `tags`, a
+  list of plain words the report groups cases by (task 9), in no grader's key digest. It is read
   strictly with the `yaml` package (YAML 1.2 core schema, a new dependency), and an unknown field
   (`expects:`) is refused: only `true` and
   `false` are booleans, and an `expect` value that is a string must be quoted, so `no` is refused
@@ -1476,10 +1477,30 @@ holds what the workflow left. Not on an errored trial, or one failed because the
 - Each voter says whether its verdict rests on the saved files; a criterion any voter judged from
   them is marked "read, not run".
 - Its harness and model are `judgeAgent`, from `awf-lab.json` or, per dataset, `dataset.json`.
-- A `judgeAgent` or prompt other than the one task 1 checked against the person (recorded in
-  Implementation notes) makes the report mark the judge "not checked against a person".
+- The report marks the judge "not checked against a person" until the person's labels (below)
+  cover it: 10 labeled trials of the dataset that the current judge, its agent and minor version,
+  graded (task 9, replacing the version task 1 checked, kept in the lab).
 - **Model family**: a model's provider, read from its id by a small table in the lab; an unknown
   id is "family unknown". A column is marked when any of its models shares the judge's family.
+
+### What the person marks: labels
+
+Added 2026-11-17: a grade is only as good as its agreement with the person, and that agreement
+drifts as criteria, prompts and models change, so it is measured on every run, not once.
+
+- **`awf-lab label {run id} (--good | --needs-work "{note}")`**: the person's verdict on a trial,
+  found as `capture` finds one, by its workflow run's id. `--good`: a result the person would
+  accept; `--needs-work`: one they would not, and why. `capture` of a trial labels it with its
+  mark. A newer label replaces the older; `--clear` removes it. Only the person labels: agents in
+  the box can't reach the records (task 10).
+- **Agreement**, on a run's labeled trials: of those marked good, how many the lab passed; of
+  those marked needs-work, how many it failed. The two are given apart, since a lab that passes
+  everything agrees with a mostly good set. The same for each grader that decided, the criteria
+  judge by its agent and version. Each disagreement is listed with the person's note.
+- A label stays with its trial: a reused trial keeps it, and after a criterion is edited,
+  `score` shows at once whether the judge now agrees more, on the same labels.
+- A label is the person's verdict on the trial, not on each criterion; where the lab and the
+  person disagree, the note says why. Task 1's hand-judging is labels on the mail dataset.
 
 ### Trial outcomes
 
@@ -1564,6 +1585,15 @@ until task 13.
 - One summary line of case verdicts; one of trials (errored, by whom; undecided; leaked; criteria
   split 2–1); one of time and cost per trial (medians, errored trials left out) with grading's
   total apart. Cost is the accounting's estimate; "partly unpriced" when some usage had no price.
+- **Rates, with how sure they are** (task 9): each column's cases passed, as a count and a 95%
+  interval (Wilson), cases being the independent units; with more than one trial a case, the
+  mean of each case's pass fraction, its interval from the spread across cases, never from the
+  trials pooled as if independent; and at k trials, pass^k (cases whose k trials all passed:
+  what a workflow that must work every time is judged on) and pass@k (at least one). Two columns'
+  intervals overlapping say no difference is shown; which is better stays `compare`'s.
+- **By tag**: with `tags` in the keys, a line per tag, its cases passed per column and its
+  failing cases named.
+- **Agreement with the person**, on labeled trials (see "labels").
 - "read, not run" whenever a criterion was judged from saved files; a dataset grader's numbers,
   pooled per column; the median time per stage under `--case` and for a dataset with one trial
   per case.
@@ -1642,6 +1672,10 @@ Each entry has the grader's name and its version (a workflow grader's, with its 
 criterion by its text for the judge, the whole key with `key/` for a dataset's own), its verdict,
 numbers, reasons, harness and model, cost, its parts with their votes, and `errored` when it errored.
 
+**A label record** (`kind: awf.case-label/0`): the trial (the lab's run and the workflow run's
+id), the mark, the note, when it was made; kept beside the score records, in `records` when set,
+so labels are committed with the rest.
+
 ### Grading again: `score`
 
 `awf-lab score [{n} | {id}]` grades the last run (or the run named) again. It never runs `env.ts`: not `setup`,
@@ -1718,6 +1752,11 @@ Settled by the owner:
 - **One outer box, `"lab"`** (Q10), **trials reused when unchanged** (Q11), **one store per project
   with committable records** (Q12), **settings as plain parameters** (Q13), **"better" in code with
   presets** (Q14), all 2026-11-16; the answers are under Open questions.
+- **The person's labels, rates with intervals, and tags** (2026-11-17), added to task 9 after a
+  review of the design against eval practice: the judge's agreement with the person measured on
+  every run rather than once, a pass rate given with how sure it is and with pass^k, and failures
+  read by kind of case. Then the judge's agent and voters become parameters, compared on
+  agreement and cost (its cost was about 60 times the mail workflow's in task 3).
 - **The review kind's stored runs are not converted** (2026-11-16): fixtures and keys are; runs
   stay readable with an older lab checkout.
 - **A case's world is set up in code, as a unit test's is** (2026-11-15): one `env.ts` per
@@ -2346,7 +2385,10 @@ Done when:
 
 Outcome: `--param` and `--vary` run the cases under parameters `env.ts` reads (Q13); an
 unchanged side reuses its stored trials (Q11), from one store per project with committable
-records (Q12); a dataset's `compare` gives each column a verdict (Q14). Comes after task 4.
+records (Q12); a dataset's `compare` gives each column a verdict (Q14). Added 2026-11-17: the
+person's labels measure the lab's agreement with them; the report gives rates with intervals,
+pass^k and pass@k, and pass rates by tag; the judge's agent and voters become parameters. Comes
+after task 4.
 
 Execution:
 
@@ -2358,13 +2400,23 @@ Execution:
 - [ ] Resolve: disposition every finding.
 - [ ] Verify: the `Done when` items.
 
-Work:
+Steps, each committed with its tests:
 
-- `--param`, `--vary`, `c.params`, `AWF_LAB_PARAMS`, a column per combination.
-- Reuse, `--fresh`, `reuseDays`; the store per project; `records`; shared files kept once.
-- `run --budget`, `--dry-run`, `--json`; `report --md`.
-- `src/compare` moved into the shared folder; `compare` with `better.paired`, `better.mean` and
-  `defineComparison`, run in the helper process.
+1. Parameters and columns: `--param`, `--vary`, `c.params`, `AWF_LAB_PARAMS`, a column per
+   combination (folders times parameters), parameters given to graders; the reference column
+   decides the exit code and `--failed`.
+2. The store per project and `records`; shared files kept once.
+3. Reuse, `--fresh`, `reuseDays`.
+4. Labels: `label`, the label record, agreement in the report, the judge's "checked" mark from
+   labels; `capture` of a trial labels it.
+5. Tags and rates: `tags` in the key, `--tags {a,b}` on `run` and `score`, the rates with
+   intervals, pass^k and pass@k, per column and in `--json`.
+6. `compare`: `src/compare` moved into the shared folder; `better.paired`, `better.mean` and
+   `defineComparison`, run in the helper process.
+7. `run --budget`, `--dry-run`, `--json`; `report --md`.
+8. The judge's agent and voters as parameters, so `--vary` (and `score` under it) compares
+   judges on the same trials by agreement and cost. Planned at this step; a structural choice
+   goes to the person.
 
 Done when:
 
@@ -2373,8 +2425,13 @@ Done when:
 - A test: an unchanged run reuses every trial, a change to what shapes a trial runs new ones, and
   a key edit only grades again.
 - A test: two worktrees share a store, and a fresh clone reuses trials from committed records.
+- A test: labels give agreement for good and needs-work apart, survive reuse, follow a `score`
+  that grades again, and set the judge's "checked" mark.
+- A test: the rates' intervals and pass^k match worked numbers; tags group the report and
+  `--tags` picks cases; editing tags grades nothing again.
 - A test: `compare` gives a column's verdict as JSON; `run` still runs every planned trial.
-- Live: refund-desk's `decide` over two models with `--vary`, then again, reusing every trial.
+- Live: refund-desk's `decide` over two models with `--vary`, then again, reusing every trial;
+  a few labels on the mail dataset, and two judges compared on them.
 
 ### 10. The `"lab"` sandbox
 
@@ -2514,8 +2571,8 @@ Automated:
 - [ ] The lab copies `key.md` and `key/` into neither folder, and a leaked marker is caught.
 - [ ] Until task 13, the review lab's existing tests pass, with only their import paths changed.
 - [ ] `score` grades again on a changed key or version, and with an added grader (task 8).
-- [ ] Parameters give columns, an unchanged run reuses its trials, and `compare` gives a
-  verdict (task 9).
+- [ ] Parameters give columns, an unchanged run reuses its trials, labels give agreement, the
+  rates carry intervals, and `compare` gives a verdict (task 9).
 - [ ] Code and agents under `"lab"` cannot read a key (task 10).
 - [ ] Every autoresearch dataset converts and verifies (task 11).
 - [ ] A loop on scripted agents keeps a better try and never shows a holdout (task 12).
