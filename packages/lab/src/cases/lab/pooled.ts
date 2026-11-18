@@ -70,11 +70,13 @@ export function agreements(
     const entries = newestEntries(trial.scores).filter(usable);
     for (let i = 0; i < entries.length; i++) {
       for (let j = i + 1; j < entries.length; j++) {
-        const [a, b] = [entries[i]!, entries[j]!].sort((x, y) => x.grader.localeCompare(y.grader));
-        const id = `${a!.grader}\0${b!.grader}`;
+        const [a, b] = [entries[i]!, entries[j]!].sort((x, y) =>
+          entryName(x).localeCompare(entryName(y)),
+        );
+        const id = `${entryName(a!)}\0${entryName(b!)}`;
         const pair = pairs.get(id) ?? {
-          a: a!.grader,
-          b: b!.grader,
+          a: entryName(a!),
+          b: entryName(b!),
           verdicts: { alike: 0, of: 0 },
           parts: { alike: 0, of: 0 },
           aside: false,
@@ -83,8 +85,8 @@ export function agreements(
         if (deciders) {
           const decides = (g: string) => deciders.has(g);
           const oneAside =
-            (!decides(a!.grader) && decides(b!.grader) && b!.grader !== "expect") ||
-            (!decides(b!.grader) && decides(a!.grader) && a!.grader !== "expect");
+            (!decides(entryName(a!)) && decides(entryName(b!)) && entryName(b!) !== "expect") ||
+            (!decides(entryName(b!)) && decides(entryName(a!)) && entryName(a!) !== "expect");
           if (oneAside) pair.aside = true;
         }
         if (a!.verdict && b!.verdict) {

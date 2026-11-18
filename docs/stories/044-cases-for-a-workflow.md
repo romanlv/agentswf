@@ -23,9 +23,9 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 | | |
 | --- | --- |
 | **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 9's live check of judges on the mail dataset; then task 10 |
+| **Next** | task 10, the `"lab"` box |
 | **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
-| **Waiting on the person** | task 1, hand-judging ten mail cases (now: labels, after task 9); task 5's web-to-cli dataset (Q15) |
+| **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
 
 Tried live: the mail dataset (21 trials, all 7 cases passed, 36 criteria judged), the same against
 a worktree with a worse prompt (the other column failed 2 of 3), and refund-desk with a grader
@@ -334,7 +334,7 @@ statistical thresholds for "came out differently" at a few trials (the list is f
 - [ ] 6. A past run becomes a case: built; its live check on both workflows waits on task 5
 - [x] 7. What reviews and the loop need, set against the design
 - [x] 8. Grader workflows and `score`
-- [ ] 9. Parameters, reuse, labels, rates and `compare`
+- [x] 9. Parameters, reuse, labels, rates and `compare` (the live labels are the person's)
 - [ ] 10. The `"lab"` box
 - [ ] 11. The review datasets on cases
 - [ ] 12. The loop, for any dataset
@@ -415,7 +415,7 @@ Execution:
   how parameters key history and the run record's columns;
   what becomes of today's per-checkout stores; how autoresearch's variants map onto parameters.
   (Under Implementation notes, "Task 9's plan".)
-- [ ] Implement, step by step, each committed with its tests:
+- [x] Implement, step by step, each committed with its tests:
   1. [x] parameters and columns;
   2. [x] the store per project and `records`;
   3. [x] reuse, `--fresh`, `reuseDays`;
@@ -424,9 +424,9 @@ Execution:
   6. [x] `compare`, with `src/compare` moved into `src/shared/`;
   7. [x] `run --budget`, `--dry-run`, `--json`; `report --md`;
   8. [x] judges compared: `score --judge`, `voters`.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the `Done when` items.
+- [x] Review: architecture and scope; correctness and proof (steps 1–7; step 8 by its tests and the live check).
+- [x] Resolve: disposition every finding.
+- [x] Verify: the `Done when` items, but labels on the mail dataset, which are the person's.
 
 Done when:
 
@@ -502,7 +502,7 @@ Done when:
 
 - [x] A dataset runs end to end on scripted agents; two folders side by side; keys never copied,
   a leaked marker caught; `score` grades again on a changed key, version or grader.
-- [ ] Parameters, reuse, labels, rates and `compare` (task 9).
+- [x] Parameters, reuse, labels, rates and `compare` (task 9).
 - [ ] Nothing in the `"lab"` box reads a key (task 10).
 - [ ] Every autoresearch dataset converts and verifies (task 11).
 - [ ] A loop keeps a better try and never shows a holdout (task 12).
@@ -630,6 +630,10 @@ them.
 - `--vary` and reuse (task 9): refund-desk's `decide` over `model=claude-haiku-5-5,claude-sonnet-5-5`
   (the workflow gained `--model`): 6 trials, every case passed in both columns, Sonnet an
   estimated $0.03 a trial to Haiku's $0.002; the same command again reused 6 of 6 and ran nothing.
+- Judges compared (task 9): the mail dataset, 7 trials, every case passed, the Sonnet judge an
+  estimated $1.18 of grading; `score --judge claude/claude-haiku-5-5` judged the 4 trials with
+  criteria for $0.08 and differed on none (12 of 12 parts alike). Which is right waits on the
+  person's labels.
 - Environment: `srt` is installed under Node 22.20.0 only while mise selects Node 24; live runs
   put Node 22's bin first on `PATH`.
 
