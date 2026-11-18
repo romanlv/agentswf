@@ -46,7 +46,7 @@ function judgeLine(labeled?: { labeled: number; needsWork: number }): string {
 test("the judge is checked at 10 labeled trials it graded, 3 of them needs-work", () => {
   expect(judgeLine()).toContain("not checked against a person (labeled 0 of 10, needs-work 0 of 3");
   expect(judgeLine({ labeled: 12, needsWork: 2 })).toContain("not checked against a person");
-  expect(judgeLine({ labeled: 10, needsWork: 3 })).toBe("judge: claude/claude-haiku-5-5");
+  expect(judgeLine({ labeled: 10, needsWork: 3 })).toBe("judge: claude/claude-haiku-5-5 ×3");
 });
 
 test("only labeled trials the current judge graded count, each workflow run once", () => {

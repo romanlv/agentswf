@@ -108,7 +108,7 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
                               in a throwaway folder, graded against its key
   report [{run}] [--case {name}] [--json | --md]
                               the last run again, or the run named by its id or last 4 characters
-  score [{run}] [--grader {name}] [--tags {a,b}] [--yes] [--dry-run] [--budget {usd}] [--json]
+  score [{run}] [--grader {name} | --judge {harness}/{model} [--voters {n}]] [--tags {a,b}] [--yes] [--dry-run] [--budget {usd}] [--json]
                               grade the last run, or the one named, again without running a trial: each
                               grader whose key or version changed, or that errored
   capture {run id} (--good | --needs-work {note}) [--dataset {name}]
@@ -141,6 +141,11 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
                     exit code, history and --failed are its
   --yes             no question before a run or a score
   --grader {name}   score with this grader alone, one marked onDemand included
+  --judge {harness}/{model}
+                    score's criteria again with another judge, repeatable, beside the one that
+                    decides: the report gives each judge's agreement with your labels and its
+                    cost, and only judgeAgent's grades are in the verdict
+  --voters {n}      the --judge's voters per criterion, odd; 3 by default
   --dry-run         print the plan of run or score, and run or grade nothing
   --budget {usd}    run stops starting trials, and score before a grader workflow, once their
                     estimates reach it: exit 3
@@ -186,6 +191,9 @@ type Options = {
   fresh: boolean;
   clear: boolean;
   md: boolean;
+  /** `score --judge {harness}/{model}`, repeatable, and `--voters`. */
+  judges: string[];
+  voters?: number;
   tags?: string[];
   vary: string[];
   failed: boolean;
@@ -217,6 +225,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     fresh: false,
     clear: false,
     md: false,
+    judges: [],
     good: false,
   };
   const positional: string[] = [];
@@ -259,6 +268,15 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
           .map((t) => t.trim())
           .filter(Boolean);
         break;
+      case "--judge":
+        options.judges.push(value(arg));
+        break;
+      case "--voters": {
+        const text = value(arg);
+        if (!/^[13579]$/.test(text)) throw new Refusal("--voters is odd, from 1 to 9");
+        options.voters = Number(text);
+        break;
+      }
       case "--md":
         options.md = true;
         break;
@@ -827,7 +845,8 @@ function personOf(
   const judge = graders?.find((g) => g.name === "criteria");
   const agent =
     judge?.agent ??
-    trials.flatMap((t) => newestEntries(t.scores)).find((e) => e.grader === "criteria")?.agent;
+    trials.flatMap((t) => newestEntries(t.scores)).find((e) => e.grader === "criteria" && !e.beside)
+      ?.agent;
   const version = judge?.version ?? JUDGE_VERSION;
   if (!agent) return person ? { person } : {};
   const runs = runIds(workspace.store).flatMap((id) => {
@@ -1327,7 +1346,32 @@ async function score(context: Context, names: readonly string[]): Promise<number
     now,
   );
   let chosen: LabGrader[];
-  if (options.grader) {
+  if (options.judges.length > 0) {
+    if (options.grader) throw new Refusal("score takes --grader or --judge, not both");
+    // Judges graded beside the one that decides: kept to compare, never in the verdict.
+    chosen = options.judges.map((given) => {
+      const [harness, ...model] = given.split("/");
+      if (!harness || model.length === 0) {
+        throw new Refusal(
+          `--judge ${given}: give {harness}/{model}, such as claude/claude-sonnet-5-5`,
+        );
+      }
+      const agent = {
+        harness,
+        model: model.join("/"),
+        ...(options.voters ? { voters: options.voters } : {}),
+      };
+      return criteriaJudge(
+        {
+          runner: environment.runner ?? processRunner(),
+          runRoot: awfRunsOf(workspace.store),
+          now,
+        },
+        agent,
+        true,
+      );
+    });
+  } else if (options.grader) {
     const one = graders.find((g) => g.name === options.grader);
     if (!one) {
       throw new Refusal(
@@ -1351,7 +1395,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
     cases,
     graders: chosen,
     decidersOf: (c) => decidersOf(c.key, graders),
-    expect: options.grader === undefined,
+    expect: options.grader === undefined && options.judges.length === 0,
     tmp,
   });
   const described = describePlan(plan, run.id);

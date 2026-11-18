@@ -112,7 +112,15 @@ export const CaseReportSchema = Type.Object(
           notCompared: Type.Integer({ minimum: 0 }),
           graders: Type.Array(
             Type.Object(
-              { grader: Text, good: LabelTally, needsWork: LabelTally },
+              {
+                grader: Text,
+                good: LabelTally,
+                needsWork: LabelTally,
+                /** What its grades of the run's trials are estimated at. */
+                cost: Type.Number({ minimum: 0 }),
+                /** False for a judge graded beside the deciding one, by `score --judge`. */
+                deciding: Type.Boolean(),
+              },
               { additionalProperties: false },
             ),
           ),

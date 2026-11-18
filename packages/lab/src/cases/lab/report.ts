@@ -4,7 +4,7 @@ import type { ColumnVerdict } from "./compare";
 import { familyOf } from "./families";
 import { type Agreement, JUDGE_CHECK, type PersonAgreement } from "./labels";
 import type { CaseRow, StoredTrialView } from "./outcome";
-import { newestEntries, trialOutcome } from "./outcome";
+import { entryName, newestEntries, trialOutcome, votersOf } from "./outcome";
 import { agreements, type Pooled, poolNumbers } from "./pooled";
 import { describeDifference, describeRates, pairedDifference, ratesOf } from "./rates";
 import { type CaseVerdict, type ExitCode, exitCodeOf } from "./verdict";
@@ -88,7 +88,9 @@ function judgeLines(
   labeled: { labeled: number; needsWork: number } | undefined,
 ): string[] {
   const own = trials.filter((t) => t.record.column === 0);
-  const judged = own.flatMap((t) => newestEntries(t.scores).filter((e) => e.grader === "criteria"));
+  const judged = own.flatMap((t) =>
+    newestEntries(t.scores).filter((e) => e.grader === "criteria" && !e.beside),
+  );
   if (judged.length === 0) {
     return criteria > 0
       ? [
@@ -126,7 +128,7 @@ function judgeLines(
       : [];
     lines.push(
       [
-        `judge: ${agent.harness}/${agent.model}${short}`,
+        `judge: ${agent.harness}/${agent.model} ×${votersOf(agent)}${short}`,
         ...(family === undefined ? ["family unknown"] : []),
         ...(shared.length > 0
           ? [`shares the ${family} family with the workflow's ${shared.join(", ")}`]
@@ -134,7 +136,32 @@ function judgeLines(
       ].join(" · "),
     );
   }
+  lines.push(...besideLines(own));
   return lines;
+}
+
+/**
+ * Each judge graded beside the deciding one by `score --judge`: on how many trials, at what
+ * grading cost, and on how many its verdict differs from the deciding judge's. Which is right is
+ * for the person's labels to say.
+ */
+function besideLines(trials: readonly StoredTrialView[]): string[] {
+  const judges = new Map<string, { trials: number; cost: number; differ: number }>();
+  for (const t of trials) {
+    const newest = newestEntries(t.scores);
+    const deciding = newest.find((e) => e.grader === "criteria" && !e.beside);
+    for (const e of newest.filter((e) => e.beside && !e.errored && !e.skipped)) {
+      const into = judges.get(entryName(e)) ?? { trials: 0, cost: 0, differ: 0 };
+      judges.set(entryName(e), into);
+      into.trials++;
+      into.cost += e.estimate ?? 0;
+      if (deciding?.verdict && e.verdict && deciding.verdict !== e.verdict) into.differ++;
+    }
+  }
+  return [...judges].map(
+    ([name, j]) =>
+      `beside: ${name} on ${plural(j.trials, "trial")} · grading ${usd(j.cost)} · differs from the deciding judge on ${j.differ}`,
+  );
 }
 
 /** Each stage's median time over these trials, in the order the stages first ran; or none. */
@@ -194,7 +221,12 @@ function personLines(run: RunRecord, person: PersonAgreement): string[] {
   const lines = [
     `labels: ${plural(labeled, "trial")} · ${agreed(person) || "none compared"}${person.notCompared > 0 ? ` · ${person.notCompared} neither passed nor failed` : ""}`,
   ];
-  for (const grader of person.graders) lines.push(`  ${grader.grader}: ${agreed(grader)}`);
+  const judges = person.graders.filter((g) => g.cost > 0).length;
+  for (const grader of person.graders) {
+    const cost = grader.cost > 0 ? ` · grading ${usd(grader.cost)}` : "";
+    const deciding = judges > 1 && grader.deciding && grader.cost > 0 ? ", deciding" : "";
+    lines.push(`  ${grader.grader}${deciding}: ${agreed(grader)}${cost}`);
+  }
   for (const d of person.disagreements) {
     const where = d.column > 0 ? ` (${columnLabel(run, d.column)})` : "";
     lines.push(
@@ -645,12 +677,14 @@ export function renderCase(
             (entry.notApplies ? `does not apply: ${entry.notApplies}` : "numbers only"));
       const about = [
         ...(entry.version ? [entry.version] : []),
-        ...(deciders && !deciders.has(entry.grader) ? ["not in the verdict"] : []),
+        ...(entry.beside || (deciders && !deciders.has(entry.grader))
+          ? ["not in the verdict"]
+          : []),
         ...(entry.estimate !== undefined ? [`est. ${usd(entry.estimate)}`] : []),
         ...(entry.runId ? [`run ${entry.runId}`] : []),
       ];
       lines.push(
-        `  ${entry.grader}: ${verdict}${about.length > 0 ? ` (${about.join(", ")})` : ""}`,
+        `  ${entryName(entry)}: ${verdict}${about.length > 0 ? ` (${about.join(", ")})` : ""}`,
       );
       for (const [name, number] of Object.entries(entry.numbers ?? {})) {
         lines.push(

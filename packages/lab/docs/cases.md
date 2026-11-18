@@ -37,7 +37,7 @@ are its.
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
 | `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--param k=v] [--vary k=a,b] [--fresh] [--dry-run] [--budget {usd}] [--json] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
 | `report [{run}] [--case {name}] [--json \| --md]` | the last run again, or the one named; one case in full; Markdown to paste |
-| `score [{run}] [--grader {name}] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
+| `score [{run}] [--grader {name} \| --judge {harness}/{model} [--voters n]] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
 | `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
 | `runs` | the runs kept, newest first |
@@ -239,8 +239,9 @@ shown as a median), `reasons`, `parts?` (one per thing judged, with `label`, `wh
   folder through `gradeCase()`: `grade.json`, `case/`, `key.json`, `key/`, `result.json`,
   `facts.json`, `kept/`, and `previous.json` (its earlier parts, so it judges only what changed).
   Their cost is grading's.
-- **Built in**: `expect`, and `criteria`, the lab's judge: three voters per criterion, each given
-  it alone; the majority decides, a 2–1 split is counted, fewer than two agreeing is `unsettled`.
+- **Built in**: `expect`, and `criteria`, the lab's judge: three voters per criterion unless
+  `judgeAgent` gives `voters` (odd, up to 9), each given it alone; a majority of them decides, a
+  split is counted, fewer agreeing is `unsettled`.
   A criterion judged from saved files is marked "read, not run". It is judged only on changed
   criteria when its version and `judgeAgent` are unchanged.
 - **Order, cheap first**: `expect`, code graders, then grader workflows and the judge, which are
@@ -255,6 +256,13 @@ shown as a median), `reasons`, `parts?` (one per thing judged, with `label`, `wh
 one, a changed key digest (the part of the key it reads), a changed `{major}.{minor}`, or for the
 judge a changed `judgeAgent`. A trial whose case input changed is left, with "run it again".
 `--budget` stops before a costly grader once the estimates reach it (exit 3).
+
+**Judges compared, `score --judge {harness}/{model} [--voters n]`**: the kept trials' criteria
+judged again by another judge, beside the one `judgeAgent` names. Its grades are kept with its
+agent and voters, marked `beside`, and never decide: the verdict stays the configured judge's.
+The report gives each beside judge's trials, grading cost and how often its verdict differs, and
+with labels each judge's agreement with the person and its cost, the deciding one marked; a judge
+asked again grades only what changed. Switching judges is an edit of `judgeAgent`.
 
 ## `--against {folder}`
 

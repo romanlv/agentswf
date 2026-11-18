@@ -53,6 +53,8 @@ export type LabGrader = {
   keyOf?: (info: Pick<CaseInfo, "dir" | "key" | "keyFiles">) => string;
   /** Whether it grades a case with this key at all; absent, every case. */
   appliesTo?: (key: Key) => boolean;
+  /** A judge graded beside the deciding one, by `score --judge`: never decides. */
+  beside?: boolean;
   /** The agent it judges with, when that is a setting (the criteria judge's `judgeAgent`). */
   agent?: Agent;
   /** Throws grading's error, with the grader's `version` on the error when it was read. */
@@ -110,13 +112,18 @@ export const keyFor = (grader: LabGrader, info: Pick<CaseInfo, "dir" | "key" | "
   grader.keyOf ? grader.keyOf(info) : keyDigestOf(info);
 
 const sameAgent = (a: Agent | undefined, b: Agent | undefined) =>
-  a?.harness === b?.harness && a?.model === b?.model;
+  a?.harness === b?.harness && a?.model === b?.model && (a?.voters ?? 3) === (b?.voters ?? 3);
 
 /** Whether these entries fail the trial: a deciding grader's `failed`. */
 export function failsIn(entries: readonly GraderEntry[], deciders: ReadonlySet<string>): boolean {
   return entries.some(
     (e) =>
-      deciders.has(e.grader) && !e.skipped && !e.errored && !e.notApplies && e.verdict === "failed",
+      !e.beside &&
+      deciders.has(e.grader) &&
+      !e.skipped &&
+      !e.errored &&
+      !e.notApplies &&
+      e.verdict === "failed",
   );
 }
 
@@ -216,7 +223,10 @@ export async function gradeTrial(trial: GradeTrial): Promise<TrialGrades> {
   ];
   for (const grader of ordered) {
     if (grader.appliesTo && !grader.appliesTo(info.key)) continue;
-    const base = { grader: grader.name, key: keyFor(grader, info) };
+    // A beside judge is read under a name of its own, and recorded as the judge it is.
+    const base = grader.beside
+      ? { grader: "criteria", beside: true as const, key: keyFor(grader, info) }
+      : { grader: grader.name, key: keyFor(grader, info) };
     if (grader.costly) {
       if (failsIn([...(trial.standing ?? []), ...entries], trial.deciders)) {
         entries.push({ ...base, reasons: [], skipped: true });

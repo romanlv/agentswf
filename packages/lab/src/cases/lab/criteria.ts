@@ -4,6 +4,7 @@ import type { Agent, Key } from "../format/settings";
 import { JUDGE_VERSION } from "../judge/version";
 import { sha256 } from "./dataset";
 import { canonical, type LabGrader } from "./grading";
+import { besideName } from "./outcome";
 import { graderWorkflow, type WorkflowGraderLab } from "./workflow-graders";
 
 /** The criteria judge's workflow, which this checkout's own `awf` runs. */
@@ -19,22 +20,32 @@ const hasCriteria = (key: Key) => criteriaOf(key).length > 0;
 export function criteriaJudge(
   lab: Pick<WorkflowGraderLab, "runner" | "runRoot" | "now">,
   agent: Agent,
+  /** Graded beside the deciding judge, by `score --judge`: on demand, never in the verdict. */
+  beside = false,
 ): LabGrader {
+  const name = beside ? besideName(agent) : "criteria";
   const run = graderWorkflow(
     { ...lab, awf: async () => undefined },
     {
-      name: "criteria",
+      name,
       file: JUDGE_FILE,
       readsFacts: true,
-      onDemand: false,
+      onDemand: beside,
       timeout: "20m",
-      argv: ["--harness", agent.harness, "--model", agent.model],
+      argv: [
+        "--harness",
+        agent.harness,
+        "--model",
+        agent.model,
+        ...(agent.voters ? ["--voters", String(agent.voters)] : []),
+      ],
     },
   );
   return {
     ...run,
     version: JUDGE_VERSION,
     agent,
+    ...(beside ? { beside: true } : {}),
     appliesTo: hasCriteria,
     keyOf: (info) => sha256(canonical(criteriaOf(info.key).map((c) => `${c.field}: ${c.text}`))),
     async grade(call) {

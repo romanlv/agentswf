@@ -1472,8 +1472,79 @@ describe("the criteria judge, through the command line", () => {
     expect(nine).toContain("not checked against a person (labeled 9 of 10, needs-work 3 of 3");
     await lab(where, ["label", trials[9]!.record.runId!, "--good"]);
     const ten = (await lab(where, ["report"])).out;
-    expect(ten).toContain("judge: claude/claude-haiku-5-5\n");
+    expect(ten).toContain("judge: claude/claude-haiku-5-5 ×3\n");
     expect(ten).toContain("labels: 10 trials · good 7, passed 7 · needs-work 3, failed 0");
+  });
+
+  test("score --judge grades beside the judge that decides; the report compares them on labels and cost", async () => {
+    const where = judged();
+    await lab(where, ["run", "--yes", "--trials", "4"], { runner: scripted({}, judge).runner });
+    const trials = readTrials(storeOf(where), nthRun(storeOf(where), 1));
+    // The person says two of the four need work: the configured judge passed them all.
+    for (const [i, t] of trials.entries()) {
+      await lab(where, [
+        "label",
+        t.record.runId!,
+        ...(i < 2 ? ["--needs-work", "too long"] : ["--good"]),
+      ]);
+    }
+    // Sonnet, five voters, fails the first two: it agrees with the person.
+    let seen = 0;
+    const sonnet: GraderPlay = (input, request) => {
+      expect(request.argv).toEqual([
+        "--harness",
+        "claude",
+        "--model",
+        "claude-sonnet-5-5",
+        "--voters",
+        "5",
+      ]);
+      const fails = seen++ < 2;
+      return {
+        value: {
+          verdict: fails ? "failed" : "passed",
+          reasons: [],
+          parts: [...(input.case.key.must ?? [])].map((text) => ({
+            about: `must: ${text}`,
+            verdict: fails ? "failed" : "passed",
+            settled: "agreed",
+            votes: [],
+          })),
+        },
+        estimate: 0.05,
+      };
+    };
+    const scored = await lab(
+      where,
+      ["score", "--yes", "--judge", "claude/claude-sonnet-5-5", "--voters", "5"],
+      { runner: scripted({}, sonnet).runner },
+    );
+    expect(scored.code).toBe(0);
+    // trials run in order of their trial number: the first two judged are trials 1 and 2.
+    expect(scored.out).toContain(
+      "  criteria (claude/claude-haiku-5-5 ×3 1.0), deciding: good 2, passed 2 · needs-work 2, failed 0 · grading $0.04",
+    );
+    expect(scored.out).toContain(
+      "  criteria (claude/claude-sonnet-5-5 ×5 1.0): good 2, passed 2 · needs-work 2, failed 2 · grading $0.20",
+    );
+    // The verdict is still the configured judge's: every case passed.
+    expect(scored.out).toContain("passed 1 · failed 0");
+    const entry = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores.at(-1)!
+      .entries[0]!;
+    expect(entry).toMatchObject({
+      grader: "criteria",
+      beside: true,
+      agent: { model: "claude-sonnet-5-5", voters: 5 },
+    });
+    // Asked again, the beside judge has nothing new to grade.
+    const again = await lab(
+      where,
+      ["score", "--yes", "--judge", "claude/claude-sonnet-5-5", "--voters", "5"],
+      {
+        runner: scripted({}, sonnet).runner,
+      },
+    );
+    expect(again.err).toMatch(/nothing in run \S+ to grade again/);
   });
 
   test("criteria are judged after expect, on the lab's own awf, recording the judge's agent", async () => {
@@ -1494,7 +1565,7 @@ describe("the criteria judge, through the command line", () => {
     // Its grade folder holds the criteria alone: no expect, no key/.
     expect(input.case.key).toEqual({ kind: "awf.case-key/0", must: ["the reply is short"] });
     expect(input.case.keyDir).toBeUndefined();
-    expect(out).toContain("judge: claude/claude-haiku-5-5, not checked against a person");
+    expect(out).toContain("judge: claude/claude-haiku-5-5 ×3, not checked against a person");
   });
 
   test("a trial expect failed skips the judge; score judges it once the key's expect passes", async () => {

@@ -1,5 +1,5 @@
 import type { GraderEntry } from "../format/records";
-import { newestEntries, type StoredTrialView } from "./outcome";
+import { entryName, newestEntries, type StoredTrialView } from "./outcome";
 
 /** One number pooled over a column's trials: counts summed, or values, shown as a median. */
 export type Pooled = { count: number; of: number } | { values: number[] };
@@ -28,8 +28,8 @@ export function poolNumbers(trials: readonly StoredTrialView[]): PooledNumbers {
     }
     for (const entry of newestEntries(trial.scores).filter(usable)) {
       for (const [name, number] of Object.entries(entry.numbers ?? {})) {
-        const byName = graders.get(entry.grader) ?? new Map<string, Pooled>();
-        graders.set(entry.grader, byName);
+        const byName = graders.get(entryName(entry)) ?? new Map<string, Pooled>();
+        graders.set(entryName(entry), byName);
         const was = byName.get(name);
         if ("count" in number) {
           const sum = was && "count" in was ? was : { count: 0, of: 0 };

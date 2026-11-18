@@ -152,6 +152,8 @@ test("the case kind imports only itself and the shared folder, and names no doma
   await write({
     "packages/lab/package.json": manifest("@agentswf/lab"),
     [`${shared}/runner.ts`]: 'import "node:fs";\n',
+    [`${shared}/compare/index.ts`]: "export {};\n",
+    [`${shared}/compare/index.test.ts`]: "export {};\n",
     [`${shared}/config.ts`]: 'import "../cases/format/settings";\nimport "node:path";\n',
     [`${cases}/format/settings.ts`]: 'import "../../shared/config";\n',
     [`${cases}/lab/verdict.ts`]:

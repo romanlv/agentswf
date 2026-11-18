@@ -294,6 +294,11 @@ export const GraderEntrySchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    /**
+     * Graded beside the judge that decides, by `score --judge`: kept to compare judges on the same
+     * trials, never in the verdict. Read as its own grader, named by its agent.
+     */
+    beside: Type.Optional(Type.Literal(true)),
     /** Skipped, as a cheaper grader failed the trial: graded by `score` once it passes them. */
     skipped: Type.Optional(Type.Literal(true)),
   },

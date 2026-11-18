@@ -462,7 +462,7 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["grader", "good", "needsWork"],
+                "required": ["grader", "good", "needsWork", "cost", "deciding"],
                 "properties": {
                   "grader": {
                     "type": "string",
@@ -497,6 +497,13 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "cost": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "deciding": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false

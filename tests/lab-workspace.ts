@@ -11,7 +11,7 @@ import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/fo
  */
 
 const REVIEW_INDEX = join(import.meta.dir, "../packages/lab/src/review/index.ts");
-const COMPARE_INDEX = join(import.meta.dir, "../packages/lab/src/compare/index.ts");
+const COMPARE_INDEX = join(import.meta.dir, "../packages/lab/src/shared/compare/index.ts");
 export const CANNED = join(import.meta.dir, "fixtures/lab/canned.workflow.ts");
 const EXACT = join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts");
 

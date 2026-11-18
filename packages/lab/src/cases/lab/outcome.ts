@@ -1,10 +1,23 @@
 import type { Errored, GraderEntry, Outcome, ScoreRecord, TrialRecord } from "../format/records";
 import { type CaseTally, type CaseVerdict, caseVerdict, isBroken, outcomeOf } from "./verdict";
 
-/** Each grader's newest entry across a trial's scores. */
+/** The voters a judge's agent gives, 3 when it says none. */
+export const votersOf = (agent: { voters?: number } | undefined) => agent?.voters ?? 3;
+
+/** The name a judge graded beside the deciding one is read under: by its agent and voters. */
+export const besideName = (agent: { harness: string; model: string; voters?: number }) =>
+  `criteria (${agent.harness}/${agent.model} ×${votersOf(agent)})`;
+
+/** The grader an entry is read as: its own name, or a beside judge's by its agent. */
+export const entryName = (entry: GraderEntry) =>
+  entry.beside && entry.agent ? besideName(entry.agent) : entry.grader;
+
+/** Each grader's newest entry across a trial's scores, a beside judge as a grader of its own. */
 export function newestEntries(scores: readonly ScoreRecord[]): GraderEntry[] {
   const byGrader = new Map<string, GraderEntry>();
-  for (const score of scores) for (const entry of score.entries) byGrader.set(entry.grader, entry);
+  for (const score of scores) {
+    for (const entry of score.entries) byGrader.set(entryName(entry), entry);
+  }
   return [...byGrader.values()];
 }
 
@@ -18,7 +31,7 @@ export function decidingEntries(
   scores: readonly ScoreRecord[],
   deciders: ReadonlySet<string> | undefined,
 ): GraderEntry[] {
-  return newestEntries(scores).filter((e) => !deciders || deciders.has(e.grader));
+  return newestEntries(scores).filter((e) => !e.beside && (!deciders || deciders.has(e.grader)));
 }
 
 /** A trial's outcome, from its record and its deciding graders' newest entries. */

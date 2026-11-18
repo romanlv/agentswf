@@ -9,7 +9,12 @@ export const WORKSPACE_KIND = "awf.lab-workspace/0";
 const Text = Type.String({ minLength: 1 });
 
 export const AgentSchema = Type.Object(
-  { harness: Text, model: Text },
+  {
+    harness: Text,
+    model: Text,
+    /** The criteria judge's voters per criterion, odd: 3 when absent. */
+    voters: Type.Optional(Type.Integer({ minimum: 1, maximum: 9, multipleOf: 1 })),
+  },
   { additionalProperties: false },
 );
 export type Agent = Type.Static<typeof AgentSchema>;

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { answer, noAnswer, testWorkflow } from "agentswf/testing";
 import { TRIAL_ENV } from "../format/trial-env";
 import { writeGradeFolder } from "../lab/workflow-graders";
-import judge, { voteSchema } from "./criteria.workflow";
+import judge, { settle, voteSchema } from "./criteria.workflow";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -72,7 +72,7 @@ const vote = (field: "must" | "must-not", verdict: string, extra: object = {}) =
     fromSavedFiles: false,
     ...extra,
   });
-const args = { args: { harness: "claude", model: "claude-haiku-5-5" } };
+const args = { args: { harness: "claude", model: "claude-haiku-5-5", voters: 3 } };
 
 describe("the criteria judge", () => {
   test("three voters per criterion; the majority decides, a 2–1 split marked", async () => {
@@ -216,4 +216,14 @@ describe("the criteria judge", () => {
     expect(run.value.parts[0]).toMatchObject({ verdict: "passed", settled: "agreed" });
     expect(run.value.parts[1]).toEqual(kept);
   });
+});
+
+test("five voters: a majority is three of them, whether or not all answered", () => {
+  const vote = (verdict: string) => ({ verdict, why: "" }) as never;
+  expect(
+    settle("must", [vote("met"), vote("met"), vote("unmet"), vote("unmet"), undefined]),
+  ).toMatchObject({ verdict: "undecided", settled: "unsettled" });
+  expect(
+    settle("must", [vote("met"), vote("met"), vote("met"), vote("unmet"), undefined]),
+  ).toMatchObject({ verdict: "passed", settled: "majority" });
 });

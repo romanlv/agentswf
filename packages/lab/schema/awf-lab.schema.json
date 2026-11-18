@@ -22,6 +22,12 @@
         "model": {
           "type": "string",
           "minLength": 1
+        },
+        "voters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "multipleOf": 1
         }
       },
       "additionalProperties": false,

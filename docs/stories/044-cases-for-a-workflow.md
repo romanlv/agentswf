@@ -22,8 +22,8 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 
 | | |
 | --- | --- |
-| **Built** | cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 9: parameters and columns, one store per project, trial reuse, the person's labels, tags and rates with intervals, `compare`, the judge as a parameter |
+| **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
+| **Next** | task 9's live check of judges on the mail dataset; then task 10 |
 | **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
 | **Waiting on the person** | task 1, hand-judging ten mail cases (now: labels, after task 9); task 5's web-to-cli dataset (Q15) |
 
@@ -198,10 +198,10 @@ helper process.
 
 **Also**: `run --budget`, `--dry-run`, `--json`; `report --md` for pasting.
 
-**The judge as a parameter**, last. The judge's agent and number of voters become parameters, under
-names the lab keeps (such as `judge.model`) so they never reach `env.ts`, so `--vary`, and `score`
-under it, compares judges on the same trials by agreement with labels and
-by cost. Planned at that step; a structural choice goes to the person.
+**Judges compared**, last (the person chose, 2026-11-18). `awf-lab score --judge {harness}/{model}
+[--voters n]` grades the kept trials' criteria with another judge too; its grades are kept with
+its agent and voters, marked `beside`, and only `judgeAgent`'s decide. The report compares the
+judges on the same trials, by agreement with labels and by cost. `judgeAgent` may give `voters`.
 
 ### Task 10: the `"lab"` box
 
@@ -275,6 +275,12 @@ What this story leaves for later, in the order it would pay off:
 
 Settled by the owner, newest first:
 
+- **Judges compared beside the one that decides** (2026-11-18): `score --judge` keeps another
+  judge's grades with its agent and voters, marked `beside`; only `judgeAgent` decides. Rejected:
+  a grader per judge (its identity in names records pair by) and columns of grading (mixes what
+  ran with what graded).
+- **Labels by command for now** (2026-11-18): `awf-lab label`, a record per label; a queue or web
+  interface later on the same record. `labels.md` dropped: it needed syncing and couldn't be blind.
 - **Labels, rates with intervals, tags** (2026-11-17), after a review of the design against eval
   practice; labels are given with `awf-lab label` for now, a queue or web interface
   later on the same record. Then the judge becomes a parameter, compared on agreement and cost.
@@ -417,7 +423,7 @@ Execution:
   5. [x] tags and rates: intervals, pass^k, pass@k, `--tags`;
   6. [x] `compare`, with `src/compare` moved into `src/shared/`;
   7. [x] `run --budget`, `--dry-run`, `--json`; `report --md`;
-  8. the judge as a parameter.
+  8. [x] judges compared: `score --judge`, `voters`.
 - [ ] Review: architecture and scope; correctness and proof.
 - [ ] Resolve: disposition every finding.
 - [ ] Verify: the `Done when` items.

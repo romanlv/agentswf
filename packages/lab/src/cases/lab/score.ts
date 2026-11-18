@@ -13,7 +13,7 @@ import {
   previousFrom,
   staleBecause,
 } from "./grading";
-import { newestEntries } from "./outcome";
+import { entryName, newestEntries } from "./outcome";
 import { median } from "./report";
 import { appendScore, inputDirOf, keepInput, type StoredTrial } from "./store";
 
@@ -97,7 +97,7 @@ export function planScore(args: {
         continue;
       }
       const deciders = args.decidersOf(info);
-      const newest = new Map(newestEntries(trial.scores).map((e) => [e.grader, e]));
+      const newest = new Map(newestEntries(trial.scores).map((e) => [entryName(e), e]));
       const expect =
         args.expect &&
         deciders.has("expect") &&
@@ -107,7 +107,7 @@ export function planScore(args: {
       const graders = args.graders.filter((g) => g.appliesTo?.(info.key) ?? true);
       const cheap = graders.filter((g) => !g.costly && stale(g));
       const regraded = new Set([...(expect ? ["expect"] : []), ...cheap.map((g) => g.name)]);
-      const standing = [...newest.values()].filter((e) => !regraded.has(e.grader));
+      const standing = [...newest.values()].filter((e) => !regraded.has(entryName(e)));
       const costly: LabGrader[] = [];
       const maybe: LabGrader[] = [];
       for (const g of graders.filter((g) => g.costly)) {
@@ -145,7 +145,9 @@ export function planScore(args: {
       args.trials.flatMap((t) =>
         t.scores.flatMap((s) =>
           s.entries.flatMap((e) =>
-            e.grader === grader.name && e.estimate !== undefined && !e.skipped ? [e.estimate] : [],
+            entryName(e) === grader.name && e.estimate !== undefined && !e.skipped
+              ? [e.estimate]
+              : [],
           ),
         ),
       ),
@@ -230,10 +232,10 @@ export async function runScore(args: {
     entries.reduce((sum, e) => sum + (e.estimate ?? 0), 0);
   for (const item of args.plan.items) {
     const { trial, info } = item;
-    const newest = new Map(newestEntries(trial.scores).map((e) => [e.grader, e]));
+    const newest = new Map(newestEntries(trial.scores).map((e) => [entryName(e), e]));
     const graders = [...item.graders, ...item.maybe];
     const regrading = new Set([...(item.expect ? ["expect"] : []), ...graders.map((g) => g.name)]);
-    const standing = [...newest.values()].filter((e) => !regrading.has(e.grader));
+    const standing = [...newest.values()].filter((e) => !regrading.has(entryName(e)));
     const byName = new Map(graders.map((g) => [g.name, g]));
     // Made as a trial's folders are, so a later run sweeps them if this process dies.
     const work = makeTrialFolders(args.tmp, args.run).parent;
@@ -271,18 +273,18 @@ export async function runScore(args: {
               },
             ]
           : // A grader skipped again over a skip says nothing new.
-            result.entries.filter((e) => !(e.skipped && newest.get(e.grader)?.skipped));
+            result.entries.filter((e) => !(e.skipped && newest.get(entryName(e))?.skipped));
       if (entries.length > 0) {
         appendScore(trial.dir, { kind: SCORE_KIND, at: args.now().toISOString(), entries });
       }
       for (const entry of entries) {
         if (entry.skipped) continue;
-        add(entry.errored ? errored : graded, entry.grader);
+        add(entry.errored ? errored : graded, entryName(entry));
       }
       spent += cost(entries);
       const said = entries.map(
         (e) =>
-          `${e.grader} ${e.errored ? `errored: ${e.errored.reason}` : e.skipped ? "skipped" : (e.verdict ?? e.notApplies ?? "graded")}`,
+          `${entryName(e)} ${e.errored ? `errored: ${e.errored.reason}` : e.skipped ? "skipped" : (e.verdict ?? e.notApplies ?? "graded")}`,
       );
       args.progress?.(
         `  ${trial.record.case} ${trial.record.trial}: ${said.join(", ") || "nothing new"}`,

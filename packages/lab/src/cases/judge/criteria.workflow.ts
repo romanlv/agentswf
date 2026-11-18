@@ -16,7 +16,7 @@ import { criteriaOf } from "../format/key";
 import type { Part } from "../format/records";
 import { JUDGE_VERSION } from "./version";
 
-type Args = { harness: string; model: string };
+type Args = { harness: string; model: string; voters: number };
 
 type Field = "must" | "must-not";
 const SAYS: Record<Field, { pass: string; fail: string }> = {
@@ -93,7 +93,8 @@ export function settle(
   const given = votes.filter((v): v is Vote => v !== undefined);
   const passes = given.filter((v) => v.verdict === SAYS[field].pass);
   const fails = given.filter((v) => v.verdict === SAYS[field].fail);
-  const need = 2;
+  // A majority of the voters asked, whether or not each answered.
+  const need = Math.floor(votes.length / 2) + 1;
   if (passes.length >= need || fails.length >= need) {
     const side = passes.length >= need ? passes : fails;
     return {
@@ -109,7 +110,8 @@ export default defineWorkflow<Args, JsonGrade>({
   meta: {
     name: "awf-lab-criteria",
     version: JUDGE_VERSION,
-    description: "Three voters judge each must and must-not of a case's key; the majority decides.",
+    description:
+      "Voters, three unless told, judge each must and must-not of a case's key; the majority decides.",
   },
   prepare: (invocation: WorkflowInvocation): Args => {
     const argv = [...invocation.argv];
@@ -117,15 +119,21 @@ export default defineWorkflow<Args, JsonGrade>({
     while (argv.length > 0) {
       const flag = argv.shift()!;
       const value = argv.shift();
-      if (!["--harness", "--model"].includes(flag) || value === undefined) {
-        throw new Error(`the criteria judge takes --harness {h} --model {m}, not ${flag}`);
+      if (!["--harness", "--model", "--voters"].includes(flag) || value === undefined) {
+        throw new Error(
+          `the criteria judge takes --harness {h} --model {m} [--voters {n}], not ${flag}`,
+        );
       }
       values.set(flag.slice(2), value);
     }
     const harness = values.get("harness");
     const model = values.get("model");
     if (!harness || !model) throw new Error("the criteria judge needs --harness and --model");
-    return { harness, model };
+    const voters = Number(values.get("voters") ?? VOTERS);
+    if (!Number.isInteger(voters) || voters < 1 || voters > 9 || voters % 2 === 0) {
+      throw new Error(`--voters is odd, from 1 to 9: ${values.get("voters")}`);
+    }
+    return { harness, model, voters };
   },
   async run(wf, args) {
     const input = gradeCase();
@@ -151,7 +159,7 @@ export default defineWorkflow<Args, JsonGrade>({
           stages: input.stages ?? {},
         });
         const votes = await wf.parallel(
-          Array.from({ length: VOTERS }, (_, n) => n + 1),
+          Array.from({ length: args.voters }, (_, n) => n + 1),
           async (n): Promise<Vote | undefined> => {
             const agent = await wf.agents.open({
               key: `c${index + 1}-voter${n}`,
@@ -184,9 +192,9 @@ export default defineWorkflow<Args, JsonGrade>({
           ...decided,
           why:
             deciding?.why ??
-            (votes.filter(Boolean).length < 2
-              ? `${votes.filter(Boolean).length} of ${VOTERS} voters answered`
-              : `the voters split, and ${VOTERS - votes.filter(Boolean).length} gave no answer`),
+            (votes.filter(Boolean).length <= args.voters / 2
+              ? `${votes.filter(Boolean).length} of ${args.voters} voters answered`
+              : `the voters split, and ${args.voters - votes.filter(Boolean).length} gave no answer`),
           data: {
             field: criterion.field,
             criterion: criterion.text,

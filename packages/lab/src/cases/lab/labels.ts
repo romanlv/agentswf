@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkSchema, describeProblems } from "../../shared/validate";
 import { type LabelRecord, LabelRecordSchema } from "../format/records";
-import { newestEntries, trialOutcome } from "./outcome";
+import { newestEntries, trialOutcome, votersOf } from "./outcome";
 import type { StoredTrial } from "./store";
 
 // The person's labels: `{store}/labels/{dataset}.jsonl`, one line per label, newest last. They
@@ -59,8 +59,11 @@ export type Agreement = {
 export type PersonAgreement = Agreement & {
   /** Labeled trials the lab neither passed nor failed: errored, undecided, by numbers alone. */
   notCompared: number;
-  /** Each deciding grader's own agreement, the judge by its agent and version. */
-  graders: (Agreement & { grader: string })[];
+  /**
+   * Each deciding grader's own agreement, the judge by its agent and version, and each judge
+   * graded beside it by `score --judge`; with what grading the run's trials cost them.
+   */
+  graders: (Agreement & { grader: string; cost: number; deciding: boolean })[];
   disagreements: {
     case: string;
     column: number;
@@ -82,11 +85,11 @@ function count(into: Agreement, mark: "good" | "needs-work", verdict: string | u
   if (verdict === (mark === "good" ? "passed" : "failed")) side.agreed++;
 }
 
-/** A grader's name in agreement lines: the judge with its agent and `{major}.{minor}`. */
+/** A grader's name in agreement lines: a judge by its agent, voters and `{major}.{minor}`. */
 function graderName(entry: ReturnType<typeof newestEntries>[number]): string {
   if (!entry.agent) return entry.grader;
   const minor = entry.version?.split(".").slice(0, 2).join(".");
-  return `${entry.grader} (${entry.agent.harness}/${entry.agent.model}${minor ? ` ${minor}` : ""})`;
+  return `${entry.grader} (${entry.agent.harness}/${entry.agent.model} ×${votersOf(entry.agent)}${minor ? ` ${minor}` : ""})`;
 }
 
 /** The lab's agreement with the person on a set of trials, undefined when none is labeled. */
@@ -96,7 +99,23 @@ export function agreementOf(
   decidersOf: (name: string) => ReadonlySet<string> | undefined,
 ): PersonAgreement | undefined {
   const all = tally();
-  const graders = new Map<string, Agreement>();
+  const graders = new Map<string, Agreement & { cost: number; deciding: boolean }>();
+  const slot = (entry: ReturnType<typeof newestEntries>[number]) => {
+    const name = graderName(entry);
+    const into = graders.get(name) ?? { ...tally(), cost: 0, deciding: !entry.beside };
+    graders.set(name, into);
+    return into;
+  };
+  // What each grader cost on the run's trials, labeled or not: the price of what it agrees on.
+  for (const { record, scores } of trials) {
+    const deciders = decidersOf(record.case);
+    for (const entry of newestEntries(scores)) {
+      if (!entry.beside && deciders && !deciders.has(entry.grader)) continue;
+      if (entry.estimate !== undefined && (entry.agent || entry.beside)) {
+        slot(entry).cost += entry.estimate;
+      }
+    }
+  }
   const disagreements: PersonAgreement["disagreements"] = [];
   let notCompared = 0;
   for (const { record, scores } of trials) {
@@ -124,19 +143,18 @@ export function agreementOf(
       });
     }
     for (const entry of newestEntries(scores)) {
-      if (deciders && !deciders.has(entry.grader)) continue;
+      if (!entry.beside && deciders && !deciders.has(entry.grader)) continue;
       if (entry.skipped || entry.errored || !entry.verdict) continue;
-      const name = graderName(entry);
-      const into = graders.get(name) ?? tally();
-      graders.set(name, into);
-      count(into, label.mark, entry.verdict);
+      count(slot(entry), label.mark, entry.verdict);
     }
   }
   if (all.good.labeled + all.needsWork.labeled + notCompared === 0) return undefined;
   return {
     ...all,
     notCompared,
-    graders: [...graders].map(([grader, a]) => ({ grader, ...a })),
+    graders: [...graders]
+      .filter(([, a]) => a.good.labeled + a.needsWork.labeled > 0)
+      .map(([grader, a]) => ({ grader, ...a })),
     disagreements,
   };
 }
@@ -158,7 +176,7 @@ export function judgeLabeled(
     for (const { record, scores } of trials) {
       const label = record.runId ? labels.get(record.runId) : undefined;
       if (!label || seen.has(record.runId!)) continue;
-      const entry = newestEntries(scores).find((e) => e.grader === "criteria");
+      const entry = newestEntries(scores).find((e) => e.grader === "criteria" && !e.beside);
       if (!entry || entry.skipped || entry.errored || !entry.verdict) continue;
       const minor = entry.version?.split(".").slice(0, 2).join(".");
       if (
