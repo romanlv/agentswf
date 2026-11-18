@@ -112,6 +112,10 @@
     },
     "broke": {
       "type": "string"
+    },
+    "stopped": {
+      "type": "string",
+      "const": "budget"
     }
   },
   "additionalProperties": false

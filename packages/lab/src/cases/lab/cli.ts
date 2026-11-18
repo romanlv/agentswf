@@ -59,6 +59,7 @@ import { readRecords, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import {
   describeFolder,
+  markdownOf,
   median,
   plural,
   type RunReport,
@@ -108,11 +109,11 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
 
   case new {dataset}/{case}   a case folder and its key's marker; the first time, also
                               awf-lab.json, the dataset's dataset.json and a stub env.ts
-  run [--dataset {name}] [--cases {a,b}] [--tags {a,b}] [--failed] [--trials {n}] [--against {folder}]
+  run [--dataset {name}] [--cases {a,b}] [--tags {a,b}] [--failed] [--dry-run] [--budget {usd}] [--trials {n}] [--against {folder}]
       [--param {name}={value}] [--vary {name}={a,b}] [--fresh] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
-  report [{run}] [--case {name}] [--json]
+  report [{run}] [--case {name}] [--json | --md]
                               the last run again, or the run named by its id or last 4 characters
   score [{run}] [--grader {name}] [--tags {a,b}] [--yes] [--dry-run] [--budget {usd}] [--json]
                               grade the last run, or the one named, again without running a trial: each
@@ -147,9 +148,11 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
                     exit code, history and --failed are its
   --yes             no question before a run or a score
   --grader {name}   score with this grader alone, one marked onDemand included
-  --dry-run         print score's plan and grade nothing
-  --budget {usd}    score stops before a grader workflow once its grades' estimates reach it
+  --dry-run         print the plan of run or score, and run or grade nothing
+  --budget {usd}    run stops starting trials, and score before a grader workflow, once their
+                    estimates reach it: exit 3
   --json            the report, or score's plan and report, as JSON
+  --md              the report as Markdown, to paste into a pull request or an issue
 
 exit: 0 every case that must pass passed, 1 a case that must pass failed, 2 refused before any
 trial, 3 a case flaky or unclear, a partial run, or nothing graded, 4 the lab broke, 5 a trial
@@ -189,6 +192,7 @@ type Options = {
   param: string[];
   fresh: boolean;
   clear: boolean;
+  md: boolean;
   tags?: string[];
   vary: string[];
   failed: boolean;
@@ -219,6 +223,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     vary: [],
     fresh: false,
     clear: false,
+    md: false,
     good: false,
   };
   const positional: string[] = [];
@@ -260,6 +265,9 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean);
+        break;
+      case "--md":
+        options.md = true;
         break;
       case "--clear":
         options.clear = true;
@@ -569,15 +577,23 @@ async function run(context: Context): Promise<number> {
       ),
     ].filter((line): line is string => line !== undefined),
   ].join("\n");
+  if (options.dryRun) {
+    context.stdout(plan);
+    return 0;
+  }
+  const withBudget =
+    options.budget !== undefined
+      ? `${plan}\nstops starting trials once their estimates reach $${options.budget.toFixed(2)}`
+      : plan;
   const confirm =
     environment.confirm ??
     (process.stdin.isTTY && !options.yes ? (text: string) => askOperator(text, stderr) : undefined);
   if (confirm && !options.yes) {
-    if (!(await confirm(plan))) {
+    if (!(await confirm(withBudget))) {
       stderr("declined; nothing run");
       return 2;
     }
-  } else stderr(plan);
+  } else stderr(withBudget);
 
   const lock = takeLock(workspace.labHome);
   if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
@@ -623,6 +639,14 @@ async function run(context: Context): Promise<number> {
       );
     };
     const most = Math.max(...selected.map((c) => trialsOf(c.name)));
+    // What this run's own trials and their grading are estimated at, for --budget.
+    let estimated = 0;
+    const over = () => options.budget !== undefined && estimated >= options.budget;
+    const counted = (done: TrialDone) => {
+      estimated +=
+        (done.record.estimate ?? 0) +
+        (done.score?.entries ?? []).reduce((sum, e) => sum + (e.estimate ?? 0), 0);
+    };
     try {
       for (const [at, list] of reusing) {
         const n = Number(at.split("\0")[1]);
@@ -633,13 +657,20 @@ async function run(context: Context): Promise<number> {
         for (const info of selected.filter((c) => trialsOf(c.name) >= trial)) {
           for (const n of columns.keys()) {
             if (trial <= reusedIn(info.name, n)) continue;
+            if (over()) {
+              record = { ...record, stopped: "budget" };
+              continue;
+            }
             const done = await trialIn(n, info, trial);
+            counted(done);
             shown(done);
             if (done.record.errored?.by === "provider") again.push([info, n]);
           }
         }
         for (const [info, n] of again) {
+          if (over()) break;
           const done = await trialIn(n, info, trial);
+          counted(done);
           const retried = { ...done.record, retried: true };
           writeTrial(done.dir, retried);
           shown({ ...done, record: retried });
@@ -678,8 +709,23 @@ async function run(context: Context): Promise<number> {
     leftOut: unreadableRuns(workspace.store).filter((id) => id < record.id),
     ...personOf(workspace, record.dataset, trials, bars, graders),
   });
-  context.stdout(text);
-  return exit;
+  // A budget stop leaves trials unrun: 3, unless the report already exits worse.
+  const stoppedExit = record.stopped && exit === 0 ? 3 : exit;
+  if (options.json) {
+    const { person } = personOf(workspace, record.dataset, trials, bars, graders);
+    const json = reportJson({
+      run: record,
+      rows,
+      trials,
+      exit: stoppedExit,
+      bars,
+      others: otherColumns(workspace.store, record, trials, bars),
+      ...(person ? { person } : {}),
+      ...(verdicts ? { verdicts } : {}),
+    });
+    context.stdout(JSON.stringify(json, null, 2));
+  } else context.stdout(text);
+  return stoppedExit;
 }
 
 /**
@@ -1173,6 +1219,17 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
         others.map((column) => column.find((r) => r.name === row.name)),
         readLabels(workspace.store, run.dataset),
       ),
+    );
+  } else if (context.options.md) {
+    context.stdout(
+      markdownOf({
+        run,
+        rows,
+        others,
+        trials,
+        criteria: 0,
+        ...(verdicts ? { verdicts } : {}),
+      }),
     );
   } else if (context.options.json) {
     const json = reportJson({

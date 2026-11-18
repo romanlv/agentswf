@@ -350,6 +350,43 @@ function columnLines(
   return lines;
 }
 
+const cell = (row: CaseRow | undefined) =>
+  row
+    ? `${row.tally.verdict ?? row.tally.none ?? "-"} ${row.tally.passed}/${row.tally.trials}`
+    : "-";
+
+/**
+ * `report --md`: the run as Markdown to paste into a pull request or an issue: a table of cases
+ * by column, each column's rates and its difference and verdict against the reference.
+ */
+export function markdownOf(report: RunReport): string {
+  const { run, rows, others = [], verdicts } = report;
+  const { exit } = renderRun(report);
+  const labels = run.columns.map((_, i) => columnLabel(run, i));
+  const lines = [
+    `### ${run.dataset} · run ${run.id}`,
+    "",
+    `${plural(run.asked.length, "case")} · ${plural(report.trials.length, "trial")}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""} · exit ${exit}${EXIT_WHY[exit] ? `: ${EXIT_WHY[exit]}` : ""}`,
+    "",
+    `| case | ${labels.join(" | ")} |`,
+    `| --- | ${labels.map(() => "---").join(" | ")} |`,
+    ...rows.map(
+      (row) =>
+        `| ${row.name} | ${[cell(row), ...others.map((o) => cell(o.find((r) => r.name === row.name)))].join(" | ")} |`,
+    ),
+    "",
+    `- **${labels[0]}**: ${describeRates(ratesOf(rows))}`,
+  ];
+  for (const [i, column] of others.entries()) {
+    const difference = pairedDifference(rows, column);
+    const said = verdicts?.[i];
+    lines.push(
+      `- **${labels[i + 1]}**: ${describeRates(ratesOf(column))}${difference ? `; ${describeDifference(difference)}` : ""}${said && !("error" in said) ? `; compare: ${said.verdict.verdict}, ${said.verdict.reason}` : ""}`,
+    );
+  }
+  return lines.join("\n");
+}
+
 /** `run` and `report`'s text, and the exit code from your checkout's column. */
 export function renderRun({
   run,
@@ -383,6 +420,11 @@ export function renderRun({
           `against ${i + 1}: ${describeFolder(folder)}${folder.env !== run.folders[0]!.env ? ", env.ts differs" : ""}`,
       ),
     ...(sharedParams(run).length > 0 ? [`params: ${sharedParams(run).join(" ")}`] : []),
+    ...(run.stopped === "budget"
+      ? [
+          `stopped at --budget: ${plural(Math.max(0, run.asked.reduce((n, a) => n + a.trials, 0) * run.columns.length - trials.length), "trial")} not run`,
+        ]
+      : []),
     ...(run.columns.length > run.folders.length
       ? [`reference column: ${columnLabel(run, 0)}; the exit code and history are its`]
       : []),

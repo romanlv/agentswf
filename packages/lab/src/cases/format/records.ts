@@ -76,6 +76,8 @@ export const RunRecordSchema = Type.Object(
     finished: Type.Optional(Time),
     /** Set when the lab broke during the run. */
     broke: Type.Optional(Type.String()),
+    /** Set when the run stopped starting trials: `budget`, its estimates reached `--budget`. */
+    stopped: Type.Optional(Type.Literal("budget")),
   },
   { additionalProperties: false },
 );

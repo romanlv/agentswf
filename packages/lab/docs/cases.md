@@ -35,8 +35,8 @@ are its.
 | Command | Does |
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
-| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--param k=v] [--vary k=a,b] [--fresh] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
-| `report [{run}] [--case {name}] [--json]` | the last run again, or the one named; one case in full |
+| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--param k=v] [--vary k=a,b] [--fresh] [--dry-run] [--budget {usd}] [--json] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
+| `report [{run}] [--case {name}] [--json \| --md]` | the last run again, or the one named; one case in full; Markdown to paste |
 | `score [{run}] [--grader {name}] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
 | `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
@@ -46,7 +46,10 @@ A run is named by its id, the time it began and four random hex digits
 (`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`).
 
 `run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. Never pipe
-into them: without a terminal they don't ask.
+into them: without a terminal they don't ask. `--dry-run` prints the plan alone. `--budget {usd}`
+stops `run` starting trials once this run's estimates (its trials and their grading) reach it, and
+`score` before a costly grader: the report says how many were not run, and the exit is 3 unless
+it was worse already. `run --json` prints the report as `report --json` does.
 
 ## `env.ts`
 

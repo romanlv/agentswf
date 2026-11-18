@@ -2486,3 +2486,45 @@ describe("compare: a verdict per column, from graders.ts", () => {
     expect(out).toContain("is not a comparison");
   });
 });
+
+describe("run --dry-run, --budget and --json; report --md", () => {
+  test("--dry-run prints the plan and runs nothing", async () => {
+    const where = project({ a: {}, b: {} });
+    const fake = scripted({});
+    const { code, out } = await lab(where, ["run", "--dry-run", "--vary", "model=a,b"], {
+      runner: fake.runner,
+    });
+    expect(code).toBe(0);
+    expect(fake.calls).toHaveLength(0);
+    expect(out).toContain("ds · 2 cases · 1 trial each");
+    expect(out).toContain("vary: model=a,b · 2 columns");
+    expect(existsSync(join(where.home, ".awf/lab"))).toBe(false);
+  });
+
+  test("--budget stops starting trials once their estimates reach it: exit 3, the rest not run", async () => {
+    const where = project({ a: {}, b: {}, c: {} });
+    const fake = scripted({});
+    // Each scripted trial is estimated at $0.001: two reach $0.0015.
+    const { code, out, err } = await lab(where, ["run", "--yes", "--budget", "0.0015"], {
+      runner: fake.runner,
+    });
+    expect(err).toContain("stops starting trials once their estimates reach $0.00");
+    expect(fake.calls).toHaveLength(2);
+    expect(code).toBe(3);
+    expect(out).toContain("stopped at --budget: 1 trial not run");
+  });
+
+  test("run --json prints the report's JSON; report --md a table to paste", async () => {
+    const where = project({ a: {}, b: {} });
+    const ran = await lab(where, ["run", "--yes", "--json", "--vary", "model=a,b"], {
+      runner: scripted({}, undefined, {}, { "model=b": { b: [fail] } }).runner,
+    });
+    const json = JSON.parse(ran.out);
+    expect(json).toMatchObject({ kind: "awf.case-report/0", exit: 0 });
+    expect(json.columns[0].label).toBe("model=b");
+    const md = (await lab(where, ["report", "--md"])).out;
+    expect(md).toContain("| case | model=a | model=b |");
+    expect(md).toContain("| b | passed 1/1 | failed 0/1 |");
+    expect(md).toContain("- **model=b**: 1/2 cases passed");
+  });
+});
