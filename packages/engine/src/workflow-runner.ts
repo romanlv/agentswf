@@ -1904,7 +1904,9 @@ class WorkflowOwner {
     }
     this.options.ops.claim(spec.key, "agent");
     const inRunSandbox = this.options.sandboxes.hasRunSandbox;
-    if (inRunSandbox && spec.sandbox !== undefined)
+    // Under `awf run --boxed` the agent's own sandbox is set aside: it runs in its caller's box.
+    const ownSandbox = this.options.sandboxes.setAside ? undefined : spec.sandbox;
+    if (inRunSandbox && ownSandbox !== undefined)
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
     const existing = this.#agents.get(spec.key);
     if (existing?.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
@@ -1920,7 +1922,7 @@ class WorkflowOwner {
     const paneless = {
       headless: placementOf(execution) === "headless",
       sandboxed:
-        spec.sandbox !== undefined || existing?.identity.sandbox !== undefined || inRunSandbox,
+        ownSandbox !== undefined || existing?.identity.sandbox !== undefined || inRunSandbox,
     };
     checkPaneOptions(spec.key, spec, paneless);
     const pane = spec.pane === undefined ? undefined : storedPane(spec.pane);
@@ -1928,7 +1930,7 @@ class WorkflowOwner {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
       ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
-      ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
+      ...(ownSandbox === undefined ? {} : { sandbox: ownSandbox }),
       ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
       ...(pane === undefined ? {} : { pane }),
       asked: paneAsked(pane, this.options.panes, !paneless.headless && !paneless.sandboxed),
@@ -1942,9 +1944,9 @@ class WorkflowOwner {
       this.#tools.reopen(spec.key, spec.tools);
       if (keepAlive) existing.keepAlive = keepAlive;
       const seated =
-        spec.sandbox === undefined
+        ownSandbox === undefined
           ? existing.state
-          : this.assertSameSandbox(spec.key, existing.identity, spec.sandbox).then(
+          : this.assertSameSandbox(spec.key, existing.identity, ownSandbox).then(
               () => existing.state,
             );
       const attached = this.track(waitForDeadline(seated, effectiveDeadline));
@@ -1958,7 +1960,7 @@ class WorkflowOwner {
     // Reopened only where it can be: a key the code now opens on another harness starts afresh, and
     // so does an agent with a home of its own, skills or a sandbox, made anew at every open, which
     // its kept session isn't in. Either is given its instructions again.
-    const homeOfItsOwn = spec.skills !== undefined || spec.sandbox !== undefined || inRunSandbox;
+    const homeOfItsOwn = spec.skills !== undefined || ownSandbox !== undefined || inRunSandbox;
     const kept = found?.harness === execution.harness && !homeOfItsOwn ? found : undefined;
     if (found && !kept)
       this.options.onLog?.(
@@ -2001,7 +2003,7 @@ class WorkflowOwner {
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
-    if (spec.sandbox === undefined && !inRunSandbox) {
+    if (ownSandbox === undefined && !inRunSandbox) {
       skills = this.placeHostSkills(spec.key, execution, identity.cwd, identity.skills);
       skills.catch(() => undefined);
       opened = this.openHostAgent(opening, identity.cwd, accounted, skills);

@@ -20,6 +20,7 @@ import {
   type FakeSandboxOptions,
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
+import { parseCommand } from "./run-command";
 import { readRunLines } from "./run-lines";
 import { listRuns } from "./run-state";
 import { readEvents } from "./runs";
@@ -107,6 +108,8 @@ function setup(
   host?: AgentRunHostFactory,
   /** The operator's sandbox for the whole run, as `awf run --sandbox` gives it. */
   runSpec?: unknown,
+  /** `awf run --boxed`: the caller boxes the whole run, and the workflow's sandboxes are set aside. */
+  setAside = false,
 ) {
   const fake = createFakeSandboxProvider(options);
   const providers: SandboxProviders = { installed: { srt: fake.provider } };
@@ -127,6 +130,7 @@ function setup(
         sandboxesDir: runDirs.tempRunDir(),
         machineRoot: runDirs.tempRunDir(),
         ...(runSpec === undefined ? {} : { run: runSpec }),
+        ...(setAside ? { setAside: true as const } : {}),
       },
       onLog: (message) => logs.push(message),
     });
@@ -786,6 +790,28 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
       await rm(canary, { force: true });
     }
   }, 60_000);
+});
+
+describe("awf run --boxed: the workflow's sandboxes set aside", () => {
+  test("nothing opens: a sandbox of its own, a ref and an inline spec all run as host agents", async () => {
+    const { events, run } = setup({}, undefined, undefined, true);
+    const result = await run(async (context) => {
+      const wide = await context.sandboxes.open({ key: "wide", srt: {}, read: [root] });
+      const inRef = await open(context, { key: "a", sandbox: wide });
+      const inline = await open(context, { key: "b", sandbox: { srt: {}, read: [root] } });
+      return [inRef, inline].length;
+    });
+    expect(result.value).toBe(2);
+    expect(kinds(events)).toEqual([]);
+    expect(result.sandboxes ?? []).toEqual([]);
+  });
+
+  test("--boxed goes with neither --sandbox nor --continue", () => {
+    const parse = (argv: string[]) => () => parseCommand(["run", ...argv], work);
+    expect(parse(["w.ts", "--boxed", "--sandbox", "s.json"])).toThrow();
+    expect(parse(["w.ts", "--boxed", "--id", "x", "--continue"])).toThrow("--boxed starts a run");
+    expect(parseCommand(["run", "w.ts", "--boxed"], work).boxed).toBe(true);
+  });
 });
 
 describe("a run's sandboxes, opening as the run ends", () => {

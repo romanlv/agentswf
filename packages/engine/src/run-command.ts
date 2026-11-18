@@ -44,6 +44,8 @@ export type RunCommand = {
   quiet: boolean;
   /** The sandbox every agent runs in, as `--sandbox`'s file gave it. */
   sandbox?: unknown;
+  /** `--boxed`: the caller runs this process in a box of its own; the workflow's sandboxes are set aside. */
+  boxed?: true;
   /** `--workspace` and `--keep-panes`, which the run records; absent, neither was given. */
   panes?: RunPanes;
   /** Started from an agent's shell: start the run in a tab and take that session over. */
@@ -67,6 +69,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   let quiet = false;
   let workCwd = cwd;
   let sandbox: unknown;
+  let boxed = false;
   let here = false;
   let session: string | undefined;
   const panes: RunPanes = {};
@@ -94,6 +97,10 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     }
     if (option === "--here") {
       here = true;
+      continue;
+    }
+    if (option === "--boxed") {
+      boxed = true;
       continue;
     }
     if (option === "--continue") {
@@ -163,6 +170,12 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     throw new Error("--here prints what the calling agent does next: leave out --quiet");
   if (continuing && named === undefined)
     throw new Error("--continue goes on with the run --id names");
+  if (boxed && sandbox !== undefined) {
+    throw new Error(
+      "--boxed and --sandbox do not go together: a boxed run's agents run in its box",
+    );
+  }
+  if (boxed && continuing) throw new Error("--boxed starts a run; a continue is never boxed");
   const id = continuing ? undefined : named;
   const continueId = continuing ? named : undefined;
   if (values !== undefined && fromStage === undefined) {
@@ -189,6 +202,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     here,
     ...(session === undefined ? {} : { session }),
     ...(sandbox === undefined ? {} : { sandbox }),
+    ...(boxed ? { boxed: true as const } : {}),
     ...(Object.keys(panes).length === 0 ? {} : { panes }),
   };
 }

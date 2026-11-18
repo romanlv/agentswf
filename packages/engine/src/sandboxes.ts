@@ -46,6 +46,13 @@ import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 export type RunSandboxOptions = {
   providers: SandboxProviders;
   /**
+   * `awf run --boxed`: the caller already runs this whole process in a sandbox of its own, as
+   * awf-lab does a trial. The workflow's sandboxes are set aside: `wf.sandboxes.open` opens none,
+   * and every agent runs as a host agent, inside the caller's box. srt does not nest, and awf
+   * refuses srt inside docker, so nothing else would run there.
+   */
+  setAside?: true;
+  /**
    * Where each sandbox's own directory, its homes and quarantine, is made. Outside the run root, so
    * a provider that denies it hides none of a sandbox's own.
    */
@@ -189,6 +196,11 @@ export class RunSandboxes {
     return this.options.sandboxes?.run !== undefined;
   }
 
+  /** Whether the run's caller boxes it whole, so the workflow's sandboxes are set aside. */
+  get setAside(): boolean {
+    return this.options.sandboxes?.setAside === true;
+  }
+
   /** `wf.sandboxes.open`. */
   async open(spec: unknown): Promise<SandboxRef> {
     if (this.hasRunSandbox) throw new Error(RUN_SANDBOX_ONLY);
@@ -196,6 +208,11 @@ export class RunSandboxes {
     if (typeof key !== "string" || key === "") throw new Error("a sandbox needs a key");
     if (key.startsWith("agent:")) {
       throw new Error(`sandbox key ${key}: agent: names the sandboxes agents are given`);
+    }
+    if (this.setAside) {
+      // Nothing opens: an agent given this ref runs in the caller's box, as every agent does.
+      const provider = Object.keys(spec as object).find((k) => k === "srt" || k === "docker");
+      return Object.freeze({ key, provider: provider ?? "srt" }) as unknown as SandboxRef;
     }
     const sandbox = await this.#register(key, () => this.#open(key, spec, false));
     const ref = Object.freeze({ key: sandbox.key, provider: sandbox.provider });

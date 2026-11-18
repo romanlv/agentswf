@@ -9,6 +9,12 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+### Added
+
+- `awf run --boxed`, for a caller that runs the whole `awf run` process in a sandbox of its own,
+  as awf-lab does a trial: the workflow's sandboxes are set aside and every agent runs inside the
+  caller's box. It never goes with `--sandbox` or `--continue`.
+
 ## 0.1.1 — 2026-11-09
 
 ### Added
