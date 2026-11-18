@@ -23,7 +23,7 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 | | |
 | --- | --- |
 | **Built** | task 9: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | task 10, the `"lab"` box |
+| **Next** | task 10, the `"lab"` box: the engine's `--boxed` built; the lab's srt box next |
 | **Then** | task 10, the `"lab"` box; 11, the review datasets on cases; 12, the loop; 13, the review kind retired |
 | **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
 
@@ -616,6 +616,31 @@ checkout's layout; the lab's own share of the key covers `env/` and `format/`, n
 pass^k is left out when cases asked different trial counts; two machines claiming one run id in
 the same second would be read as one run; labels are filed by dataset name, so a rename orphans
 them.
+
+### Task 10's plan
+
+- **Probed** (2026-11-18): srt inside srt fails on macOS (the inner srt can't bind its proxy
+  socket, even with sockets and local binding allowed), and awf refuses srt inside Docker. So the
+  workflow's agents can open no sandbox inside the box.
+- **The engine change, the person's choice**: `awf run --boxed` (done, `5acfd591`) sets the
+  workflow's sandboxes aside: `wf.sandboxes.open` opens none and every agent runs as a host agent,
+  inside the caller's box. Refused with `--sandbox` and `--continue`; contract unchanged.
+- **The box, srt first**: `"sandbox": { "lab": "srt" }` runs `srt -s {profile} -- bun … awf run
+  --boxed …` per trial. Reads: the system, the toolchain (bun, git, each harness's executable and
+  install tree, by realpath), the code folder and the realpaths its `node_modules` links lead
+  to, the case and scratch folders. Denied inside them: `.git`, every case's `key.md` and `key/`,
+  the records folder, the store and the home folder. Writes: the scratch folder, a run root and a
+  fresh `HOME` in the trial's own folder, whose run records the lab moves into the store after.
+- **Network**: `agentReach.network`, the harnesses' model domains, `realHosts` and the engine's
+  hosts. The lab imports contract only, so it keeps its own table of model domains; a repo-level
+  test fails when it drifts from harness's.
+- **Credentials**: the fresh `HOME` holds none of the operator's harness state (it can hold
+  transcripts of earlier judging, keys among them), so a box suits agents that log in with an
+  API key, as metered headless ones do; one that needs a stored login is given that file alone.
+- **The reach check** under the box: the box's own profile is the trial's reach, recorded as the
+  trial's `reach`; agents with no sandbox of their own are expected.
+- **Docker** after srt, with the review lab's `docker run` (`--cap-drop ALL`, the operator's uid,
+  mounts only), its image holding bun, git and the harnesses.
 
 ### Live checks
 
