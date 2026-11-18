@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runLogLine, type SandboxRecord } from "@agentswf/contract/records";
 import { type AwfBin, loginRefused, type Runner, withoutCallingSession } from "../../shared/runner";
@@ -24,7 +24,15 @@ import {
 import { decidersOf, gradeTrial, type LabGrader } from "./grading";
 import type { FolderSetup } from "./inspect";
 import { checkReach, type OpenedAgent } from "./reach";
-import { appendScore, awfRunsOf, newRunId, trialDirOf, trialFileOf, writeTrial } from "./store";
+import {
+  appendScore,
+  awfRunsOf,
+  keepInput,
+  newRunId,
+  trialDirOf,
+  trialFileOf,
+  writeTrial,
+} from "./store";
 import { backstopOf, trialSettingsOf } from "./trial-settings";
 import type { CaseWorkspace } from "./workspace";
 
@@ -32,7 +40,7 @@ export type TrialLab = {
   workspace: CaseWorkspace;
   dataset: DatasetInfo;
   envFile: string;
-  run: number;
+  run: string;
   runner: Runner;
   /** Everything `awf logs` has for a trial's run, or why it couldn't be read whole. */
   logs: (
@@ -77,7 +85,7 @@ export async function runTrial(
   try {
     buildCase(dataset.dir, info, folders.dir);
     const input = folderDigest(folders.dir);
-    cpSync(folders.dir, join(dir, "input"), { recursive: true, verbatimSymlinks: true });
+    keepInput(workspace.store, input, folders.dir);
     const needle: Needle = { marker: info.key.marker, keyFiles: info.keyFiles };
     const base: TrialRecord = {
       kind: TRIAL_KIND,

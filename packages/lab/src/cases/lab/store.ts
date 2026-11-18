@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  cpSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -10,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type Checked, checkSchema, describeProblems } from "../../shared/validate";
 import {
   type RunRecord,
@@ -21,18 +22,42 @@ import {
   TrialRecordSchema,
 } from "../format/records";
 
-// The store: `{store}/runs/{n}/run.json`; a trial at `runs/{n}/trials/{case}/{column}-{trial}/`,
-// with `trial.json`, `input/` (the built case folder), `kept/`, `trial.jsonl` (its trial file)
-// and `scores.jsonl` (every score, newest last); the workflows' runs under `{store}/awf-runs`.
+// The store: `{store}/runs/{id}/run.json`; a trial at `runs/{id}/trials/{case}/{column}-{trial}/`,
+// with `trial.json`, `kept/`, `trial.jsonl` (its trial file) and `scores.jsonl` (every score,
+// newest last); each built case once, at `inputs/{digest}/`; the workflows' runs under
+// `{store}/awf-runs`.
 
 export const RUN_FILE = "run.json";
 export const TRIAL_FILE = "trial.json";
 export const SCORES_FILE = "scores.jsonl";
 
 export const awfRunsOf = (store: string) => join(store, "awf-runs");
-export const runDirOf = (store: string, n: number) => join(store, "runs", String(n));
-export const trialDirOf = (store: string, n: number, name: string, column: number, trial: number) =>
-  join(runDirOf(store, n), "trials", name, `${column}-${trial}`);
+export const runDirOf = (store: string, id: string) => join(store, "runs", id);
+export const trialDirOf = (
+  store: string,
+  id: string,
+  name: string,
+  column: number,
+  trial: number,
+) => join(runDirOf(store, id), "trials", name, `${column}-${trial}`);
+/** A built case folder, kept once by its digest however many trials ran on it. */
+export const inputDirOf = (store: string, digest: string) => join(store, "inputs", digest);
+
+/** Keeps a built case folder under its digest, unless it is kept already; made whole, then moved. */
+export function keepInput(store: string, digest: string, from: string): string {
+  const target = inputDirOf(store, digest);
+  if (existsSync(target)) return target;
+  const making = `${target}.${process.pid}-${randomUUID()}`;
+  mkdirSync(dirname(target), { recursive: true });
+  cpSync(from, making, { recursive: true, verbatimSymlinks: true });
+  try {
+    renameSync(making, target);
+  } catch (error) {
+    rmSync(making, { recursive: true, force: true });
+    if (!existsSync(target)) throw error;
+  }
+  return target;
+}
 
 /** An `awf run --id` unique among every workflow's runs in the store. */
 export function newRunId(now: Date): string {
@@ -135,23 +160,48 @@ export function takeLock(
   }
 }
 
-/** The next run's number, its folder claimed: taken under the lock. */
-export function claimRun(store: string): number {
+/**
+ * A new run's id, its folder claimed: the time and four random hex digits, unique across machines
+ * so records from two of them never clash, and ordered by time as text.
+ */
+export function claimRun(store: string, now: Date): string {
   mkdirSync(join(store, "runs"), { recursive: true });
-  const taken = runNumbers(store);
-  const next = (taken.at(-1) ?? 0) + 1;
-  mkdirSync(runDirOf(store, next));
-  return next;
+  // Claimed under the lock: a second run within a second takes the next second, so ids stay in
+  // the order the runs were made.
+  const last = runIds(store).at(-1);
+  let at = now.getTime() - (now.getTime() % 1000);
+  if (last && stampOf(at) <= last.slice(0, 15)) at = timeOf(last) + 1000;
+  const stamp = stampOf(at);
+  for (;;) {
+    const id = `${stamp}-${randomUUID().slice(0, 4)}`;
+    try {
+      mkdirSync(runDirOf(store, id));
+      return id;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
 }
 
-export function runNumbers(store: string): number[] {
+const stampOf = (ms: number) =>
+  new Date(ms).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+
+/** The time an id was claimed at, to the second. */
+function timeOf(id: string): number {
+  const [, y, mo, d, h, mi, se] = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(id)!;
+  return Date.UTC(+y!, +mo! - 1, +d!, +h!, +mi!, +se!);
+}
+
+/** The store's run ids, oldest first. */
+export function runIds(store: string): string[] {
   const dir = join(store, "runs");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((name) => /^[1-9][0-9]*$/.test(name))
-    .map(Number)
-    .sort((a, b) => a - b);
+    .filter((name) => RUN_ID.test(name))
+    .sort();
 }
+
+export const RUN_ID = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/;
 
 /**
  * A record this lab can't read: written before a `/0` format changed shape, or not JSON. History
@@ -177,15 +227,15 @@ function parseJson(file: string, text: string): unknown {
 }
 
 export function writeRun(store: string, run: RunRecord): void {
-  const file = join(runDirOf(store, run.number), RUN_FILE);
+  const file = join(runDirOf(store, run.id), RUN_FILE);
   writeFileSync(
     file,
     `${JSON.stringify(checked(file, checkSchema(RunRecordSchema, run)), null, 2)}\n`,
   );
 }
 
-export function readRunRecord(store: string, n: number): RunRecord | undefined {
-  const file = join(runDirOf(store, n), RUN_FILE);
+export function readRunRecord(store: string, id: string): RunRecord | undefined {
+  const file = join(runDirOf(store, id), RUN_FILE);
   if (!existsSync(file)) return undefined;
   return checked(file, checkSchema(RunRecordSchema, readJson(file)));
 }
@@ -207,8 +257,8 @@ export function appendScore(dir: string, score: ScoreRecord): void {
 export type StoredTrial = { dir: string; record: TrialRecord; scores: ScoreRecord[] };
 
 /** A run's trials, each with its scores, newest last. */
-export function readTrials(store: string, n: number): StoredTrial[] {
-  const root = join(runDirOf(store, n), "trials");
+export function readTrials(store: string, id: string): StoredTrial[] {
+  const root = join(runDirOf(store, id), "trials");
   if (!existsSync(root)) return [];
   const found: StoredTrial[] = [];
   for (const name of readdirSync(root).sort()) {

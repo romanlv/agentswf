@@ -44,6 +44,7 @@ import { decidersOf, type LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
 import { type CaseRow, trialOutcome } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
+import { readRecords, writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import { describeFolder, median, plural, renderCase, renderRun, seconds } from "./report";
 import { barsOf, type CaseBar, criteriaCount, failedCases, rowsOf, unreadableRuns } from "./runs";
@@ -53,9 +54,10 @@ import {
   awfRunsOf,
   claimRun,
   clearStaleTrialFiles,
+  RUN_ID,
   readRunRecord,
   readTrials,
-  runNumbers,
+  runIds,
   type StoredTrial,
   takeLock,
   UnreadableRecord,
@@ -81,10 +83,10 @@ export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
       [--param {name}={value}] [--vary {name}={a,b}] [--yes]
                               the workflow, as it is in your checkout, on each case, each trial
                               in a throwaway folder, graded against its key
-  report [{n}] [--case {name}] [--json]
-                              the last run again, or run n; one case in full with --case
-  score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]
-                              grade the last run, or run n, again without running a trial: each
+  report [{run}] [--case {name}] [--json]
+                              the last run again, or the run named by its id or last 4 characters
+  score [{run}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]
+                              grade the last run, or the one named, again without running a trial: each
                               grader whose key or version changed, or that errored
   capture {run id} (--good | --needs-work {note}) [--dataset {name}]
                               a case from a past run: a trial's, from its case, or a real one,
@@ -277,7 +279,9 @@ function workspaceOf(context: Context): CaseWorkspace {
       `no awf-lab.json here or above ${context.cwd}; awf-lab case new {dataset}/{case} makes one`,
     );
   }
-  return openCaseWorkspace(config, context.home);
+  const workspace = openCaseWorkspace(config, context.home);
+  if (workspace.records) readRecords(workspace.store, workspace.records);
+  return workspace;
 }
 
 /** The case kind's command line: `case new`, `run`, `report` and `runs`. */
@@ -372,11 +376,11 @@ function estimate(
   const ms: number[] = [];
   const cost: number[] = [];
   const grading: number[] = [];
-  for (const n of runNumbers(store)) {
+  for (const id of runIds(store)) {
     let trials: StoredTrial[];
     try {
-      if (readRunRecord(store, n)?.dataset !== dataset) continue;
-      trials = readTrials(store, n);
+      if (readRunRecord(store, id)?.dataset !== dataset) continue;
+      trials = readTrials(store, id);
     } catch (error) {
       if (error instanceof UnreadableRecord) continue; // `runs` names it
       throw error;
@@ -490,10 +494,10 @@ async function run(context: Context): Promise<number> {
   if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
   let record: RunRecord | undefined;
   try {
-    const number = claimRun(workspace.store);
+    const id = claimRun(workspace.store, now());
     record = {
       kind: RUN_KIND,
-      number,
+      id,
       dataset: info.name,
       folders: codeFolders.map((c) => ({
         path: c.folder.root,
@@ -512,7 +516,7 @@ async function run(context: Context): Promise<number> {
       workspace,
       dataset: info,
       envFile,
-      run: number,
+      run: id,
       runner: environment.runner ?? processRunner(),
       logs: environment.logs ?? awfLogs,
       tmp,
@@ -548,7 +552,7 @@ async function run(context: Context): Promise<number> {
     } catch (error) {
       record = { ...record, broke: (error as Error).message };
       writeRun(workspace.store, record);
-      throw new LabBroke(`the lab broke during run ${number}: ${(error as Error).message}`);
+      throw new LabBroke(`the lab broke during run ${id}: ${(error as Error).message}`);
     }
     record = { ...record, finished: now().toISOString() };
     writeRun(workspace.store, record);
@@ -559,9 +563,10 @@ async function run(context: Context): Promise<number> {
     }
     throw error;
   } finally {
+    if (record && workspace.records) writeRecords(workspace.store, workspace.records, record.id);
     lock.release();
   }
-  const trials = readTrials(workspace.store, record.number);
+  const trials = readTrials(workspace.store, record.id);
   const rows = rowsOf(workspace.store, record, trials, bars);
   const { text, exit } = renderRun({
     run: record,
@@ -570,7 +575,7 @@ async function run(context: Context): Promise<number> {
     trials,
     criteria,
     decidersOf: (name) => bars.get(name)?.deciders,
-    leftOut: unreadableRuns(workspace.store).filter((n) => n < record.number),
+    leftOut: unreadableRuns(workspace.store).filter((id) => id < record.id),
   });
   context.stdout(text);
   return exit;
@@ -733,17 +738,37 @@ function definedOf(env: Readonly<Record<string, string | undefined>>): Record<st
   );
 }
 
-/** The run named, or the last one. */
+/** The run named, by its id or the last four characters of it, or the newest. */
 function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: string): RunRecord {
-  if (names.length > 1 || (names[0] !== undefined && !/^[1-9][0-9]*$/.test(names[0]))) {
-    throw new Refusal(usage);
+  if (names.length > 1) throw new Refusal(usage);
+  const ids = runIds(workspace.store);
+  const given = names[0];
+  if (given === undefined) {
+    const newest = ids.at(-1);
+    if (newest === undefined) {
+      throw new Refusal(`no runs in ${workspace.store} yet; awf-lab run makes one`);
+    }
+    return readRunOrRefuse(workspace, newest);
   }
-  const numbers = runNumbers(workspace.store);
-  const number = names[0] ? Number(names[0]) : numbers.at(-1);
-  if (number === undefined)
-    throw new Refusal(`no runs in ${workspace.store} yet; awf-lab run makes one`);
-  const run = readRunRecord(workspace.store, number);
-  if (!run) throw new Refusal(`no run ${number} in ${workspace.store}`);
+  if (!RUN_ID.test(given) && !/^[0-9a-f]{4}$/.test(given)) {
+    throw new Refusal(
+      `${usage}\n  a run is its id, such as 20261117-142233-a3f9, or its last four characters`,
+    );
+  }
+  const found = ids.filter((id) => id === given || id.endsWith(`-${given}`));
+  if (found.length === 0)
+    throw new Refusal(`no run ${given} in ${workspace.store}; awf-lab runs lists them`);
+  if (found.length > 1) {
+    throw new Refusal(
+      `${given} names ${found.length} runs: ${found.join(", ")}; give the whole id`,
+    );
+  }
+  return readRunOrRefuse(workspace, found[0]!);
+}
+
+function readRunOrRefuse(workspace: CaseWorkspace, id: string): RunRecord {
+  const run = readRunRecord(workspace.store, id);
+  if (!run) throw new Refusal(`no run ${id} in ${workspace.store}`);
   return run;
 }
 
@@ -763,7 +788,7 @@ function reportJson(args: {
   const pooled = poolNumbers(own);
   const report: CaseReport = {
     kind: REPORT_KIND,
-    run: run.number,
+    run: run.id,
     dataset: run.dataset,
     partial: run.finished === undefined,
     exit,
@@ -832,6 +857,7 @@ function staleGrades(
   try {
     const plan = planScore({
       trials,
+      store: workspaceOf(context).store,
       datasetDir: info.dir,
       cases,
       graders: graders.filter((g) => !g.onDemand),
@@ -847,8 +873,7 @@ function staleGrades(
 
 async function report(context: Context, names: readonly string[]): Promise<number> {
   const workspace = workspaceOf(context);
-  const run = chooseRun(workspace, names, "awf-lab report [{n}] [--case {name}] [--json]");
-  const number = run.number;
+  const run = chooseRun(workspace, names, "awf-lab report [{run}] [--case {name}] [--json]");
   let info: DatasetInfo | undefined;
   let cases: CaseInfo[] = [];
   try {
@@ -859,7 +884,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   }
   let graders: LabGrader[] | undefined;
   let stale: CaseReport["stale"];
-  const trials = readTrials(workspace.store, number);
+  const trials = readTrials(workspace.store, run.id);
   if (info) {
     try {
       // A grader workflow is only counted here, never run, so no folder is inspected.
@@ -889,11 +914,11 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
     ),
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
-    leftOut: unreadableRuns(workspace.store).filter((n) => n < run.number),
+    leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
   });
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
-    if (!row) throw new Refusal(`run ${number} has no case ${context.options.case}`);
+    if (!row) throw new Refusal(`run ${run.id} has no case ${context.options.case}`);
     const own = trials.filter((t) => t.record.case === row.name);
     const runRoot = awfRunsOf(workspace.store);
     if (context.options.json) {
@@ -946,7 +971,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
   const run = chooseRun(
     workspace,
     names,
-    "awf-lab score [{n}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]",
+    "awf-lab score [{run}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]",
   );
   const { info, cases } = loadDataset(workspace, run.dataset);
   const now = environment.now ?? (() => new Date());
@@ -973,9 +998,10 @@ async function score(context: Context, names: readonly string[]): Promise<number
     chosen = [one];
   } else chosen = graders.filter((g) => !g.onDemand);
   const tmp = realpathSync(environment.tmp ?? tmpdir());
-  const trials = readTrials(workspace.store, run.number);
+  const trials = readTrials(workspace.store, run.id);
   const plan = planScore({
     trials,
+    store: workspace.store,
     datasetDir: info.dir,
     cases,
     graders: chosen,
@@ -983,9 +1009,9 @@ async function score(context: Context, names: readonly string[]): Promise<number
     expect: options.grader === undefined,
     tmp,
   });
-  const described = describePlan(plan, run.number);
+  const described = describePlan(plan, run.id);
   const planJson: Scored["plan"] = {
-    run: run.number,
+    run: run.id,
     trials: plan.items.length,
     grades: Object.fromEntries(plan.counts),
     maybe: Object.fromEntries(plan.maybe),
@@ -1025,18 +1051,20 @@ async function score(context: Context, names: readonly string[]): Promise<number
       done = await runScore({
         plan,
         tmp,
-        run: run.number,
+        run: run.id,
+        store: workspace.store,
         env: definedOf(withoutCallingSession(environment.env ?? process.env)),
         ...(options.budget !== undefined ? { budget: options.budget } : {}),
         now,
         progress: stderr,
       });
     } finally {
+      if (workspace.records) writeRecords(workspace.store, workspace.records, run.id);
       lock.release();
     }
   } else stderr(described);
   const bars = barsOf(info, cases, graders);
-  const after = readTrials(workspace.store, run.number);
+  const after = readTrials(workspace.store, run.id);
   const rows = rowsOf(workspace.store, run, after, bars);
   const rendered = renderRun({
     run,
@@ -1048,7 +1076,7 @@ async function score(context: Context, names: readonly string[]): Promise<number
       run.asked.map((a) => a.case),
     ),
     decidersOf: (name) => bars.get(name)?.deciders,
-    leftOut: unreadableRuns(workspace.store).filter((n) => n < run.number),
+    leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
   });
   // A budget stop leaves grades unmade: 3, unless the report already exits worse.
   const exit = done?.stopped && rendered.exit === 0 ? 3 : rendered.exit;
@@ -1245,7 +1273,7 @@ function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string 
 
 function runs(context: Context): number {
   const workspace = workspaceOf(context);
-  const lines = runNumbers(workspace.store)
+  const lines = runIds(workspace.store)
     .reverse()
     .flatMap((n) => {
       let run: RunRecord | undefined;
@@ -1259,13 +1287,13 @@ function runs(context: Context): number {
         // "{file} is not valid:" then its problems: the file's name and the first problem do.
         const [head = "", first] = (error as Error).message.split("\n");
         const why = `${basename(head.replace(/ is not valid:$/, ""))}${first ? `: ${first.trim()}` : ""}`;
-        if (!run) return [`${String(n).padStart(4)}  records don't read: ${why}`];
+        if (!run) return [`${n}  records don't read: ${why}`];
         state = `records don't read (${why}), left out of history`;
       }
       if (!run) return [];
       const trials = run.asked.reduce((sum, a) => sum + a.trials, 0);
       return [
-        `${String(n).padStart(4)}  ${run.started.slice(0, 16).replace("T", " ")}  ${run.dataset}  ${plural(run.asked.length, "case")}, ${plural(trials, "trial")}  ${state}`,
+        `${n}  ${run.dataset}  ${plural(run.asked.length, "case")}, ${plural(trials, "trial")}  ${state}`,
       ];
     });
   context.stdout(lines.length > 0 ? lines.join("\n") : `no runs in ${workspace.store} yet`);

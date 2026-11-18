@@ -13,8 +13,8 @@
       "required": ["run", "trials", "grades", "maybe", "unpriced", "changed"],
       "properties": {
         "run": {
-          "type": "integer",
-          "minimum": 1
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
         },
         "trials": {
           "type": "integer",
@@ -126,8 +126,8 @@
           "const": "awf.case-report/0"
         },
         "run": {
-          "type": "integer",
-          "minimum": 1
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
         },
         "dataset": {
           "type": "string",

@@ -15,7 +15,7 @@ import {
 } from "./grading";
 import { newestEntries } from "./outcome";
 import { median } from "./report";
-import { appendScore, type StoredTrial } from "./store";
+import { appendScore, inputDirOf, keepInput, type StoredTrial } from "./store";
 
 /** One trial to grade again, and with what. */
 export type ScoreItem = {
@@ -53,6 +53,8 @@ const add = (map: Map<string, number>, name: string) => map.set(name, (map.get(n
  */
 export function planScore(args: {
   trials: readonly StoredTrial[];
+  /** Where each built case is kept, for the graders to read. */
+  store: string;
   datasetDir: string;
   cases: readonly CaseInfo[];
   /** The graders `score` may run: every deciding one, or the one `--grader` names. */
@@ -76,6 +78,8 @@ export function planScore(args: {
       mkdirSync(built);
       buildCase(args.datasetDir, info, built);
       digest = folderDigest(built);
+      // A run read from committed records has no built case yet: this one is it, if unchanged.
+      keepInput(args.store, digest, built);
       rmSync(built, { recursive: true, force: true });
       inputs.set(info.name, digest);
     }
@@ -165,7 +169,7 @@ export function planScore(args: {
 }
 
 /** The plan in lines, for the operator. */
-export function describePlan(plan: ScorePlan, run: number): string {
+export function describePlan(plan: ScorePlan, run: string): string {
   const lines: string[] = [];
   if (plan.items.length === 0) lines.push(`nothing in run ${run} to grade again`);
   else {
@@ -211,7 +215,8 @@ export type ScoreDone = {
 export async function runScore(args: {
   plan: ScorePlan;
   tmp: string;
-  run: number;
+  run: string;
+  store: string;
   env: Record<string, string>;
   budget?: number;
   now: () => Date;
@@ -238,7 +243,7 @@ export async function runScore(args: {
         facts: trial.record.facts ?? {},
         stages: trial.record.stages ?? {},
         result: trial.record.result ?? null,
-        caseDir: join(trial.dir, "input"),
+        caseDir: inputDirOf(args.store, trial.record.input),
         scratch: null,
         kept: join(trial.dir, "kept"),
         work,

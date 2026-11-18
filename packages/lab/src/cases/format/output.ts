@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { OUTCOMES, ParamsSchema } from "./records";
+import { OUTCOMES, ParamsSchema, RunId } from "./records";
 
 // What `report --json` and `score --json` print: `/0`, like the records, until task 13.
 
@@ -25,7 +25,7 @@ const PooledSchema = Type.Union([
 export const CaseReportSchema = Type.Object(
   {
     kind: Type.Literal(REPORT_KIND),
-    run: Type.Integer({ minimum: 1 }),
+    run: RunId,
     dataset: Text,
     partial: Type.Boolean(),
     exit: Type.Integer({ minimum: 0, maximum: 5 }),
@@ -116,7 +116,7 @@ export const ScoredSchema = Type.Object(
     kind: Type.Literal(SCORED_KIND),
     plan: Type.Object(
       {
-        run: Type.Integer({ minimum: 1 }),
+        run: RunId,
         trials: Type.Integer({ minimum: 0 }),
         grades: Counts,
         /** Costly grades that run only if the cheaper graders regraded now pass. */

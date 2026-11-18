@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TrialRecord } from "../packages/lab/src/cases/format/records";
 import { runCases } from "../packages/lab/src/cases/lab/cli";
-import { readTrials } from "../packages/lab/src/cases/lab/store";
+import { readTrials, runIds } from "../packages/lab/src/cases/lab/store";
 
 /**
  * A tool handler calling a mocked module, live (story 044): awf-lab runs one case of a project
@@ -168,7 +168,7 @@ export async function gather(): Promise<Evidence> {
     const lab = join(home, ".awf/lab");
     const name = readdirSync(lab).find((each) => each.startsWith(".lab-cases-"));
     const store = name ? join(lab, name) : undefined;
-    const stored = store ? readTrials(store, 1)[0] : undefined;
+    const stored = store ? readTrials(store, runIds(store)[0]!)[0] : undefined;
     const trial = stored?.record;
     const verdict = stored?.scores
       .at(-1)

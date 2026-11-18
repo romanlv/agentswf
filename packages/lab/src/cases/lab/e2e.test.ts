@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { awfLogs } from "../../shared/runner";
 import { runCases } from "./cli";
-import { readTrials } from "./store";
+import { readTrials, runIds } from "./store";
 
 // End to end: a tiny dataset in a project inside this package, with its own `node_modules`
 // linking this checkout's `agentswf` and this lab, as `bun link` would, and `typescript`
@@ -154,7 +154,7 @@ test("a tiny dataset runs on the folder's own awf, and its runs read back from t
     ".awf/lab",
     readdirSync(join(home, ".awf/lab")).find((n) => n.startsWith(".e2e-"))!,
   );
-  const trials = readTrials(store, 1);
+  const trials = readTrials(store, runIds(store)[0]!);
   expect(trials).toHaveLength(2);
   const right = trials.find((t) => t.record.case === "right")!.record;
   expect(realpathSync(right.awf.bin)).toBe(realpathSync(join(PACKAGE, "../agentswf/src/awf.ts")));
@@ -209,7 +209,7 @@ test.skipIf(!dockerUp)(
       ".awf/lab",
       readdirSync(join(home, ".awf/lab")).find((n) => n.startsWith(".e2e-"))!,
     );
-    const [trial] = readTrials(store, 1);
+    const [trial] = readTrials(store, runIds(store)[0]!);
     expect(trial!.record.reach).toEqual({
       ok: true,
       problems: [],

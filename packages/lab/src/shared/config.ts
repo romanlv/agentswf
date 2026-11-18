@@ -29,7 +29,14 @@ export const COMMON_FIELDS = {
     Type.String({
       minLength: 1,
       description:
-        "Where runs of cases are kept, in place of ~/.awf/lab/{checkout}-{hash}; never inside the repository.",
+        "Where runs of cases are kept, in place of ~/.awf/lab/{project}-{first commit}; never inside the repository.",
+    }),
+  ),
+  records: Type.Optional(
+    Type.String({
+      minLength: 1,
+      description:
+        "A folder inside evals/ the run, trial and score records are also written to, to be committed, so a fresh clone sees them.",
     }),
   ),
 };

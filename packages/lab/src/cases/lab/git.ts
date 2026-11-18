@@ -15,6 +15,22 @@ export function gitTop(dir: string): string | undefined {
   return ok ? out.trim() || undefined : undefined;
 }
 
+/**
+ * What names a project whatever checkout it is in: its first commit (the oldest root, when there
+ * are several) and the main checkout's folder name. Undefined outside a repository or before a
+ * first commit.
+ */
+export function projectOf(dir: string): { name: string; first: string } | undefined {
+  const roots = git(dir, ["rev-list", "--max-parents=0", "HEAD"]);
+  const common = git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!roots.ok || !common.ok) return undefined;
+  const first = roots.out.split("\n").filter(Boolean).sort()[0];
+  const gitDir = common.out.trim();
+  if (!first || !gitDir) return undefined;
+  const main = gitDir.endsWith("/.git") ? gitDir.slice(0, -"/.git".length) : gitDir;
+  return { name: main.split("/").at(-1) ?? "project", first: first.slice(0, 12) };
+}
+
 /** Where a folder of code stands: its branch (null when detached), commit, and uncommitted changes. */
 export function gitState(dir: string): {
   branch: string | null;

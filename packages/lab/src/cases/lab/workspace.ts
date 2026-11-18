@@ -5,7 +5,7 @@ import type { Agent } from "../../shared/config";
 import { WORKSPACE_KIND } from "../../shared/config";
 import { readConfigFile } from "../../shared/config-file";
 import { discoverDatasets } from "./dataset";
-import { gitTop } from "./git";
+import { gitTop, projectOf } from "./git";
 import { Refusal } from "./refusal";
 
 export type CaseWorkspace = {
@@ -19,7 +19,13 @@ export type CaseWorkspace = {
   root: string;
   /** The repository the code folder is in, for its git state; undefined outside one. */
   repository?: string;
+  /**
+   * Where runs are kept: one store per project, `~/.awf/lab/{project}-{first commit}`, shared by
+   * every checkout of it.
+   */
   store: string;
+  /** A folder inside `evals/` every run's records are also written to, to be committed. */
+  records?: string;
   /** Where the lock and the trial files live, whatever `store` says: `~/.awf/lab`. */
   labHome: string;
   judgeAgent?: Agent;
@@ -55,8 +61,19 @@ export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
       throw new Refusal(`${config}: store ${store} is inside the repository; keep runs outside it`);
     }
   } else {
-    const hash = createHash("sha256").update(root).digest("hex").slice(0, 10);
-    store = join(labHome, `${basename(root)}-${hash}`);
+    const project = projectOf(root);
+    if (project) store = join(labHome, `${project.name}-${project.first}`);
+    else {
+      const hash = createHash("sha256").update(root).digest("hex").slice(0, 10);
+      store = join(labHome, `${basename(root)}-${hash}`);
+    }
+  }
+  let records: string | undefined;
+  if (common.records) {
+    records = resolve(evals, common.records);
+    if (!inside(evals, records) || records === evals) {
+      throw new Refusal(`${config}: records ${records} must be a folder inside ${evals}`);
+    }
   }
   return {
     config,
@@ -64,6 +81,7 @@ export function openCaseWorkspace(config: string, home: string): CaseWorkspace {
     root,
     ...(repository ? { repository } : {}),
     store,
+    ...(records ? { records } : {}),
     labHome,
     ...(common.judgeAgent ? { judgeAgent: common.judgeAgent } : {}),
   };

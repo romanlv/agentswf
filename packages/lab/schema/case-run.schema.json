@@ -2,15 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "awf-lab run of cases",
   "type": "object",
-  "required": ["kind", "number", "dataset", "folders", "columns", "asked", "started"],
+  "required": ["kind", "id", "dataset", "folders", "columns", "asked", "started"],
   "properties": {
     "kind": {
       "type": "string",
       "const": "awf.case-run/0"
     },
-    "number": {
-      "type": "integer",
-      "minimum": 1
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
     },
     "dataset": {
       "type": "string",

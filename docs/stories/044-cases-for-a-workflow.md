@@ -411,7 +411,7 @@ Execution:
   (Under Implementation notes, "Task 9's plan".)
 - [ ] Implement, step by step, each committed with its tests:
   1. [x] parameters and columns;
-  2. the store per project and `records`;
+  2. [x] the store per project and `records`;
   3. reuse, `--fresh`, `reuseDays`;
   4. labels: `label`, `labels.jsonl`, agreement, the judge's mark;
   5. tags and rates: intervals, pass^k, pass@k, `--tags`;
@@ -578,8 +578,13 @@ Open nits: `capture` looks for real runs in your checkout and the repository's t
   digest, the trial settings of `dataset.json`, and the `awf` and lab versions.
 - **A fresh clone** needs each trial's record, scores and `kept/` committed; the built case is
   not committed but built again from the case folder and checked against the trial's `input`
-  digest, so a case edited since is "run it again", as `score` does now. The size is measured on
-  the mail and refund-desk records at step 2.
+  digest, so a case edited since is "run it again", as `score` does now. Measured at step 2: about
+  33 KB of records a mail run and 8 KB a refund-desk run.
+- **Run ids** replace run numbers: the time and four random hex digits, a second later than the
+  last run's when two fall in one second, so they sort in order; `report` and `score` take the id
+  or its last four. Records copy both ways: each command reads the records folder into the store
+  (a run it lacks whole; newer scores when they extend the store's), and `run` and `score` write
+  their run back, so the rest of the lab reads the store alone.
 
 ### Live checks
 

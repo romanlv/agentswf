@@ -16,7 +16,7 @@ import { FactSchema, KEY_KIND } from "../format/settings";
 import { type DatasetInfo, KEY_FILE } from "./dataset";
 import { newMarker } from "./marker";
 import { Refusal } from "./refusal";
-import { readRunRecord, readTrials, runNumbers, type StoredTrial, UnreadableRecord } from "./store";
+import { readRunRecord, readTrials, runIds, type StoredTrial, UnreadableRecord } from "./store";
 
 export const CAPTURE_FILE = "capture.ts";
 
@@ -44,7 +44,7 @@ export type CapturedCase = Type.Static<typeof CasesSchema>[number];
 
 /** The trial whose workflow run had this id, in any run of the store. */
 export function findTrial(store: string, runId: string): StoredTrial | undefined {
-  for (const n of runNumbers(store).reverse()) {
+  for (const n of runIds(store).reverse()) {
     let trials: StoredTrial[];
     try {
       if (!readRunRecord(store, n)) continue;

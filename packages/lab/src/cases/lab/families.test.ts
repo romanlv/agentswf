@@ -16,7 +16,7 @@ test("the report marks a judge that shares the workflow's family, splits and cri
   const { text } = renderRun({
     run: {
       kind: "awf.case-run/0",
-      number: 1,
+      id: "20261117-000000-abcd",
       dataset: "ds",
       folders: [{ path: "/p", branch: "main", commit: null, dirty: false, env: "0".repeat(64) }],
       columns: [{ folder: 0, params: {} }],

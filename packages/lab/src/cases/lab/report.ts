@@ -57,7 +57,7 @@ export type RunReport = {
   /** The judge as a person checked it; the lab's recorded one when absent. */
   judgeChecked?: typeof JUDGE_CHECKED;
   /** Earlier runs history leaves out: their records don't read. */
-  leftOut?: readonly number[];
+  leftOut?: readonly string[];
   /** Whose grades decide each case, from the current dataset and keys; all when unread. */
   decidersOf?: (caseName: string) => ReadonlySet<string> | undefined;
 };
@@ -290,7 +290,7 @@ export function renderRun({
   const each =
     counts.size === 1 ? `${plural([...counts][0]!, "trial")} each` : "trials per case as asked";
   const lines = [
-    `${run.dataset} · ${plural(run.asked.length, "case")} · ${each} · run ${run.number}${partial ? " (partial)" : ""}`,
+    `${run.dataset} · ${plural(run.asked.length, "case")} · ${each} · run ${run.id}${partial ? " (partial)" : ""}`,
     `code: ${describeFolder({ ...run.folders[0]!, path: undefined })}`,
     ...run.folders
       .slice(1)
@@ -426,7 +426,7 @@ export function renderRun({
   }
   if (typeof stale === "number" && stale > 0) {
     lines.push(
-      `${plural(stale, "grade")} out of date, a key or grader changed: awf-lab score ${run.number}`,
+      `${plural(stale, "grade")} out of date, a key or grader changed: awf-lab score ${run.id.slice(-4)}`,
     );
   } else if (typeof stale === "object") {
     lines.push(`grades: couldn't check whether any is out of date: ${stale.unread}`);
@@ -463,7 +463,7 @@ export function renderCase(
   const tally = (r: CaseRow) =>
     `${r.tally.verdict ?? r.tally.none ?? "no trials"} ${r.tally.passed}/${r.tally.trials}`;
   const lines = [
-    `${row.name} · run ${run.number} · ${tally(row)}`,
+    `${row.name} · run ${run.id} · ${tally(row)}`,
     ...others.flatMap((other, i) => (other ? [`${columnLabel(run, i + 1)}: ${tally(other)}`] : [])),
   ];
   const stages = stageLine(trials.filter((t) => t.record.column === 0));

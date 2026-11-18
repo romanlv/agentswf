@@ -23,7 +23,7 @@ import { type CasesEnvironment, runCases } from "./cli";
 import type { LabGrader } from "./grading";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
 import { Refusal } from "./refusal";
-import { readTrials, runNumbers } from "./store";
+import { readTrials, runIds } from "./store";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -334,6 +334,9 @@ function scripted(
 }
 
 /** The store a project's runs went to, under its home. */
+/** The store's nth run, from 1, oldest first. */
+const nthRun = (store: string, n: number) => runIds(store)[n - 1]!;
+
 const storeOf = (where: { home: string }) =>
   join(
     where.home,
@@ -512,7 +515,7 @@ describe("a case's verdict and the exit code, through the command line", () => {
     );
     const { code } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
     expect(code).toBe(5);
-    const [trial] = readTrials(storeOf(where), 1);
+    const [trial] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
     const entries = trial!.scores.at(-1)!.entries;
     expect(entries.map((e) => [e.grader, e.verdict ?? e.errored?.reason ?? e.numbers])).toEqual([
       ["expect", "failed"],
@@ -596,7 +599,7 @@ describe("what the lab can't read errors the trial as the lab's, never graded: 4
       { a: [{ lines, outcome: "failed", reason: "x" }] },
     );
     expect(code).toBe(4);
-    const [trial] = readTrials(storeOf(where), 1);
+    const [trial] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
     expect(trial!.record.errored).toMatchObject({ by: "lab", phase: "after" });
     expect(trial!.record.errored?.reason).toContain("1 line of the trial file fit no shape");
     expect(trial!.scores).toEqual([]);
@@ -960,14 +963,15 @@ describe("--failed and history across runs", () => {
     expect(third.calls).toHaveLength(3);
     expect(third.seen.map((s) => s.name)).toEqual(["b", "b", "b"]);
     expect(rest.code).toBe(0);
-    const report = await lab(where, ["report", "1"]);
+    const firstRun = nthRun(storeOf(where), 1);
+    const report = await lab(where, ["report", firstRun.slice(-4)]);
     expect(report.code).toBe(1);
-    expect(report.out).toContain("run 1");
+    expect(report.out).toContain(`run ${firstRun}`);
     const shown = await lab(where, ["report", "--case", "b"]);
     expect(shown.out).toContain("trial 1: passed");
     expect(shown.out).toContain("logs:");
     const listed = await lab(where, ["runs"]);
-    expect(listed.out.split("\n")[0]).toMatch(/^\s+3\s/);
+    expect(listed.out.split("\n")[0]!.startsWith(nthRun(storeOf(where), 3))).toBe(true);
   });
 
   test("a case's earlier verdicts show as its history", async () => {
@@ -977,8 +981,11 @@ describe("--failed and history across runs", () => {
     const last = await lab(where, ["run", "--yes"], { runner: scripted({ a: [fail] }).runner });
     expect(last.out).toContain("history ✓✓");
     const store = readdirSync(join(where.home, ".awf/lab")).find((n) => n.startsWith("project-"))!;
-    expect(runNumbers(join(where.home, ".awf/lab", store))).toEqual([1, 2, 3]);
-    const trials = readTrials(join(where.home, ".awf/lab", store), 3);
+    expect(runIds(join(where.home, ".awf/lab", store))).toHaveLength(3);
+    const trials = readTrials(
+      join(where.home, ".awf/lab", store),
+      nthRun(join(where.home, ".awf/lab", store), 3),
+    );
     expect(trials[0]!.record.input).toMatch(/^[0-9a-f]{64}$/);
     expect(trials[0]!.scores[0]!.entries[0]!.grader).toBe("expect");
   });
@@ -1116,7 +1123,7 @@ describe("grader workflows and score", () => {
     expect(request.workflow).toBe(join(where.ds, "graders", "judge.ts"));
     expect(request.awf?.preload).toBeUndefined();
     expect(cwdFiles).toEqual([]);
-    const [trial] = readTrials(storeOf(where), 1);
+    const [trial] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
     const entry = trial!.scores[0]!.entries.find((e) => e.grader === "judge")!;
     expect(entry).toMatchObject({
       version: "1.2.0",
@@ -1142,7 +1149,7 @@ describe("grader workflows and score", () => {
     expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(1);
     expect(fake.graded).toHaveLength(0);
     const unchanged = await lab(where, ["score", "--yes"], { runner: fake.runner });
-    expect(unchanged.err).toContain("nothing in run 1 to grade again");
+    expect(unchanged.err).toMatch(/nothing in run \S+ to grade again/);
     writeFileSync(join(where.ds, "cases/a/key.md"), keyMd("expect:\n  ok: true\n"));
     const scored = await lab(where, ["score", "--yes"], { runner: fake.runner });
     expect(scored.code).toBe(0);
@@ -1161,9 +1168,10 @@ describe("grader workflows and score", () => {
     await lab(where, ["run", "--yes"], { runner: fake.runner });
     const trialRuns = () => fake.calls.filter((c) => !c.env?.[TRIAL_ENV.grade]).length;
     expect(trialRuns()).toBe(1);
-    const firstKey = readTrials(storeOf(where), 1)[0]!.scores[0]!.entries.find(
-      (e) => e.grader === "judge",
-    )!.key;
+    const firstKey = readTrials(
+      storeOf(where),
+      nthRun(storeOf(where), 1),
+    )[0]!.scores[0]!.entries.find((e) => e.grader === "judge")!.key;
 
     writeFileSync(join(where.ds, "cases/a/key/answer.json"), '{"n":2}');
     const edited = await lab(where, ["score", "--yes"], { runner: fake.runner });
@@ -1178,14 +1186,14 @@ describe("grader workflows and score", () => {
 
     graderWorkflow(where, "judge", "1.0.1");
     const patch = await lab(where, ["score", "--yes"], { runner: fake.runner });
-    expect(patch.err).toContain("nothing in run 1 to grade again");
+    expect(patch.err).toMatch(/nothing in run \S+ to grade again/);
 
     graderWorkflow(where, "judge", "1.1.0");
     await lab(where, ["score", "--yes"], { runner: fake.runner });
     expect(fake.graded).toHaveLength(3);
     expect(fake.graded[2]!.input.previous).toBeUndefined();
     expect(trialRuns()).toBe(1);
-    const scores = readTrials(storeOf(where), 1)[0]!.scores;
+    const scores = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores;
     expect(scores).toHaveLength(3);
   });
 
@@ -1227,15 +1235,16 @@ describe("grader workflows and score", () => {
     const fake = scripted({}, judged("failed"));
     expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(0);
     expect(fake.graded).toHaveLength(0);
-    expect((await lab(where, ["score", "--yes"], { runner: fake.runner })).err).toContain(
-      "nothing in run 1 to grade again",
+    expect((await lab(where, ["score", "--yes"], { runner: fake.runner })).err).toMatch(
+      /nothing in run \S+ to grade again/,
     );
     const scored = await lab(where, ["score", "--grader", "second", "--yes"], {
       runner: fake.runner,
     });
     expect(fake.graded).toHaveLength(1);
     expect(scored.code).toBe(0);
-    const entry = readTrials(storeOf(where), 1)[0]!.scores.at(-1)!.entries[0]!;
+    const entry = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores.at(-1)!
+      .entries[0]!;
     expect(entry).toMatchObject({ grader: "second", verdict: "failed" });
     expect(scored.out).toContain("agreement, first and second: the same verdict on 0 of 1 trial");
     expect(scored.out).not.toContain("agreement, expect");
@@ -1296,9 +1305,11 @@ describe("grader workflows and score", () => {
     for (const name of ["a", "b"])
       writeFileSync(join(where.ds, "cases", name, "key/answer.json"), "{}");
     const report = await lab(where, ["report"]);
-    expect(report.out).toContain("2 grades out of date, a key or grader changed: awf-lab score 1");
+    expect(report.out).toMatch(
+      /2 grades out of date, a key or grader changed: awf-lab score [0-9a-f]{4}$/m,
+    );
     const dry = await lab(where, ["score", "--dry-run"], { runner: fake.runner });
-    expect(dry.out).toContain("score run 1: 2 trials · judge ×2");
+    expect(dry.out).toMatch(/score run \S+: 2 trials · judge ×2/);
     expect(dry.out).toContain("est. $0.50");
     expect(fake.graded).toHaveLength(2);
     const json = JSON.parse((await lab(where, ["score", "--dry-run", "--json"])).out);
@@ -1380,7 +1391,12 @@ describe("grader workflows and score", () => {
     const fake = scripted({}, judged("passed"));
     await lab(where, ["run", "--yes"], { runner: fake.runner });
     const report = JSON.parse((await lab(where, ["report", "--json"])).out);
-    expect(report).toMatchObject({ kind: "awf.case-report/0", run: 1, exit: 0, stale: 0 });
+    expect(report).toMatchObject({
+      kind: "awf.case-report/0",
+      run: nthRun(storeOf(where), 1),
+      exit: 0,
+      stale: 0,
+    });
     const one = JSON.parse((await lab(where, ["report", "--case", "a", "--json"])).out);
     expect(one.trials).toHaveLength(1);
     writeFileSync(join(where.ds, "cases/a/key/answer.json"), "{}");
@@ -1449,7 +1465,7 @@ describe("the criteria judge, through the command line", () => {
     expect(request.argv).toEqual(["--harness", "claude", "--model", "claude-haiku-5-5"]);
     expect(request.awf).toBeUndefined();
     expect(input.facts).toEqual({ ok: true });
-    const entry = readTrials(storeOf(where), 1)[0]!.scores[0]!.entries.find(
+    const entry = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores[0]!.entries.find(
       (e) => e.grader === "criteria",
     )!;
     expect(entry).toMatchObject({ version: "1.0.0", agent: JUDGE, verdict: "passed" });
@@ -1493,7 +1509,7 @@ describe("the criteria judge, through the command line", () => {
       keyMd("expect:\n  ok: false\nmust:\n  - the reply is short\n  - the reply is polite\n"),
     );
     const dry = await lab(where, ["score", "--dry-run"], { runner: fake.runner });
-    expect(dry.out).toContain("score run 1: 1 trial · expect ×1");
+    expect(dry.out).toMatch(/score run \S+: 1 trial · expect ×1/);
     expect(dry.out).not.toContain("criteria");
     writeFileSync(
       join(where.ds, "cases/a/key.md"),
@@ -1521,7 +1537,8 @@ describe("the criteria judge, through the command line", () => {
     expect(fake.graded).toHaveLength(2);
     expect(fake.graded[1]!.input.previous).toBeUndefined();
     expect(fake.graded[1]!.request.argv).toEqual(["--harness", "codex", "--model", "gpt-6-luna"]);
-    const newest = readTrials(storeOf(where), 1)[0]!.scores.at(-1)!.entries[0]!;
+    const newest = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores.at(-1)!
+      .entries[0]!;
     expect(newest.agent).toEqual(other);
   });
 });
@@ -1530,7 +1547,7 @@ test("a run whose records don't read is left out of history and named by runs, n
   const where = project({ a: {} });
   const fake = scripted({});
   await lab(where, ["run", "--yes"], { runner: fake.runner });
-  const [trial] = readTrials(storeOf(where), 1);
+  const [trial] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
   writeFileSync(join(trial!.dir, "scores.jsonl"), '{"kind":"awf.case-score/0","old":true}\n');
   const again = await lab(where, ["run", "--yes"], { runner: fake.runner });
   expect(again.code).toBe(0);
@@ -1585,7 +1602,9 @@ describe("--against: the same cases on code in another folder", () => {
     expect(out).toContain("more passes: against 1 on 1 case, this checkout on 1 case");
     expect(out).toContain("also fails in against 1");
     expect(out).toContain("One trial each: these are examples, not rates.");
-    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    const record = JSON.parse(
+      readFileSync(join(storeOf(where), "runs", nthRun(storeOf(where), 1), "run.json"), "utf8"),
+    );
     expect(record.folders.map((f: { path: string }) => f.path)).toEqual([where.root, other]);
     const json = JSON.parse((await lab(where, ["report", "--json"])).out);
     expect(json.columns[0]).toMatchObject({ path: other, envDiffers: false });
@@ -1604,7 +1623,7 @@ describe("--against: the same cases on code in another folder", () => {
     const theirs = fake.calls.find((c) => c.awf?.dir === other)!;
     expect(theirs.workflow).toBe(join(other, "evals/ds/env.ts"));
     expect(theirs.env?.[TRIAL_ENV.root]).toBe(other);
-    const trials = readTrials(storeOf(where), 1);
+    const trials = readTrials(storeOf(where), nthRun(storeOf(where), 1));
     expect(trials.map((t) => [t.record.column, t.record.awf.version])).toEqual([
       [0, "0.1.1"],
       [1, "0.1.2"],
@@ -1712,7 +1731,7 @@ describe("--against, its report and refusals", () => {
     expect(ran.out).toContain("time, median");
     expect(ran.out).toContain("The lab does not say which is better. Read the cases.");
     const one = await lab(where, ["report", "--case", "x"]);
-    expect(one.out).toContain("x · run 1 · passed 3/3\nagainst 1: failed 0/3");
+    expect(one.out).toMatch(/x · run \S+ · passed 3\/3\nagainst 1: failed 0\/3/);
     expect(one.out).toContain("trial 1 (against 1): failed");
     const json = JSON.parse((await lab(where, ["report", "--json"])).out);
     expect(json.columns[0].numbers).toEqual({ counts: { hits: { count: 2, of: 6 } } });
@@ -1761,7 +1780,7 @@ test("each stage's time, recorded per trial and shown as a median; a given stage
   });
   const { out } = await lab(where, ["run", "--yes"], { runner: fake.runner });
   expect(out).toContain("time per stage, median across cases: decide 5.0s · act 0.4s");
-  const [first] = readTrials(storeOf(where), 1);
+  const [first] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
   expect(first!.record.stageMs).toEqual({ decide: 4000, act: 300 });
   expect((await lab(where, ["report", "--case", "a"])).out).toContain(
     "time per stage, median: decide 4.0s · act 0.3s",
@@ -1779,7 +1798,7 @@ describe("capture: a past run becomes a case", () => {
     const runId = fake.calls[0]!.id;
     const good = await lab(where, ["capture", runId, "--good"]);
     expect(good.code).toBe(0);
-    expect(good.out).toContain("evals/ds/cases/a-2, from trial 1 of case a in run 1");
+    expect(good.out).toMatch(/evals\/ds\/cases\/a-2, from trial 1 of case a in run \S+/);
     const made = join(where.ds, "cases/a-2");
     expect(readFileSync(join(made, "files/ticket.md"), "utf8")).toBe("a broken lid");
     expect(readFileSync(join(made, "input.json"), "utf8")).toContain('"day": 3');
@@ -1801,7 +1820,7 @@ describe("capture: a past run becomes a case", () => {
       runner: scripted({}).runner,
     });
     expect(ran.out).toContain("no verdict");
-    const trials = readTrials(storeOf(where), 2);
+    const trials = readTrials(storeOf(where), nthRun(storeOf(where), 2));
     expect(trials.every((t) => t.scores.length === 0)).toBe(true);
   });
 
@@ -1974,7 +1993,9 @@ describe("--param and --vary: a column per combination of parameters", () => {
     );
     expect(given).toHaveLength(8);
     expect(given.every((p) => p.tz === "utc")).toBe(true);
-    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    const record = JSON.parse(
+      readFileSync(join(storeOf(where), "runs", nthRun(storeOf(where), 1), "run.json"), "utf8"),
+    );
     expect(record.columns).toEqual([
       { folder: 0, params: { tz: "utc", model: "a", effort: "low" } },
       { folder: 0, params: { tz: "utc", model: "a", effort: "high" } },
@@ -1982,7 +2003,10 @@ describe("--param and --vary: a column per combination of parameters", () => {
       { folder: 0, params: { tz: "utc", model: "b", effort: "high" } },
     ]);
     const trial = JSON.parse(
-      readFileSync(join(storeOf(where), "runs/1/trials/a/2-1/trial.json"), "utf8"),
+      readFileSync(
+        join(storeOf(where), "runs", nthRun(storeOf(where), 1), "trials", "a", "2-1", "trial.json"),
+        "utf8",
+      ),
     );
     expect(trial).toMatchObject({ column: 2, params: { model: "b", effort: "low" } });
     expect(out).toContain("params: tz=utc");
@@ -2022,7 +2046,9 @@ describe("--param and --vary: a column per combination of parameters", () => {
     const { out } = await lab(where, ["run", "--yes", "--against", other, "--vary", "model=a,b"], {
       runner: fake.runner,
     });
-    const record = JSON.parse(readFileSync(join(storeOf(where), "runs/1/run.json"), "utf8"));
+    const record = JSON.parse(
+      readFileSync(join(storeOf(where), "runs", nthRun(storeOf(where), 1), "run.json"), "utf8"),
+    );
     expect(record.columns).toEqual([
       { folder: 0, params: { model: "a" } },
       { folder: 0, params: { model: "b" } },
@@ -2075,5 +2101,102 @@ describe("--param and --vary: a column per combination of parameters", () => {
     expect(await refused(["--vary", "m=a"])).toContain("one is --param m=a");
     expect(await refused(["--vary", "m=a,,b"])).toContain("none empty");
     expect(await refused(["--vary", "m=a,a"])).toContain("each value once");
+  });
+});
+
+describe("one store per project, run ids, and records to commit", () => {
+  const commit = (dir: string, message: string) => {
+    git(dir, "add", "-A");
+    git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message);
+  };
+
+  test("every worktree of a project shares one store, named by the project and its first commit", async () => {
+    const where = project({ a: {} });
+    const tree = join(where.top, "tree");
+    git(where.root, "worktree", "add", "-q", tree);
+    const first = Bun.spawnSync(["git", "rev-list", "--max-parents=0", "HEAD"], { cwd: where.root })
+      .stdout.toString()
+      .trim()
+      .slice(0, 12);
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    await lab({ ...where, root: tree }, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(
+      readdirSync(join(where.home, ".awf/lab")).filter((n) => n.startsWith("project-")),
+    ).toEqual([`project-${first}`]);
+    const listed = await lab({ ...where, root: tree }, ["runs"]);
+    expect(listed.out.split("\n")).toHaveLength(2);
+    // History is your checkout's: the worktree's run has none from the main checkout.
+    const json = JSON.parse((await lab({ ...where, root: tree }, ["report", "--json"])).out);
+    expect(json.cases[0].history).toEqual([]);
+  });
+
+  test("a run is named by its id or the last four characters of it; a built case is kept once", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes", "--trials", "3"], { runner: scripted({}).runner });
+    const id = nthRun(storeOf(where), 1);
+    expect(id).toMatch(/^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/);
+    expect((await lab(where, ["report", id])).out).toContain(`run ${id}`);
+    expect((await lab(where, ["report", id.slice(-4)])).out).toContain(`run ${id}`);
+    const unknown = await lab(where, ["report", "ffff"]);
+    expect(unknown.code).toBe(2);
+    expect(unknown.err).toContain("no run ffff");
+    const wrong = await lab(where, ["report", "7"]);
+    expect(wrong.code).toBe(2);
+    expect(wrong.err).toContain("or its last four characters");
+    expect(readdirSync(join(storeOf(where), "inputs"))).toHaveLength(1);
+    const trial = readTrials(storeOf(where), id)[0]!;
+    expect(existsSync(join(trial.dir, "input"))).toBe(false);
+  });
+
+  test("records: each run's records are written into evals/, and a fresh clone elsewhere reads and grades them", async () => {
+    const where = project({ a: {} });
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", records: "records" }),
+    );
+    await lab(where, ["run", "--yes", "--trials", "2"], { runner: scripted({}).runner });
+    const id = nthRun(storeOf(where), 1);
+    const recorded = join(where.evals, "records/runs", id);
+    expect(existsSync(join(recorded, "run.json"))).toBe(true);
+    expect(readdirSync(join(recorded, "trials/a")).sort()).toEqual(["0-1", "0-2"]);
+    expect(readdirSync(join(recorded, "trials/a/0-1")).sort()).toEqual([
+      "scores.jsonl",
+      "trial.json",
+    ]);
+    commit(where.root, "records");
+
+    // Another machine: a clone, and a home with no store.
+    const clone = join(where.top, "clone");
+    git(where.top, "clone", "-q", where.root, clone);
+    const elsewhere = { ...where, root: clone, home: join(where.top, "home2") };
+    mkdirSync(elsewhere.home);
+    const shown = await lab(elsewhere, ["report", id.slice(-4)]);
+    expect(shown.code).toBe(0);
+    expect(shown.out).toContain(`run ${id}`);
+    // The key changes; score builds the case again from the clone's folder and grades it.
+    writeFileSync(join(clone, "evals/ds/cases/a/key.md"), keyMd("expect:\n  ok: false\n"));
+    const scored = await lab(elsewhere, ["score", "--yes"], { runner: scripted({}).runner });
+    expect(scored.code).toBe(1);
+    const lines = readFileSync(
+      join(clone, "evals/records/runs", id, "trials/a/0-1/scores.jsonl"),
+      "utf8",
+    ).trim();
+    expect(lines.split("\n")).toHaveLength(2);
+    // Back on the first machine, the newer scores come in from the records.
+    commit(clone, "scored");
+    git(where.root, "pull", "-q", clone, "main");
+    const again = JSON.parse((await lab(where, ["report", "--json"])).out);
+    expect(again.cases[0].verdict).toBe("failed");
+  });
+
+  test("records must be a folder inside evals/", async () => {
+    const where = project({ a: {} });
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/0", records: "../outside" }),
+    );
+    const { code, err } = await lab(where, ["runs"]);
+    expect(code).toBe(2);
+    expect(err).toContain("must be a folder inside");
   });
 });

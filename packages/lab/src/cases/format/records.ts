@@ -14,6 +14,7 @@ export const GRADE_KIND = "awf.case-grade/0";
 const Text = Type.String({ minLength: 1 });
 const Time = Type.String({ format: "date-time" });
 const Digest = Type.String({ pattern: "^[0-9a-f]{64}$" });
+export const RunId = Type.String({ pattern: "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$" });
 
 /** A folder of code: a column of the report. */
 export const FolderSchema = Type.Object(
@@ -55,7 +56,8 @@ export type Column = Type.Static<typeof ColumnSchema>;
 export const RunRecordSchema = Type.Object(
   {
     kind: Type.Literal(RUN_KIND),
-    number: Type.Integer({ minimum: 1 }),
+    /** The time and four random hex digits: `20261117-142233-a3f9`. */
+    id: RunId,
     dataset: Text,
     folders: Type.Array(FolderSchema, { minItems: 1 }),
     /**
@@ -138,7 +140,7 @@ const ReachSchema = Type.Object(
 export const TrialRecordSchema = Type.Object(
   {
     kind: Type.Literal(TRIAL_KIND),
-    run: Type.Integer({ minimum: 1 }),
+    run: RunId,
     dataset: Text,
     case: Text,
     /** The column's index in the run's `columns`. */
@@ -147,7 +149,7 @@ export const TrialRecordSchema = Type.Object(
     /** The column's parameters, as `env.ts` and the graders were given them. */
     params: ParamsSchema,
     awf: Type.Object({ bin: Text, version: Text }, { additionalProperties: false }),
-    /** The built case folder's digest; a copy is kept beside this record, in `input/`. */
+    /** The built case folder's digest; the folder is kept once, in the store's `inputs/`. */
     input: Digest,
     sandbox: Type.Literal("workflow"),
     agentReach: AgentReachSchema,

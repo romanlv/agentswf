@@ -4,7 +4,7 @@ import { columnLike } from "./columns";
 import type { CaseInfo, DatasetInfo } from "./dataset";
 import { decidersOf, type LabGrader } from "./grading";
 import { type CaseRow, caseRow, trialOutcome } from "./outcome";
-import { readRunRecord, readTrials, runNumbers, type StoredTrial, UnreadableRecord } from "./store";
+import { readRunRecord, readTrials, runIds, type StoredTrial, UnreadableRecord } from "./store";
 import { type CaseVerdict, caseVerdict } from "./verdict";
 
 /**
@@ -64,11 +64,12 @@ function earlier(
   dataset: string,
   root: string,
   params: Params,
-  before: number,
+  /** Runs before this id; every run when absent. */
+  before: string | undefined,
   bars: ReadonlyMap<string, CaseBar>,
 ): { run: RunRecord; verdicts: Map<string, CaseVerdict | undefined> }[] {
-  return runNumbers(store)
-    .filter((n) => n < before)
+  return runIds(store)
+    .filter((n) => before === undefined || n < before)
     .flatMap((n) => {
       try {
         const run = readRunRecord(store, n);
@@ -84,8 +85,8 @@ function earlier(
 }
 
 /** The runs whose records this lab can't read, which history leaves out. */
-export function unreadableRuns(store: string): number[] {
-  return runNumbers(store).filter((n) => {
+export function unreadableRuns(store: string): string[] {
+  return runIds(store).filter((n) => {
     try {
       readRunRecord(store, n);
       readTrials(store, n);
@@ -106,7 +107,7 @@ export function historyOf(
   const history = new Map<string, CaseVerdict[]>();
   const { path } = run.folders[0]!;
   const { params } = run.columns[0]!;
-  for (const { verdicts } of earlier(store, run.dataset, path, params, run.number, bars)) {
+  for (const { verdicts } of earlier(store, run.dataset, path, params, run.id, bars)) {
     for (const [name, verdict] of verdicts) {
       if (!verdict) continue;
       history.set(name, [...(history.get(name) ?? []), verdict].slice(-5));
@@ -127,7 +128,7 @@ export function failedCases(
   bars: ReadonlyMap<string, CaseBar>,
 ): Map<string, number> {
   const newest = new Map<string, { verdict: CaseVerdict | undefined; trials: number }>();
-  const runs = earlier(store, dataset, root, params, Number.POSITIVE_INFINITY, bars);
+  const runs = earlier(store, dataset, root, params, undefined, bars);
   for (const { run, verdicts } of runs) {
     for (const [name, verdict] of verdicts) newest.set(name, { verdict, trials: asked(run, name) });
   }

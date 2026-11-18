@@ -36,10 +36,13 @@ are its.
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
 | `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--param k=v] [--vary k=a,b] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key |
-| `report [{n}] [--case {name}] [--json]` | the last run again, or run n; one case in full |
-| `score [{n}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
+| `report [{run}] [--case {name}] [--json]` | the last run again, or the one named; one case in full |
+| `score [{run}] [--grader {name}] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
 | `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
 | `runs` | the runs kept, newest first |
+
+A run is named by its id, the time it began and four random hex digits
+(`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`).
 
 `run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. Never pipe
 into them: without a terminal they don't ask.
@@ -163,7 +166,8 @@ Why this case exists.
 | `graders` | `"name"` (a `graders.ts` export), `{ grader, onDemand }`, or `{ workflow: "graders/x.ts", readsFacts?, onDemand?, timeout? }` |
 | `judgeAgent` | `{ harness, model }` for the criteria judge, over the workspace's |
 
-`awf-lab.json` (`kind: awf.lab-workspace/0`): `judgeAgent`, and `store` in place of the default.
+`awf-lab.json` (`kind: awf.lab-workspace/0`): `judgeAgent`; `store` in place of the default;
+`records`, a folder inside `evals/` that each run's records are also written to, to be committed.
 
 ## A trial
 
@@ -290,11 +294,19 @@ read a committed key from git history: keep its agents' folders outside it.
 
 ## What is kept
 
-The store, `~/.awf/lab/{folder}-{hash}/` (one per checkout today; task 9 makes it one per
-project): `runs/{n}/run.json`, each trial's `trial.json`, its built case, `kept/`, and
-`scores.jsonl` (every grade, newest last), and the workflows' runs under `awf-runs/`. Records
-hold real inputs and results: keep a dataset of private data in a private repository. A record
-the lab can't read leaves its run out of history, and `runs` names it.
+The store, one per project: `~/.awf/lab/{project}-{first commit}/`, named by the main checkout's
+folder and the repository's first commit, so every worktree and clone on a machine shares it
+(outside git, one per folder). It holds `runs/{id}/run.json`, each trial's `trial.json`, `kept/`
+and `scores.jsonl` (every grade, newest last); each built case once, under `inputs/{digest}/`;
+and the workflows' runs under `awf-runs/`. A record the lab can't read leaves its run out of
+history, and `runs` names it.
+
+**`records`**: with it set, after each `run` and `score` the run's records are copied to
+`{records}/runs/{id}/`: the run, each trial's record, its scores and `kept/`. Not the built case,
+which is built again from the case folder and checked against the trial's digest, nor the agents'
+logs, which a grader's run can fill with a key. Every command first reads the records folder into
+the store, so a fresh clone sees the runs committed, and newer scores from elsewhere come in.
+Records hold real inputs and results: keep a dataset of private data in a private repository.
 
 Records and formats are `/0`: an incompatible change makes them `/1`, with no converter for runs
 (beta). The code shapes you write against (`defineEnv`, `c`, a grader's result) may change

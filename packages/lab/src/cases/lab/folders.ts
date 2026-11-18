@@ -31,7 +31,7 @@ export type TrialFolders = { parent: string; dir: string; scratch: string };
  * A trial's folders, outside every repository: a parent per trial holding its owner (the run's id
  * and this process), the built case folder and the empty scratch folder.
  */
-export function makeTrialFolders(tmp: string, run: number): TrialFolders {
+export function makeTrialFolders(tmp: string, run: string): TrialFolders {
   const parent = realpathSync(mkdtempSync(join(tmp, PREFIX)));
   writeFileSync(join(parent, OWNER), JSON.stringify({ run, pid: process.pid }));
   const dir = join(parent, "case");
