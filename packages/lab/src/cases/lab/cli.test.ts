@@ -3088,6 +3088,77 @@ describe("the loop: a proposer's copy kept only when better", () => {
     expect(JSON.parse(ledger.trim()).usd).toBe(0.25);
   });
 
+  const commitAll = (dir: string, message: string) => {
+    git(dir, "add", "-A");
+    git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message);
+  };
+
+  test("a loop's own records reach the records folder, and a clone goes on from them", async () => {
+    const { where, program } = loopProject(1);
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/1", hide: ["old-keys"], records: "records" }),
+    );
+    commitAll(where.root, "records");
+    const first = await loop(
+      where,
+      ["l", "--budget", "5", "--program", program, "--rounds", "2"],
+      loopRunner([2, 1]).runner,
+    );
+    expect(first.err).toContain("try 1: kept");
+    expect(first.err).toContain("try 2: discarded");
+    const recorded = join(where.evals, "records/loops/l");
+    expect(readFileSync(join(recorded, "tries/1/change.patch"), "utf8")).toContain(
+      "+export const quality = 2;",
+    );
+    for (const file of ["loop.json", "program.md", "tries/2/try.json", "tries/1/proposer.jsonl"]) {
+      expect(existsSync(join(recorded, file))).toBe(true);
+    }
+    // Never the code: a copy, its bundle or the proposer's runs.
+    expect(existsSync(join(recorded, "start"))).toBe(false);
+    expect(existsSync(join(recorded, "tries/1/code"))).toBe(false);
+    commitAll(where.root, "the loop");
+
+    // Another machine: a clone, and a home with no store.
+    const clone = join(where.top, "clone");
+    git(where.top, "clone", "-q", where.root, clone);
+    const elsewhere = {
+      ...where,
+      root: clone,
+      evals: join(clone, "evals"),
+      home: join(where.top, "home2"),
+    };
+    mkdirSync(elsewhere.home);
+    mkdirSync(join(clone, "node_modules", "agentswf"), { recursive: true });
+    const patch = await loop(elsewhere, ["l", "--patch"], loopRunner([]).runner);
+    expect(patch.out).toContain("+export const quality = 2;");
+    const goes = loopRunner([3]);
+    const on = await loop(elsewhere, ["l", "--budget", "5", "--rounds", "1"], goes.runner);
+    expect(on.err).toContain("try 3: kept");
+    // It ran against try 1, its code built again from its change; try 2's was never needed.
+    const third = JSON.parse(
+      readFileSync(join(clone, "evals/records/loops/l/tries/3/try.json"), "utf8"),
+    );
+    expect(third.parent).toBe(1);
+    expect(goes.ran.every((r) => !r.root.includes("tries/2/"))).toBe(true);
+  });
+
+  test("a loop of the same name started elsewhere is refused, never merged", async () => {
+    const { where, program } = loopProject(1);
+    writeFileSync(
+      join(where.evals, "awf-lab.json"),
+      JSON.stringify({ kind: "awf.lab-workspace/1", hide: ["old-keys"], records: "records" }),
+    );
+    commitAll(where.root, "records");
+    await loop(where, ["l", "--budget", "5", "--program", program], loopRunner([2]).runner);
+    const loopJson = join(where.evals, "records/loops/l/loop.json");
+    const elsewhere = JSON.parse(readFileSync(loopJson, "utf8"));
+    writeFileSync(loopJson, JSON.stringify({ ...elsewhere, started: "2026-01-01T00:00:00.000Z" }));
+    const refused = await loop(where, ["l", "--budget", "5"], loopRunner([3]).runner);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("loop l in the records was started elsewhere");
+  });
+
   test("a dataset graded by numbers alone is compared on them", async () => {
     const byNumbers = `export const compare = {
   kind: "awf.case-comparison/0",
@@ -3133,7 +3204,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     expect(new Set(fake.ran.map((r) => r.root)).size).toBe(1);
   });
 
-  test("stops at the cap with exit 3, after three tries that kept nothing, and resumes by name", async () => {
+  test("stops at the cap with exit 3; three tries that kept nothing stop the command, and a run again goes on", async () => {
     const { where, program } = loopProject(1);
     const stalled = loopRunner(["fail", "fail", "fail", 2]);
     const third = await loop(
@@ -3142,13 +3213,14 @@ describe("the loop: a proposer's copy kept only when better", () => {
       stalled.runner,
     );
     expect(third.out).toContain("3 tries in a row kept nothing");
-    const capped = await loop(
+    expect(third.err).not.toContain("try 4");
+    const again = await loop(
       where,
       ["l", "--budget", "5", "--rounds", "1"],
       loopRunner([2]).runner,
     );
-    // The cap and the tries are the loop's own, kept from its start.
-    expect(capped.out).toContain("3 tries in a row kept nothing");
+    // The tries are the loop's own, kept from its start: the next is the fourth.
+    expect(again.err).toContain("try 4: kept");
     const other = loopProject(1);
     const cheap = await loop(
       other.where,

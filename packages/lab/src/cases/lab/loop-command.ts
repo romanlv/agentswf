@@ -34,6 +34,7 @@ import {
   runLoop,
   type TryRun,
 } from "./loop";
+import { readLoopRecords, writeLoopRecords } from "./loop-records";
 import { newestEntries, trialOutcome } from "./outcome";
 import { Refusal } from "./refusal";
 import { barsOf, type CaseBar } from "./runs";
@@ -92,6 +93,13 @@ export async function loopCommand(
   if (foreign.length > 0) throw new Refusal(`a loop takes no ${foreign.join(", ")}`);
   const workspace = lends.workspaceOf(context);
   const dir = loopDirOf(workspace.store, name);
+  const top = workspace.repository ?? workspace.root;
+  // A loop run elsewhere, as its committed records have it, goes on here.
+  if (workspace.records) readLoopRecords(dir, workspace.records, name, top, workspace);
+  const recorded = <T>(outcome: T): T => {
+    if (workspace.records) writeLoopRecords(dir, workspace.records, name);
+    return outcome;
+  };
   if (options.patch) {
     const kept = incumbentOf(readTries(dir));
     if (!readLoop(dir)) throw new Refusal(`no loop ${name}`);
@@ -117,7 +125,6 @@ export async function loopCommand(
       `a loop keeps a try only when better: ${info.name} needs compare in graders.ts`,
     );
   }
-  const top = workspace.repository ?? workspace.root;
   const bars = barsOf(
     info,
     [...cases, ...held],
@@ -136,7 +143,9 @@ export async function loopCommand(
         `loop ${name} runs under --param ${started.params.join(" ") || "none"}: its final check does too`,
       );
     }
-    const outcome = await runFinal({ dir, budget: options.budget }, deps);
+    const outcome = await runFinal({ dir, budget: options.budget }, deps).finally(() =>
+      recorded(undefined),
+    );
     context.stdout(outcome.why);
     return outcome.exit;
   }
@@ -162,7 +171,7 @@ export async function loopCommand(
       from: { path: workspace.root, commit: state.commit, dirty: state.dirty },
     },
     deps,
-  );
+  ).finally(() => recorded(undefined));
   context.stdout(`loop ${name}: ${outcome.why}`);
   return outcome.exit;
 }

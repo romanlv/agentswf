@@ -437,10 +437,12 @@ a `compare` in `graders.ts`, and spends until `--budget`.
 4. **The run**: the incumbent and the try, as two columns, case by case in the seeded order, each
    case's trials in both before the next, until `compare` says stop, given only the cases both
    ran. On `better` the try is the incumbent; otherwise it is discarded.
-5. **Stops**: the cap (exit 3), checked before each run and before the proposer, three tries in
-   a row that kept nothing, the rounds (`--rounds`, 1 unless told). The cap counts the
+5. **Stops**: the cap (exit 3), checked before each run and before the proposer; three tries in
+   a row that kept nothing, which stop the command but not the loop (look at them, then run it
+   again and it goes on); the rounds (`--rounds`, 1 unless told). The cap counts the
    proposer's and the trials' estimates, summed from each try's records as it goes: the runs it
-   started, read from the store, and each proposer run's estimate, so a cut loses none of it.
+   started, read from the store, and each proposer run's estimate, so a cut loses none of it. A
+   run that printed no record, as one cut short, is priced from its folder.
    A run stops starting trials once the cap is reached, so its last trial may cross it. A try
    the cap stops is left undecided; a larger `--budget` on `loop {name}` raises the cap and
    resumes it.
@@ -453,9 +455,18 @@ holdout, `graders.ts`, `--trials`, `--param` or tuning cases is refused: its tri
 alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`.
 `--final --budget {usd}` runs the kept code against the start on the held-out cases, under the
 loop's `--param`, each check recorded (a second says it was asked again); `--patch` prints the
-kept code against the start. Records: `{store}/loops/{name}/loop.json`, `cap.jsonl` (a cap a
-resume set), `tries/{n}/` (`code/`, `bundle/`, `runs.json`, `proposer.jsonl`, `proposal.json`,
+kept code against the start. Records: `{store}/loops/{name}/loop.json`, `program.md`,
+`cap.jsonl` (a cap a resume set), `tries/{n}/` (`code/`, `bundle/`, `runs.json`,
+`proposer.jsonl`, `proposal.json`, `change.patch`, the try's change against its parent's code,
 `try.json`), `finals/{k}.json`; their schemas are `schema/case-{loop,try,proposal,final}.schema.json`.
+
+With `records` set, each loop command also writes the loop's own files into
+`{records}/loops/{name}/`: all of the above but the code, the bundles and the proposer's runs. A
+store that lacks them, as on a clone, reads them back, and builds the code again from the start
+commit and each change it needs, so the loop goes on, `--patch` and `--final` included, wherever
+the project is cloned. A loop started from uncommitted changes can't be built again: it goes on
+where it started. A loop of the same name started elsewhere, or a try decided otherwise in the
+records, is refused.
 
 ## The key stays hidden, and how far
 

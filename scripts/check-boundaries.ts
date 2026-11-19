@@ -421,6 +421,7 @@ const LAB_RULES: Rule[] = [
       "labels.ts",
       "loop.ts",
       "loop-command.ts",
+      "loop-records.ts",
       "record-copies.ts",
       "reuse.ts",
       "runs.ts",

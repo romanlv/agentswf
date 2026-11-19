@@ -40,7 +40,10 @@ import type { CaseWorkspace } from "./workspace";
 // against the incumbent on the tuning cases until the dataset's `compare` stops it, and it becomes
 // the incumbent only on `better`. Its code and records live in the store, `loops/{name}/`.
 
-/** How many tries in a row that kept nothing end a loop: the stall a person should look at. */
+/** A try's own change against its parent's code, beside its records. */
+export const CHANGE_FILE = "change.patch";
+
+/** How many tries in a row that kept nothing stop a loop's command: the stall a person should look at. */
 export const STALL = 3;
 
 /** A run of this many characters of a tuning key's text in changed code is copied, not written. */
@@ -98,8 +101,14 @@ function linkInstalls(top: string, code: string): void {
  * The start: what git would hold in your repository, less each dataset's cases, the records
  * folder and `hide`'s paths, copied into `code` and committed there, its installs linked.
  */
-export function copyStart(top: string, code: string, workspace: CaseWorkspace): void {
-  const listed = git(top, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+export function copyStart(
+  top: string,
+  code: string,
+  workspace: CaseWorkspace,
+  // A checkout of the same repository to copy from, such as a worktree at the loop's start commit.
+  source = top,
+): void {
+  const listed = git(source, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
   const evals = relative(top, workspace.evals);
   const records = workspace.records ? relative(top, workspace.records) : undefined;
   // `hide`'s paths hold what the box hides as it does keys: a copy never has them.
@@ -112,7 +121,7 @@ export function copyStart(top: string, code: string, workspace: CaseWorkspace): 
   mkdirSync(code, { recursive: true });
   for (const path of new Set(listed.split("\0").filter(Boolean))) {
     if (left(path)) continue;
-    const from = join(top, path);
+    const from = join(source, path);
     let stat: ReturnType<typeof lstatSync>;
     try {
       stat = lstatSync(from);
@@ -225,6 +234,27 @@ function keyTexts(info: CaseInfo): string[] {
 export function commitTry(code: string, n: number): void {
   git(code, ["add", "-A"]);
   git(code, ["commit", "-q", "--allow-empty", "-m", `try ${n}`]);
+}
+
+/** A try's own change, against its parent's code: what the records keep to build it again. */
+export function changeOf(code: string): string {
+  return git(code, ["diff", "--no-color", "--binary", "HEAD~1", "HEAD"]);
+}
+
+/** Builds a try's code again from its parent's and its change, as the records keep it. */
+export function rebuildTry(parent: string, code: string, change: string, top: string, n: number) {
+  branchCode(parent, code, top);
+  if (change.trim() !== "") {
+    const run = Bun.spawnSync(["git", "-C", code, "apply", "--binary", "-"], {
+      stdin: new TextEncoder().encode(change),
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    if (run.exitCode !== 0) {
+      throw new Error(`try ${n}'s change doesn't apply: ${run.stderr.toString().trim()}`);
+    }
+  }
+  commitTry(code, n);
 }
 
 /** The kept code against the start, as a patch. */
@@ -483,10 +513,15 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     exit: 3,
     why: `the cap of ${usd(cap)} is spent${what}: a larger --budget resumes it`,
   });
+  // A stall stops this command, not the loop: run it again, after a look, and it goes on.
+  const before = tries.length;
   for (let round = 0; round < request.rounds; round++) {
-    const recent = tries.slice(-STALL);
+    const recent = tries.slice(before).slice(-STALL);
     if (recent.length === STALL && recent.every((t) => t.decision !== "kept")) {
-      return { exit: 0, why: `${STALL} tries in a row kept nothing: look before spending more` };
+      return {
+        exit: 0,
+        why: `${STALL} tries in a row kept nothing: look at them before spending more; run the loop again to go on`,
+      };
     }
     const n = tries.length + 1;
     const parent = incumbentOf(tries);
@@ -571,6 +606,7 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
         continue;
       }
       commitTry(code, n);
+      writeFileSync(join(tryDir, CHANGE_FILE), changeOf(code));
       proposal = {
         kind: PROPOSAL_KIND,
         hypothesis: answer.hypothesis,
