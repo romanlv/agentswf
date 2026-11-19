@@ -143,9 +143,7 @@ test("the case kind imports only itself and the shared folder, and names no doma
     `${cases}/lab/mailbox.ts: its name holds a word of one workflow's domain (mail, review, finding)`,
     `${cases}/lab/verdict.ts: names "review", a word of one workflow's domain; the case kind knows none`,
     `${cases}/lab/verdict.ts: path import ../../review/format/format reaches what ${cases} may not`,
-    `${cases}/lab/verdict.ts: path import ../../review/format/format reaches what ${cases}/lab may not`,
     `${shared}/config.ts: imports node:path — ${shared} is pure: no runtime builtins`,
-    `${shared}/config.ts: path import ../cases/format/settings reaches what ${shared} may not`,
     `${shared}/config.ts: path import ../cases/format/settings reaches what ${shared} may not`,
   ]);
 });

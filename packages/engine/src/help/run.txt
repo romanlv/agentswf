@@ -1,8 +1,8 @@
 usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]
        awf run [options] <workflow-file> --id <id> --continue
 run options: --id <id>, --continue, --from-stage <stage>, --values <file>,
-             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>, --boxed,
-             --workspace <run|origin|name>, --keep-panes <never|on-failure|always>,
+             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,
+             --boxed, --workspace <run|origin|name>, --keep-panes <never|on-failure|always>,
              --json, --quiet, --no-watch, --here
 
 Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or, with

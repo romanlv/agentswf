@@ -748,7 +748,7 @@ async function runAttempt(
         machineRoot: machinePaths(home).root,
         coordinatorRoot,
         ...(sandbox === undefined ? {} : { run: sandbox }),
-        ...(command.boxed ? { setAside: true as const } : {}),
+        ...(run.record.boxed ? { setAside: true as const } : {}),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),
       ...(installed.allowance ? { allowance: installed.allowance } : {}),

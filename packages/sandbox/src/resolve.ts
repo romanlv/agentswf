@@ -56,23 +56,23 @@ export type ResolveOptions = {
 };
 
 /**
- * Checks an author's spec the way the types would, since a workflow is untyped at run time, and
- * resolves its paths once, at open: a sandbox holds what they named then, whatever moves later.
+ * Checks a spec's fields and names its one provider, before anything is installed or opened: a run
+ * its caller boxes checks its specs this way, so a workflow refused unboxed is refused boxed too.
  */
-export async function resolveSandbox(
+export function checkSandboxSpec(
   spec: unknown,
-  options: ResolveOptions,
-): Promise<SandboxResolution> {
+  inline: boolean,
+): { spec: Record<string, unknown>; provider: SandboxEnvironmentKey } {
   if (!isRecord(spec)) throw new Error("a sandbox spec must be an object");
   const allowed = new Set<string>([
     ...REACH_KEYS,
     ...SANDBOX_ENVIRONMENTS,
-    ...(options.inline ? [] : ["key", "cwd"]),
+    ...(inline ? [] : ["key", "cwd"]),
   ]);
   for (const key of Object.keys(spec)) {
     if (allowed.has(key)) continue;
     throw new Error(
-      options.inline && (key === "key" || key === "cwd" || key === "provider")
+      inline && (key === "key" || key === "cwd" || key === "provider")
         ? `an agent's inline sandbox cannot name ${key}; open a sandbox and pass its ref to share one`
         : `unknown sandbox field ${JSON.stringify(key)}`,
     );
@@ -85,6 +85,18 @@ export async function resolveSandbox(
   if (provider === undefined) {
     throw new Error('a sandbox spec names its provider: add "srt": {} or "docker": {}');
   }
+  return { spec, provider };
+}
+
+/**
+ * Checks an author's spec the way the types would, since a workflow is untyped at run time, and
+ * resolves its paths once, at open: a sandbox holds what they named then, whatever moves later.
+ */
+export async function resolveSandbox(
+  given: unknown,
+  options: ResolveOptions,
+): Promise<SandboxResolution> {
+  const { spec, provider } = checkSandboxSpec(given, options.inline === true);
   const installed = options.providers.installed[provider];
   if (!installed) {
     const why = options.providers.unavailable?.[provider];

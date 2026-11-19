@@ -67,3 +67,40 @@ test("a run not boxed says nothing of a box", async () => {
   expect(json.run.boxed).toBeUndefined();
   expect(text).not.toContain("boxed by");
 });
+
+test("a continued boxed run stays boxed: its workflow's sandboxes are still set aside", async () => {
+  const workflow = `import { existsSync, writeFileSync } from "node:fs";
+import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({
+  meta: { name: "boxed", description: "Fails once, after opening a sandbox." },
+  file: import.meta.path,
+  async run(wf) {
+    await wf.sandboxes.open({ key: "box", docker: {} });
+    const once = import.meta.path + ".once";
+    if (!existsSync(once)) {
+      writeFileSync(once, "");
+      throw new Error("first attempt");
+    }
+    return "done";
+  },
+});
+`;
+  const { root, file, home } = eventProject(dirs, "boxed.ts", workflow);
+  const errors: string[] = [];
+  const awf = (argv: string[]) =>
+    runOperatorCli(argv, {
+      home,
+      environment: { ...process.env, HOME: home },
+      stdout: () => undefined,
+      stderr: (t: string) => errors.push(t),
+      installRuntime: async () => ({
+        config: { aliases: {}, host: createSingleSessionHostFactory(createFakeAdapter({})) },
+        cleanup: async () => undefined,
+      }),
+    });
+  const runRoot = join(root, ".awf", "runs");
+  expect(await awf(["run", file, "--id", "c", "--run-root", runRoot, "--boxed"])).not.toBe(0);
+  expect(errors.join("\n")).toContain("first attempt");
+  // Unboxed, the docker sandbox would fail to open: no provider is installed here.
+  expect(await awf(["run", file, "--id", "c", "--run-root", runRoot, "--continue"])).toBe(0);
+});

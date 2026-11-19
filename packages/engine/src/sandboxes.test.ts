@@ -806,9 +806,29 @@ describe("awf run --boxed: the workflow's sandboxes set aside", () => {
     expect(result.sandboxes ?? []).toEqual([]);
   });
 
-  test("--boxed goes with neither --sandbox nor --continue", () => {
+  test("a spec is checked as if it opened: a key used twice, a spec naming no provider", async () => {
+    const boxed = () => setup({}, undefined, undefined, true).run;
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {} });
+        await context.sandboxes.open({ key: "box", srt: {} });
+        return 0;
+      }),
+    ).rejects.toThrow("sandbox box is already open");
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", read: [root] } as never);
+        return 0;
+      }),
+    ).rejects.toThrow("a sandbox spec names its provider");
+  });
+
+  test("--boxed goes with neither --sandbox nor --continue", async () => {
+    await writeFile(join(work, "s.json"), JSON.stringify({ srt: {} }));
     const parse = (argv: string[]) => () => parseCommand(["run", ...argv], work);
-    expect(parse(["w.ts", "--boxed", "--sandbox", "s.json"])).toThrow();
+    expect(parse(["w.ts", "--boxed", "--sandbox", "s.json"])).toThrow(
+      "--boxed and --sandbox do not go together",
+    );
     expect(parse(["w.ts", "--boxed", "--id", "x", "--continue"])).toThrow("--boxed starts a run");
     expect(parseCommand(["run", "w.ts", "--boxed"], work).boxed).toBe(true);
   });

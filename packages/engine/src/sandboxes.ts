@@ -20,6 +20,7 @@ import {
 } from "@agentswf/harness";
 import {
   type AgentDoor,
+  checkSandboxSpec,
   type HarnessSandboxNeeds,
   type Occupant,
   type OpenedSandbox,
@@ -162,6 +163,8 @@ function recordOf({
 export class RunSandboxes {
   /** Each key taken, by an open landed or in flight; a failed open frees its key. */
   readonly #keys = new Map<string, Promise<RunSandbox>>();
+  /** The keys a boxed run's workflow opened, which open nothing. */
+  readonly #asideKeys = new Set<string>();
   /** Every sandbox that opened, in order, closed early or not: what the record lists. */
   readonly #opened: RunSandbox[] = [];
   readonly #refs = new WeakMap<object, RunSandbox>();
@@ -211,8 +214,11 @@ export class RunSandboxes {
     }
     if (this.setAside) {
       // Nothing opens: an agent given this ref runs in the caller's box, as every agent does.
-      const provider = Object.keys(spec as object).find((k) => k === "srt" || k === "docker");
-      return Object.freeze({ key, provider: provider ?? "srt" }) as unknown as SandboxRef;
+      if (this.#closed) throw new Error("the run's sandboxes are closed");
+      if (this.#asideKeys.has(key)) throw new Error(`sandbox ${key} is already open`);
+      const { provider } = checkSandboxSpec(spec, false);
+      this.#asideKeys.add(key);
+      return Object.freeze({ key, provider }) as unknown as SandboxRef;
     }
     const sandbox = await this.#register(key, () => this.#open(key, spec, false));
     const ref = Object.freeze({ key: sandbox.key, provider: sandbox.provider });

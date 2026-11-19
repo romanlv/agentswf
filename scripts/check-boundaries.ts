@@ -340,13 +340,15 @@ const NO_AGENTSWF = {
   pattern: /^agentswf(\/|$)/,
   reason: "the lab starts a folder's own awf as a process, and never loads an agentswf",
 };
+/** For a rule whose folder's paths another rule checks, so a path import is reported once. */
+const checkedElsewhere = () => true;
 const LAB_RULES: Rule[] = [
   { dir: SHARED, paths: ownShared, forbid: [NO_AGENTSWF] },
   {
     dir: SHARED,
     except: ["**/*.test.ts", "runner.ts", "config-file.ts", "allowance.ts"],
     pure: true,
-    paths: ownShared,
+    paths: checkedElsewhere,
   },
   { dir: CASES, paths: ownCases },
   // What runs in a project's own process: the running engine's author surface, nothing else of awf.
@@ -361,7 +363,7 @@ const LAB_RULES: Rule[] = [
           "@agentswf/lab/cases runs in a project's process: it imports agentswf/workflow, which the running engine serves, and no @agentswf package",
       },
     ],
-    paths: ownCases,
+    paths: checkedElsewhere,
   },
   // The lab's own criteria judge: a workflow the lab's `awf` runs, reading its grade folder.
   {
@@ -392,19 +394,18 @@ const LAB_RULES: Rule[] = [
     dir: `${CASES}/format`,
     except: ["**/*.test.ts"],
     pure: true,
-    paths: ownCases,
+    paths: checkedElsewhere,
     forbid: [NO_AGENTSWF],
   },
   {
     dir: `${CASES}/lab`,
     except: ["**/*.test.ts"],
     forbid: [NO_AGENTSWF],
-    // The rule below decides where its paths reach.
-    paths: () => true,
+    paths: checkedElsewhere,
   },
   {
     dir: `${CASES}/lab`,
-    paths: ownCases,
+    paths: checkedElsewhere,
     except: [
       "**/*.test.ts",
       "cli.ts",
@@ -440,7 +441,7 @@ const LAB_RULES: Rule[] = [
 const DOMAIN_WORDS = /\b(mail|review|finding)/i;
 
 /** `source` without its comments, strings and template text kept. */
-export function withoutComments(source: string): string {
+function withoutComments(source: string): string {
   let out = "";
   let i = 0;
   while (i < source.length) {

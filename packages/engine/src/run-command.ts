@@ -175,7 +175,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
       "--boxed and --sandbox do not go together: a boxed run's agents run in its box",
     );
   }
-  if (boxed && continuing) throw new Error("--boxed starts a run; a continue is never boxed");
+  if (boxed && continuing)
+    throw new Error("--boxed starts a run; a continue keeps the box the run started in");
   const id = continuing ? undefined : named;
   const continueId = continuing ? named : undefined;
   if (values !== undefined && fromStage === undefined) {
