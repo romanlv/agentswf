@@ -18,7 +18,7 @@ const trial = (scores: ScoreRecord[], reused = false) => ({
 
 const run = { started: "2026-11-19T10:00:00.000Z", finished: "2026-11-19T11:00:00.000Z" };
 
-describe("what a run spent on a trial", () => {
+describe("what a trial is estimated to cost", () => {
   test("its own: the workflow run and the grades made while the run ran", () => {
     const graded = trial([
       score("2026-11-19T10:30:00.000Z", 0.5),

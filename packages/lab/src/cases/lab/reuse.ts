@@ -79,7 +79,7 @@ export function codeDigest(root: string, workspace: CaseWorkspace): string | und
 let labDigest: string | undefined;
 
 /** The lab's side of a trial: the code a trial's process runs from `@agentswf/lab/cases`. */
-export function labSideDigest(): string {
+function labSideDigest(): string {
   if (labDigest) return labDigest;
   const hash = sha();
   for (const folder of ["../env", "../format"]) {

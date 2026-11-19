@@ -15,8 +15,8 @@ import {
   staleBecause,
 } from "./grading";
 import { entryName, gradingSpend, newestEntries } from "./outcome";
-import { median, usd } from "./report";
 import { appendScore, inputDirOf, keepInput, type StoredTrial } from "./store";
+import { median, usd } from "./text";
 
 /** One trial to grade again, and with what. */
 export type ScoreItem = {
@@ -50,22 +50,24 @@ const add = (map: Map<string, number>, name: string) => map.set(name, (map.get(n
  * What `score` would grade again: on each trial graders run on (not leaked, errored, failed by
  * the workflow, or a draft's), each grader whose grade no longer stands (`staleBecause`); and a
  * costly grader skipped before, once the trial no longer fails a cheap one. A trial whose built
- * case no longer matches its `input` digest is left for a new run.
+ * case no longer matches its `input` digest is left for a new run. The graders are every one not
+ * marked onDemand, and `expect`, as a run's reused trials and a plain `score` grade them, unless
+ * `only` names them.
  */
-export function planScore(args: {
+export function regradePlan(args: {
   trials: readonly StoredTrial[];
   /** Where each built case is kept, for the graders to read. */
   store: string;
-  datasetDir: string;
+  info: DatasetInfo;
   cases: readonly CaseInfo[];
-  /** The graders `score` may run: every deciding one, or the one `--grader` names. */
+  /** The dataset's graders, whose grades decide per case. */
   graders: readonly LabGrader[];
-  /** Whose grades decide, per case, from the current dataset and key. */
-  decidersOf: (info: CaseInfo) => ReadonlySet<string>;
-  /** Grade `expect` again where it is stale; false for `score --grader`. */
-  expect: boolean;
   tmp: string;
+  /** The graders `--grader` or `--judge` names, and whether `expect` is graded again with them. */
+  only?: { graders: readonly LabGrader[]; expect: boolean };
 }): ScorePlan {
+  const chosen = args.only?.graders ?? args.graders.filter((g) => !g.onDemand);
+  const expectAgain = args.only?.expect ?? true;
   const byName = new Map(args.cases.map((c) => [c.name, c]));
   const items: ScoreItem[] = [];
   const changed: StoredTrial[] = [];
@@ -77,7 +79,7 @@ export function planScore(args: {
     if (digest === undefined) {
       const built = join(scratch, String(inputs.size));
       mkdirSync(built);
-      buildCase(args.datasetDir, info, built);
+      buildCase(args.info.dir, info, built);
       digest = folderDigest(built);
       // A run read from committed records has no built case yet: this one is it, if unchanged.
       keepInput(args.store, digest, built);
@@ -97,15 +99,15 @@ export function planScore(args: {
         changed.push(trial);
         continue;
       }
-      const deciders = args.decidersOf(info);
+      const deciders = decidersOf(info.key, chosen);
       const newest = new Map(newestEntries(trial.scores).map((e) => [entryName(e), e]));
       const expect =
-        args.expect &&
+        expectAgain &&
         deciders.has("expect") &&
         staleBecause(newest.get("expect"), expectDigestOf(info.key), EXPECT_VERSION) !== undefined;
       const stale = (g: LabGrader) =>
         staleBecause(newest.get(g.name), keyFor(g, info), g.version, g.agent) !== undefined;
-      const graders = args.graders.filter((g) => g.appliesTo?.(info.key) ?? true);
+      const graders = chosen.filter((g) => g.appliesTo?.(info.key) ?? true);
       const cheap = graders.filter((g) => !g.costly && stale(g));
       const regraded = new Set([...(expect ? ["expect"] : []), ...cheap.map((g) => g.name)]);
       const standing = [...newest.values()].filter((e) => !regraded.has(entryName(e)));
@@ -138,7 +140,7 @@ export function planScore(args: {
   let estimate: number | undefined;
   let upTo: number | undefined;
   const unpriced: string[] = [];
-  for (const grader of args.graders.filter((g) => g.costly)) {
+  for (const grader of chosen.filter((g) => g.costly)) {
     const sure = counts.get(grader.name) ?? 0;
     const unsure = maybeCounts.get(grader.name) ?? 0;
     if (sure + unsure === 0) continue;
@@ -169,32 +171,6 @@ export function planScore(args: {
     ...(upTo !== undefined && upTo !== estimate ? { upTo } : {}),
     unpriced,
   };
-}
-
-/**
- * What grading again plans with a dataset's graders: every one not marked onDemand and `expect`,
- * as a run's reused trials and a plain `score` grade them, unless `only` names the graders.
- */
-export function regradePlan(args: {
-  trials: readonly StoredTrial[];
-  store: string;
-  info: DatasetInfo;
-  cases: readonly CaseInfo[];
-  graders: readonly LabGrader[];
-  tmp: string;
-  only?: { graders: readonly LabGrader[]; expect: boolean };
-}): ScorePlan {
-  const { graders } = args;
-  return planScore({
-    trials: args.trials,
-    store: args.store,
-    datasetDir: args.info.dir,
-    cases: args.cases,
-    graders: args.only?.graders ?? graders.filter((g) => !g.onDemand),
-    decidersOf: (c) => decidersOf(c.key, graders),
-    expect: args.only?.expect ?? true,
-    tmp: args.tmp,
-  });
 }
 
 /** The plan in lines, for the operator. */
@@ -253,7 +229,7 @@ export async function runScore(args: {
 }): Promise<ScoreDone> {
   const graded = new Map<string, number>();
   const errored = new Map<string, number>();
-  let spent = 0;
+  let estimated = 0;
   let stopped = false;
   const cost = (entries: readonly GraderEntry[]) => gradingSpend([{ entries }]);
   for (const item of args.plan.items) {
@@ -283,7 +259,7 @@ export async function runScore(args: {
         standing,
         previousOf: (name) =>
           previousFrom(newest.get(name), byName.get(name)?.version, byName.get(name)?.agent),
-        mayContinue: (made) => args.budget === undefined || spent + cost(made) < args.budget,
+        mayContinue: (made) => args.budget === undefined || estimated + cost(made) < args.budget,
       });
       const entries: GraderEntry[] =
         "errored" in result
@@ -307,7 +283,7 @@ export async function runScore(args: {
         if (entry.skipped) continue;
         add(entry.errored ? errored : graded, entryName(entry));
       }
-      spent += cost(entries);
+      estimated += cost(entries);
       const said = entries.map(
         (e) =>
           `${entryName(e)} ${e.errored ? `errored: ${e.errored.reason}` : e.skipped ? "skipped" : (e.verdict ?? e.notApplies ?? "graded")}`,
@@ -323,5 +299,5 @@ export async function runScore(args: {
       rmSync(work, { recursive: true, force: true });
     }
   }
-  return { graded, errored, estimate: spent, stopped };
+  return { graded, errored, estimate: estimated, stopped };
 }

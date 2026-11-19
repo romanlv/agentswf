@@ -76,7 +76,7 @@ are its.
 | `capture {trial id} (--good \| --needs-work "{note}") [--dataset {name}]` | a new case from a past trial, or from a real run by its awf run id, its key a draft |
 | `label {trial id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial |
 | `loop {name} --budget {usd} [--program {file}] [--proposer {harness}/{model}] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}] [--dataset {name}]` | a proposer changes a copy of the code, kept only when `compare` says better |
-| `loop {name} --final --budget {usd} [--param k=v]`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
+| `loop {name} --final --budget {usd}`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
@@ -323,7 +323,8 @@ asked again grades only what changed. Switching judges is an edit of `judgeAgent
 Another checkout of the project, with its own install. Its `env.ts`, code and `awf` run; its
 cases, keys, `dataset.json` and graders are never read, so what counts as a pass comes from your
 checkout. The report puts columns side by side: verdicts, time and cost, numbers, the cases that
-came out differently (largest first), "also fails in {column}". It doesn't say which is better.
+came out differently (largest first), "also fails in {column}". Which column is better is
+[`compare`](#compare-what-better-means)'s.
 
 ## Reuse
 
@@ -412,7 +413,6 @@ independent. Each interval is 95%.
   shown" unless a sign test on the cases that changed says so (p < 0.05: six cases one way at
   the least). Two columns' own intervals can overlap while the paired difference is clear.
 - **By tag**: a line per tag, its cases passed in each column, and its failing cases.
-- Which column is better is `compare`'s.
 
 ## `compare`: what "better" means
 
@@ -469,7 +469,7 @@ workflow's own sandboxes aside and its agents run in the box as host agents.
 
 A proposer agent changes a copy of your code, the copy runs against the code it changed, and it
 is kept only when the dataset's `compare` says better. It needs `"sandbox": { "lab": "srt" }` and
-a `compare` in `graders.ts`, and spends until `--budget`.
+a `compare` in `graders.ts`, and runs until its estimates reach `--budget`.
 
 1. **The first run** names `--program`, the operator's steering, which the proposer reads every
    try, and copies your repository as it stands into the store: what git would hold, less each
@@ -505,7 +505,7 @@ a `compare` in `graders.ts`, and spends until `--budget`.
 proposed again, its estimate from before still counted. A loop resumed with another dataset,
 holdout, `graders.ts`, `--trials`, `--param` or tuning cases is refused: its tries are judged
 alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`;
-`--final` takes only `--budget` and `--param`, and `--patch` nothing.
+`--final` takes only `--budget`, and `--patch` nothing.
 `--final --budget {usd}` runs the kept code against the start on the held-out cases, under the
 loop's `--param`, each check recorded (a second says it was asked again); `--patch` prints the
 kept code against the start. Records: `{store}/loops/{name}/loop.json`, `program.md`,
@@ -549,6 +549,9 @@ their trials, and grades made elsewhere come in. A bare `report` or `score` take
 newest run, not another worktree's.
 Records hold real inputs and results: keep a dataset of private data in a private repository.
 
-The records, `grade.json` and `awf-lab.json` are `/1`; `key.md`, `dataset.json` and the report
-are `/0`. An older version is named and refused or left out, never converted (beta). The code
-shapes you write against (`defineEnv`, `c`, a grader's result, `compare`) may change without one.
+The records (`case-run`, `case-trial`, `case-score`, `case-grade`, `case-label`, and the loop's
+`case-loop`, `case-try`, `case-proposal` and `case-final`), `grade.json` and `awf-lab.json` are
+`/1`; `key.md`, `dataset.json`, `report --json` (`case-report`) and `score --json`
+(`case-scored`) are `/0`. An older version is named and refused or left out, never
+converted. agents.wf is in evaluation: the code shapes you write against (`defineEnv`, `c`, a
+grader's result, `compare`) may change without a version.

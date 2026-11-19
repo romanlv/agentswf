@@ -6,7 +6,7 @@ import { FactSchema } from "./settings";
 // value only for a run that completed. Written by `@agentswf/lab/cases`, read by the lab of the
 // same checkout, so it has no version of its own beyond the lab's.
 
-export const PHASES = ["setup", "body", "observe", "teardown"] as const;
+const PHASES = ["setup", "body", "observe", "teardown"] as const;
 export type Phase = (typeof PHASES)[number];
 /** What the lab checks once the run has ended (`reach`): its own, never in the trial file. */
 export type Blamed = Phase | "after";

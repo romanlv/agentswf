@@ -8,7 +8,7 @@ import { besideName } from "./outcome";
 import { graderWorkflow, type WorkflowGraderLab } from "./workflow-graders";
 
 /** The criteria judge's workflow, which this checkout's own `awf` runs. */
-export const JUDGE_FILE = join(import.meta.dir, "../judge/criteria.workflow.ts");
+const JUDGE_FILE = join(import.meta.dir, "../judge/criteria.workflow.ts");
 
 const hasCriteria = (key: Key) => criteriaOf(key).length > 0;
 

@@ -26,7 +26,7 @@ export const gradingSpend = (scores: readonly { entries: readonly GraderEntry[] 
   scores.reduce((sum, s) => sum + s.entries.reduce((n, e) => n + (e.estimate ?? 0), 0), 0);
 
 /**
- * What a run spent on one of its trials, as `--budget` counts it, a loop's ledger and a plan's
+ * What one of a run's trials is estimated at, as `--budget` counts it, a loop's ledger and a plan's
  * estimate: a trial of its own, its workflow run; a reused one, nothing, its workflow run counted
  * where it ran; and either, the grades made while the run ran. Grades `score` makes later are not
  * the run's.

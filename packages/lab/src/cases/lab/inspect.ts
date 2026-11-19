@@ -59,7 +59,7 @@ function upward(dir: string, path: string): string | undefined {
 }
 
 /** `a.b.c` against `x.y.z`, a prerelease below its release. */
-export function compareVersions(a: string, b: string): number {
+function compareVersions(a: string, b: string): number {
   const parse = (v: string) => {
     const [core = "", pre] = v.split("-", 2);
     return { parts: core.split(".").map((n) => Number(n) || 0), pre };
@@ -211,7 +211,7 @@ async function typeCheck(root: string, tsc: string, envFile: string): Promise<st
 }
 
 /** tsc's errors in files under `dir`, each with its continuation lines. */
-export function errorsIn(output: string, root: string, dir: string): string[] {
+function errorsIn(output: string, root: string, dir: string): string[] {
   const errors: { file: string; text: string }[] = [];
   for (const line of output.split("\n")) {
     const match = /^(.+?)\(\d+,\d+\): error TS\d+:/.exec(line);

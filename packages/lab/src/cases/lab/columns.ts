@@ -61,7 +61,7 @@ export function columnsOf(folders: number, combos: readonly Params[]): Column[] 
   ).flat();
 }
 
-export function sameParams(a: Params, b: Params): boolean {
+function sameParams(a: Params, b: Params): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 }

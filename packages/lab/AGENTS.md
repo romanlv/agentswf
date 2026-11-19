@@ -14,15 +14,20 @@ folders and marker search, the reach check, `expect`, blame, verdicts, the repor
 `grading.ts`, shared by `run` and `score`: a dataset's code graders through `code-graders.ts` and
 the grade helper, grader workflows through `workflow-graders.ts` and a grade folder that
 `gradeCase()` reads, and `score.ts`, which plans and grades kept trials again; the command line in
-`cli.ts`, its help and each command's flags in one table in `usage.ts`, `run` in `run-command.ts`, and what the commands share in `command-context.ts`; the loop in
+`cli.ts`, which parses and dispatches, its help, each command's flags and the exit codes' meanings
+in one table in `usage.ts` and `verdict.ts`, `run` in `run-command.ts`, `report` in
+`report-command.ts`, `score` in `score-command.ts`, `capture` and `label` in
+`capture-command.ts`, `runs` in `runs-command.ts`, what the commands share in
+`command-context.ts`, and how they write counts, money and time in `text.ts`; the loop in
 `loop.ts` and `loop-command.ts`, its code copies in `loop-code.ts`, its records in
 `loop-records.ts`; and `retired.ts`, the older lab's commands and flags refused with what replaced
 them). It names no word of one workflow's domain (`mail`, `review`, `finding`); the boundary
-checker holds it. `lab/` is pure but for `box.ts`, `capture.ts`, `cli.ts`, `code-graders.ts`,
-`command-context.ts`, `compare.ts`, `criteria.ts`, `dataset.ts`, `folders.ts`, `git.ts`,
-`grading.ts`, `inspect.ts`, `labels.ts`, `loop.ts`, `loop-code.ts`, `loop-command.ts`,
-`loop-records.ts`, `record-copies.ts`, `reuse.ts`, `run-command.ts`, `runs.ts`, `scaffold.ts`,
-`score.ts`, `store.ts`, `trial.ts`, `workflow-graders.ts` and `workspace.ts`.
+checker holds it. `lab/` is pure but for `box.ts`, `capture.ts`, `capture-command.ts`, `cli.ts`,
+`code-graders.ts`, `command-context.ts`, `compare.ts`, `criteria.ts`, `dataset.ts`, `folders.ts`,
+`git.ts`, `grading.ts`, `inspect.ts`, `labels.ts`, `loop.ts`, `loop-code.ts`, `loop-command.ts`,
+`loop-records.ts`, `record-copies.ts`, `report-command.ts`, `reuse.ts`, `run-command.ts`, `runs.ts`,
+`runs-command.ts`, `scaffold.ts`, `score.ts`, `score-command.ts`, `store.ts`, `trial.ts`,
+`workflow-graders.ts` and `workspace.ts`.
 
 **What the cases share**, `src/shared/`: the process seam (`runner.ts`: a request, `awf run`'s
 argv, starting this checkout's `awf` or a folder's own bin with a preload, record parsing),

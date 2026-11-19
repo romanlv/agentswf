@@ -1,7 +1,7 @@
 import { Refusal } from "./refusal";
 
-// The older lab's commands and flags, retired with it (story 044, task 13): each is refused with
-// what replaced it, or as gone when nothing did.
+// The older lab's commands and flags, retired with it: each is refused with what replaced it, or
+// as gone when nothing did.
 
 const COMMANDS: Record<string, string | null> = {
   show: "report --case {case}",

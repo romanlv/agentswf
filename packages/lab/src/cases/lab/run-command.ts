@@ -3,17 +3,19 @@ import { dirname, join, relative, resolve } from "node:path";
 import { type Column, type Params, RUN_KIND, type RunRecord } from "../format/records";
 import { columnLabel, columnsOf, combinations, type ParamPlan, readParams } from "./columns";
 import {
-  askOperator,
+  budgetExit,
   type Context,
+  checkoutFolder,
+  confirmPlan,
   datasetGraders,
   envOf,
   externalsOf,
   loadDataset,
-  lockHeld,
   runReport,
   shownPath,
   tagged,
   tmpOf,
+  withLock,
   workspaceOf,
 } from "./command-context";
 import { type CaseInfo, type DatasetInfo, ENV_FILE, fileDigest } from "./dataset";
@@ -24,7 +26,6 @@ import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
 import { gradingSpend, scoresInRun, trialOutcome, trialSpend } from "./outcome";
 import { writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
-import { describeFolder, median, plural, seconds, usd } from "./report";
 import {
   caseDigests,
   codeDigest,
@@ -43,10 +44,10 @@ import {
   readTrials,
   runSpan,
   type StoredTrial,
-  takeLock,
   writeRun,
   writeTrial,
 } from "./store";
+import { describeFolder, median, plural, seconds, usd } from "./text";
 import { runTrial, type TrialDone, type TrialLab } from "./trial";
 import { type CaseWorkspace, codeFolderOf, inside } from "./workspace";
 
@@ -97,9 +98,7 @@ export async function run(context: Context, given: RunGiven = {}): Promise<RunDo
   const now = environment.now ?? (() => new Date());
   let checkedEnv: string | undefined;
   const envFileOf = () => (checkedEnv ??= checkEnvFile(info.dir));
-  let inspected: Promise<FolderSetup> | undefined;
-  const folderOf = () =>
-    (inspected ??= (environment.inspect ?? inspectFolder)(workspace.root, envFileOf()));
+  const folderOf = checkoutFolder(context, workspace, envFileOf);
   const graders = await datasetGraders(context, workspace, info, folderOf, now);
   const bars = barsOf(info, cases, graders);
   const paramPlan = readParams(options.param, options.vary);
@@ -164,81 +163,78 @@ export async function run(context: Context, given: RunGiven = {}): Promise<RunDo
     options.budget !== undefined
       ? `${plan}\nstops starting trials once their estimates reach ${usd(options.budget)}`
       : plan;
-  const confirm =
-    environment.confirm ??
-    (process.stdin.isTTY && !options.yes ? (text: string) => askOperator(text, stderr) : undefined);
-  if (confirm && !options.yes) {
-    if (!(await confirm(withBudget))) {
-      stderr("declined; nothing run");
-      return { exit: 2, unstarted: "declined" };
-    }
-  } else stderr(withBudget);
-
-  const lock = takeLock(workspace.labHome);
-  if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
-  let record: RunRecord | undefined;
-  try {
-    const id = claimRun(workspace.store, now());
-    record = {
-      kind: RUN_KIND,
-      id,
-      dataset: info.name,
-      folders: codeFolders.map((c) => ({
-        path: c.folder.root,
-        ...c.state,
-        env: fileDigest(c.envFile),
-      })),
-      columns,
-      asked: selected.map((c) => ({ case: c.name, trials: trialsOf(c.name) })),
-      started: now().toISOString(),
-    };
-    writeRun(workspace.store, record);
-    given.started?.(id);
-    clearStale(tmp);
-    clearStaleTrialFiles(workspace.labHome);
-    const { runner, logs, estimate } = externalsOf(environment);
-    const lab: TrialLab = {
-      workspace,
-      dataset: info,
-      envFile,
-      run: id,
-      runner,
-      logs,
-      ...(estimate ? { estimate } : {}),
-      tmp,
-      env: environment.env ?? process.env,
-      graders,
-      now,
-    };
-    try {
-      record = await runPasses({
-        context,
-        lab,
-        record,
-        selected,
-        trialsOf,
-        codeFolders,
-        reuse,
-        bars,
-        given,
-      });
-    } catch (error) {
-      record = { ...record, broke: (error as Error).message, finished: now().toISOString() };
-      writeRun(workspace.store, record);
-      throw new LabBroke(`the lab broke during run ${id}: ${(error as Error).message}`);
-    }
-    record = { ...record, finished: now().toISOString() };
-    writeRun(workspace.store, record);
-  } catch (error) {
-    if (error instanceof LabBroke) {
-      stderr(`awf-lab: ${error.message}`);
-      return { exit: 4, ...(record ? { id: record.id } : {}) };
-    }
-    throw error;
-  } finally {
-    if (record && workspace.records) writeRecords(workspace.store, workspace.records, record.id);
-    lock.release();
+  if (!(await confirmPlan(context, withBudget))) {
+    stderr("declined; nothing run");
+    return { exit: 2, unstarted: "declined" };
   }
+
+  const ran = await withLock(workspace, async (): Promise<RunRecord | RunDone> => {
+    let record: RunRecord | undefined;
+    try {
+      const id = claimRun(workspace.store, now());
+      record = {
+        kind: RUN_KIND,
+        id,
+        dataset: info.name,
+        folders: codeFolders.map((c) => ({
+          path: c.folder.root,
+          ...c.state,
+          env: fileDigest(c.envFile),
+        })),
+        columns,
+        asked: selected.map((c) => ({ case: c.name, trials: trialsOf(c.name) })),
+        started: now().toISOString(),
+      };
+      writeRun(workspace.store, record);
+      given.started?.(id);
+      clearStale(tmp);
+      clearStaleTrialFiles(workspace.labHome);
+      const { runner, logs, estimate } = externalsOf(environment);
+      const lab: TrialLab = {
+        workspace,
+        dataset: info,
+        envFile,
+        run: id,
+        runner,
+        logs,
+        ...(estimate ? { estimate } : {}),
+        tmp,
+        env: environment.env ?? process.env,
+        graders,
+        now,
+      };
+      try {
+        record = await runPasses({
+          context,
+          lab,
+          record,
+          selected,
+          trialsOf,
+          codeFolders,
+          reuse,
+          bars,
+          given,
+        });
+      } catch (error) {
+        record = { ...record, broke: (error as Error).message, finished: now().toISOString() };
+        writeRun(workspace.store, record);
+        throw new LabBroke(`the lab broke during run ${id}: ${(error as Error).message}`);
+      }
+      record = { ...record, finished: now().toISOString() };
+      writeRun(workspace.store, record);
+      return record;
+    } catch (error) {
+      if (error instanceof LabBroke) {
+        stderr(`awf-lab: ${error.message}`);
+        return { exit: 4, ...(record ? { id: record.id } : {}) };
+      }
+      throw error;
+    } finally {
+      if (record && workspace.records) writeRecords(workspace.store, workspace.records, record.id);
+    }
+  });
+  if ("exit" in ran) return ran;
+  const record = ran;
   const report = await runReport(context, workspace, {
     info,
     run: record,
@@ -248,8 +244,7 @@ export async function run(context: Context, given: RunGiven = {}): Promise<RunDo
     criteria,
     followsPlan: true,
   });
-  // A budget stop leaves trials unrun: 3, unless the report already exits worse.
-  const exit = record.stopped === "budget" && report.exit === 0 ? 3 : report.exit;
+  const exit = budgetExit(record.stopped === "budget", report.exit);
   if (given.report !== false) {
     context.stdout(options.json ? JSON.stringify(report.json(exit), null, 2) : report.text);
   }

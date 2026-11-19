@@ -23,10 +23,8 @@ then: the report, a verdict per case, and, between two columns, graders.ts's com
   the whole trial runs in one box that reads no key.
 - **Nothing is overwritten.** Records are written once, and a trial is reused while nothing that
   shaped it changed, so repeating a command costs nothing.
-- **Spending asks first.** `run` and `score` print a plan, with an estimate from earlier trials
-  when there are some, and ask at a terminal; without one, as in CI, they run without asking, and
-  `--yes` skips the question anywhere. `loop` spends only up to its required `--budget`. `report`
-  and `runs` only read.
+- **Costly commands ask first.** `run` and `score` print a plan and its estimate, and ask at a
+  terminal; `loop` needs a `--budget` ([how](docs/cases.md#commands)).
 
 ## The words
 
@@ -75,7 +73,7 @@ the kept code on them once, and `loop {name} --patch` prints it as a patch.
 
 ## Commands
 
-| Command | Does | Spends |
+| Command | Does | Costs |
 | --- | --- | --- |
 | `case new {dataset}/{case}` | a case folder, and the workspace the first time | no |
 | `run` | each case, each trial, in each column, graded | yes |
@@ -88,6 +86,5 @@ the kept code on them once, and `loop {name} --patch` prints it as a patch.
 
 ## Read more
 
-- [`docs/cases.md`](docs/cases.md): every file, flag, record and rule.
 - [`AGENTS.md`](AGENTS.md): how the package is laid out, and the rules for changing it.
 - Story [044](../../docs/stories/044-cases-for-a-workflow.md): why it works this way.

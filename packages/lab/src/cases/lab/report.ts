@@ -7,43 +7,10 @@ import type { CaseRow, StoredTrialView } from "./outcome";
 import { entryName, newestEntries, trialOutcome, votersOf } from "./outcome";
 import { agreements, type Pooled, poolNumbers } from "./pooled";
 import { describeDifference, describeRates, pairedDifference, ratesOf } from "./rates";
-import { type CaseVerdict, type ExitCode, exitCodeOf } from "./verdict";
+import { describeFolder, median, plural, seconds, usd } from "./text";
+import { type CaseVerdict, EXITS, type ExitCode, exitCodeOf } from "./verdict";
 
 const MARK: Record<CaseVerdict, string> = { passed: "✓", failed: "✗", flaky: "~", unclear: "?" };
-
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-export function seconds(ms: number): string {
-  return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
-}
-
-export const usd = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`;
-
-export function median(values: readonly number[]): number | undefined {
-  if (values.length === 0) return undefined;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
-
-/** A folder of code: `this checkout`, or its path, with its branch, commit and changes. */
-export function describeFolder(
-  folder: Pick<Folder, "branch" | "commit" | "dirty"> & { path?: string | undefined },
-): string {
-  const parts = [
-    folder.branch ? `branch ${folder.branch}` : "detached",
-    ...(folder.commit ? [`commit ${folder.commit.slice(0, 7)}`] : []),
-  ];
-  return `${folder.path ?? "this checkout"}, ${parts.join(", ")}${folder.dirty ? ", with uncommitted changes" : ""}`;
-}
-
-const EXIT_WHY: Record<ExitCode, string> = {
-  0: "every case that must pass passed",
-  1: "a case that must pass failed",
-  3: "",
-  4: "the lab broke during a trial: its result says nothing of the workflow",
-  5: "a trial errored by the dataset or by grading, or leaked",
-};
 
 export type RunReport = {
   run: RunRecord;
@@ -76,7 +43,7 @@ export type RunReport = {
 const percent = (count: number, of: number) =>
   of === 0 ? "" : ` (${Math.round((count / of) * 100)}%)`;
 
-export function describePooled(pooled: Pooled): string {
+function describePooled(pooled: Pooled): string {
   if ("count" in pooled) return `${pooled.count}/${pooled.of}${percent(pooled.count, pooled.of)}`;
   const m = median(pooled.values)!;
   return `median ${Number.isInteger(m) ? m : m.toFixed(2)}`;
@@ -169,7 +136,7 @@ function besideLines(trials: readonly StoredTrialView[]): string[] {
 }
 
 /** Each stage's median time over these trials, in the order the stages first ran; or none. */
-export function stageLine(trials: readonly StoredTrialView[]): string | undefined {
+function stageLine(trials: readonly StoredTrialView[]): string | undefined {
   const order: string[] = [];
   const times = new Map<string, number[]>();
   // A trial that errored, stopped or failed in the workflow's body was cut short: left out.
@@ -305,7 +272,7 @@ const failing = (v: CaseVerdict | undefined) => v === "failed" || v === "flaky" 
 /**
  * With more than one column: each column's folder and verdicts, the cases that came out
  * differently (verdicts differ, or passes by 2 or more), largest difference first, and how many
- * cases had more passes on each side. No column is called better: that is `compare`'s (task 9).
+ * cases had more passes on each side. No column is called better: that is `compare`'s.
  */
 function columnLines(
   run: RunRecord,
@@ -402,7 +369,7 @@ export function markdownOf(report: RunReport): string {
   const lines = [
     `### ${run.dataset} · run ${run.id}`,
     "",
-    `${plural(run.asked.length, "case")} · ${plural(report.trials.length, "trial")}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""} · exit ${exit}${EXIT_WHY[exit] ? `: ${EXIT_WHY[exit]}` : ""}`,
+    `${plural(run.asked.length, "case")} · ${plural(report.trials.length, "trial")}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""} · exit ${exit}${exit === 3 ? "" : `: ${EXITS[exit]}`}`,
     "",
     `| case | ${labels.join(" | ")} |`,
     `| --- | ${labels.map(() => "---").join(" | ")} |`,
@@ -655,27 +622,38 @@ export function renderRun({
   const why =
     exit === 3
       ? partial
-        ? "the run is partial"
+        ? run.broke !== undefined
+          ? `the run is partial: the lab broke (${run.broke})`
+          : "the run is partial"
         : !rows.some((r) => r.tally.verdict || r.tally.none === "graded by numbers")
           ? "no case was graded"
           : "a case is flaky or unclear"
-      : EXIT_WHY[exit];
+      : EXITS[exit];
   lines.push(`exit ${exit}: ${why}`);
   return { text: lines.join("\n"), exit };
 }
 
 /** One case in full: each trial's result, facts, refusals and grades, and how to open its logs. */
-export function renderCase(
-  run: RunRecord,
-  row: CaseRow,
-  trials: readonly StoredTrialView[],
-  logsCommand: (runId: string) => string,
-  deciders?: ReadonlySet<string>,
+export function renderCase({
+  run,
+  row,
+  trials,
+  logsCommand,
+  deciders,
+  others = [],
+  labels = new Map(),
+}: {
+  run: RunRecord;
+  row: CaseRow;
+  trials: readonly StoredTrialView[];
+  /** How to open a trial's logs, by its id. */
+  logsCommand: (trialId: string) => string;
+  deciders?: ReadonlySet<string> | undefined;
   /** This case's row in each other column. */
-  others: readonly (CaseRow | undefined)[] = [],
-  /** The person's labels, by workflow run id. */
-  labels: ReadonlyMap<string, LabelRecord> = new Map(),
-): string {
+  others?: readonly (CaseRow | undefined)[];
+  /** The person's labels, by trial id. */
+  labels?: ReadonlyMap<string, LabelRecord>;
+}): string {
   const tally = (r: CaseRow) =>
     `${r.tally.verdict ?? r.tally.none ?? "no trials"} ${r.tally.passed}/${r.tally.trials}`;
   const lines = [

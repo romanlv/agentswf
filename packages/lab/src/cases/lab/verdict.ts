@@ -108,6 +108,16 @@ export type ExitInputs = {
 
 export type ExitCode = 0 | 1 | 3 | 4 | 5;
 
+/** What each exit of `run`, `report` and `score` means: the help lists them, a report ends with one. */
+export const EXITS: Readonly<Record<ExitCode | 2, string>> = {
+  0: "every case that must pass passed",
+  1: "a case that must pass failed",
+  2: "refused before any trial",
+  3: "a case flaky or unclear, a partial run, a budget stop, or nothing graded",
+  4: "the lab broke, or a trial errored by the lab or was cancelled: its result says nothing of the workflow",
+  5: "a trial errored by the dataset or by grading, or leaked",
+};
+
 /**
  * The exit code of `run`, `report` and `score`, from your checkout's column alone. A trial the lab
  * broke says nothing of the workflow, so it outranks every verdict, as the lab breaking mid-run

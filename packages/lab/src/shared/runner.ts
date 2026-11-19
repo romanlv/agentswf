@@ -129,7 +129,7 @@ export async function spawnAwf(
   return { exitCode, stdout, stderr, ms: Date.now() - started };
 }
 
-/** The runner both kinds start a plain request with: this checkout's `awf`, or a folder's. */
+/** The runner a plain request starts with: this checkout's `awf`, or a folder's. */
 export function processRunner(): Runner {
   return async (request) => {
     const { exitCode, stdout, stderr, ms } = await spawnAwf(
@@ -145,7 +145,7 @@ export function processRunner(): Runner {
 
 /**
  * Each harness's session variable, its spec's `sessionEnv`: a case's run started with one would
- * find the operator's session and let its workflow fork it (story 027).
+ * find the operator's session and let its workflow fork it.
  */
 const SESSION_VARIABLES = [
   "CLAUDE_CODE_SESSION_ID",
@@ -168,7 +168,7 @@ export function withoutCallingSession(
  * record this lab can't read, of another version or parked, is `unread`, saying why: the lab's to
  * report, never a run to grade.
  */
-export function parseRecord(stdout: string): { record?: RunOutput; unread?: string } {
+function parseRecord(stdout: string): { record?: RunOutput; unread?: string } {
   const text = stdout.trim();
   if (!text.startsWith("{")) return {};
   let record: OutputRecord;
@@ -237,9 +237,9 @@ export async function awfLogs(
 
 /**
  * What a run's folder says it is estimated at, from `awf runs {ref} --json`: for a run that
- * printed no record, as one cut short does, though its agents may have spent. Read from
+ * printed no record, as one cut short does, though its agents may have run. Read from
  * `run.estimate` whatever the page's version, since every version so far keeps it there; it is
- * called after the spend, so it never throws. Undefined when the folder can't be read.
+ * called after the run, so it never throws. Undefined when the folder can't be read.
  */
 export async function awfRunEstimate(
   awf: AwfBin | undefined,

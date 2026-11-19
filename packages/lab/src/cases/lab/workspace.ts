@@ -32,7 +32,7 @@ export type CaseWorkspace = {
   judgeAgent?: Agent;
 };
 
-export function labHomeOf(home: string): string {
+function labHomeOf(home: string): string {
   return join(home, ".awf", "lab");
 }
 

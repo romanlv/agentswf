@@ -16,12 +16,12 @@ import {
 } from "./box";
 import {
   type Context,
+  columnVerdicts,
   countedGraders,
   envOf,
   externalsOf,
   loadDataset,
   type Options,
-  verdictsOf,
   workspaceOf,
 } from "./command-context";
 import { type DatasetInfo, fileDigest } from "./dataset";
@@ -96,7 +96,12 @@ export async function loopCommand(context: Context, names: readonly string[]): P
     );
   }
   const bars = barsOf(info, [...cases, ...held], await countedGraders(context, workspace, info));
-  const deps = loopDeps(context, {
+  // A final check runs under the loop's own parameters.
+  const scoped =
+    options.final && started
+      ? { ...context, options: { ...options, param: [...started.params] } }
+      : context;
+  const deps = loopDeps(scoped, {
     workspace,
     info,
     bars,
@@ -107,12 +112,7 @@ export async function loopCommand(context: Context, names: readonly string[]): P
 
   if (options.final) {
     if (options.budget === undefined) {
-      throw new Refusal("a final check spends: --budget {usd} is required");
-    }
-    if (started && JSON.stringify([...options.param].sort()) !== JSON.stringify(started.params)) {
-      throw new Refusal(
-        `loop ${name} runs under --param ${started.params.join(" ") || "none"}: its final check does too`,
-      );
+      throw new Refusal("a final check runs trials at a cost: --budget {usd} is required");
     }
     const outcome = await runFinal({ dir, budget: options.budget }, deps).finally(() =>
       recorded(undefined),
@@ -121,7 +121,7 @@ export async function loopCommand(context: Context, names: readonly string[]): P
     return outcome.exit;
   }
   if (options.budget === undefined) {
-    throw new Refusal("a loop spends until a cap: --budget {usd} is required");
+    throw new Refusal("a loop runs until its estimates reach a cap: --budget {usd} is required");
   }
   const state = gitState(workspace.root);
   const outcome = await runLoop(
@@ -179,7 +179,7 @@ function loopDeps(
     async waitForAllowance() {
       if (wait) await wait({ argv: named() });
     },
-    spentIn(runIds) {
+    estimatedIn(runIds) {
       return runIds.reduce((sum, id) => sum + spendOf(workspace.store, id), 0);
     },
     async runFolders({ folders, order, budget, stopOnVerdict, holdout, started }) {
@@ -209,14 +209,13 @@ function loopDeps(
           ? {
               stop: async (run, trials) => {
                 const verdict = (
-                  await verdictsOf(
-                    scoped,
+                  await columnVerdicts(scoped, {
                     workspace,
                     info,
                     run,
-                    bothRan(trials, folders.length),
+                    trials: bothRan(trials, folders.length),
                     bars,
-                  )
+                  })
                 )?.[0];
                 return verdict !== undefined && "verdict" in verdict && verdict.verdict.stop;
               },
@@ -236,7 +235,13 @@ function loopDeps(
       const trials = readTrials(workspace.store, runId);
       const verdicts =
         folders.length > 1
-          ? await verdictsOf(scoped, workspace, info, record, bothRan(trials, folders.length), bars)
+          ? await columnVerdicts(scoped, {
+              workspace,
+              info,
+              run: record,
+              trials: bothRan(trials, folders.length),
+              bars,
+            })
           : undefined;
       const first = verdicts?.[0];
       const result: TryRun = {
@@ -336,7 +341,7 @@ function loopDeps(
         });
         keepRuns(runRoot, awfRunsOf(workspace.store));
         const record = result.record;
-        // A proposer cut short prints no record; its folder still says what its agent spent.
+        // A proposer cut short prints no record; its folder still says what its agent is estimated at.
         const unrecorded =
           record || !estimate ? undefined : await estimate(folder.awf, runRoot, id, envOf(context));
         const spend = record?.accounting.totals.estimate ?? unrecorded ?? 0;

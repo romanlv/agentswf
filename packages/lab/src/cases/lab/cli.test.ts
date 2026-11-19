@@ -2796,7 +2796,7 @@ describe("run --dry-run, --budget and --json; report --md", () => {
   });
 });
 
-describe("what the review of task 9 found", () => {
+describe("reuse, history, and which run is newest", () => {
   test("--failed runs its cases fresh: the trials that failed are never its answer", async () => {
     const where = project({ a: {}, b: {} });
     await lab(where, ["run", "--yes"], { runner: scripted({ a: [fail] }).runner });
@@ -3119,6 +3119,25 @@ describe("the loop: a proposer's copy kept only when better", () => {
     expect(fake.ran.filter((r) => r.name === "h")).toHaveLength(2);
   });
 
+  test("a final check runs under the loop's own parameters, and takes no --param", async () => {
+    const { where, program } = loopProject(1);
+    const fake = loopRunner([3]);
+    const args = ["l", "--budget", "5", "--program", program, "--rounds", "1", "--param", "m=x"];
+    expect((await loop(where, args, fake.runner)).err).toContain("try 1: kept");
+    const final = await loop(where, ["l", "--final", "--budget", "5"], fake.runner);
+    expect(final.code).toBe(0);
+    const store = storeOf(where);
+    const newest = runIds(store).at(-1)!;
+    const run = JSON.parse(readFileSync(join(store, "runs", newest, "run.json"), "utf8"));
+    expect(run.columns.map((c: { params: unknown }) => c.params)).toEqual([{ m: "x" }, { m: "x" }]);
+    const given = await loop(
+      where,
+      ["l", "--final", "--budget", "5", "--param", "m=y"],
+      fake.runner,
+    );
+    expect(given.err).toContain("--param is not an option of loop --final");
+  });
+
   test("a proposer cut short before its record is priced from its folder", async () => {
     const { where, program } = loopProject(1);
     const { code, err } = await lab(
@@ -3288,7 +3307,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     // Three tuning trials at $0.001 each: the cap is reached before the proposer would start.
     const capped = await loop(where, ["l", "--budget", "0.002", "--program", program], fake.runner);
     expect(capped.code).toBe(3);
-    expect(capped.out).toContain("the cap of $0.0020 is spent by the incumbent's run");
+    expect(capped.out).toContain("the estimates reach the cap of $0.0020 by the incumbent's run");
     expect(fake.shown).toHaveLength(0);
     const raised = await loop(where, ["l", "--budget", "5"], fake.runner);
     expect(raised.err).toContain("loop l: the cap is now $5.00, was $0.0020");
@@ -3365,7 +3384,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     const { where, program } = loopProject(1);
     const fake = loopRunner([]);
     expect((await loop(where, ["l", "--final"], fake.runner)).err).toContain(
-      "a final check spends: --budget {usd} is required",
+      "a final check runs trials at a cost: --budget {usd} is required",
     );
     expect(
       (await loop(where, ["l", "--budget", "1", "--tags", "x", "--fresh"], fake.runner)).err,
@@ -3464,7 +3483,7 @@ describe("the command line says what is wrong, and what to do", () => {
       "awf-lab: --budget is not an option of loop --patch: it is loop's without --patch; loop --patch is loop {name} --patch",
     );
     expect((await lab(where, ["loop", "l", "--final", "--budget", "5", "--cases", "a"])).err).toBe(
-      "awf-lab: --cases is not an option of loop --final: it is loop's without --final; loop --final is loop {name} --final --budget {usd} [--param {name}={value}]",
+      "awf-lab: --cases is not an option of loop --final: it is loop's without --final; loop --final is loop {name} --final --budget {usd}",
     );
     expect((await lab(where, ["loop", "l", "--final", "--patch"])).err).toBe(
       "awf-lab: --final and --patch do not go together",

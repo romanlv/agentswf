@@ -1,7 +1,8 @@
 /**
- * A versioned subject's version, in semver, as its file declares it: a variant, a scorer, a case
- * grader. Results belong to `{name}@{major}.{minor}`: a patch bump says the behaviour is the same,
- * so earlier results still count. What counts as the same is the author's call; nothing checks it.
+ * A versioned subject's version, in semver, as its file declares it: a grader, a comparison, the
+ * criteria judge. Results belong to `{name}@{major}.{minor}`: a patch bump says the behaviour is the
+ * same, so earlier results still count. What counts as the same is the author's call; nothing
+ * checks it.
  */
 export const DEFAULT_VERSION = "1.0.0";
 

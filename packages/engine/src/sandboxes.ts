@@ -155,6 +155,9 @@ function recordOf({
   };
 }
 
+const NOT_A_SANDBOX = "an agent's sandbox is a ref from sandboxes.open or an inline spec";
+const NOT_OPENED = "not a sandbox this run opened; pass the ref sandboxes.open returned";
+
 /**
  * One run's sandboxes: the ones the workflow opens, and the private ones inline specs make. The
  * engine keeps them here, apart from any provider: it resolves a spec, opens it through the
@@ -168,6 +171,8 @@ export class RunSandboxes {
   /** Every sandbox that opened, in order, closed early or not: what the record lists. */
   readonly #opened: RunSandbox[] = [];
   readonly #refs = new WeakMap<object, RunSandbox>();
+  /** The refs a boxed run's `open` returned. */
+  readonly #asideRefs = new WeakSet<object>();
   /** Every admitted agent, released after its session closes and before its channel does. */
   readonly #held: SeatedAgent[] = [];
   readonly #providers: SandboxProviders;
@@ -205,12 +210,15 @@ export class RunSandboxes {
   }
 
   /**
-   * Under `--boxed`, an agent's inline spec is checked as if it opened; a ref names a sandbox
-   * `open` checked already.
+   * Under `--boxed`, an agent's sandbox is checked as `seat` would check it: a ref `open` returned,
+   * or an inline spec, checked as if it opened.
    */
   checkSetAside(sandbox: unknown): void {
-    if (typeof sandbox === "object" && sandbox !== null && !("key" in sandbox))
-      checkSandboxSpec(sandbox, true);
+    if (sandbox === undefined) return;
+    if (typeof sandbox !== "object" || sandbox === null) throw new Error(NOT_A_SANDBOX);
+    if (this.#asideRefs.has(sandbox)) return;
+    if ("provider" in sandbox) throw new Error(NOT_OPENED);
+    checkSandboxSpec(sandbox, true);
   }
 
   /** `wf.sandboxes.open`. */
@@ -227,7 +235,9 @@ export class RunSandboxes {
       if (this.#asideKeys.has(key)) throw new Error(`sandbox ${key} is already open`);
       const { provider } = checkSandboxSpec(spec, false);
       this.#asideKeys.add(key);
-      return Object.freeze({ key, provider }) as unknown as SandboxRef;
+      const ref = Object.freeze({ key, provider });
+      this.#asideRefs.add(ref);
+      return ref as unknown as SandboxRef;
     }
     const sandbox = await this.#register(key, () => this.#open(key, spec, false));
     const ref = Object.freeze({ key: sandbox.key, provider: sandbox.provider });
@@ -422,13 +432,13 @@ export class RunSandboxes {
 
   #shared(sandbox: unknown): RunSandbox | undefined {
     if (typeof sandbox !== "object" || sandbox === null) {
-      throw new Error("an agent's sandbox is a ref from sandboxes.open or an inline spec");
+      throw new Error(NOT_A_SANDBOX);
     }
     const shared = this.#refs.get(sandbox);
     if (shared) return shared;
     // A ref-shaped object the engine did not make is not a spec either.
     if ("provider" in sandbox) {
-      throw new Error("not a sandbox this run opened; pass the ref sandboxes.open returned");
+      throw new Error(NOT_OPENED);
     }
     return undefined;
   }

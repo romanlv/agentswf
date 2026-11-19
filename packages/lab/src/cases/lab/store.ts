@@ -236,19 +236,15 @@ export function* readableRuns(
 
 /**
  * When a run ran, for the grades it made: from its start to its finish. A run killed before it
- * stamped one ends where the next run started, so a `score` made in between counts as its; with
- * no next run, it is open.
+ * stamped one ends when the next run's id says it started, so a `score` made in between counts as
+ * its; with no next run, it is open.
  */
 export function runSpan(store: string, run: RunRecord): { started: string; finished?: string } {
   if (run.finished !== undefined) return { started: run.started, finished: run.finished };
   const next = runIds(store).find((id) => id > run.id);
-  let after: RunRecord | undefined;
-  try {
-    after = next ? readRunRecord(store, next) : undefined;
-  } catch (error) {
-    if (!(error instanceof UnreadableRecord)) throw error;
-  }
-  return after ? { started: run.started, finished: after.started } : { started: run.started };
+  return next
+    ? { started: run.started, finished: new Date(timeOf(next)).toISOString() }
+    : { started: run.started };
 }
 
 /**

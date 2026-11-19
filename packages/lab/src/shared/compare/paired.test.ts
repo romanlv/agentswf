@@ -4,9 +4,9 @@ import { obrienFleming, tQuantile } from "./stats";
 
 // A synthetic kind of case: nothing of reviews, so the comparison is shown to need none.
 const METRICS: MetricSpec[] = [
-  { name: "score", direction: "higher", onVariantFailure: 0 },
-  { name: "errors", direction: "lower", onVariantFailure: "missing" },
-  { name: "cost", direction: "lower", onVariantFailure: "missing" },
+  { name: "score", direction: "higher", onFailure: 0 },
+  { name: "errors", direction: "lower", onFailure: "missing" },
+  { name: "cost", direction: "lower", onFailure: "missing" },
 ];
 
 type Extra = Partial<Record<"errors" | "cost", (number | null)[]>>;
@@ -37,8 +37,8 @@ const standard = pairedComparison({
   looks: [8],
 });
 
-const compare = (baseline: CaseScore[], challenger: CaseScore[], planned = 16) =>
-  standard.compare({ baseline, challenger, metrics: METRICS, planned });
+const compare = (reference: CaseScore[], column: CaseScore[], planned = 16) =>
+  standard.compare({ reference, column, metrics: METRICS, planned });
 
 /** Values with a mean and some spread, so an interval has a width. */
 const around = (n: number, level: number, step = 0.05) =>
@@ -159,11 +159,11 @@ describe("pairedComparison", () => {
     const gains = Array.from({ length: 16 }, (_, i) => (i % 2 ? 0.3162 : -0.0838));
     const cost = gains.map(() => 1);
     const verdict = rule.compare({
-      baseline: scores(
+      reference: scores(
         gains.map(() => [0.5]),
         { cost },
       ),
-      challenger: scores(
+      column: scores(
         gains.map((g) => [0.5 + g]),
         { cost: cost.map(() => 0.5) },
       ),
@@ -191,8 +191,8 @@ describe("pairedComparison", () => {
     const sparse = base.map((_, i) => (i < 3 ? 0 : null));
     // Cheaper, but the guard has too few values to be shown within its margin.
     const verdict = rule.compare({
-      baseline: scores(base, { cost: base.map(() => 1), errors: sparse }),
-      challenger: scores(same, { cost: base.map(() => 0.5), errors: sparse }),
+      reference: scores(base, { cost: base.map(() => 1), errors: sparse }),
+      column: scores(same, { cost: base.map(() => 0.5), errors: sparse }),
       metrics: METRICS,
       planned: 16,
     });
@@ -201,7 +201,7 @@ describe("pairedComparison", () => {
     expect(verdict.reason).toEndWith("but not shown within margin: errors (3 cases)");
   });
 
-  test("improving the challenger never loses it a verdict, at the equivalence's edges too", () => {
+  test("improving the column never loses it a verdict, at the equivalence's edges too", () => {
     const base = around(20, 0.5, 0.02);
     const noise = base.map((_, i) => ((i * 7) % 5) * 0.01 - 0.02);
     const rule = pairedComparison({
@@ -213,8 +213,8 @@ describe("pairedComparison", () => {
     });
     const at = (shift: number, cost: number) =>
       rule.compare({
-        baseline: scores(base, { cost: base.map(() => 1) }),
-        challenger: scores(
+        reference: scores(base, { cost: base.map(() => 1) }),
+        column: scores(
           base.map(([x], i) => [x! + shift + noise[i]!]),
           { cost: base.map(() => cost) },
         ),
@@ -240,9 +240,9 @@ describe("pairedComparison", () => {
     const base = around(16, 0.5);
     const same = base.map(([x], i) => [x! + (i % 2 ? 0.01 : -0.01)]);
     const verdict = rule.compare({
-      baseline: scores(base, { cost: base.map(() => 1), errors: base.map(() => 0.5) }),
+      reference: scores(base, { cost: base.map(() => 1), errors: base.map(() => 0.5) }),
       // Cost wanders both ways past its margin; errors are clearly lower, but come second.
-      challenger: scores(same, {
+      column: scores(same, {
         cost: base.map((_, i) => (i % 2 ? 1.5 : 0.7)),
         errors: base.map(() => 0),
       }),
@@ -256,7 +256,7 @@ describe("pairedComparison", () => {
   test("cheaper on an earlier tie-breaker never costs the verdict a later one gives", () => {
     const METRICS2: MetricSpec[] = [
       ...METRICS,
-      { name: "time", direction: "lower", onVariantFailure: "missing" },
+      { name: "time", direction: "lower", onFailure: "missing" },
     ];
     const rule = pairedComparison({
       version: "1.0.0",
@@ -273,8 +273,8 @@ describe("pairedComparison", () => {
       list.map((c, i) => ({ ...c, metrics: { ...c.metrics, time: time + (i % 3) } }));
     const at = (saving: number) =>
       rule.compare({
-        baseline: withTime(scores(base, { cost: base.map((_, i) => 1 + (i % 3) * 0.01) }), 120),
-        challenger: withTime(
+        reference: withTime(scores(base, { cost: base.map((_, i) => 1 + (i % 3) * 0.01) }), 120),
+        column: withTime(
           scores(same, { cost: base.map((_, i) => 1 - saving + ((i + 1) % 3) * 0.01) }),
           60,
         ),
@@ -285,15 +285,15 @@ describe("pairedComparison", () => {
     for (const saving of [0, 0.02, 0.04, 0.05, 0.06, 0.1]) expect(at(saving)).toBe("better");
   });
 
-  test("the floor counts cases won, so a challenger that improves never falls below it", () => {
+  test("the floor counts cases won, so a column that improves never falls below it", () => {
     const rule = pairedComparison({ version: "1.0.0", primary: "score" });
     // Five clear wins and five ties on a coarse score, then the same a little lower everywhere.
     const base = Array.from({ length: 10 }, () => [0.5]);
     const ours = base.map((_, i) => [i < 5 ? 0.5 + 0.2 + (i % 2) * 0.05 : 0.5]);
     const at = (shift: number) =>
       rule.compare({
-        baseline: scores(base),
-        challenger: scores(ours.map(([x]) => [x! + shift])),
+        reference: scores(base),
+        column: scores(ours.map(([x]) => [x! + shift])),
         metrics: METRICS,
         planned: 10,
       });
@@ -319,8 +319,8 @@ describe("pairedComparison", () => {
     // Past the plain interval, short of the bound that eleven looks set, within ±0.3.
     const gains = Array.from({ length: 16 }, (_, i) => (i % 2 ? 0.3162 : -0.0838));
     const verdict = rule.compare({
-      baseline: scores(gains.map(() => [0.5])),
-      challenger: scores(gains.map((g) => [0.5 + g])),
+      reference: scores(gains.map(() => [0.5])),
+      column: scores(gains.map((g) => [0.5 + g])),
       metrics: METRICS,
       planned: 16,
     });
@@ -334,8 +334,8 @@ describe("pairedComparison", () => {
     const base = around(16, 0.5);
     const at = (n: number, step: number) =>
       rule.compare({
-        baseline: scores(base.slice(0, n)),
-        challenger: scores(base.slice(0, n).map(([x], i) => [x! + (i % 2 ? step : -step)])),
+        reference: scores(base.slice(0, n)),
+        column: scores(base.slice(0, n).map(([x], i) => [x! + (i % 2 ? step : -step)])),
         metrics: METRICS,
         planned: 16,
       });
@@ -348,8 +348,8 @@ describe("pairedComparison", () => {
     // The plan's end is decided as without it.
     expect(at(16, 0.02).reason).not.toContain("no gain");
     const small = rule.compare({
-      baseline: scores(base.slice(0, 8)),
-      challenger: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
+      reference: scores(base.slice(0, 8)),
+      column: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
       metrics: METRICS,
       planned: 16,
     });
@@ -362,8 +362,8 @@ describe("pairedComparison", () => {
       minGain: 0.5,
       minWon: 9,
     }).compare({
-      baseline: scores(base.slice(0, 8)),
-      challenger: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
+      reference: scores(base.slice(0, 8)),
+      column: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
       metrics: METRICS,
       planned: 16,
     });
@@ -376,16 +376,16 @@ describe("pairedComparison", () => {
     const base = around(8, 0.5);
     const at = (step: number) =>
       rule.compare({
-        baseline: scores(base, { cost: base.map(([x]) => x!) }),
-        challenger: scores(base, { cost: base.map(([x], i) => x! + (i % 2 ? step : -step)) }),
+        reference: scores(base, { cost: base.map(([x]) => x!) }),
+        column: scores(base, { cost: base.map(([x], i) => x! + (i % 2 ? step : -step)) }),
         metrics: METRICS,
         planned: 16,
       });
     expect(at(0.02)).toMatchObject({ verdict: "undecided", stop: true });
     expect(at(0.02).reason).toContain("no gain of 0.1 in reach: cost 0 [");
     const cheaper = rule.compare({
-      baseline: scores(base, { cost: base.map(([x]) => x!) }),
-      challenger: scores(base, { cost: base.map(([x], i) => x! - 0.3 - (i % 2) * 0.01) }),
+      reference: scores(base, { cost: base.map(([x]) => x!) }),
+      column: scores(base, { cost: base.map(([x], i) => x! - 0.3 - (i % 2) * 0.01) }),
       metrics: METRICS,
       planned: 16,
     });
@@ -417,7 +417,7 @@ describe("pairedComparison", () => {
       "minWon is a count",
     );
     expect(() =>
-      standard.compare({ baseline: [], challenger: [], metrics: METRICS, planned: 0 }),
+      standard.compare({ reference: [], column: [], metrics: METRICS, planned: 0 }),
     ).toThrow("planned is a count of cases");
   });
 
@@ -432,8 +432,8 @@ describe("pairedComparison", () => {
     // of the bound that eleven earlier looks set (2.33).
     const gains = Array.from({ length: 16 }, (_, i) => (i % 2 ? 0.3162 : -0.0838));
     const verdict = loose.compare({
-      baseline: scores(gains.map(() => [0.5])),
-      challenger: scores(gains.map((g) => [0.5 + g])),
+      reference: scores(gains.map(() => [0.5])),
+      column: scores(gains.map((g) => [0.5 + g])),
       metrics: METRICS,
       planned: 16,
     });
@@ -445,25 +445,25 @@ describe("pairedComparison", () => {
   test("the last look comes when every planned case has run, whichever the primary has", () => {
     const base = around(12, 0.2);
     const up = base.map(([x], i) => [x! + 0.3 + (i % 2) * 0.05]);
-    // The primary is null on one case both variants finished: the plan has still run.
-    const challenger = scores(up).map((s) =>
+    // The primary is null on one case both columns finished: the plan has still run.
+    const column = scores(up).map((s) =>
       s.case === "c3" ? { ...s, metrics: { ...s.metrics, score: null } } : s,
     );
-    const verdict = compare(scores(base), challenger, 12);
+    const verdict = compare(scores(base), column, 12);
     expect(verdict).toMatchObject({ verdict: "better", stop: true });
     expect(verdict.metrics[0]!.cases).toBe(11);
   });
 
   test("differences within rounding are ties, not a gain", () => {
     const base = Array.from({ length: 8 }, () => [0.1, 0.1, 0.4]);
-    const challenger = Array.from({ length: 8 }, () => [0.4, 0.1, 0.1]);
-    const verdict = compare(scores(base), scores(challenger), 8);
+    const column = Array.from({ length: 8 }, () => [0.4, 0.1, 0.1]);
+    const verdict = compare(scores(base), scores(column), 8);
     expect(verdict.metrics[0]).toMatchObject({ won: 0, tied: 8, lost: 0 });
     expect(verdict.verdict).toBe("tie");
   });
 
   test("a failed trial scores the metric's failure value, or is left out", () => {
-    const failed: CaseScore = { case: "c0", trial: 2, outcome: "variant-failed", metrics: {} };
+    const failed: CaseScore = { case: "c0", trial: 2, outcome: "workflow-failed", metrics: {} };
     const verdict = compare(scores([[0.4]]), [...scores([[0.6]]), failed]);
     const [score, errors] = verdict.metrics;
     expect(score).toMatchObject({ cases: 1, challenger: 0.3 });
@@ -477,12 +477,12 @@ describe("pairedComparison", () => {
     expect(() => compare(scores(around(8, 0.5)), bad)).toThrow("score is NaN on c2, trial 1");
   });
 
-  test("naming a metric the scorer doesn't give is an error that lists the ones it does", () => {
+  test("naming a metric no grader gives is an error that lists the ones there are", () => {
     const wrong = pairedComparison({ version: "1.0.0", primary: "recall" });
     expect(() =>
-      wrong.compare({ baseline: [], challenger: [], metrics: METRICS, planned: 8 }),
+      wrong.compare({ reference: [], column: [], metrics: METRICS, planned: 8 }),
     ).toThrow(
-      "the comparison names recall, which the scorer doesn't give; it gives score, errors, cost",
+      "the comparison names the metric recall, which no grader gives; the metrics are score, errors, cost",
     );
     expect(() =>
       pairedComparison({
@@ -495,7 +495,7 @@ describe("pairedComparison", () => {
 
   test("compareMetric gives only what a report prints", () => {
     const compared = compareMetric(
-      { baseline: scores(around(5, 0.2)), challenger: scores(around(5, 0.4)) },
+      { reference: scores(around(5, 0.2)), column: scores(around(5, 0.4)) },
       METRICS[0]!,
     );
     expect(Object.keys(compared).sort()).toEqual([
@@ -524,16 +524,16 @@ describe("pairedComparison", () => {
     });
     for (let run = 0; run < runs; run++) {
       const base: number[][] = [];
-      const challenger: number[][] = [];
+      const column: number[][] = [];
       const errors: number[] = [];
       for (let n = 1; n <= 16; n++) {
         const level = normal() * 0.19;
         base.push([level + normal() * 0.13, level + normal() * 0.13]);
-        challenger.push([level + normal() * 0.13, level + normal() * 0.13]);
+        column.push([level + normal() * 0.13, level + normal() * 0.13]);
         errors.push(Math.abs(normal()) * 0.02);
         const verdict = rule.compare({
-          baseline: scores(base),
-          challenger: scores(challenger, { errors }),
+          reference: scores(base),
+          column: scores(column, { errors }),
           metrics: METRICS,
           planned: 16,
         });
@@ -550,7 +550,7 @@ describe("pairedComparison", () => {
     expect(tally.worse / runs).toBeLessThanOrEqual(0.12);
   });
 
-  test("minGain seldom stops a challenger that gains twice as much", () => {
+  test("minGain seldom stops a column that gains twice as much", () => {
     const normal = gaussian(11);
     const runs = 4000;
     let futile = 0;
@@ -562,16 +562,16 @@ describe("pairedComparison", () => {
     });
     for (let run = 0; run < runs; run++) {
       const base: number[][] = [];
-      const challenger: number[][] = [];
+      const column: number[][] = [];
       for (let n = 1; n <= 16; n++) {
         const level = normal() * 0.19;
         base.push([level + normal() * 0.13, level + normal() * 0.13]);
-        challenger.push([level + 0.1 + normal() * 0.13, level + 0.1 + normal() * 0.13]);
+        column.push([level + 0.1 + normal() * 0.13, level + 0.1 + normal() * 0.13]);
       }
       for (const n of [8, 16]) {
         const verdict = rule.compare({
-          baseline: scores(base.slice(0, n)),
-          challenger: scores(challenger.slice(0, n)),
+          reference: scores(base.slice(0, n)),
+          column: scores(column.slice(0, n)),
           metrics: METRICS,
           planned: 33,
         });

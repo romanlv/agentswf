@@ -1,12 +1,11 @@
 import { mean, normalCdf, obrienFleming, sd, tQuantile } from "./stats";
-import {
-  type CaseScore,
-  type ComparedMetric,
-  type Comparison,
-  type ComparisonInput,
-  defineComparison,
-  type MetricSpec,
-  type Verdict,
+import type {
+  CaseScore,
+  ComparedMetric,
+  Comparison,
+  ComparisonInput,
+  MetricSpec,
+  Verdict,
 } from "./types";
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -23,8 +22,8 @@ export function perCase(scores: readonly CaseScore[], metric: MetricSpec): Map<s
     const value =
       score.outcome === "scored"
         ? score.metrics[metric.name]
-        : score.outcome === "variant-failed" && metric.onVariantFailure !== "missing"
-          ? metric.onVariantFailure
+        : score.outcome === "workflow-failed" && metric.onFailure !== "missing"
+          ? metric.onFailure
           : null;
     if (value === null || value === undefined) continue;
     if (!Number.isFinite(value)) {
@@ -35,13 +34,10 @@ export function perCase(scores: readonly CaseScore[], metric: MetricSpec): Map<s
   return new Map([...values].map(([id, xs]) => [id, mean(xs)]));
 }
 
-/** Per-case differences, challenger minus baseline, over the cases both have, rounding taken out. */
-function differencesOf(
-  input: Pick<ComparisonInput, "baseline" | "challenger">,
-  metric: MetricSpec,
-) {
-  const theirs = perCase(input.baseline, metric);
-  const ours = perCase(input.challenger, metric);
+/** Per-case differences, the column minus the reference, over the cases both have, rounding taken out. */
+function differencesOf(input: Pick<ComparisonInput, "reference" | "column">, metric: MetricSpec) {
+  const theirs = perCase(input.reference, metric);
+  const ours = perCase(input.column, metric);
   const paired = [...ours.keys()].filter((id) => theirs.has(id));
   const differences = paired.map((id) => {
     const d = ours.get(id)! - theirs.get(id)!;
@@ -51,11 +47,11 @@ function differencesOf(
 }
 
 /**
- * One metric compared over the cases both variants have: the challenger's mean difference, with a
+ * One metric compared over the cases both columns have: the column's mean difference, with a
  * paired t interval at `confidence`, and the cases each way.
  */
 export function compareMetric(
-  input: Pick<ComparisonInput, "baseline" | "challenger">,
+  input: Pick<ComparisonInput, "reference" | "column">,
   metric: MetricSpec,
   role: ComparedMetric["role"] = "reported",
   confidence = 0.95,
@@ -92,7 +88,7 @@ export type PairedOptions = {
   guards?: readonly { metric: string; margin: number }[];
   /**
    * Metrics that decide, in order, at the last look: each only by more than its `margin`, shown
-   * with the interval, so two copies of one variant never differ by chance. Better also needs the
+   * with the interval, so two copies of one column never differ by chance. Better also needs the
    * primary shown no worse than −`equivalence` and every guard within its margin; worse needs the
    * primary shown no better than +`equivalence`. The next is tried only when this one is shown
    * equal within its margin.
@@ -105,19 +101,19 @@ export type PairedOptions = {
   equivalence?: number;
   /**
    * Case counts at which "better" may be claimed, against an O'Brien–Fleming bound; the plan's
-   * size is always the last. A look counts cases both variants have finished, so a run evaluates
+   * size is always the last. A look counts cases both columns have finished, so a run evaluates
    * at exactly these counts. "Worse" may stop at any count from 5.
    */
   looks?: readonly number[];
   /**
-   * The smallest gain on the primary worth having. At a planned look before the last, a challenger
+   * The smallest gain on the primary worth having. At a planned look before the last, a column
    * not better whose interval's upper end is below it stops, `undecided`: more cases could at most
    * show a gain too small to want. Only at looks, so a real gain is not stopped by peeking.
    */
   minGain?: number;
   /** Two-sided, for every interval; "better" is claimed one-sided at half of what it leaves. */
   confidence?: number;
-  /** Cases the challenger must win on the primary before "better": a floor under the interval. */
+  /** Cases the column must win on the primary before "better": a floor under the interval. */
   minWon?: number;
   /** In semver; bump it whenever the settings change, as the report names it beside each verdict. */
   version: string;
@@ -141,7 +137,7 @@ function figure(x: number): string {
 const shown = (m: ComparedMetric) =>
   `${m.name} ${figure(m.difference ?? 0)}${m.interval ? ` [${figure(m.interval[0])}, ${figure(m.interval[1])}]` : ""}`;
 
-/** The interval turned so that above 0 is better for the challenger. */
+/** The interval turned so that above 0 is better for the column. */
 function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | undefined {
   if (!m.interval) return undefined;
   const [low, high] = m.interval;
@@ -153,7 +149,7 @@ function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | u
  * "worse" as soon as the primary's interval is below 0 or a guard's is past its margin; "better"
  * only at a planned look, past the bound, with every guard shown within its margin; at the last
  * look, the tie-breakers, then a tie if the primary is shown equivalent. With `minGain`, a look
- * before the last also stops a challenger that can no longer gain that much. Never a weighted sum
+ * before the last also stops a column that can no longer gain that much. Never a weighted sum
  * across metrics.
  */
 export function pairedComparison(options: PairedOptions): Comparison {
@@ -187,7 +183,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
   ]) {
     if (!(margin >= 0)) throw new Error(`${metric}'s margin is ${margin}; a margin is 0 or more`);
   }
-  return defineComparison({
+  return {
     version: options.version,
     compare(input): Verdict {
       if (!(Number.isInteger(input.planned) && input.planned >= 1)) {
@@ -198,7 +194,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
         const found = specs.get(name);
         if (!found) {
           throw new Error(
-            `the comparison names ${name}, which the scorer doesn't give; it gives ${[...specs.keys()].join(", ")}`,
+            `the comparison names the metric ${name}, which no grader gives; the metrics are ${[...specs.keys()].join(", ")}`,
           );
         }
         return found;
@@ -225,15 +221,15 @@ export function pairedComparison(options: PairedOptions): Comparison {
         metrics,
       });
 
-      // Progress is the cases both variants have finished, whatever the primary's value on them.
+      // Progress is the cases both columns have finished, whatever the primary's value on them.
       const finished = (scores: readonly CaseScore[]) =>
         new Set(
           scores
-            .filter((s) => s.outcome === "scored" || s.outcome === "variant-failed")
+            .filter((s) => s.outcome === "scored" || s.outcome === "workflow-failed")
             .map((s) => s.case),
         );
-      const theirs = finished(input.baseline);
-      const done = [...finished(input.challenger)].filter((id) => theirs.has(id)).length;
+      const theirs = finished(input.reference);
+      const done = [...finished(input.column)].filter((id) => theirs.has(id)).length;
       const last = done >= input.planned;
       const looks = [
         ...new Set([...(options.looks ?? []).filter((l) => l < input.planned), input.planned]),
@@ -314,7 +310,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
       // The plan has run. The tie-breakers go in order, each one-sided on the primary: a better
       // needs it shown no worse than −equivalence, a worse no better than +equivalence. A later
       // one may say better only while every earlier one is shown no worse than its margin, and
-      // worse only while every earlier one is shown no better, so a challenger that improves on any
+      // worse only while every earlier one is shown no better, so a column that improves on any
       // metric never loses its verdict.
       const notes: string[] = [];
       if (equivalence !== undefined) {
@@ -370,5 +366,5 @@ export function pairedComparison(options: PairedOptions): Comparison {
       }
       return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}`);
     },
-  });
+  };
 }

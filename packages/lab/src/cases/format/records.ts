@@ -231,7 +231,7 @@ export const TrialRecordSchema = Type.Object(
 );
 export type TrialRecord = Type.Static<typeof TrialRecordSchema>;
 
-export const VERDICTS = ["passed", "failed", "undecided"] as const;
+const VERDICTS = ["passed", "failed", "undecided"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 /** A count out of a total, pooled per column by summing; `of: 0` is none in this case. Or a value. */
@@ -357,7 +357,7 @@ export const GradeFileSchema = Type.Object(
 );
 export type GradeFile = Type.Static<typeof GradeFileSchema>;
 
-export const MARKS = ["good", "needs-work", "cleared"] as const;
+const MARKS = ["good", "needs-work", "cleared"] as const;
 export type Mark = (typeof MARKS)[number];
 
 /**

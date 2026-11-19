@@ -49,7 +49,7 @@ export function voteSchema(field: Field): OutputSchema<Vote> {
 const VOTERS = 3;
 
 /** The prompt a voter is given: one criterion, and what the workflow did. */
-export function voterPrompt(args: {
+function voterPrompt(args: {
   field: Field;
   text: string;
   result: unknown;

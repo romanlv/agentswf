@@ -91,7 +91,7 @@ export function defineEnv<M extends WorkflowModule>(spec: EnvSpec<M>): CaseEnv {
       return null;
     },
     // biome-ignore lint/suspicious/noExplicitAny: the engine's context, typed structurally here.
-    run: async (wf: any) => (await runTrial(spec, wf)) as never,
+    run: async (wf: any) => (await runInTrial(spec, wf)) as never,
   }) as CaseEnv;
 }
 
@@ -280,7 +280,7 @@ async function runCleanups(cleanups: readonly (() => unknown)[]): Promise<void> 
   if (first !== undefined) throw first;
 }
 
-async function runTrial<M extends WorkflowModule>(
+async function runInTrial<M extends WorkflowModule>(
   spec: EnvSpec<M>,
   wf: EngineContext,
 ): Promise<EnvValue> {

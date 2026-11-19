@@ -1,4 +1,5 @@
 import { Refusal } from "./refusal";
+import { EXITS } from "./verdict";
 
 // The command line's one table: each command's synopses and what it does, each flag's line, and
 // the exit codes. The full help, a command's own help and the flags a command accepts are all read
@@ -11,8 +12,18 @@ type Synopsis = {
   mode?: string;
 };
 
+export type CommandName =
+  | "case"
+  | "run"
+  | "report"
+  | "score"
+  | "capture"
+  | "label"
+  | "loop"
+  | "runs";
+
 type Command = {
-  name: string;
+  name: CommandName;
   /**
    * Each a synopsis, after `awf-lab`; the flags named in one are those the command takes in it, in
    * the one its `mode` flag picks or else the one with none.
@@ -22,8 +33,9 @@ type Command = {
   exit: string;
 };
 
-const EXIT_VERDICT =
-  "0 every case that must pass passed, 1 a case that must pass failed, 2 refused before any trial, 3 a case flaky or unclear, a partial run, a budget stop, or nothing graded, 4 the lab broke, 5 a trial errored by the dataset or by grading, or leaked";
+const EXIT_VERDICT = Object.entries(EXITS)
+  .map(([code, meaning]) => `${code} ${meaning}`)
+  .join(", ");
 const EXIT_PLAIN = "0 done, 2 refused, 4 the lab broke";
 const EXIT_LOOP =
   "0 done, 1 nothing kept to patch or check, 2 refused, 3 stopped at --budget, 4 the lab broke";
@@ -103,7 +115,7 @@ const COMMANDS: Command[] = [
           "a proposer changes a copy of the code from the tuning cases' feedback, the copy runs against the incumbent case by case until the dataset's compare stops it, and it is kept only when better; the first run names its program and starts from your checkout; again, it resumes",
       },
       {
-        line: "loop {name} --final --budget {usd} [--param {name}={value}]",
+        line: "loop {name} --final --budget {usd}",
         about: "the kept code against the start on the held-out cases, once",
         mode: "--final",
       },
@@ -181,7 +193,7 @@ const FLAGS: { flag: string; arg?: string; about: string; per?: Record<string, s
     arg: "{name}={value}",
     about: "a parameter for every trial, which env.ts reads as c.params; repeatable",
     per: {
-      loop: "a parameter for every trial of the loop, which env.ts reads as c.params; repeatable. Its final check takes the same",
+      loop: "a parameter for every trial of the loop, which env.ts reads as c.params; repeatable. Its final check runs under the same",
     },
   },
   {
@@ -387,14 +399,12 @@ export function commandUsage(name: string): string | undefined {
       synopsisLines(line, `${i === 0 ? "usage: " : "       "}${CONFIG} `),
     ),
     "",
-    ...command.synopses.flatMap(({ line, about }) => {
+    ...command.synopses.flatMap(({ line, about, mode }) => {
       if (!many) return wrap(about.split(" "), "", 0);
       const words = synopsisWords(line);
-      const head = words.slice(
-        0,
-        words.findIndex((w) => /^[-[(]/.test(w)),
-      );
-      return wrap(about.split(" "), `${[...head, ...(modeOf(line) ?? [])].join(" ")}: `, 2);
+      const end = words.findIndex((w) => /^[-[(]/.test(w));
+      const head = end === -1 ? words : words.slice(0, end);
+      return wrap(about.split(" "), `${[...head, ...(mode ? [mode] : [])].join(" ")}: `, 2);
     }),
     "",
     ...FLAGS.filter((f) => own.has(f.flag)).flatMap((f) => flagLines(f, name)),
@@ -402,11 +412,6 @@ export function commandUsage(name: string): string | undefined {
     ...exitLines("exit:", command.exit),
   ].join("\n");
 }
-
-const modeOf = (line: string) =>
-  COMMANDS.flatMap((c) => c.synopses)
-    .find((s) => s.line === line)
-    ?.mode?.split(" ");
 
 /** The commands that take a flag, as `run's`, `run's and score's`. */
 function owners(flag: string): string | undefined {
@@ -489,7 +494,8 @@ function distance(a: string, b: string): number {
 }
 
 /** Whether a word is one of the commands. */
-export const isCommand = (name: string) => COMMANDS.some((c) => c.name === name);
+export const isCommand = (name: string): name is CommandName =>
+  COMMANDS.some((c) => c.name === name);
 
 /** Refuses a word that is not a command, with what to run instead when there is something. */
 export function refuseNotCommand(name: string): void {

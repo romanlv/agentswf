@@ -253,7 +253,8 @@ export async function runTrial(
           }
         : undefined);
     const accounting = run?.accounting;
-    // A run cut short prints no record, though its agents spent: its folder still says what.
+    // A run cut short prints no record, though its agents ran: its folder still says what it is
+    // estimated at.
     const lost =
       !run && lab.estimate
         ? await lab.estimate(folder.awf, boxed ? storeRuns : runRoot, id, env)

@@ -1,7 +1,7 @@
 // awf run packages/lab/src/cases/loop/propose.workflow.ts --cwd {try} -- [--runtime harness/model]
 //
-// A loop's proposer (story 044, task 12): one agent reads `bundle/`, which awf-lab built from the
-// tuning cases alone, changes the copy of the code in `code/`, and answers with its hypothesis.
+// A loop's proposer: one agent reads `bundle/`, which awf-lab built from the tuning cases alone,
+// changes the copy of the code in `code/`, and answers with its hypothesis.
 // `bundle/program.md`, the operator's, steers it; the rules of a try are here. It runs in the lab's
 // box, which lets it write `code/` but not `code/evals/`, and awf-lab checks the change's scope
 // before anything runs it.
@@ -44,7 +44,7 @@ export const LEVELS: readonly string[] = [
 ];
 
 /** `harness/model[:effort]`, headless: the box has no terminal to put an agent in. */
-export function proposerRuntime(name: string): ExecutionConfig {
+function proposerRuntime(name: string): ExecutionConfig {
   const slash = name.indexOf("/");
   if (slash <= 0 || slash === name.length - 1) {
     throw new Error(`the proposer is harness/model, not ${name}`);

@@ -39,12 +39,12 @@ import {
   outsideGit,
 } from "./loop-code";
 import { Refusal } from "./refusal";
-import { usd } from "./report";
+import { usd } from "./text";
 import type { CaseWorkspace } from "./workspace";
 
-// The loop (story 044, task 12): a proposer changes a copy of the incumbent's code, the copy runs
-// against the incumbent on the tuning cases until the dataset's `compare` stops it, and it becomes
-// the incumbent only on `better`. Its code and records live in the store, `loops/{name}/`.
+// The loop: a proposer changes a copy of the incumbent's code, the copy runs against the incumbent
+// on the tuning cases until the dataset's `compare` stops it, and it becomes the incumbent only on
+// `better`. Its code and records live in the store, `loops/{name}/`.
 
 /** A try's own change against its parent's code, beside its records. */
 export const CHANGE_FILE = "change.patch";
@@ -60,7 +60,7 @@ export function loopDirOf(store: string, name: string): string {
 }
 
 /** The tuning cases in the loop's seeded order: by a digest of the loop's name and each case's. */
-export function seededOrder(name: string, cases: readonly string[]): string[] {
+function seededOrder(name: string, cases: readonly string[]): string[] {
   const rank = (c: string) => createHash("sha256").update(`${name}\0${c}`).digest("hex");
   return [...cases].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
 }
@@ -91,7 +91,7 @@ export function readTries(dir: string): Try[] {
     .sort((a, b) => a.n - b.n);
 }
 
-export function readFinals(dir: string): Final[] {
+function readFinals(dir: string): Final[] {
   const root = join(dir, "finals");
   if (!existsSync(root)) return [];
   return readdirSync(root)
@@ -131,7 +131,7 @@ export type LoopDeps = {
     started?: (runId: string) => void;
   }): Promise<TryRun>;
   /** What these runs' own trials and their grades are estimated at, from the store's records. */
-  spentIn(runIds: readonly string[]): number;
+  estimatedIn(runIds: readonly string[]): number;
   /** The feedback of a run's column, for the proposer's bundle. */
   feedback(runId: string, column: number): unknown;
   /** The proposer, in the box: its answer and its estimate. */
@@ -254,7 +254,7 @@ function capOf(dir: string, loop: Loop, budget: number, deps: LoopDeps): number 
 }
 
 /**
- * What a try has spent, kept as it goes so a cut loses none of it: the runs it started, in
+ * What a try is estimated at, kept as it goes so a cut loses none of it: the runs it started, in
  * `runs.json`, whose trials and grades the store's records price; and each proposer run's
  * estimate, in `proposer.jsonl`. Both sit outside what the proposer's box may write.
  */
@@ -270,7 +270,7 @@ function tryLedger(tryDir: string, deps: LoopDeps) {
           .filter(Boolean)
           .reduce((sum, line) => sum + (JSON.parse(line) as { usd: number }).usd, 0)
       : 0;
-  const spend = () => ({ proposer: proposer(), trials: deps.spentIn(runs()) });
+  const spend = () => ({ proposer: proposer(), trials: deps.estimatedIn(runs()) });
   return {
     started(runId: string) {
       mkdirSync(tryDir, { recursive: true });
@@ -294,8 +294,8 @@ const digestOf = (bytes: Uint8Array) =>
  * Tries until the rounds, the cap or a stall. Each try: the incumbent runs on the tuning cases (its
  * trials reused where nothing changed), the proposer changes a copy of it from that feedback, the
  * change's scope is checked, and the copy runs against the incumbent case by case until `compare`
- * stops it. Every try is written once, so a loop resumes where it stopped, its spend summed from its
- * own records.
+ * stops it. Every try is written once, so a loop resumes where it stopped, its estimates summed
+ * from its own records.
  */
 export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<LoopOutcome> {
   const loop = startOrResume(request, deps);
@@ -305,10 +305,10 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
   const evals = relative(request.top, request.workspace.evals);
   const tries = readTries(dir);
   const cap = capOf(dir, loop, request.budget, deps);
-  let spent = tries.reduce((sum, t) => sum + t.spend.proposer + t.spend.trials, 0);
+  let estimated = tries.reduce((sum, t) => sum + t.spend.proposer + t.spend.trials, 0);
   const capped = (what: string): LoopOutcome => ({
     exit: 3,
-    why: `the cap of ${usd(cap)} is spent${what}: a larger --budget resumes it`,
+    why: `the estimates reach the cap of ${usd(cap)}${what}: a larger --budget resumes it`,
   });
   /** One try, decided; or why the loop stops before it is. */
   const oneTry = async (): Promise<LoopOutcome | undefined> => {
@@ -316,10 +316,10 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     const parent = incumbentOf(tries);
     const tryDir = join(dir, "tries", String(n));
     const code = codeOf(dir, n);
-    // What this try has spent, from records it keeps across a cut: the runs it started, read from
+    // What this try is estimated at, from records it keeps across a cut: the runs it started, read from
     // the store, and what each proposer run was estimated at.
     const ledger = tryLedger(tryDir, deps);
-    const left = () => cap - spent - ledger.total();
+    const left = () => cap - estimated - ledger.total();
     if (left() <= 0) return capped("");
     const decide = (fields: Omit<Try, "kind" | "n" | "at" | "parent" | "spend">) => {
       const record: Try = {
@@ -332,7 +332,7 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
       };
       writeJson(join(tryDir, "try.json"), record, "wx");
       tries.push(record);
-      spent += record.spend.proposer + record.spend.trials;
+      estimated += record.spend.proposer + record.spend.trials;
       deps.log(`try ${n}: ${record.decision}: ${record.why}`);
       return record;
     };
@@ -449,7 +449,7 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     if (recent.length === STALL && recent.every((t) => t.decision !== "kept")) {
       return {
         exit: 0,
-        why: `${STALL} tries in a row kept nothing: look at them before spending more; run the loop again to go on`,
+        why: `${STALL} tries in a row kept nothing: look at them before running more; run the loop again to go on`,
       };
     }
   }

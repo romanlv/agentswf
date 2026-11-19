@@ -263,7 +263,7 @@ export function filesUnder(dir: string, options: Walk = {}): string[] {
 }
 
 /** Every symlink under `dir`. */
-export function linksUnder(dir: string): string[] {
+function linksUnder(dir: string): string[] {
   const found: string[] = [];
   walk(dir, {}, (path, kind) => {
     if (kind === "link") found.push(path);

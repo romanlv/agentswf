@@ -22,7 +22,7 @@ import { type ColumnVerdict, compareColumns } from "./compare";
 import { criteriaJudge } from "./criteria";
 import { type CaseInfo, type DatasetInfo, graderSpecs, readCases, readDataset } from "./dataset";
 import type { LabGrader } from "./grading";
-import type { FolderSetup } from "./inspect";
+import { type FolderSetup, inspectFolder } from "./inspect";
 import { agreementOf, judgeLabeled, type PersonAgreement, readLabels } from "./labels";
 import { type CaseRow, newestEntries } from "./outcome";
 import { agreements, poolNumbers } from "./pooled";
@@ -31,7 +31,16 @@ import { readRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import { type RunReport, renderRun, tagRows } from "./report";
 import { type CaseBar, rowsOf, unreadableRuns } from "./runs";
-import { awfRunsOf, readableRuns, type StoredTrial } from "./store";
+import {
+  awfRunsOf,
+  RUN_ID,
+  readableRuns,
+  readRunRecord,
+  runIds,
+  type StoredTrial,
+  takeLock,
+  UnreadableRecord,
+} from "./store";
 import { definedOf, type TrialLab } from "./trial";
 import { trialSettingsOf } from "./trial-settings";
 import { workflowGraders } from "./workflow-graders";
@@ -198,10 +207,10 @@ export function loadDataset(
 export const tagged = (info: CaseInfo, tags: readonly string[]) =>
   (info.key.tags ?? []).some((t) => tags.includes(t));
 
-export async function askOperator(
+async function askOperator(
   plan: string,
   stderr: (text: string) => void,
-  question = "run it?",
+  question: string,
 ): Promise<boolean> {
   stderr(plan);
   const prompt = createInterface({ input: process.stdin, output: process.stderr });
@@ -212,11 +221,125 @@ export async function askOperator(
   }
 }
 
-export function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {
+/**
+ * Asks about a plan on a terminal, unless `--yes`, or prints it; false when the operator declines.
+ * The question goes to stderr, so `--json` still asks at a terminal: what it starts costs money.
+ */
+export async function confirmPlan(
+  context: Context,
+  plan: string,
+  question = "run it?",
+): Promise<boolean> {
+  const { environment, options, stderr } = context;
+  const confirm =
+    environment.confirm ??
+    (process.stdin.isTTY && !options.yes
+      ? (text: string) => askOperator(text, stderr, question)
+      : undefined);
+  if (confirm && !options.yes) return confirm(plan);
+  stderr(plan);
+  return true;
+}
+
+function lockHeld(workspace: CaseWorkspace, heldBy: number | undefined): string {
   const file = join(workspace.labHome, "lock");
   return heldBy === undefined
     ? `${file} holds no process this lab can read: remove it once no awf-lab runs`
     : `another awf-lab run or score (process ${heldBy}) holds ${file}`;
+}
+
+/** Runs `work` holding the lab's lock, refused while another command holds it. */
+export async function withLock<T>(workspace: CaseWorkspace, work: () => Promise<T>): Promise<T> {
+  const lock = takeLock(workspace.labHome);
+  if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
+  try {
+    return await work();
+  } finally {
+    lock.release();
+  }
+}
+
+/** A budget stop leaves work undone: 3, unless the report already exits worse. */
+export const budgetExit = (stopped: boolean, exit: number) => (stopped && exit === 0 ? 3 : exit);
+
+/** Your checkout's folder, inspected once, when first needed. */
+export function checkoutFolder(
+  context: Context,
+  workspace: CaseWorkspace,
+  envFile: () => string,
+): () => Promise<FolderSetup> {
+  let inspected: Promise<FolderSetup> | undefined;
+  return () =>
+    (inspected ??= (context.environment.inspect ?? inspectFolder)(workspace.root, envFile()));
+}
+
+/** A trial's id, its workflow run's: `20261119T054028Z-c13b6e75`. */
+const TRIAL_ID = /^[0-9]{8}T[0-9]{6}Z-[0-9a-f]+$/;
+
+/** The run named, by its id or the last four characters of it, or the newest. */
+export function chooseRun(
+  workspace: CaseWorkspace,
+  names: readonly string[],
+  command: string,
+): RunRecord {
+  if (names.length > 1) {
+    throw new Refusal(`${command} takes one run; got ${names.length}: ${names.join(" ")}`);
+  }
+  const ids = runIds(workspace.store);
+  const given = names[0];
+  if (given === undefined) {
+    // The store is the project's: another worktree's newest run is not the one you mean.
+    const yours = ids.filter((id) => {
+      try {
+        return readRunRecord(workspace.store, id)?.folders[0]?.path === workspace.root;
+      } catch (error) {
+        if (error instanceof UnreadableRecord) return false;
+        throw error;
+      }
+    });
+    const newest = yours.at(-1) ?? ids.at(-1);
+    if (newest === undefined) {
+      throw new Refusal(`no runs in ${workspace.store} yet; awf-lab run makes one`);
+    }
+    return readRunOrRefuse(workspace, newest);
+  }
+  if (TRIAL_ID.test(given)) {
+    throw new Refusal(
+      `${given} is a trial's id: ${command} takes a run from awf-lab runs; label and capture take trial ids`,
+    );
+  }
+  if (!RUN_ID.test(given) && !/^[0-9a-f]{4}$/.test(given)) {
+    throw new Refusal(
+      `${given} is no run: a run is its id, such as 20261117-142233-a3f9, or its last four characters; awf-lab runs lists them`,
+    );
+  }
+  const found = ids.filter((id) => id === given || id.endsWith(`-${given}`));
+  if (found.length === 0)
+    throw new Refusal(`no run ${given} in ${workspace.store}; awf-lab runs lists them`);
+  if (found.length > 1) {
+    throw new Refusal(
+      `${given} names ${found.length} runs: ${found.join(", ")}; give the whole id`,
+    );
+  }
+  return readRunOrRefuse(workspace, found[0]!);
+}
+
+/** Refuses a lab run's id given where a trial's is wanted, naming where trial ids are listed. */
+export function refuseLabRun(workspace: CaseWorkspace, given: string, command: string): void {
+  const run =
+    RUN_ID.test(given) ||
+    (/^[0-9a-f]{4}$/.test(given) && runIds(workspace.store).some((id) => id.endsWith(`-${given}`)));
+  if (run) {
+    throw new Refusal(
+      `${given} is a run's id: ${command} takes a trial's id, which report --case {case} lists`,
+    );
+  }
+}
+
+function readRunOrRefuse(workspace: CaseWorkspace, id: string): RunRecord {
+  const run = readRunRecord(workspace.store, id);
+  if (!run) throw new Refusal(`no run ${id} in ${workspace.store}`);
+  return run;
 }
 
 /**
@@ -281,13 +404,21 @@ export function countedGraders(context: Context, workspace: CaseWorkspace, info:
 }
 
 /** `compare`'s verdict on each column but the reference; undefined when the dataset has none. */
-export async function verdictsOf(
+export async function columnVerdicts(
   context: Context,
-  workspace: CaseWorkspace,
-  info: DatasetInfo,
-  run: RunRecord,
-  trials: readonly StoredTrial[],
-  bars: ReadonlyMap<string, CaseBar>,
+  {
+    workspace,
+    info,
+    run,
+    trials,
+    bars,
+  }: {
+    workspace: CaseWorkspace;
+    info: DatasetInfo;
+    run: RunRecord;
+    trials: readonly StoredTrial[];
+    bars: ReadonlyMap<string, CaseBar>;
+  },
 ): Promise<ColumnVerdict[] | undefined> {
   return compareColumns({
     run,
@@ -305,13 +436,19 @@ export async function verdictsOf(
  * The person's labels on a run's trials and how the lab agrees with them, and how many labeled
  * trials the current judge graded across the dataset's runs, for its "checked" mark.
  */
-function personOf(
-  workspace: CaseWorkspace,
-  dataset: string,
-  trials: readonly StoredTrial[],
-  bars: ReadonlyMap<string, CaseBar>,
-  graders: readonly LabGrader[] | undefined,
-): Pick<RunReport, "person" | "judgeLabeled"> {
+function personOf({
+  workspace,
+  dataset,
+  trials,
+  bars,
+  graders,
+}: {
+  workspace: CaseWorkspace;
+  dataset: string;
+  trials: readonly StoredTrial[];
+  bars: ReadonlyMap<string, CaseBar>;
+  graders: readonly LabGrader[] | undefined;
+}): Pick<RunReport, "person" | "judgeLabeled"> {
   const labels = readLabels(workspace.store, dataset);
   const person = agreementOf(trials, labels, (name) => bars.get(name)?.deciders);
   const judge = graders?.find((g) => g.name === "criteria");
@@ -363,8 +500,16 @@ export async function runReport(
   const { info, run, trials, bars, stale } = args;
   const rows = rowsOf(workspace.store, run, trials, bars);
   const others = otherColumns(workspace.store, run, trials, bars);
-  const personal = personOf(workspace, run.dataset, trials, bars, args.graders);
-  const verdicts = info ? await verdictsOf(context, workspace, info, run, trials, bars) : undefined;
+  const personal = personOf({
+    workspace,
+    dataset: run.dataset,
+    trials,
+    bars,
+    graders: args.graders,
+  });
+  const verdicts = info
+    ? await columnVerdicts(context, { workspace, info, run, trials, bars })
+    : undefined;
   const { text, exit } = renderRun({
     run,
     rows,

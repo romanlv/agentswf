@@ -69,7 +69,7 @@ export function gitState(dir: string): {
 /**
  * Whether any object of the repository at `dir` holds `text`: every commit, tree and blob read
  * once, whether a ref reaches it or not. One pass, not a grep of each commit's tree, which took
- * minutes on a long history (story 044's M6).
+ * minutes on a long history.
  */
 export function historyHolds(dir: string, text: string): boolean {
   const run = Bun.spawnSync(

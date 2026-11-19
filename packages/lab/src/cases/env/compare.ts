@@ -84,7 +84,7 @@ function scoresOf(trials: readonly ComparedTrial[], names: readonly MetricName[]
     case: t.case,
     trial: t.trial,
     // A failed workflow's `passed` is a result, 0: only its other numbers go by `onFailure`.
-    outcome: t.workflowFailed ? "variant-failed" : "scored",
+    outcome: t.workflowFailed ? "workflow-failed" : "scored",
     metrics: Object.fromEntries(names.map((name) => [name, metricOf(t, name)])),
   }));
 }
@@ -93,7 +93,7 @@ function specOf(name: MetricName, options: MetricOptions | undefined): MetricSpe
   return {
     name,
     direction: options?.direction ?? (LOWER.has(name) ? "lower" : "higher"),
-    onVariantFailure: name === "passed" ? 0 : (options?.onFailure ?? "missing"),
+    onFailure: name === "passed" ? 0 : (options?.onFailure ?? "missing"),
   };
 }
 
@@ -111,7 +111,7 @@ type Paired = Omit<PairedOptions, "primary" | "guards" | "tiebreak" | "version">
 
 export const better = {
   /**
-   * The review loop's sequential paired rule: per-case differences on the same cases, "better"
+   * A sequential paired rule: per-case differences on the same cases, "better"
    * claimed only past an O'Brien–Fleming bound at the planned looks, so it can stop as soon as it
    * can tell; guards that may not get worse; tie-breakers.
    */
@@ -130,8 +130,8 @@ export const better = {
       ...(version ? { version } : {}),
       compare: ({ reference, column, planned }) =>
         comparison.compare({
-          baseline: scoresOf(reference, names),
-          challenger: scoresOf(column, names),
+          reference: scoresOf(reference, names),
+          column: scoresOf(column, names),
           metrics: specs,
           planned,
         }),
@@ -149,7 +149,7 @@ export const better = {
     const spec: MetricSpec = {
       name: "value",
       direction: options.direction ?? "higher",
-      onVariantFailure: options.onFailure ?? "missing",
+      onFailure: options.onFailure ?? "missing",
     };
     const comparison = pairedComparison({
       primary: "value",
@@ -159,15 +159,15 @@ export const better = {
       trials.map((t) => ({
         case: t.case,
         trial: t.trial,
-        outcome: t.workflowFailed ? "variant-failed" : "scored",
+        outcome: t.workflowFailed ? "workflow-failed" : "scored",
         metrics: { value: t.workflowFailed ? null : value(t) },
       }));
     return defineComparison({
       ...(options.version ? { version: options.version } : {}),
       compare: ({ reference, column, planned }) =>
         comparison.compare({
-          baseline: scores(reference),
-          challenger: scores(column),
+          reference: scores(reference),
+          column: scores(column),
           metrics: [spec],
           planned,
         }),

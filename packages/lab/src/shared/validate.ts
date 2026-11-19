@@ -37,7 +37,7 @@ export function checkSchema<S extends Type.TSchema>(
 }
 
 /** How `explainProblems` words a file's problems: what the file is, and phrases for its patterns. */
-export type Explain = {
+type Explain = {
   schema: Type.TSchema;
   value: unknown;
   /** The file's root, as "a key" in "a key's fields". */

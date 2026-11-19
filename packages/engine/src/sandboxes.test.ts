@@ -848,6 +848,23 @@ describe("awf run --boxed: the workflow's sandboxes set aside", () => {
     ).rejects.toThrow("domain");
   });
 
+  test("an agent's sandbox is refused as an unboxed run refuses it", async () => {
+    const boxed = (sandbox: unknown) =>
+      setup({}, undefined, undefined, true).run(async (context) => {
+        await open(context, { key: "a", sandbox: sandbox as never });
+        return 0;
+      });
+    await expect(boxed("srt")).rejects.toThrow(
+      "an agent's sandbox is a ref from sandboxes.open or an inline spec",
+    );
+    await expect(boxed({ key: "wide", provider: "srt" })).rejects.toThrow(
+      "not a sandbox this run opened",
+    );
+    await expect(boxed({ key: "wide", srt: {} })).rejects.toThrow(
+      "an agent's inline sandbox cannot name key",
+    );
+  });
+
   test("--boxed goes with neither --sandbox nor --continue", async () => {
     await writeFile(join(work, "s.json"), JSON.stringify({ srt: {} }));
     const parse = (argv: string[]) => () => parseCommand(["run", ...argv], work);

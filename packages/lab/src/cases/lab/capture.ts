@@ -43,9 +43,9 @@ const CasesSchema = Type.Array(
 export type CapturedCase = Type.Static<typeof CasesSchema>[number];
 
 /** The trial whose workflow run had this id, in any run of the store. */
-export function findTrial(store: string, runId: string): StoredTrial | undefined {
+export function findTrial(store: string, trialId: string): StoredTrial | undefined {
   for (const { trials } of readableRuns(store, { newest: true })) {
-    const found = trials.find((t) => t.record.runId === runId);
+    const found = trials.find((t) => t.record.runId === trialId);
     if (found) return found;
   }
   return undefined;
