@@ -785,18 +785,22 @@ Two reviewers, architecture and correctness, on `8642a47e..21bca0e8`. Resolved:
   cases are what it learns from, and the scope check refuses copying them; a holdout never
   reaches it. The paste check is sure from about fifty characters, as `cases.md` now says.
 
-Open, for the person:
+Settled with the person after the review:
 
-- `awf run --boxed` is a published flag the run record doesn't note: a boxed run's agents read as
-  host agents. A field on the attempt record would say so; a record-format change, so not made
-  here.
-- A loop's state (`loops/{name}/`) lives only in the store, while its runs reach the committed
-  records folder: a clone sees runs naming code folders it lacks. Keep loop runs out of
-  `records`, or commit the loop's own records.
-- Three tries that kept nothing stop a loop for good; a flag to go on is not built.
-- A proposer run that prints no record counts $0, though its run folder may hold some spend.
-- `"network": "any"` from task 10's plan is neither built nor needed yet.
-- autoresearch's `bun.lock` still names the old bin path; a `bun install` there rewrites it.
+- **A boxed run says so**: `run.json` and the run's record carry `boxed: true`, and `awf runs`
+  shows "boxed by its caller", so its agents never read as the host's.
+- **A loop runs from the project that uses awf**, as autoresearch does: with `records` set, the
+  loop's own files (not its code) go to `{records}/loops/{name}/`, each try's change as
+  `change.patch`, and a store that lacks them builds the code again from the start commit and the
+  changes, so a clone goes on with the loop. A loop started from uncommitted changes goes on only
+  where it started; one of the same name started elsewhere is refused.
+- **A stall stops the command, not the loop**: three tries that kept nothing end that `loop`
+  command; run again, it goes on.
+- **A run that printed no record**, a trial's or the proposer's, is priced from its folder
+  (`awf runs {id} --json`).
+- autoresearch's `bun.lock` names the new bin; the mail project's `awf-lab.json` is `/1`.
+
+Still open: `"network": "any"` from task 10's plan is neither built nor needed yet.
 
 ### Task 12's notes
 

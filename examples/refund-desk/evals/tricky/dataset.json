@@ -3,5 +3,5 @@
   "sandbox": { "lab": "srt" },
   "agentReach": { "network": [] },
   "timeout": "5m",
-  "holdout": ["two-broken", "late-plea"]
+  "holdout": ["all-broken", "late-plea"]
 }
