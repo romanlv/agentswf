@@ -28,7 +28,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 - `awf run --boxed`, for a caller that runs the whole `awf run` process in a sandbox of its own,
   as awf-lab does a trial: the workflow's sandboxes are set aside and every agent runs inside the
-  caller's box. It never goes with `--sandbox` or `--continue`.
+  caller's box. It never goes with `--sandbox` or `--continue`. Its `run.json`, its record
+  (`boxed: true`) and `awf runs` say so, so its agents never read as the host's.
 - `AWF_CONTROL_ROOT` moves the folder the engine's sockets are made in, `/tmp` by default.
 
 ### Fixed

@@ -530,6 +530,7 @@ async function runAttempt(
         cwd: command.cwd,
         sandbox: (command.sandbox ?? null) as JsonValue,
         ...(command.panes ? { panes: command.panes } : {}),
+        ...(command.boxed ? { boxed: true as const } : {}),
       }));
   } catch (error) {
     return refuse(
