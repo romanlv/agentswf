@@ -94,7 +94,12 @@ export default defineWorkflow({
       stdout: () => undefined,
       stderr: (t: string) => errors.push(t),
       installRuntime: async () => ({
-        config: { aliases: {}, host: createSingleSessionHostFactory(createFakeAdapter({})) },
+        config: {
+          aliases: {},
+          host: createSingleSessionHostFactory(
+            createFakeAdapter({ script: () => ({ state: "failed", detail: "no agent opens" }) }),
+          ),
+        },
         cleanup: async () => undefined,
       }),
     });
