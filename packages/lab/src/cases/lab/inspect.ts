@@ -220,5 +220,8 @@ export function errorsIn(output: string, root: string, dir: string): string[] {
   }
   return errors
     .filter((error) => inside(dir, error.file))
-    .map((error) => `type error: ${error.text.replace(`${root}/`, "")}`);
+    .map(
+      (error) =>
+        `type error: ${error.text.replace(`${root}/`, "").replace(/: error (TS\d+):/, ": $1:")}`,
+    );
 }

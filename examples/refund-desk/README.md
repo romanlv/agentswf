@@ -17,19 +17,19 @@ across runs.
 ## Run it
 
 From this folder, with a Claude login in `CLAUDE_CODE_OAUTH_TOKEN` and
-[srt](../../site/guide/sandboxes.md) installed:
+[srt](../../site/guide/sandboxes.md) installed, each command run as `bunx awf-lab`:
 
 ```sh
-bun awf-lab run --dataset refunds              # the whole workflow, 3 tickets
-bun awf-lab run --dataset decide --trials 5    # the decision alone, each ticket 5 times
-bun awf-lab report                             # the last run again
+bunx awf-lab run --dataset refunds              # the whole workflow, 3 tickets
+bunx awf-lab run --dataset decide --trials 5    # the decision alone, each ticket 5 times
+bunx awf-lab report                             # the last run again
 ```
 
 A **trial** is one run of the workflow on one case. Here each trial makes a single Claude Haiku
 turn: about 5 seconds, estimated at $0.002. A case is **passed** when every trial passed,
-**failed** when more than half failed, **flaky** when some passed and some failed, short of
-both, and **unclear** otherwise, as when a trial errored. This is the report, abridged, when a
-case is flaky:
+**failed** when more than half failed, **flaky** when some passed and some failed, but too few
+either way to call it passed or failed, and **unclear** otherwise, as when a trial errored. This
+is the report, abridged, when a case is flaky:
 
 ```text
 flaky
@@ -95,7 +95,7 @@ Each dataset's `env.ts` turns what happened into flat **facts**:
 `marker` is a few random words. If they show up anywhere the agent could see, the key has leaked
 into the case, and the lab says so.
 
-To add a case, run `bun awf-lab case new decide/{name}`. It makes the folder and a key with its
+To add a case, run `bunx awf-lab case new decide/{name}`. It makes the folder and a key with its
 marker; then write `files/` and `expect`.
 
 `dataset.json` sets what holds for every case. `"sandbox": "workflow"` means the agents run in
@@ -225,7 +225,7 @@ workflow: only the graders whose key or `{major}.{minor}` changed, or whose last
 earlier grades:
 
 ```text
-score run 3: 3 trials · tone ×3
+score run 20261117-142233-a3f9: 3 trials · tone ×3
 from earlier grades: est. $0.02
 ```
 

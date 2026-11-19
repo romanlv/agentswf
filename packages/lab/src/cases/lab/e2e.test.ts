@@ -261,6 +261,6 @@ test("a type error in env.ts stops run with exit 2 before any trial", async () =
     stderr: (t) => err.push(t),
   });
   expect(code).toBe(2);
-  expect(err.join("\n")).toContain("type error: evals/tiny/env.ts");
+  expect(err.join("\n")).toMatch(/type error: evals\/tiny\/env\.ts\(\d+,\d+\): TS\d+:/);
   expect(existsSync(join(home, ".awf/lab"))).toBe(false);
 }, 180_000);

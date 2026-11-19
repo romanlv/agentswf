@@ -422,7 +422,7 @@ export function reportJson(args: {
     kind: REPORT_KIND,
     run: run.id,
     dataset: run.dataset,
-    partial: run.finished === undefined,
+    partial: run.finished === undefined || run.broke !== undefined,
     exit,
     params: run.columns[0]!.params,
     reused: trials.filter((t) => t.record.reused).length,

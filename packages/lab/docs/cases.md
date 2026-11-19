@@ -7,10 +7,16 @@ still to come. A worked example is [`examples/refund-desk`](../../../examples/re
 
 ## A first dataset
 
-1. In your project, link `agentswf` and `@agentswf/lab` from a clone of this repository, as they
-   are not on npm yet: `bun link` in its `packages/agentswf` and `packages/lab`, then
-   `bun link agentswf` and `bun link @agentswf/lab` in the project. Add `typescript`
-   (`bun add -d typescript`): the lab checks `env.ts` with the project's `tsc`.
+1. Your project is a git repository with at least one commit: the lab keeps its runs in
+   `~/.awf/lab/`, in a store named by the project's first commit, so runs made before it vanish
+   from view once it is made. Add `agentswf` from npm (`bun add agentswf`, 0.1.1 or later) and
+   `typescript` (`bun add -d typescript`): the lab checks `env.ts` with the project's `tsc`.
+   `@agentswf/lab` is not on npm yet: in a clone of this repository run `bun install`, then
+   `bun link` in its `packages/lab`, which registers it with bun on this machine, and
+   `bun link @agentswf/lab` in the project. The lab's own box (`"sandbox": { "lab": "srt" }`) and
+   `loop` need `awf run --boxed`, which no released `agentswf` has yet: for those, link `agentswf`
+   from the clone too, `bun link` in its `packages/agentswf` and `bun link agentswf` in the
+   project. Every command here is run as `bunx awf-lab`.
 2. `bunx awf-lab case new {dataset}/{case}` writes `evals/awf-lab.json`, the dataset's
    `dataset.json`, a stub `env.ts` and the case's `key.md`.
 3. Fill `env.ts` and delete its first line: `run` refuses the stub until then. `setup` turns the
@@ -70,23 +76,28 @@ are its.
 | `capture {trial id} (--good \| --needs-work "{note}") [--dataset {name}]` | a new case from a past trial, or from a real run by its awf run id, its key a draft |
 | `label {trial id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial |
 | `loop {name} --budget {usd} [--program {file}] [--proposer {harness}/{model}] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}] [--dataset {name}]` | a proposer changes a copy of the code, kept only when `compare` says better |
-| `loop {name} --final --budget {usd}`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
+| `loop {name} --final --budget {usd} [--param k=v]`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
 (`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`). A trial is named by its
-own id, its workflow run's (`20261117T142240Z-c13b6e75`), which `report --case` lists: `label` and
+workflow run's id (`20261117T142240Z-c13b6e75`), which `report --case` lists: `label` and
 `capture` take it, and refuse a run's id, as `report` and `score` refuse a trial's.
 
-A command takes only its own flags: another command's is refused, naming whose it is.
-`awf-lab {command} --help` prints that command's synopsis, its flags and its exit codes.
+A command takes only its own flags: another command's is refused, naming whose it is, and a
+misspelt one names the flag it is near. `loop` takes the flags of the form `--final` or `--patch`
+picks. `run` and `runs` take no words. `awf-lab {command} --help` prints that command's synopsis,
+its flags and its exit codes; `awf-lab help` or `--help`, every command's.
 
-`run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. When their
-input is not a terminal, as in CI or a pipe, they don't ask: they run. `loop` asks nothing; its
-`--budget` is required. `--dry-run` prints the plan alone. `--budget {usd}` stops `run` starting
-trials once this run's estimates (its trials and their grading) reach it, and `score` before a
-costly grader: the report says how many were not run, and the exit is 3 unless it was worse already.
-`run --json` prints the report as `report --json` does.
+`run` and `score` print a plan, with an estimate from earlier trials or grades when there are some,
+and ask at a terminal unless `--yes`. When their input is not a terminal, as in CI or a pipe, they
+don't ask: they run. `loop` asks nothing; its `--budget` is required. `--dry-run` prints the plan
+alone. `--budget {usd}` stops `run` starting trials once this run's estimates reach it, and `score`
+before a costly grader: the report says how many were not run, and the exit is 3 unless it was
+worse already. A run's estimates are its own trials' workflow runs and every grade made while it
+ran, a reused trial's included; a grade `score` makes later is not the run's. A run killed before
+it finished ends, for this, where the next run started. `run --json` prints the report as
+`report --json` does.
 
 ## `env.ts`
 
@@ -203,7 +214,7 @@ Why this case exists.
 | `agentReach` | required; `{ network: [domains], webSearch?, sockets? }`: what agents may reach beyond their model domains |
 | `timeout`, `setupTimeout` | the body's limit (`30m`), and `setup`'s and `observe`'s (`10m`) |
 | `realHosts` | hosts the workflow's own code may reach for real |
-| `pass` | the bar for every case: `"all"` or a fraction |
+| `pass` | the bar for every case: `"all"` or a fraction up to 1, such as `"2/3"` |
 | `reuseDays` | how many days a kept trial may stand in for a new one; 14, 0 never |
 | `holdout` | cases set aside for a final check: `run`, `--failed` and history leave them out; `run --holdout` runs them alone |
 | `keep` | paths saved from the scratch folder, for graders |
@@ -244,7 +255,7 @@ A trial's outcome, the first that applies:
 | Outcome | When |
 | --- | --- |
 | leaked | the marker, or a copy of a `key/` file, turned up |
-| errored | the **dataset's** (`setup`/`observe`/teardown threw or timed out, a refused call, `reach`, `prepare` refused the argv, `fact-type`, `facts-missing`, `stage-missing`, a given value its schema refused), **grading's**, the **provider's** (a missing login; tried once more), or the **lab's** |
+| errored | the **dataset's** (`setup`/`observe`/teardown threw or timed out, a refused call, `reach`, `prepare` refused the argv, `fact-type`: a fact no string, number, boolean or null, or of another type than the key's value; `facts-missing`: a fact undefined, or one the key's `expect` names that `observe` never returned; `stage-missing`, a given value its schema refused), **grading's** (a grader threw or timed out; under `score`, `expect`'s `fact-type` and `facts-missing` against a key changed since the trial ran), the **provider's** (a missing login; tried once more), or the **lab's** |
 | failed | a grader failed it, or the workflow erred: its body failed, timed out or stopped, or `error` was set |
 | undecided | a grader could not tell |
 | passed | every grader with a verdict passed it |
@@ -253,9 +264,11 @@ A trial's outcome, the first that applies:
 
 A case's verdict, with T trials, a bar b, need = ceil(b × T), p passed, f failed: **passed** when
 p ≥ need; **failed** when f > T/2; **flaky** when it has both passes and failures; **unclear**
-otherwise. History shows the case's last five verdicts in the reference column, from earlier runs
-with a column of your checkout, by its path on this machine, under the same parameters; a run that
-only reused trials adds none. Runs from another machine's records show in `runs` and `report {run}`,
+otherwise. History shows the case's last five verdicts in the reference column, oldest first, each
+a mark: `✓` passed, `✗` failed, `~` flaky, `?` unclear. They come from earlier runs with a column
+of your checkout, by its path on this machine, under the same parameters; a run that only reused
+trials adds none. History, and a report of an older run, read each trial by its newest grades, so
+a `score` since it ran changes them. Runs from another machine's records show in `runs` and `report {run}`,
 not in history. A known-failing case that passes at three trials or more is "now passing".
 `--failed` runs the cases whose newest verdict was failed, flaky or unclear again, at that run's
 trial count, and always fresh: the trials that failed are never its answer.
@@ -491,7 +504,8 @@ a `compare` in `graders.ts`, and spends until `--budget`.
 `loop {name}` again resumes: a try cut short after its proposal runs with it; before, it is
 proposed again, its estimate from before still counted. A loop resumed with another dataset,
 holdout, `graders.ts`, `--trials`, `--param` or tuning cases is refused: its tries are judged
-alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`.
+alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`;
+`--final` takes only `--budget` and `--param`, and `--patch` nothing.
 `--final --budget {usd}` runs the kept code against the start on the held-out cases, under the
 loop's `--param`, each check recorded (a second says it was asked again); `--patch` prints the
 kept code against the start. Records: `{store}/loops/{name}/loop.json`, `program.md`,

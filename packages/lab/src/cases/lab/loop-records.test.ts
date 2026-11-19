@@ -116,7 +116,12 @@ describe("a loop's records brought into a store", () => {
     mkdirSync(join(checkout, ".."), { recursive: true });
     git(p.top, ["worktree", "add", "--detach", "-q", checkout, p.loop.from.commit!]);
     rmSync(checkout, { recursive: true, force: true });
+    // Someone else's worktree, gone from disk for now: the lab leaves its registration alone.
+    const theirs = `${p.dir}-theirs`;
+    git(p.top, ["worktree", "add", "--detach", "-q", theirs, p.loop.from.commit!]);
+    rmSync(theirs, { recursive: true, force: true });
     p.read();
     expect(readFileSync(join(codeOf(p.dir, 0), "workflow.ts"), "utf8")).toContain("quality = 1");
+    expect(git(p.top, ["worktree", "list"])).toContain("-theirs");
   });
 });

@@ -45,6 +45,15 @@ describe("caseVerdict", () => {
     expect(tally(["errored", "errored", "errored"]).verdict).toBe("unclear");
   });
 
+  test("an unclear note leaves out the one trial's outcome the row already names", () => {
+    expect(caseVerdict(["passed", "passed", "errored"], 4, "all", "errored").note).toBe(
+      "1 not run",
+    );
+    expect(caseVerdict(["errored", "errored", "leaked"], 3, "all", "errored").note).toBe(
+      "2 errored, 1 leaked",
+    );
+  });
+
   test("a 2/3 bar passes with one failed trial, and asks every trial at one or two", () => {
     expect(tally(["passed", "passed", "failed"], 3, "2/3").verdict).toBe("passed");
     expect(needOf("2/3", 1)).toBe(1);

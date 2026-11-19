@@ -443,7 +443,7 @@ export function renderRun({
   text: string;
   exit: ExitCode;
 } {
-  const partial = run.finished === undefined;
+  const partial = run.finished === undefined || run.broke !== undefined;
   const exit = exitCodeOf({ cases: rows, partial });
   const counts = new Set(run.asked.map((a) => a.trials));
   const each =
@@ -488,12 +488,7 @@ export function renderRun({
         ? [`also fails in ${columnLabel(run, i + 1)}`]
         : [];
     });
-    // "1 errored" beside a why that says the trial errored says it twice.
-    const kind = row.why?.match(/^(errored|leaked)\b/)?.[1];
-    const note = row.tally.note
-      ?.split(", ")
-      .filter((part) => part !== `1 ${kind}`)
-      .join(", ");
+    const note = row.tally.note;
     const said = [
       ...row.notes,
       ...(row.why ? [row.why] : []),

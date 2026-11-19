@@ -45,7 +45,7 @@ import { newestEntries, trialOutcome, trialSpend } from "./outcome";
 import { Refusal } from "./refusal";
 import { type RunGiven, run } from "./run-command";
 import { barsOf, type CaseBar } from "./runs";
-import { awfRunsOf, newRunId, readRunRecord, readTrials, type StoredTrial } from "./store";
+import { awfRunsOf, newRunId, readRunRecord, readTrials, runSpan, type StoredTrial } from "./store";
 import { type CaseWorkspace, inside } from "./workspace";
 
 export const PROPOSER = join(import.meta.dir, "../loop/propose.workflow.ts");
@@ -254,7 +254,7 @@ function loopDeps(
                   : { error: first.error },
             }
           : {}),
-        spend: trials.reduce((sum, t) => sum + trialSpend(t, record), 0),
+        spend: spendOf(workspace.store, runId),
       };
       return result;
     },
@@ -386,5 +386,6 @@ function bothRan(trials: readonly StoredTrial[], columns: number): StoredTrial[]
 function spendOf(store: string, id: string): number {
   const run = readRunRecord(store, id);
   if (!run) return 0;
-  return readTrials(store, id).reduce((sum, t) => sum + trialSpend(t, run), 0);
+  const span = runSpan(store, run);
+  return readTrials(store, id).reduce((sum, t) => sum + trialSpend(t, span), 0);
 }

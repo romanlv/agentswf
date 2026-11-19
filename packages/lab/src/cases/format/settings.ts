@@ -174,6 +174,14 @@ export const KeySchema = Type.Object(
 
 export type Key = Type.Static<typeof KeySchema>;
 
+/** Why a `pass` that reads as a fraction is no share of trials: more than all of them. */
+export function passProblem(pass: string | undefined): string | undefined {
+  const [n, d] = (pass ?? "all").split("/").map(Number);
+  return d !== undefined && n! > d
+    ? `pass ${pass} is more than all: give all, or a fraction up to 1, such as 2/3`
+    : undefined;
+}
+
 /** What each pattern of these files means, for a refusal to say in words. */
 export const SETTINGS_PATTERNS: Readonly<Record<string, string>> = {
   [DURATION_PATTERN]: "a number and a unit, such as 30m or 90s",

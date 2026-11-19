@@ -98,12 +98,13 @@ function earlier(
   before: string | undefined,
   bars: ReadonlyMap<string, CaseBar>,
 ): { run: RunRecord; verdicts: Map<string, CaseVerdict | undefined> }[] {
-  return [...readableRuns(store, { dataset })].flatMap(({ run, trials }) => {
-    if (before !== undefined && run.id >= before) return [];
-    const column = columnLike(run, root, params);
-    if (column === undefined) return [];
-    return [{ run, verdicts: verdictsOf(run, trials, bars, column) }];
-  });
+  return [...readableRuns(store, { dataset, ...(before !== undefined ? { before } : {}) })].flatMap(
+    ({ run, trials }) => {
+      const column = columnLike(run, root, params);
+      if (column === undefined) return [];
+      return [{ run, verdicts: verdictsOf(run, trials, bars, column) }];
+    },
+  );
 }
 
 /** The runs whose records this lab can't read, which history leaves out. */

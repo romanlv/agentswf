@@ -8,6 +8,7 @@ import {
   type Dataset,
   DatasetSchema,
   type Key,
+  passProblem,
   SETTINGS_PATTERNS,
 } from "../format/settings";
 import { Refusal } from "./refusal";
@@ -82,6 +83,8 @@ export function readDataset(name: string, dir: string): DatasetInfo {
     throw new Refusal(describeProblems(file, problems));
   }
   const dataset = checked.value;
+  const pass = passProblem(dataset.pass);
+  if (pass) throw new Refusal(`${file}: ${pass}`);
   const specs = graderSpecs({ name, dir, dataset });
   const code = specs.filter((s) => s.kind === "code").map((s) => s.name);
   if (code.length > 0 && !existsSync(join(dir, GRADERS_FILE))) {

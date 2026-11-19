@@ -211,13 +211,15 @@ export const RUN_ID = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/;
 
 /**
  * The store's runs whose records read, each with its trials, oldest first unless `newest`; of one
- * dataset when named. A run whose records don't read is left out: `runs` names it.
+ * dataset when named, and made before the run id `before` when given. A run whose records don't
+ * read is left out: `runs` names it.
  */
 export function* readableRuns(
   store: string,
-  options: { dataset?: string; newest?: boolean } = {},
+  options: { dataset?: string; newest?: boolean; before?: string } = {},
 ): Generator<{ run: RunRecord; trials: StoredTrial[] }> {
-  const ids = runIds(store);
+  const { before } = options;
+  const ids = runIds(store).filter((id) => before === undefined || id < before);
   for (const id of options.newest ? ids.reverse() : ids) {
     let read: { run: RunRecord; trials: StoredTrial[] } | undefined;
     try {
@@ -230,6 +232,23 @@ export function* readableRuns(
     }
     yield read;
   }
+}
+
+/**
+ * When a run ran, for the grades it made: from its start to its finish. A run killed before it
+ * stamped one ends where the next run started, so a `score` made in between counts as its; with
+ * no next run, it is open.
+ */
+export function runSpan(store: string, run: RunRecord): { started: string; finished?: string } {
+  if (run.finished !== undefined) return { started: run.started, finished: run.finished };
+  const next = runIds(store).find((id) => id > run.id);
+  let after: RunRecord | undefined;
+  try {
+    after = next ? readRunRecord(store, next) : undefined;
+  } catch (error) {
+    if (!(error instanceof UnreadableRecord)) throw error;
+  }
+  return after ? { started: run.started, finished: after.started } : { started: run.started };
 }
 
 /**

@@ -36,7 +36,7 @@ import {
   workspaceOf,
 } from "./command-context";
 import { criteriaJudge } from "./criteria";
-import { type CaseInfo, type DatasetInfo, folderDigest, readCases } from "./dataset";
+import { type CaseInfo, type DatasetInfo, ENV_FILE, folderDigest, readCases } from "./dataset";
 import { buildCase, clearStale } from "./folders";
 import { gitTop } from "./git";
 import type { LabGrader } from "./grading";
@@ -62,7 +62,14 @@ import {
   UnreadableRecord,
 } from "./store";
 import { trialSettingsOf } from "./trial-settings";
-import { commandUsage, fullUsage, refuseForeignFlags, refuseNotCommand } from "./usage";
+import {
+  commandUsage,
+  fullUsage,
+  isCommand,
+  refuseForeignFlags,
+  refuseNotCommand,
+  refuseUnknownFlag,
+} from "./usage";
 import type { CaseWorkspace } from "./workspace";
 
 function parse(argv: readonly string[]): {
@@ -71,6 +78,8 @@ function parse(argv: readonly string[]): {
   options: Options;
   /** The flags given, each once, as written; `-h` as `--help`. */
   flags: string[];
+  /** Flags no command takes, in the order given. */
+  unknown: string[];
 } {
   const options: Options = {
     failed: false,
@@ -92,6 +101,7 @@ function parse(argv: readonly string[]): {
   };
   const positional: string[] = [];
   const flags = new Set<string>();
+  const unknown: string[] = [];
   const rest = [...argv];
   const value = (flag: string) => {
     const next = rest.shift();
@@ -222,13 +232,12 @@ function parse(argv: readonly string[]): {
       default:
         if (arg.startsWith("-")) {
           refuseRetiredFlag(arg);
-          throw new Refusal(`unknown option ${arg}`);
-        }
-        positional.push(arg);
+          unknown.push(arg);
+        } else positional.push(arg);
     }
   }
   const [command, ...names] = positional;
-  return { ...(command ? { command } : {}), names, options, flags: [...flags] };
+  return { ...(command ? { command } : {}), names, options, flags: [...flags], unknown };
 }
 
 /** The case kind's command line: `case new`, `run`, `report` and `runs`. */
@@ -239,17 +248,25 @@ export async function runCases(
   const stdout = environment.stdout ?? ((text) => console.log(text));
   const stderr = environment.stderr ?? ((text) => void process.stderr.write(`${text}\n`));
   try {
-    const { command, names, options, flags } = parse(argv);
-    if (!command) {
+    const { command, names, options, flags, unknown } = parse(argv);
+    if (command === "help" || (!command && options.help && unknown.length === 0)) {
       stdout(fullUsage());
-      return options.help ? 0 : 2;
+      return 0;
     }
-    refuseNotCommand(command);
-    refuseRetiredCommand(command);
+    if (command) {
+      refuseNotCommand(command);
+      refuseRetiredCommand(command);
+      if (!isCommand(command)) {
+        throw new Refusal(`unknown command ${command}; awf-lab --help lists them`);
+      }
+    }
+    if (unknown.length > 0) refuseUnknownFlag(unknown[0]!, command);
+    if (!command) {
+      stderr(`awf-lab needs a command:\n${fullUsage()}`);
+      return 2;
+    }
     if (options.help) {
-      const own = commandUsage(command);
-      if (!own) throw new Refusal(`unknown command ${command}; awf-lab --help lists them`);
-      stdout(own);
+      stdout(commandUsage(command)!);
       return 0;
     }
     refuseForeignFlags(command, flags);
@@ -265,6 +282,11 @@ export async function runCases(
       case "case":
         return caseCommand(context, names);
       case "run":
+        if (names.length > 0) {
+          throw new Refusal(
+            `run takes no words, only flags; got ${names.join(" ")}: --cases {a,b} picks cases, --dataset {name} a dataset`,
+          );
+        }
         return (await run(context)).exit;
       case "report":
         return await report(context, names);
@@ -273,6 +295,7 @@ export async function runCases(
       case "capture":
         return await captureCommand(context, names);
       case "runs":
+        if (names.length > 0) throw new Refusal(`runs takes nothing; got ${names.join(" ")}`);
         return runs(context);
       case "label":
         return label(context, names);
@@ -305,8 +328,14 @@ function caseCommand(context: Context, names: readonly string[]): number {
   const config = findConfigFile(context.cwd, context.options.config);
   const evals = config ? join(config, "..") : join(gitTop(context.cwd) ?? context.cwd, "evals");
   const made = newCase(evals, address);
-  for (const file of made.written) context.stdout(`wrote ${relative(context.cwd, file) || file}`);
-  context.stdout(`case ${relative(context.cwd, made.caseDir)}: write its key.md and files/`);
+  const shown = (file: string) => relative(context.cwd, file) || file;
+  for (const file of made.written) context.stdout(`wrote ${shown(file)}`);
+  const envFile = made.written.find((file) => basename(file) === ENV_FILE);
+  context.stdout(
+    envFile
+      ? `next: fill ${shown(envFile)} and delete its first line, then the case's input.json and its key's expect`
+      : `case ${shown(made.caseDir)}: write its key.md and files/`,
+  );
   return 0;
 }
 
@@ -364,7 +393,7 @@ function refuseLabRun(workspace: CaseWorkspace, given: string, command: string):
     (/^[0-9a-f]{4}$/.test(given) && runIds(workspace.store).some((id) => id.endsWith(`-${given}`)));
   if (run) {
     throw new Refusal(
-      `${given} is a lab run: ${command} takes a trial's id, which report --case {case} lists`,
+      `${given} is a run's id: ${command} takes a trial's id, which report --case {case} lists`,
     );
   }
 }
@@ -928,6 +957,6 @@ function runs(context: Context): number {
         `${n}  ${run.dataset}  ${plural(run.asked.length, "case")}, ${plural(trials, "trial")}  ${state}`,
       ];
     });
-  context.stdout(lines.length > 0 ? lines.join("\n") : `no runs in ${workspace.store} yet`);
+  context.stdout(lines.length > 0 ? lines.join("\n") : "no runs yet: awf-lab run makes one");
   return 0;
 }

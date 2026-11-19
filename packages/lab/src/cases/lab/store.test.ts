@@ -11,7 +11,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clearStaleTrialFiles, takeLock } from "./store";
+import { RUN_KIND, type RunRecord } from "../format/records";
+import { clearStaleTrialFiles, readableRuns, runDirOf, runSpan, takeLock, writeRun } from "./store";
 
 const top = mkdtempSync(join(tmpdir(), "awf-lab-store-"));
 afterAll(() => rmSync(top, { recursive: true, force: true }));
@@ -61,4 +62,46 @@ test("trial files a dead lab left are swept; a live one's stay", () => {
   for (const name of [dead, live, "unnamed.jsonl"]) writeFileSync(join(trials, name), "");
   expect(clearStaleTrialFiles(dir)).toBe(1);
   expect(readdirSync(trials).sort()).toEqual([live, "unnamed.jsonl"]);
+});
+
+describe("the runs a store holds", () => {
+  const store = home();
+  const runOf = (id: string, started: string, finished?: string): RunRecord => ({
+    kind: RUN_KIND,
+    id,
+    dataset: id.endsWith("bbbb") ? "other" : "ds",
+    folders: [{ path: "/p", branch: null, commit: null, dirty: false, env: "0".repeat(64) }],
+    columns: [{ folder: 0, params: {} }],
+    asked: [],
+    started,
+    ...(finished ? { finished } : {}),
+  });
+  const killed = runOf("20261119-100000-aaaa", "2026-11-19T10:00:00.000Z");
+  const next = runOf(
+    "20261119-110000-bbbb",
+    "2026-11-19T11:00:00.000Z",
+    "2026-11-19T11:30:00.000Z",
+  );
+  const last = runOf("20261119-120000-cccc", "2026-11-19T12:00:00.000Z");
+  for (const run of [killed, next, last]) {
+    mkdirSync(runDirOf(store, run.id), { recursive: true });
+    writeRun(store, run);
+  }
+
+  test("a killed run ends where the next one started; the newest stays open", () => {
+    expect(runSpan(store, killed)).toEqual({
+      started: killed.started,
+      finished: next.started,
+    });
+    expect(runSpan(store, next)).toEqual({ started: next.started, finished: next.finished! });
+    expect(runSpan(store, last)).toEqual({ started: last.started });
+  });
+
+  test("history before a run reads only the runs made before it", () => {
+    const ids = [...readableRuns(store, { before: last.id })].map((r) => r.run.id);
+    expect(ids).toEqual([killed.id, next.id]);
+    expect(
+      [...readableRuns(store, { dataset: "ds", before: next.id })].map((r) => r.run.id),
+    ).toEqual([killed.id]);
+  });
 });

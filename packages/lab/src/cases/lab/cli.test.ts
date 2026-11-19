@@ -533,6 +533,14 @@ describe("a case's verdict and the exit code, through the command line", () => {
     expect(code).toBe(4);
     const runs = await lab(where, ["runs"]);
     expect(runs.out).toContain("the lab broke");
+    // Stamped as it broke, so later grades are never counted as the run's.
+    const store = storeOf(where);
+    const record = JSON.parse(
+      readFileSync(join(store, "runs", nthRun(store, 1), "run.json"), "utf8"),
+    );
+    expect(record.finished).toBeString();
+    const report = await lab(where, ["report"]);
+    expect(report.out).toContain("(partial)");
   });
 
   test("a provider's login refusal is tried once more at the end of its round", async () => {
@@ -964,8 +972,12 @@ describe("case new", () => {
     expect(ran.code).toBe(0);
     expect(fake.calls).toHaveLength(1);
 
+    expect(made.out).toContain(
+      "next: fill evals/ds/env.ts and delete its first line, then the case's input.json and its key's expect",
+    );
     const second = await lab(where, ["case", "new", "second"]);
     expect(second.code).toBe(0);
+    expect(second.out).toContain("case evals/ds/cases/second: write its key.md and files/");
     expect(existsSync(join(root, "evals/ds/cases/second/key.md"))).toBe(true);
   });
 });
@@ -2635,10 +2647,10 @@ describe("the person's labels", () => {
     const lab4 = await lab(where, ["label", run.slice(-4), "--good"]);
     expect(lab4.code).toBe(2);
     expect(lab4.err).toBe(
-      `awf-lab: ${run.slice(-4)} is a lab run: label takes a trial's id, which report --case {case} lists`,
+      `awf-lab: ${run.slice(-4)} is a run's id: label takes a trial's id, which report --case {case} lists`,
     );
     expect((await lab(where, ["capture", run, "--good"])).err).toContain(
-      `${run} is a lab run: capture takes a trial's id`,
+      `${run} is a run's id: capture takes a trial's id`,
     );
     const trialAsRun = await lab(where, ["report", id]);
     expect(trialAsRun.code).toBe(2);
@@ -2752,6 +2764,7 @@ describe("run --dry-run, --budget and --json; report --md", () => {
     expect(fake.calls).toHaveLength(0);
     expect(out).toContain("ds · 2 cases · 1 trial each");
     expect(out).toContain("vary: model=a,b · 2 columns");
+    expect(out).toContain("no estimate yet: no earlier trials of these cases");
     expect(existsSync(join(where.home, ".awf/lab"))).toBe(false);
   });
 
@@ -3422,6 +3435,99 @@ describe("the command line says what is wrong, and what to do", () => {
     expect(compare.code).toBe(2);
     expect(compare.err).toContain("compare is graders.ts's export, not a command: run --against");
     expect(usageProblems()).toEqual([]);
+  });
+
+  test("an unknown option names the command and the option it is near", async () => {
+    const where = project({ a: {} });
+    expect((await lab(where, ["run", "--datset", "ds"])).err).toBe(
+      "awf-lab: unknown option --datset for run; did you mean --dataset? awf-lab run --help lists its options",
+    );
+    expect((await lab(where, ["run", "--zzz"])).err).toBe(
+      "awf-lab: unknown option --zzz for run; awf-lab run --help lists its options",
+    );
+    expect((await lab(where, ["--zzz"])).err).toBe(
+      "awf-lab: unknown option --zzz; awf-lab --help lists the options",
+    );
+  });
+
+  test("run and runs take no words; loop takes the flags of the synopsis its mode picks", async () => {
+    const where = project({ a: {} });
+    const fake = scripted({});
+    const stray = await lab(where, ["run", "a"], { runner: fake.runner });
+    expect(stray.code).toBe(2);
+    expect(stray.err).toBe(
+      "awf-lab: run takes no words, only flags; got a: --cases {a,b} picks cases, --dataset {name} a dataset",
+    );
+    expect(fake.calls).toHaveLength(0);
+    expect((await lab(where, ["runs", "x", "y"])).err).toBe("awf-lab: runs takes nothing; got x y");
+    expect((await lab(where, ["loop", "l", "--patch", "--budget", "5"])).err).toBe(
+      "awf-lab: --budget is not an option of loop --patch: it is loop's without --patch; loop --patch is loop {name} --patch",
+    );
+    expect((await lab(where, ["loop", "l", "--final", "--budget", "5", "--cases", "a"])).err).toBe(
+      "awf-lab: --cases is not an option of loop --final: it is loop's without --final; loop --final is loop {name} --final --budget {usd} [--param {name}={value}]",
+    );
+    expect((await lab(where, ["loop", "l", "--final", "--patch"])).err).toBe(
+      "awf-lab: --final and --patch do not go together",
+    );
+  });
+
+  test("help: bare awf-lab is a refusal; help and --help the full help; a command's own words", async () => {
+    const where = project({ a: {} });
+    const bare = await lab(where, []);
+    expect(bare.code).toBe(2);
+    expect(bare.out).toBe("");
+    expect(bare.err).toStartWith("awf-lab needs a command:\nusage: awf-lab [--config {file}]");
+    const help = await lab(where, ["help"]);
+    expect(help.code).toBe(0);
+    expect(help.out).toBe((await lab(where, ["--help"])).out);
+    expect(help.out).toContain("exit, loop: 0 done, 1 nothing kept to patch or check");
+    const run = (await lab(where, ["run", "--help"])).out;
+    expect(run).toStartWith("usage: awf-lab [--config {file}] run [--dataset {name}]");
+    expect(run).toContain(
+      "--budget {usd}    stop starting trials once their estimates reach it: exit 3",
+    );
+    expect(run).toContain("--json            the report as JSON\n");
+    expect(run).not.toContain("score");
+    const label = (await lab(where, ["label", "--help"])).out;
+    expect(label).toContain("--good            the trial went well\n");
+    const loop = (await lab(where, ["loop", "--help"])).out;
+    expect(loop).toContain("       awf-lab [--config {file}] loop {name} --patch");
+    expect(loop).toContain("loop {name} --final: the kept code against the start");
+    expect(loop).toContain(
+      "exit: 0 done, 1 nothing kept to patch or check, 2 refused, 3 stopped at --budget, 4 the lab broke",
+    );
+    expect(loop).not.toContain("flaky");
+    for (const name of ["case", "run", "report", "score", "capture", "label", "loop", "runs"]) {
+      for (const line of (await lab(where, [name, "--help"])).out.split("\n")) {
+        expect(line.length).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  test("runs with none says how to make one", async () => {
+    const where = project({ a: {} });
+    expect((await lab(where, ["runs"])).out).toBe("no runs yet: awf-lab run makes one");
+  });
+
+  test("a key's fields of the wrong kind, and a pass bar over all, each in one line", async () => {
+    const where = project({
+      a: { key: keyMd('must: one thing\ntags: forms\nexpect: 42\nknown-failing: "yes"\n') },
+    });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain('must is a list: write each criterion on its own line, starting "- "');
+    expect(err).toContain("tags is a list, such as tags: [forms]");
+    expect(err).toContain("expect maps fact names to values, such as expect: { answer: 42 }");
+    expect(err).toContain('known-failing is true or left out, not "yes"');
+    expect(err).not.toContain("must be");
+    const over = project({ a: { key: keyMd("expect:\n  ok: true\npass: 3/2\n") } });
+    expect((await lab(over, ["run", "--yes"], { runner: scripted({}).runner })).err).toContain(
+      "pass 3/2 is more than all: give all, or a fraction up to 1, such as 2/3",
+    );
+    const dataset = project({ a: {} }, { pass: "4/3" });
+    expect((await lab(dataset, ["run", "--yes"], { runner: scripted({}).runner })).err).toContain(
+      "dataset.json: pass 4/3 is more than all",
+    );
   });
 
   test("a usage mistake says what is wrong first", async () => {

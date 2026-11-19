@@ -31,10 +31,13 @@ describe("a run's estimate read from its folder", () => {
     expect(await awfRunEstimate(fakeAwf("garbled", "not json"), dir, "w/r")).toBeUndefined();
   });
 
-  test("a page of another version is refused loudly, never read as no spend", async () => {
-    const awf = fakeAwf("newer", { v: 3, run: { estimate: 0.25 } });
-    await expect(awfRunEstimate(awf, dir, "w/r")).rejects.toThrow(
-      "awf runs w/r --json printed version 3; this lab reads version 2",
+  test("a page of any version is read by its run.estimate, never thrown after the spend", async () => {
+    expect(await awfRunEstimate(fakeAwf("v1", { v: 1, run: { estimate: 0.5 } }), dir, "w/r")).toBe(
+      0.5,
     );
+    expect(await awfRunEstimate(fakeAwf("v3", { v: 3, run: { estimate: 0.25 } }), dir, "w/r")).toBe(
+      0.25,
+    );
+    expect(await awfRunEstimate(fakeAwf("null", "null"), dir, "w/r")).toBeUndefined();
   });
 });

@@ -823,6 +823,31 @@ describe("awf run --boxed: the workflow's sandboxes set aside", () => {
     ).rejects.toThrow("a sandbox spec names its provider");
   });
 
+  test("a spec's values are checked as if it opened: a bad network domain, a field not a list", async () => {
+    const boxed = () => setup({}, undefined, undefined, true).run;
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {}, network: ["https://x.example"] });
+        return 0;
+      }),
+    ).rejects.toThrow('not a sandbox domain: "https://x.example"');
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {}, read: "src" as never });
+        return 0;
+      }),
+    ).rejects.toThrow("sandbox read must be a list");
+  });
+
+  test("an agent's inline spec is checked as if it opened", async () => {
+    await expect(
+      setup({}, undefined, undefined, true).run(async (context) => {
+        await open(context, { key: "a", sandbox: { srt: {}, network: ["not a domain"] } });
+        return 0;
+      }),
+    ).rejects.toThrow("domain");
+  });
+
   test("--boxed goes with neither --sandbox nor --continue", async () => {
     await writeFile(join(work, "s.json"), JSON.stringify({ srt: {} }));
     const parse = (argv: string[]) => () => parseCommand(["run", ...argv], work);

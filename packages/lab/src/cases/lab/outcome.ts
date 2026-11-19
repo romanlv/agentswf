@@ -26,24 +26,27 @@ export const gradingSpend = (scores: readonly { entries: readonly GraderEntry[] 
   scores.reduce((sum, s) => sum + s.entries.reduce((n, e) => n + (e.estimate ?? 0), 0), 0);
 
 /**
- * What a run spent on one of its trials, as `--budget` counts it and a loop's ledger: a trial of
- * its own, its workflow run and the grading it was given as it ran; a reused one, only the grades
- * made again while the run ran, its workflow run counted where it ran. Grades `score` makes later
- * are not the run's.
+ * What a run spent on one of its trials, as `--budget` counts it, a loop's ledger and a plan's
+ * estimate: a trial of its own, its workflow run; a reused one, nothing, its workflow run counted
+ * where it ran; and either, the grades made while the run ran. Grades `score` makes later are not
+ * the run's.
  */
 export function trialSpend(
   trial: StoredTrialView,
   run: { started: string; finished?: string | undefined },
 ): number {
-  if (!trial.record.reused) {
-    return (trial.record.estimate ?? 0) + gradingSpend(trial.scores.slice(0, 1));
-  }
-  return gradingSpend(
-    trial.scores.filter(
-      (s) => s.at >= run.started && (run.finished === undefined || s.at <= run.finished),
-    ),
+  return (
+    (trial.record.reused ? 0 : (trial.record.estimate ?? 0)) +
+    gradingSpend(scoresInRun(trial.scores, run))
   );
 }
+
+/** The grades made while a run ran, from its start to its finish, or on when it has none. */
+export const scoresInRun = (
+  scores: readonly ScoreRecord[],
+  run: { started: string; finished?: string | undefined },
+) =>
+  scores.filter((s) => s.at >= run.started && (run.finished === undefined || s.at <= run.finished));
 
 export type TrialView = { outcome: Outcome; errored?: Pick<Errored, "by" | "reason"> };
 
@@ -136,8 +139,16 @@ export function caseRow(
 ): CaseRow {
   const views = trials.map((t) => trialOutcome(t.record, t.scores, deciders));
   const outcomes = views.map((v) => v.outcome);
-  const tally = caseVerdict(outcomes, asked, pass);
-  const firstNot = trials.find((t, i) => views[i]!.outcome !== "passed" && whyNot(t, deciders));
+  const firstAt = trials.findIndex((t, i) => views[i]!.outcome !== "passed" && whyNot(t, deciders));
+  const firstNot = trials[firstAt];
+  // A why that says the trial errored or leaked says what "1 errored" would.
+  const said = views[firstAt]?.outcome;
+  const tally = caseVerdict(
+    outcomes,
+    asked,
+    pass,
+    said === "errored" || said === "leaked" ? said : undefined,
+  );
   const notes = [
     ...new Set(
       trials.flatMap((t) => [

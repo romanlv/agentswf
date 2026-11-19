@@ -1905,6 +1905,7 @@ class WorkflowOwner {
     this.options.ops.claim(spec.key, "agent");
     const inRunSandbox = this.options.sandboxes.hasRunSandbox;
     // Under `awf run --boxed` the agent's own sandbox is set aside: it runs in its caller's box.
+    if (this.options.sandboxes.setAside) this.options.sandboxes.checkSetAside(spec.sandbox);
     const ownSandbox = this.options.sandboxes.setAside ? undefined : spec.sandbox;
     if (inRunSandbox && ownSandbox !== undefined)
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);

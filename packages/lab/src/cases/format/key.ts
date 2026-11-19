@@ -1,6 +1,6 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 import { type Checked, checkSchema, explainProblems, type Problem } from "../../shared/validate";
-import { type Key, KeySchema, SETTINGS_PATTERNS } from "./settings";
+import { type Key, KeySchema, passProblem, SETTINGS_PATTERNS } from "./settings";
 
 /** A `key.md`: its frontmatter, checked, and the note below it. */
 export type ReadKey = { key: Key; note: string };
@@ -9,6 +9,16 @@ const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/;
 
 /** Fact names a key may not give: `error` is checked on every trial, and `_` names are reserved. */
 const RESERVED = (name: string) => name === "error" || name.startsWith("_");
+
+/** A key field written as the wrong kind of value, in a line. */
+const KINDS: Record<string, (value: unknown) => string> = {
+  must: () => 'must is a list: write each criterion on its own line, starting "- "',
+  "must-not": () => 'must-not is a list: write each criterion on its own line, starting "- "',
+  tags: () => "tags is a list, such as tags: [forms]",
+  expect: () => "expect maps fact names to values, such as expect: { answer: 42 }",
+  "known-failing": (value) => `known-failing is true or left out, not ${JSON.stringify(value)}`,
+  draft: (value) => `draft is true or left out, not ${JSON.stringify(value)}`,
+};
 
 /**
  * Reads a key strictly: YAML 1.2's core schema, where only `true` and `false` are booleans, so an
@@ -49,11 +59,14 @@ export function parseKey(text: string): Checked<ReadKey> {
         noun: "a key",
         patterns: SETTINGS_PATTERNS,
         hints: { marker: "case new writes one; copy one from another key, or remake the case" },
+        kinds: KINDS,
       }),
     };
   }
   const key = checked.value;
   const problems: Problem[] = [];
+  const pass = passProblem(key.pass);
+  if (pass) problems.push({ path: "", message: pass });
   for (const name of Object.keys(key.expect ?? {})) {
     if (RESERVED(name)) problems.push({ path: `/expect/${name}`, message: "is reserved" });
   }

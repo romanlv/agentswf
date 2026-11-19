@@ -21,7 +21,7 @@ import { clearStale } from "./folders";
 import { gitState } from "./git";
 import type { LabGrader } from "./grading";
 import { checkEnvFile, type FolderSetup, inspectFolder } from "./inspect";
-import { gradingSpend, trialOutcome, trialSpend } from "./outcome";
+import { gradingSpend, scoresInRun, trialOutcome, trialSpend } from "./outcome";
 import { writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
 import { describeFolder, median, plural, seconds, usd } from "./report";
@@ -41,6 +41,7 @@ import {
   clearStaleTrialFiles,
   readableRuns,
   readTrials,
+  runSpan,
   type StoredTrial,
   takeLock,
   writeRun,
@@ -222,7 +223,7 @@ export async function run(context: Context, given: RunGiven = {}): Promise<RunDo
         given,
       });
     } catch (error) {
-      record = { ...record, broke: (error as Error).message };
+      record = { ...record, broke: (error as Error).message, finished: now().toISOString() };
       writeRun(workspace.store, record);
       throw new LabBroke(`the lab broke during run ${id}: ${(error as Error).message}`);
     }
@@ -420,14 +421,12 @@ function planText(args: {
           `grades ${plural(regrade.items.length, "reused trial")} again, a key or grader changed${regrade.estimate !== undefined ? `: est. ${usd(regrade.estimate)}${regrade.upTo !== undefined && regrade.upTo > regrade.estimate ? `, up to ${usd(regrade.upTo)}` : ""}` : ""}`,
         ]
       : []),
-    ...[
-      estimate(
-        args.workspace.store,
-        info.name,
-        selected.map((c) => c.name),
-        total * columns.length - reuse.count,
-      ),
-    ].filter((line): line is string => line !== undefined),
+    earlierEstimate(
+      args.workspace.store,
+      info.name,
+      selected.map((c) => c.name),
+      total * columns.length - reuse.count,
+    ),
   ].join("\n");
 }
 
@@ -473,7 +472,7 @@ async function runPasses(args: {
     for (const [i, from] of trials.entries()) reuseTrial(store, record.id, from, column, i + 1);
   }
   if (reuse.regrade) {
-    const done = await gradeReused(context, store, reuse.regrade, record.id, lab, budget);
+    const done = await gradeReused(context, lab, reuse.regrade);
     estimated += done.estimate;
     if (done.stopped) record = { ...record, stopped: "budget" };
   }
@@ -535,12 +534,12 @@ async function runPasses(args: {
  */
 async function gradeReused(
   context: Context,
-  store: string,
+  lab: Pick<TrialLab, "workspace" | "run" | "tmp" | "now">,
   planned: ScorePlan,
-  run: string,
-  lab: Pick<TrialLab, "tmp" | "now">,
-  budget: number | undefined,
 ): Promise<ScoreDone> {
+  const { budget } = context.options;
+  const { store } = lab.workspace;
+  const { run } = lab;
   const here = new Map(
     readTrials(store, run)
       .filter((t) => t.record.reused)
@@ -565,30 +564,32 @@ async function gradeReused(
   });
 }
 
-/** Earlier trials of these cases: their median time and cost, times the count. */
-function estimate(
+/**
+ * Earlier trials of these cases: their median time and cost, times the count, each with the
+ * grading it was given as its run ran, since a judge can cost far more than the workflow it judges.
+ */
+function earlierEstimate(
   store: string,
   dataset: string,
   names: readonly string[],
   count: number,
-): string | undefined {
+): string {
   const ms: number[] = [];
   const cost: number[] = [];
   const grading: number[] = [];
-  for (const { trials } of readableRuns(store, { dataset })) {
+  for (const { run, trials } of readableRuns(store, { dataset })) {
+    const span = runSpan(store, run);
     for (const { record: trial, scores } of trials) {
       if (!names.includes(trial.case) || !trial.runId || trial.reused) continue;
       if (trialOutcome(trial, scores).outcome === "errored") continue;
-      // The grading the trial was given as it ran, its first score: a judge can cost far more
-      // than the workflow it judges.
-      const graded = scores.slice(0, 1);
-      ms.push(trial.ms + (graded[0]?.entries ?? []).reduce((sum, e) => sum + (e.ms ?? 0), 0));
+      const graded = scoresInRun(scores, span);
+      ms.push(trial.ms + graded.flatMap((s) => s.entries).reduce((sum, e) => sum + (e.ms ?? 0), 0));
       if (trial.estimate !== undefined) cost.push(trial.estimate);
       grading.push(gradingSpend(graded));
     }
   }
   const time = median(ms);
-  if (time === undefined) return undefined;
+  if (time === undefined) return "no estimate yet: no earlier trials of these cases";
   const each = median(cost);
   const grades = median(grading) ?? 0;
   const price =

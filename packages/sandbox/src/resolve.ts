@@ -56,8 +56,10 @@ export type ResolveOptions = {
 };
 
 /**
- * Checks a spec's fields and names its one provider, before anything is installed or opened: a run
- * its caller boxes checks its specs this way, so a workflow refused unboxed is refused boxed too.
+ * Checks a spec's fields and their values, all but where its paths lead, and names its one
+ * provider, before anything is installed or opened: a run its caller boxes checks its specs this
+ * way, so a spec refused unboxed for its shape is refused boxed too. Its paths are checked against
+ * the machine when it is resolved.
  */
 export function checkSandboxSpec(
   spec: unknown,
@@ -84,6 +86,16 @@ export function checkSandboxSpec(
   const provider = named[0];
   if (provider === undefined) {
     throw new Error('a sandbox spec names its provider: add "srt": {} or "docker": {}');
+  }
+  if (spec.cwd !== undefined) checkPath(spec.cwd, "cwd");
+  for (const field of ["read", "write", "sockets"] as const) {
+    for (const path of list(spec[field], field)) checkPath(path, field);
+  }
+  for (const domain of list(spec.network, "network")) {
+    if (!isDomain(domain)) throw new Error(`not a sandbox domain: ${JSON.stringify(domain)}`);
+  }
+  if (spec.webSearch !== undefined && typeof spec.webSearch !== "boolean") {
+    throw new Error("sandbox webSearch must be true or false");
   }
   return { spec, provider };
 }
@@ -151,15 +163,7 @@ export async function resolveSandbox(
   const write = unique(await paths("write"));
   const read = unique(await paths("read")).filter((path) => !write.includes(path));
   const sockets = unique(await paths("sockets"));
-  if (spec.webSearch !== undefined && typeof spec.webSearch !== "boolean") {
-    throw new Error("sandbox webSearch must be true or false");
-  }
-  const network = unique(
-    list(spec.network, "network").map((domain) => {
-      if (!isDomain(domain)) throw new Error(`not a sandbox domain: ${JSON.stringify(domain)}`);
-      return domain.toLowerCase();
-    }),
-  );
+  const network = unique(list(spec.network, "network").map((d) => (d as string).toLowerCase()));
   // The most specific path naming a directory decides whether it is writable.
   const writableAt = (path: string) => writableIn({ read, write }, path);
   /** Each gitdir, and whether a writable worktree reaches it as its own or as a linked one's. */
@@ -370,18 +374,23 @@ export async function repositoryOf(path: string, home: string): Promise<Reposito
   return undefined;
 }
 
-async function resolvePath(
-  path: unknown,
-  base: string,
-  home: string,
-  field: string,
-): Promise<string> {
+/** A sandbox path's shape: a non-empty string, `~` only as the operator's home. */
+function checkPath(path: unknown, field: string): asserts path is string {
   if (typeof path !== "string" || path.trim() === "") {
     throw new Error(`sandbox ${field} needs a non-empty path, not ${JSON.stringify(path)}`);
   }
   if (path.startsWith("~") && path !== "~" && !path.startsWith("~/")) {
     throw new Error(`sandbox ${field} ${path}: only ~ and ~/ expand, to the operator's home`);
   }
+}
+
+async function resolvePath(
+  path: unknown,
+  base: string,
+  home: string,
+  field: string,
+): Promise<string> {
+  checkPath(path, field);
   const expanded = path === "~" ? home : path.startsWith("~/") ? join(home, path.slice(2)) : path;
   const absolute = isAbsolute(expanded) ? expanded : resolve(base, expanded);
   try {

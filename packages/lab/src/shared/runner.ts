@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { OUTPUT_RECORD_VERSION, type OutputRecord, type RunJson } from "@agentswf/contract/records";
+import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
 
 /** An `awf` other than this checkout's: a folder's own installed bin, started in that folder. */
 export type AwfBin = {
@@ -235,14 +235,11 @@ export async function awfLogs(
   return { text: stdout };
 }
 
-/** The version of `awf runs {ref} --json` this lab reads. */
-const RUN_JSON_V = 2 satisfies RunJson["v"];
-
 /**
  * What a run's folder says it is estimated at, from `awf runs {ref} --json`: for a run that
- * printed no record, as one cut short does, though its agents may have spent. Undefined when the
- * folder can't be read; a page of another version throws, so no cap counts a spend it can't read
- * as none.
+ * printed no record, as one cut short does, though its agents may have spent. Read from
+ * `run.estimate` whatever the page's version, since every version so far keeps it there; it is
+ * called after the spend, so it never throws. Undefined when the folder can't be read.
  */
 export async function awfRunEstimate(
   awf: AwfBin | undefined,
@@ -255,18 +252,13 @@ export async function awfRunEstimate(
     { ...(awf ? { cwd: awf.dir } : {}), env: runEnvironment(env) },
   );
   if (exitCode !== 0) return undefined;
-  let page: { v?: unknown; run?: { estimate?: unknown } } | null;
+  let page: { run?: { estimate?: unknown } } | null;
   try {
     page = JSON.parse(stdout);
   } catch {
     return undefined;
   }
-  if (page?.v !== RUN_JSON_V) {
-    throw new Error(
-      `awf runs ${ref} --json printed version ${String(page?.v)}; this lab reads version ${RUN_JSON_V}`,
-    );
-  }
-  const estimate = page.run?.estimate;
+  const estimate = page?.run?.estimate;
   return typeof estimate === "number" && Number.isFinite(estimate) ? estimate : undefined;
 }
 

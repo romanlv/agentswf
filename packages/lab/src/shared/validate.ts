@@ -46,6 +46,11 @@ export type Explain = {
   patterns?: Readonly<Record<string, string>>;
   /** What to do about a missing field, by its path without the leading slash. */
   hints?: Readonly<Record<string, string>>;
+  /**
+   * What a field is, by its path without the leading slash, for a value of the wrong type or
+   * constant: the one line said for it, given the value written.
+   */
+  kinds?: Readonly<Record<string, (value: unknown) => string>>;
 };
 
 /** A file's problems, one a line; a worded one, with no path, as it is. */
@@ -108,6 +113,8 @@ export function explainProblems(problems: readonly Problem[], explain: Explain):
     .map((p) => `${p.raw!.schemaPath}/anyOf/`);
   const lines: Problem[] = [];
   const say = (message: string) => lines.push({ path: "", message });
+  // A field of the wrong kind is one mistake, however many of the check's complaints it makes.
+  const kinded = new Set<string>();
   for (const problem of problems) {
     const raw = problem.raw;
     const where = field(problem.path);
@@ -116,6 +123,12 @@ export function explainProblems(problems: readonly Problem[], explain: Explain):
       continue;
     }
     if (unions.some((u) => raw.schemaPath.startsWith(u))) continue;
+    const kind = explain.kinds?.[where];
+    if (kind && (raw.keyword === "type" || raw.keyword === "const")) {
+      if (!kinded.has(where)) say(kind(at(explain.value, problem.path)));
+      kinded.add(where);
+      continue;
+    }
     if (raw.keyword === "boolean" && raw.schemaPath.endsWith("/additionalProperties")) continue;
     const value = at(explain.value, problem.path);
     switch (raw.keyword) {

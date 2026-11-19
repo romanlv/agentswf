@@ -23,9 +23,10 @@ then: the report, a verdict per case, and, between two columns, graders.ts's com
   the whole trial runs in one box that reads no key.
 - **Nothing is overwritten.** Records are written once, and a trial is reused while nothing that
   shaped it changed, so repeating a command costs nothing.
-- **Spending asks first.** `run` and `score` print a plan and an estimate and ask at a terminal;
-  without one, as in CI, they run without asking, and `--yes` skips the question anywhere. `loop`
-  spends only up to its required `--budget`. `report` and `runs` only read.
+- **Spending asks first.** `run` and `score` print a plan, with an estimate from earlier trials
+  when there are some, and ask at a terminal; without one, as in CI, they run without asking, and
+  `--yes` skips the question anywhere. `loop` spends only up to its required `--budget`. `report`
+  and `runs` only read.
 
 ## The words
 
@@ -41,21 +42,22 @@ then: the report, a verdict per case, and, between two columns, graders.ts's com
 
 ## Getting started
 
-With `agentswf`, `@agentswf/lab` and `typescript` in your project
-([`docs/cases.md`](docs/cases.md#a-first-dataset) says how):
+With `agentswf` from npm, `@agentswf/lab` linked from a clone, and `typescript` in a project
+with at least one commit ([`docs/cases.md`](docs/cases.md#a-first-dataset) says how), every
+command runs as `bunx awf-lab`:
 
 ```sh
-awf-lab case new mail/trip-form      # awf-lab.json, dataset.json, a stub env.ts and the case
+bunx awf-lab case new mail/trip-form      # awf-lab.json, dataset.json, a stub env.ts and the case
 # fill env.ts and delete its first line; write the case's input and its key's expect
-awf-lab run --dataset mail           # every case, graded
-awf-lab report --case trip-form      # one case in full
+bunx awf-lab run --dataset mail           # every case, graded
+bunx awf-lab report --case trip-form      # one case in full
 ```
 
 ## Comparing
 
 ```sh
-awf-lab run --against ../other-checkout                  # the same cases on other code
-awf-lab run --vary model=claude-haiku-5-5,claude-sonnet-5-5
+bunx awf-lab run --against ../other-checkout                  # the same cases on other code
+bunx awf-lab run --vary model=claude-haiku-5-5,claude-sonnet-5-5
 ```
 
 The dataset's `graders.ts` says what "better" means, as `compare`: for example `better.paired`

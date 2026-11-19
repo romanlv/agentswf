@@ -51,9 +51,15 @@ export type CaseTally = {
 
 /**
  * A case's verdict from its trials' outcomes, with `trials` the count asked for. A stopped trial is
- * a failed one: the workflow erred.
+ * a failed one: the workflow erred. `said` is an outcome the case's row already names for its one
+ * trial, which an unclear note leaves out.
  */
-export function caseVerdict(outcomes: readonly Outcome[], trials: number, pass: string): CaseTally {
+export function caseVerdict(
+  outcomes: readonly Outcome[],
+  trials: number,
+  pass: string,
+  said?: Outcome,
+): CaseTally {
   const need = needOf(pass, trials);
   const passed = outcomes.filter((o) => o === "passed").length;
   const failed = outcomes.filter((o) => o === "failed" || o === "stopped").length;
@@ -81,7 +87,7 @@ export function caseVerdict(outcomes: readonly Outcome[], trials: number, pass: 
   if (passed >= 1 && failed >= 1) return withNote("flaky");
   const counts = (["errored", "undecided", "leaked"] as const)
     .map((o) => [o, outcomes.filter((x) => x === o).length] as const)
-    .filter(([, n]) => n > 0)
+    .filter(([o, n]) => n > 0 && !(n === 1 && o === said))
     .map(([o, n]) => `${n} ${o}`);
   const missing = trials - outcomes.length;
   if (missing > 0) counts.push(`${missing} not run`);

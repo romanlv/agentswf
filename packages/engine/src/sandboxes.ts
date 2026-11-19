@@ -204,6 +204,15 @@ export class RunSandboxes {
     return this.options.sandboxes?.setAside === true;
   }
 
+  /**
+   * Under `--boxed`, an agent's inline spec is checked as if it opened; a ref names a sandbox
+   * `open` checked already.
+   */
+  checkSetAside(sandbox: unknown): void {
+    if (typeof sandbox === "object" && sandbox !== null && !("key" in sandbox))
+      checkSandboxSpec(sandbox, true);
+  }
+
   /** `wf.sandboxes.open`. */
   async open(spec: unknown): Promise<SandboxRef> {
     if (this.hasRunSandbox) throw new Error(RUN_SANDBOX_ONLY);

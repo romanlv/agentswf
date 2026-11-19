@@ -62,7 +62,7 @@ export const ColumnSchema = Type.Object(
 );
 export type Column = Type.Static<typeof ColumnSchema>;
 
-/** `{store}/runs/{n}/run.json`. No `finished` means partial. */
+/** `{store}/runs/{n}/run.json`. No `finished`, or `broke`, means partial. */
 export const RunRecordSchema = Type.Object(
   {
     kind: Type.Literal(RUN_KIND),
@@ -82,6 +82,7 @@ export const RunRecordSchema = Type.Object(
       ),
     ),
     started: Time,
+    /** When it ended, or broke; none when it was killed. */
     finished: Type.Optional(Time),
     /** Set when the lab broke during the run. */
     broke: Type.Optional(Type.String()),

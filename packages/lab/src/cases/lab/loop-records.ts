@@ -99,9 +99,8 @@ function rebuildCode(dir: string, name: string, top: string, workspace: CaseWork
     }
     const checkout = `${codeOf(dir, 0)}.checkout`;
     rmSync(checkout, { recursive: true, force: true });
-    // A process cut here before left its checkout registered though gone, which `add` refuses.
-    git(top, ["worktree", "prune"]);
-    git(top, ["worktree", "add", "--detach", "-q", checkout, loop.from.commit]);
+    // --force: a process cut here before left this checkout registered though gone.
+    git(top, ["worktree", "add", "--force", "--detach", "-q", checkout, loop.from.commit]);
     try {
       copyStart(top, codeOf(dir, 0), workspace, checkout);
     } finally {
