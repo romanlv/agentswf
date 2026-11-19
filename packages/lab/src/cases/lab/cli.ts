@@ -4,7 +4,13 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { AllowanceSource } from "../../shared/allowance";
 import { findConfigFile } from "../../shared/config-file";
-import { awfLogs, processRunner, type Runner, withoutCallingSession } from "../../shared/runner";
+import {
+  awfLogs,
+  awfRunEstimate,
+  processRunner,
+  type Runner,
+  withoutCallingSession,
+} from "../../shared/runner";
 import { checkSchema, describeProblems } from "../../shared/validate";
 import {
   type CaseReport,
@@ -187,6 +193,9 @@ export type CasesEnvironment = {
   /** `awf logs` of a trial's run, for the marker search; absent, the folder's own `awf`. A test
    * that scripts the runner gives this too. */
   logs?: TrialLab["logs"];
+  /** What a run that printed no record is estimated at; absent, the folder's own `awf`, unless
+   * the runner is scripted. */
+  estimate?: TrialLab["estimate"];
   /** Asked before a run; absent, a run on a terminal asks the operator. */
   confirm?: (plan: string) => Promise<boolean>;
   /** The home `~/.awf/lab` is in. */
@@ -776,6 +785,7 @@ async function run(context: Context, given: RunGiven = {}): Promise<number> {
     given.started?.(id);
     clearStale(tmp);
     clearStaleTrialFiles(workspace.labHome);
+    const unrecorded = environment.estimate ?? (environment.runner ? undefined : awfRunEstimate);
     const lab: TrialLab = {
       workspace,
       dataset: info,
@@ -783,6 +793,7 @@ async function run(context: Context, given: RunGiven = {}): Promise<number> {
       run: id,
       runner: environment.runner ?? processRunner(),
       logs: environment.logs ?? awfLogs,
+      ...(unrecorded ? { estimate: unrecorded } : {}),
       tmp,
       env: environment.env ?? process.env,
       graders,

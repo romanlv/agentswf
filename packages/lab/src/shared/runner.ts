@@ -236,6 +236,30 @@ export async function awfLogs(
 }
 
 /**
+ * What a run's folder says it is estimated at, from `awf runs {ref} --json`: for a run that
+ * printed no record, as one cut short does, though its agents may have spent. Undefined when the
+ * folder can't be read.
+ */
+export async function awfRunEstimate(
+  awf: AwfBin | undefined,
+  runRoot: string,
+  ref: string,
+  env: Readonly<Record<string, string>> = {},
+): Promise<number | undefined> {
+  const { stdout, exitCode } = await spawnAwf(
+    awfCommand(awf, ["runs", ref, "--json", "--run-root", runRoot]),
+    { ...(awf ? { cwd: awf.dir } : {}), env: runEnvironment(env) },
+  );
+  if (exitCode !== 0) return undefined;
+  try {
+    const estimate = (JSON.parse(stdout) as { run?: { estimate?: unknown } }).run?.estimate;
+    return typeof estimate === "number" && Number.isFinite(estimate) ? estimate : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Whether `awf run` printed the record version this lab reads: the folder's own `awf`, started
  * once in `dir` on a workflow that does nothing, before the first trial. The version it printed,
  * or why it printed none.

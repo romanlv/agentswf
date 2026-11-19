@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { awfAllowance, waitingOnAllowance } from "../../shared/allowance";
-import { processRunner, withoutCallingSession } from "../../shared/runner";
+import { awfRunEstimate, processRunner, withoutCallingSession } from "../../shared/runner";
 import { checkSchema, describeProblems } from "../../shared/validate";
 import { HypothesisSchema } from "../format/loop";
 import type { RunRecord } from "../format/records";
@@ -378,7 +378,17 @@ function loopDeps(
         });
         keepRuns(runRoot, awfRunsOf(workspace.store));
         const record = result.record;
-        const spend = record?.accounting.totals.estimate ?? 0;
+        // A proposer cut short prints no record; its folder still says what its agent spent.
+        const unrecorded =
+          record || !(environment.estimate ?? !environment.runner)
+            ? undefined
+            : await (environment.estimate ?? awfRunEstimate)(
+                folder.awf,
+                runRoot,
+                id,
+                definedOf(withoutCallingSession(env)),
+              );
+        const spend = record?.accounting.totals.estimate ?? unrecorded ?? 0;
         if (record?.outcome !== "completed") {
           return {
             spend,

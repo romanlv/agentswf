@@ -6,4 +6,4 @@ expect:
   amount: 40
 ---
 
-A broken item is the set, as the order lists it: its , not a share.
+The order lists the set as one item: two of its plates broke, so the set's $40 goes back, not a share.

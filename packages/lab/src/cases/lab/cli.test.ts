@@ -606,6 +606,30 @@ describe("what the lab can't read errors the trial as the lab's, never graded: 4
     expect(trial!.scores).toEqual([]);
   });
 
+  test("a run that printed no record is priced from its folder", async () => {
+    let asked = 0;
+    const { where } = await run({ a: {} }, { a: [{ unread: "awf printed no record" }] }, 1, {
+      estimate: async () => {
+        asked++;
+        return 0.42;
+      },
+    });
+    const [trial] = readTrials(storeOf(where), nthRun(storeOf(where), 1));
+    expect(asked).toBe(1);
+    expect(trial!.record.estimate).toBe(0.42);
+  });
+
+  test("a run that printed its record is priced from it, never its folder", async () => {
+    let asked = 0;
+    await run({ a: {} }, { a: [pass] }, 1, {
+      estimate: async () => {
+        asked++;
+        return 0.42;
+      },
+    });
+    expect(asked).toBe(0);
+  });
+
   test("awf logs that can't be read whole: fail closed", async () => {
     const { code, out } = await run({ a: {} }, {}, 1, {
       logs: async () => ({ unread: "awf logs left out the run's oldest events" }),
@@ -2941,7 +2965,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
    * one a try, and remembers what it was shown.
    */
   function loopRunner(
-    proposals: (number | "evals" | "copy" | "fail" | "vendored")[],
+    proposals: (number | "evals" | "copy" | "fail" | "lost" | "vendored")[],
     grader?: GraderPlay,
   ) {
     const shown: string[] = [];
@@ -2978,6 +3002,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
         }
         const runDir = join(request.runRoot, "loop-proposer", request.id);
         mkdirSync(runDir, { recursive: true });
+        if (proposal === "lost") return { exitCode: 137, stderr: "killed", ms: 5 };
         return proposal === "fail"
           ? {
               exitCode: 1,
@@ -3048,6 +3073,19 @@ describe("the loop: a proposer's copy kept only when better", () => {
       "final check 1: try 3 against the start on 1 held-out cases: better",
     );
     expect(fake.ran.filter((r) => r.name === "h")).toHaveLength(2);
+  });
+
+  test("a proposer cut short before its record is priced from its folder", async () => {
+    const { where, program } = loopProject(1);
+    const { code, err } = await lab(
+      where,
+      ["loop", "l", "--budget", "5", "--program", program, "--rounds", "1"],
+      { runner: loopRunner(["lost"]).runner, estimate: async () => 0.25 },
+    );
+    expect(code).toBe(0);
+    expect(err).toContain("printed no record");
+    const ledger = readFileSync(join(storeOf(where), "loops/l/tries/1/proposer.jsonl"), "utf8");
+    expect(JSON.parse(ledger.trim()).usd).toBe(0.25);
   });
 
   test("a dataset graded by numbers alone is compared on them", async () => {

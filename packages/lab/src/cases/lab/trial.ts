@@ -59,6 +59,13 @@ export type TrialLab = {
     ref: string,
     env: Record<string, string>,
   ) => Promise<{ text: string } | { unread: string }>;
+  /** What a run that printed no record is estimated at, read from its folder; absent, unpriced. */
+  estimate?: (
+    awf: AwfBin,
+    runRoot: string,
+    ref: string,
+    env: Record<string, string>,
+  ) => Promise<number | undefined>;
   /** Where trial folders are made: the system's temporary folder. */
   tmp: string;
   /** The lab's environment, which every trial starts from. */
@@ -265,6 +272,12 @@ export async function runTrial(
           }
         : undefined);
     const accounting = run?.accounting;
+    // A run cut short prints no record, though its agents spent: its folder still says what.
+    const lost =
+      !run && lab.estimate
+        ? await lab.estimate(folder.awf, boxed ? storeRuns : runRoot, id, env)
+        : undefined;
+    const estimate = accounting?.totals.estimate ?? lost;
     const record: TrialRecord = {
       ...base,
       ...(blamed.workflow ? { workflow: blamed.workflow } : {}),
@@ -272,9 +285,7 @@ export async function runTrial(
       ...(run && run.outcome !== "completed" ? { runReason: run.reason } : {}),
       models: accounting ? accounting.byModel.map((m) => m.model) : [],
       ms: accounting?.wallMs ?? result.ms,
-      ...(accounting?.totals.estimate !== undefined
-        ? { estimate: accounting.totals.estimate }
-        : {}),
+      ...(estimate !== undefined ? { estimate } : {}),
       ...(accounting
         ? {
             known: accounting.totals.known,
