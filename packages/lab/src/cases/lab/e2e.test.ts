@@ -182,8 +182,15 @@ test("a tiny dataset runs on the folder's own awf, and its runs read back from t
   expect(logs.text).toContain(right.runId!);
 }, 180_000);
 
-const docker = (...args: string[]) =>
-  Bun.spawnSync(["docker", ...args], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+const docker = (...args: string[]) => {
+  try {
+    return (
+      Bun.spawnSync(["docker", ...args], { stdout: "ignore", stderr: "ignore" }).exitCode === 0
+    );
+  } catch {
+    return false; // no docker on PATH: spawning it throws
+  }
+};
 // The sandbox's default image, tagged by a hash of its Dockerfile as the provider tags it: a box
 // opens only where it is built, and CI's runners have docker without it.
 const image = `awf-agent:${new Bun.CryptoHasher("sha256")
