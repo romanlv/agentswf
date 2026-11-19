@@ -23,8 +23,9 @@ then: the report, a verdict per case, and, between two columns, graders.ts's com
   the whole trial runs in one box that reads no key.
 - **Nothing is overwritten.** Records are written once, and a trial is reused while nothing that
   shaped it changed, so repeating a command costs nothing.
-- **Spending asks first.** `run`, `score` and `loop` print a plan and an estimate; `report` and
-  `runs` only read.
+- **Spending asks first.** `run` and `score` print a plan and an estimate and ask at a terminal;
+  without one, as in CI, they run without asking, and `--yes` skips the question anywhere. `loop`
+  spends only up to its required `--budget`. `report` and `runs` only read.
 
 ## The words
 
@@ -36,12 +37,16 @@ then: the report, a verdict per case, and, between two columns, graders.ts's com
 | **trial** | one run of the workflow on one case |
 | **column** | one folder of code under one set of parameters; the first is the reference |
 | **grader** | what turns a trial into a verdict or numbers: `expect`, the criteria judge, or yours |
-| **verdict** | `better`, `worse`, `tie` or `undecided`, from `compare` |
+| **verdict** | a case's: `passed`, `failed`, `flaky` or `unclear`, from its trials; a column's: `better`, `worse`, `tie` or `undecided` against the reference, from `compare` |
 
 ## Getting started
 
+With `agentswf`, `@agentswf/lab` and `typescript` in your project
+([`docs/cases.md`](docs/cases.md#a-first-dataset) says how):
+
 ```sh
 awf-lab case new mail/trip-form      # awf-lab.json, dataset.json, a stub env.ts and the case
+# fill env.ts and delete its first line; write the case's input and its key's expect
 awf-lab run --dataset mail           # every case, graded
 awf-lab report --case trip-form      # one case in full
 ```
@@ -63,8 +68,8 @@ difference ends `undecided`.
 `awf-lab loop {name} --budget {usd}` lets an agent improve the workflow: a proposer, in the lab's
 box, reads the tuning cases' feedback and the operator's program, changes a copy of the code, and
 the copy is kept only when `compare` says better than the last kept one. Held-out cases
-(`dataset.json`'s `holdout`) are never shown to it; `loop {name} --final` checks the kept code on
-them once, and `loop {name} --patch` prints it as a patch.
+(`dataset.json`'s `holdout`) are never shown to it; `loop {name} --final --budget {usd}` checks
+the kept code on them once, and `loop {name} --patch` prints it as a patch.
 
 ## Commands
 

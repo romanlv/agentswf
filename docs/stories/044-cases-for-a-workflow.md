@@ -12,7 +12,8 @@ depends_on: ["008", "010", "011", "013"]
 # Run a workflow on cases you wrote, with its services faked, and get a score
 
 **How to read this.** "Where it stands" says what is built and what is left. Outcome and How it
-works say what the toolset is for. "What is left" is the design still to build, task by task. The
+works say what the toolset is for. "The design of tasks 9 to 13, as planned" is how they were
+designed before they were built; where it and `cases.md` differ, `cases.md` is what runs. The
 rules of what is built are in the lab's reference, [`packages/lab/docs/cases.md`](../../packages/lab/docs/cases.md);
 this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 
@@ -23,8 +24,8 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 | | |
 | --- | --- |
 | **Built** | tasks 9 to 13: parameters and columns, one store per project, run ids, records, reuse, labels, tags and rates, `compare`, judges compared; the lab's box; air-1 on cases, `hide`; the loop; one kind, records at `/1`. Before them: cases, `env.ts` with strict mocks and `fetch` routes, given stages and `until`; `run`, `report`, `score`, `capture`, `case new`, `runs`; `expect`, code graders, grader workflows, the criteria judge; verdicts, history, exit codes; `--against`; time per stage |
-| **Next** | the person's review of tasks 10 to 13 |
-| **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15); the open points in "Task 13's notes" |
+| **Next** | tasks 1 and 5, both the person's; then 3's and 6's live checks |
+| **Waiting on the person** | task 1, labels on the mail dataset (`awf-lab label`; the judges are ready to compare on them); task 5's web-to-cli dataset (Q15) |
 
 Tried live: the mail dataset (21 trials, all 7 cases passed, 36 criteria judged), the same against
 a worktree with a worse prompt (the other column failed 2 of 3), and refund-desk with a grader
@@ -46,8 +47,8 @@ This story gives a workflow's author three loops, each on the one before:
    (`--vary model=a,b`), side by side in one run, with rates you can trust and, when the dataset
    says what "better" means, a verdict.
 3. **Improvement.** An agent changes a copy of the workflow, the lab compares it with the current
-   best, keeps it only when better, and checks the winner once on cases it never tuned on. The
-   review lab does this today for review workflows alone; it moves onto cases, for any workflow.
+   best, keeps it only when better, and checks the winner once on cases it never tuned on, for any
+   workflow with cases.
 
 Throughout, the person stays the ground truth: their labels say how often the graders agree with
 them, so a judge that drifts shows.
@@ -89,7 +90,8 @@ The commands, the file formats and every rule: [`packages/lab/docs/cases.md`](..
 
 ## Scope
 
-In scope: everything under "What is left", and what is built (the reference). Out of scope:
+In scope: everything under "The design of tasks 9 to 13, as planned", and what is built (the
+reference). Out of scope:
 
 - Any change to `engine` or `contract` but the small ones the person chose for task 10
   (`awf run --boxed`, `AWF_CONTROL_ROOT`, a start time where `ps` is forbidden). Given stages and
@@ -133,7 +135,9 @@ In scope: everything under "What is left", and what is built (the reference). Ou
 - Outside: `examples/refund-desk/evals/`; the mail project's `evals/` (`mini-workflows`, branch
   `evals`); autoresearch's `evals/air-1/`, `lib/review/` and `scripts/collect/` (branch `main`).
 
-## What is left
+## The design of tasks 9 to 13, as planned
+
+Built since; where this and `cases.md` differ, `cases.md` is what runs.
 
 ### Task 9: parameters, reuse, labels, rates, `compare`
 
@@ -244,8 +248,9 @@ retired command and flag is refused with what replaced it; the records, `grade.j
 
 - **Costly to change**: the names that pair kept results (a case's and a dataset's folder name, a
   grader's name, a criterion's text), the dataset layout and its reserved names, the exit codes,
-  and the files people write (`key.md`, `dataset.json`, `awf-lab.json`). Their next incompatible
-  change makes them `/1`, with a converter.
+  and the files people write (`key.md`, `dataset.json`, `awf-lab.json`). `awf-lab.json` is `/1`
+  since task 13, with no converter: a `/0` one is refused, named. The next incompatible change to
+  `key.md` or `dataset.json` makes it `/1`.
 - **Records** (run, trial, score, grade, label, the loop's) and `awf-lab.json` are `/1` since task 13;
   a `/0` one is refused or left out by name, with no converter (beta).
 - **Unstable**: the code shapes people write against (`defineEnv`, `c`, a grader's result,
@@ -343,8 +348,8 @@ statistical thresholds for "came out differently" at a few trials (the list is f
 - [x] 12. The loop, for any dataset
 - [x] 13. One kind: the review kind retired, records at `/1`
 
-Order from here: 9, 10, 11, 12, 13. Tasks 1 and 5 wait on the person; 3's last check follows
-1 (the judge on its held-out third), and 6's follows 5 (a real run of each workflow captured).
+Order from here: tasks 1 and 5 wait on the person; 3's last check follows 1 (the judge on its
+held-out third), and 6's follows 5 (a real run of each workflow captured).
 
 ## Open questions
 
@@ -516,7 +521,7 @@ Done when:
 - [x] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
 
 Live, still open: the builds dataset (task 5); the judge on task 1's held-out part (task 3); a
-real run of each workflow captured (task 6); air-1 on both labs (task 11); the loop (task 12).
+real run of each workflow captured (task 6).
 
 ## Review record
 

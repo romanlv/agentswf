@@ -7,16 +7,17 @@ kept current as it changes.
 **The cases**, `src/cases/` (story 044): `format/` (pure: `dataset.json` and `key.md` in
 `settings.ts`, the strict key reader `key.ts`, the trial file, the env variables, the run, trial and
 score records, and the loop's), `env/` (`@agentswf/lab/cases` and the `fetch` preload: what runs in
-a trial's own process, in the project), `loop/` (the loop's proposer, a workflow), and `lab/` (the
-lab's side: datasets and cases, `case new`, the checks before the first trial, the lock and the
-store under `~/.awf/lab/`, each trial's folders and marker search, the reach check, `expect`, blame,
-verdicts, the report; grading in `grading.ts`, shared by `run` and `score`: a dataset's code graders
-through `code-graders.ts` and the grade helper, grader workflows through `workflow-graders.ts` and a
-grade folder that `gradeCase()` reads, and `score.ts`, which plans and grades kept trials again; the
-loop in `loop.ts` and `loop-command.ts`, its records in `loop-records.ts`; and `retired.ts`, the
-older lab's commands and flags refused with what replaced them). It names no word of one workflow's
-domain (`mail`, `review`, `finding`); the boundary checker holds it. `lab/` is pure but for
-`box.ts`, `cli.ts`, `code-graders.ts`, `compare.ts`, `dataset.ts`, `folders.ts`, `git.ts`,
+a trial's own process, in the project), `loop/` (the loop's proposer, a workflow), `judge/` (the
+criteria judge, a workflow, and its version), and `lab/` (the lab's side: datasets and cases,
+`case new`, the checks before the first trial, the lock and the store under `~/.awf/lab/`, each trial's
+folders and marker search, the reach check, `expect`, blame, verdicts, the report; grading in
+`grading.ts`, shared by `run` and `score`: a dataset's code graders through `code-graders.ts` and
+the grade helper, grader workflows through `workflow-graders.ts` and a grade folder that
+`gradeCase()` reads, and `score.ts`, which plans and grades kept trials again; the loop in `loop.ts`
+and `loop-command.ts`, its records in `loop-records.ts`; and `retired.ts`, the older lab's commands
+and flags refused with what replaced them). It names no word of one workflow's domain (`mail`,
+`review`, `finding`); the boundary checker holds it. `lab/` is pure but for `box.ts`, `capture.ts`,
+`cli.ts`, `code-graders.ts`, `compare.ts`, `criteria.ts`, `dataset.ts`, `folders.ts`, `git.ts`,
 `grading.ts`, `inspect.ts`, `labels.ts`, `loop.ts`, `loop-command.ts`, `loop-records.ts`,
 `record-copies.ts`, `reuse.ts`, `runs.ts`, `scaffold.ts`, `score.ts`, `store.ts`, `trial.ts`,
 `workflow-graders.ts` and `workspace.ts`.

@@ -33,9 +33,10 @@ What still stands here and is not in the story: the reasons a case binds to the 
 stage names, running from a stage and the test generator (plan steps 3 and 4), and Considered and
 dropped.
 
-The words are the lab's ([`packages/lab`](../../packages/lab/README.md#The%20words)):
-**dataset**, **case**, **key**, **variant**, **trial**, **scorer**, **judge**, **score**,
-**report**. This adds three. A key's items are **criteria**. A case is **written** by hand or
+The words are the review lab's, as it was then: **dataset**, **case**, **key**, **variant**,
+**trial**, **scorer**, **judge**, **score**, **report**; the case lab of
+[story 044](../stories/044-cases-for-a-workflow.md) calls a variant a **column** and a scorer a
+**grader**. This adds three. A key's items are **criteria**. A case is **written** by hand or
 **captured** from a run. A trial's **scope** is how much of the workflow runs live in it.
 
 "Eval" stays what it means here, a `*.eval.ts` check that a feature still works on live agents

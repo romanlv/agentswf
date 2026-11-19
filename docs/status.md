@@ -400,8 +400,8 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   docker `exec -t`).
 
 - [044 — run a workflow on cases you wrote, with its services faked, and get a score](stories/044-cases-for-a-workflow.md):
-  in progress, tasks 0, 2, 4 and 7 to 10 done, 3 built (its check against a person waits on task
-  1), 11 to 13 built and awaiting their review. `awf-lab run` runs a dataset in a project's
+  in progress, tasks 0, 2, 4 and 7 to 13 done, their review resolved; 3 and 6 built, their live
+  checks waiting on tasks 1 and 5. `awf-lab run` runs a dataset in a project's
   `evals/`: each trial is the folder's own `awf run` of `env.ts` (`@agentswf/lab/cases`:
   `defineEnv`, strict `c.mock`, `c.fake`, `c.http` through the lab's `fetch` preload, given stages
   and `until`), graded by the key's `expect`, its `must` and `must-not` by the criteria judge, and
@@ -412,8 +412,9 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   `loop`, a proposer whose copies of the code are kept only when better. It is awf-lab's one kind
   since task 13: the review lab of stories 005, 008, 010, 011 and 013 is retired, its tools moved
   to the data repository, and its records, `grade.json` and `awf-lab.json` are `/1`. The mail
-  triage's seven cases pass live, and air-1's reviews run and loop on it. Next: the review of
-  tasks 10 to 13; task 5 (web-to-cli's build); task 1 is the person's.
+  triage's seven cases pass live, and air-1's reviews run and loop on it. Next: tasks 1 (labels on
+  the mail dataset) and 5 (web-to-cli's build, Q15), both the person's; then 3's and 6's live
+  checks.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

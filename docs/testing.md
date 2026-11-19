@@ -3,8 +3,8 @@
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
 the run's own accounting. Every live check here runs on subscription logins, and the estimate is
 what the same tokens would cost metered, a proxy for the quota used, with one exception: claude
-headless, which `sandbox-srt`, `sandbox-docker`, `compaction` and `effort` run, is billed per
-token even on a subscription (E3), so its share of those evals is money.
+headless, which `sandbox-srt`, `sandbox-docker`, `lab-cases`, `compaction` and `effort` run, is
+billed per token even on a subscription (E3), so its share of those evals is money.
 
 ## Levels
 
@@ -215,8 +215,8 @@ Story 021 measured its final host/SRT waiting pair at about $0.23; each scenario
 Not covered live, on purpose:
 
 - claude headless outside a sandbox, beyond what a feature needs: it is billed per token even on a
-  subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
-  `compaction` and `effort` run it, as a headless claude's compaction and settings are what they
+  subscription. The sandbox evals and `lab-cases` run it, as a sandboxed claude has no other way to
+  run headless; `compaction` and `effort` run it, as a headless claude's compaction and settings are what they
   check.
 - Combinatorial deadline, admission, check-in and cleanup races stay in deterministic offline
   tests. `turn-liveness` exercises their provider integration; it does not replace fake-clock

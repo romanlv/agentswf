@@ -5,6 +5,35 @@ trials run and are graded, and what the report and exit code mean. Story
 [044](../../../docs/stories/044-cases-for-a-workflow.md) says why it works this way and what is
 still to come. A worked example is [`examples/refund-desk`](../../../examples/refund-desk/README.md).
 
+## A first dataset
+
+1. In your project, link `agentswf` and `@agentswf/lab` from a clone of this repository, as they
+   are not on npm yet: `bun link` in its `packages/agentswf` and `packages/lab`, then
+   `bun link agentswf` and `bun link @agentswf/lab` in the project. Add `typescript`
+   (`bun add -d typescript`): the lab checks `env.ts` with the project's `tsc`.
+2. `bunx awf-lab case new {dataset}/{case}` writes `evals/awf-lab.json`, the dataset's
+   `dataset.json`, a stub `env.ts` and the case's `key.md`.
+3. Fill `env.ts` and delete its first line: `run` refuses the stub until then. `setup` turns the
+   case's `input.json` into the workflow's argv, which the workflow's `prepare` parses as it does
+   on the command line:
+
+   ```ts
+   import { defineEnv } from "@agentswf/lab/cases";
+
+   export default defineEnv({
+     // the workflow's prepare: ({ argv }) => ({ n: Number(argv[0]) })
+     workflow: () => import("../../app/workflow"),
+     setup(c) {
+       const input: { n: number } = c.input;
+       return { argv: [String(input.n)], observe: (result) => ({ answer: result.answer }) };
+     },
+   });
+   ```
+
+4. Write the case's `input.json` (`{ "n": 41 }`) and uncomment `expect` in its `key.md`
+   (`answer: 42`): the stub key grades nothing until `expect` or `must` says something.
+5. `bunx awf-lab run`.
+
 ## A dataset
 
 ```text
@@ -35,23 +64,24 @@ are its.
 | Command | Does |
 | --- | --- |
 | `case new {dataset}/{case}` | a case folder and its key's marker; the first time also `awf-lab.json`, `dataset.json` and a stub `env.ts` |
-| `run [--dataset] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--holdout] [--param k=v] [--vary k=a,b] [--fresh] [--dry-run] [--budget {usd}] [--json] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
+| `run [--dataset {name}] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--holdout] [--param k=v] [--vary k=a,b] [--fresh] [--dry-run] [--budget {usd}] [--json] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
 | `report [{run}] [--case {name}] [--json \| --md]` | the last run again, or the one named; one case in full; Markdown to paste |
 | `score [{run}] [--grader {name} \| --judge {harness}/{model} [--voters n]] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
-| `capture {run id} (--good \| --needs-work "{note}")` | a new case from a past trial or a real run, its key a draft |
+| `capture {run id} (--good \| --needs-work "{note}") [--dataset {name}]` | a new case from a past trial or a real run, its key a draft |
 | `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
-| `loop {name} --budget {usd} [--program {file}] [--proposer h/m] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}]` | a proposer changes a copy of the code, kept only when `compare` says better |
-| `loop {name} --final [--budget {usd}]`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
+| `loop {name} --budget {usd} [--program {file}] [--proposer {harness}/{model}] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}] [--dataset {name}]` | a proposer changes a copy of the code, kept only when `compare` says better |
+| `loop {name} --final --budget {usd}`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
 (`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`).
 
-`run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. Never pipe
-into them: without a terminal they don't ask. `--dry-run` prints the plan alone. `--budget {usd}`
-stops `run` starting trials once this run's estimates (its trials and their grading) reach it, and
-`score` before a costly grader: the report says how many were not run, and the exit is 3 unless
-it was worse already. `run --json` prints the report as `report --json` does.
+`run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. When their
+input is not a terminal, as in CI or a pipe, they don't ask: they run. `loop` asks nothing; its
+`--budget` is required. `--dry-run` prints the plan alone. `--budget {usd}` stops `run` starting
+trials once this run's estimates (its trials and their grading) reach it, and `score` before a
+costly grader: the report says how many were not run, and the exit is 3 unless it was worse already.
+`run --json` prints the report as `report --json` does.
 
 ## `env.ts`
 
@@ -152,8 +182,8 @@ Why this case exists.
   starting `_` are reserved: a non-empty `error` fact fails the trial as the workflow's.
 - **`must`, `must-not`**: criteria, sentences the judge decides. A criterion is known by its text:
   edit it and it is judged again.
-- **Optional**: `known-failing: true`, `pass: 2/3` (this case's bar), `draft: true`, `captured`
-  (from `capture`; a draft is never graded), and `tags: [forms, school]`, plain words the report
+- **Optional**: `known-failing: true`, `pass: 2/3` (this case's bar), `draft: true` (never
+  graded), `captured` (written by `capture`), and `tags: [forms, school]`, plain words the report
   groups cases by and `--tags` picks them by. No grader reads tags: editing them grades nothing.
 - **`marker`**: random words `case new` writes, a tripwire for a leaked key.
 - Read strictly (YAML 1.2 core): an unknown field is refused, and `no` is not a boolean.
@@ -217,18 +247,19 @@ A trial's outcome, the first that applies:
 | not graded | no grader applies, or the key is a draft |
 
 A case's verdict, with T trials, a bar b, need = ceil(b × T), p passed, f failed: **passed** when
-p ≥ need; **failed** when f > T/2; **flaky** when it has both; **unclear** otherwise. History shows
-the case's last five verdicts in the reference column, from earlier runs with a column of your
-checkout, by its path on this machine, under the same parameters; a run that only reused trials
-adds none. Runs from another machine's records show in `runs` and `report {run}`, not in history.
-A known-failing case that passes at three trials or more is "now passing". `--failed` runs the
-cases whose newest verdict was failed, flaky or unclear again, at that run's trial count, and
-always fresh: the trials that failed are never its answer.
+p ≥ need; **failed** when f > T/2; **flaky** when it has both passes and failures; **unclear**
+otherwise. History shows the case's last five verdicts in the reference column, from earlier runs
+with a column of your checkout, by its path on this machine, under the same parameters; a run that
+only reused trials adds none. Runs from another machine's records show in `runs` and `report {run}`,
+not in history. A known-failing case that passes at three trials or more is "now passing".
+`--failed` runs the cases whose newest verdict was failed, flaky or unclear again, at that run's
+trial count, and always fresh: the trials that failed are never its answer.
 
-Exit codes, from the reference column alone: **0** every case that must pass passed; **1** one
-failed; **5** none failed, but a trial errored by the dataset or grading, or leaked; **3** flaky,
-unclear, partial, a budget stop, or nothing graded; **2** refused before any trial; **4** the lab
-broke. Known-failing cases never change it by their verdict.
+Exit codes, from the reference column alone: **4** the lab broke, or a trial errored by the lab
+or was cancelled, before any other; **0** every case that must pass passed; **1** one failed;
+**5** none failed, but a trial errored by the dataset or grading, or leaked; **3** flaky, unclear,
+partial, a budget stop, or nothing graded; **2** refused before any trial. Known-failing cases
+never change it by their verdict.
 
 ## Grading
 
@@ -376,9 +407,9 @@ export const compare = better.paired({
 });
 ```
 
-- **`better.paired({ primary, guards?, tiebreak?, … })`**: the review loop's sequential paired
-  rule on per-case means: "worse" as soon as it shows, "better" only past an O'Brien–Fleming
-  bound at the planned looks, guards that may not get worse by their margin, tie-breakers.
+- **`better.paired({ primary, guards?, tiebreak?, … })`**: a sequential paired rule on per-case
+  means: "worse" as soon as it shows, "better" only past an O'Brien–Fleming bound at the planned
+  looks, guards that may not get worse by their margin, tie-breakers.
 - **`better.mean(fn, { direction?, onFailure? })`**: better on the mean of a number of your own per
   trial, paired by case.
 - **`defineComparison({ version, compare })`**: your own rule, given `{ reference, column,
@@ -450,7 +481,7 @@ a `compare` in `graders.ts`, and spends until `--budget`.
    parameter, draws on is that far used (90% unless told; `off`).
 
 `loop {name}` again resumes: a try cut short after its proposal runs with it; before, it is
-proposed again, what it spent before still counted. A loop resumed with another dataset,
+proposed again, its estimate from before still counted. A loop resumed with another dataset,
 holdout, `graders.ts`, `--trials`, `--param` or tuning cases is refused: its tries are judged
 alike. A loop takes no `--tags`, `--against`, `--vary`, `--failed`, `--fresh` or `--holdout`.
 `--final --budget {usd}` runs the kept code against the start on the held-out cases, under the
@@ -496,6 +527,6 @@ their trials, and grades made elsewhere come in. A bare `report` or `score` take
 newest run, not another worktree's.
 Records hold real inputs and results: keep a dataset of private data in a private repository.
 
-Records and formats are `/0`: an incompatible change makes them `/1`, with no converter for runs
-(beta). The code shapes you write against (`defineEnv`, `c`, a grader's result) may change
-without one.
+The records, `grade.json` and `awf-lab.json` are `/1`; `key.md`, `dataset.json` and the report
+are `/0`. An older version is named and refused or left out, never converted (beta). The code
+shapes you write against (`defineEnv`, `c`, a grader's result, `compare`) may change without one.

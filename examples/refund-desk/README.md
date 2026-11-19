@@ -27,8 +27,9 @@ bun awf-lab report                             # the last run again
 
 A **trial** is one run of the workflow on one case. Here each trial makes a single Claude Haiku
 turn: about 5 seconds, estimated at $0.002. A case is **passed** when every trial passed,
-**failed** when every trial failed, and **flaky** when the trials disagree. This is the report
-when a case is flaky:
+**failed** when more than half failed, **flaky** when some passed and some failed, short of
+both, and **unclear** otherwise, as when a trial errored. This is the report, abridged, when a
+case is flaky:
 
 ```text
 flaky
@@ -41,7 +42,7 @@ time per trial, median 5.3s · est. cost per trial, median $0.0020 · all trials
 exit 3: a case is flaky or unclear
 ```
 
-## Two ways to run a case
+## Three datasets
 
 The workflow has three stages: `read` fetches the ticket and the order, `decide` asks the agent,
 and `act` refunds and replies. Each dataset in `evals/` runs the workflow its own way.
@@ -50,6 +51,7 @@ and `act` refunds and replies. Each dataset in `evals/` runs the workflow its ow
 | --- | --- | --- | --- |
 | `refunds/` | read, decide, act | the agent and the workflow's code | the helpdesk API and the shop |
 | `decide/` | decide only | the agent | the value of read; the run stops after decide |
+| `tricky/` | decide only, as `decide/` | the agent | the value of read; the run stops after decide |
 
 **`refunds/`** checks the code around the agent. A refund should call the shop once, with the
 right amount, and the customer should always get a reply. If the agent ever follows the `pushy`
@@ -65,8 +67,15 @@ to a few cases.
 
 **`decide/`** checks the prompt. Its `env.ts` gives the read stage's value (`stages`) and stops
 the run once decide returns (`until`), so nothing needs faking. Writing a case takes a minute, so
-that's where most cases go. Both datasets count days with `days.ts`, so `day-30` checks the same
+that's where most cases go. The datasets count days with `days.ts`, so `day-30` checks the same
 day count the workflow computes.
+
+**`tricky/`** is room for `awf-lab loop` to improve the prompt: twelve harder tickets, such as two
+of a kind, one item named twice, a plea past the window or an amount written in the ticket. Ten
+are for the loop to tune on; `all-broken` and `late-plea` are held out (`dataset.json`'s
+`holdout`) for its final check. It runs in the lab's srt box (`"sandbox": { "lab": "srt" }`), as
+a loop needs, and its `graders.ts` exports the `compare` that says when a try is better: more
+trials passed, paired by case, at no more than a cent a trial more.
 
 ## A case
 
@@ -226,7 +235,7 @@ with the others. That's how you try a second judge on trials you already have.
 
 A rule that belongs to one case, not every case, can be a sentence in its key instead:
 `must: [the reply apologises for the chipped lid]`, or `must-not:`. The lab's own grader workflow,
-the criteria judge, judges each sentence with three voters, on the `judgeAgent` that
-`awf-lab.json` names (`{ "harness": "claude", "model": "claude-haiku-5-5" }`); `run` refuses keys
-with criteria until it does. It costs three agent calls per sentence per trial, so a cheap judge
+the criteria judge, judges each sentence with three voters, on the `judgeAgent` you add to
+`awf-lab.json`, such as `{ "harness": "claude", "model": "claude-haiku-5-5" }`; `run` refuses keys
+with criteria until it is set. It costs three agent calls per sentence per trial, so a cheap judge
 model is worth trying first.
