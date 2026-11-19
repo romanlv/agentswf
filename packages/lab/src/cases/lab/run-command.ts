@@ -11,6 +11,7 @@ import {
   loadDataset,
   lockHeld,
   runReport,
+  shownPath,
   tagged,
   tmpOf,
   workspaceOf,
@@ -244,6 +245,7 @@ export async function run(context: Context, given: RunGiven = {}): Promise<RunDo
     bars,
     graders,
     criteria,
+    followsPlan: true,
   });
   // A budget stop leaves trials unrun: 3, unless the report already exits worse.
   const exit = record.stopped === "budget" && report.exit === 0 ? 3 : report.exit;
@@ -279,18 +281,37 @@ function selectCases(
     : options.cases
       ? cases.filter((c) => options.cases!.includes(c.name))
       : [...cases];
-  if (options.tags) selected = selected.filter((c) => tagged(c, options.tags!));
+  if (selected.length === 0) {
+    return {
+      nothing: `no cases in ${shownPath(context, info.dir)}; awf-lab case new ${info.name}/{case} makes one`,
+      exit: 2,
+    };
+  }
+  if (options.tags) {
+    const before = selected;
+    selected = selected.filter((c) => tagged(c, options.tags!));
+    if (selected.length === 0) {
+      const tags = options.tags.join(" or ");
+      if (options.cases) {
+        return { nothing: `none of --cases ${options.cases.join(",")} has tag ${tags}`, exit: 2 };
+      }
+      const known = [...new Set(before.flatMap((c) => c.key.tags ?? []))].sort();
+      const which = options.holdout ? "held-out case" : "case";
+      return {
+        nothing: `no ${which} in ${info.name} has tag ${tags}; ${known.length > 0 ? `its tags: ${known.join(", ")}` : `its ${which}s have no tags`}`,
+        exit: 2,
+      };
+    }
+  }
   const failed = options.failed
     ? failedCases(workspace.store, info.name, workspace.root, reference, bars)
     : undefined;
   if (failed) selected = selected.filter((c) => failed.has(c.name));
   if (selected.length === 0) {
-    return options.failed
-      ? { nothing: "nothing to run: no case's newest verdict is failed, flaky or unclear", exit: 0 }
-      : {
-          nothing: `no cases in ${info.dir}; awf-lab case new ${info.name}/{case} makes one`,
-          exit: 2,
-        };
+    return {
+      nothing: "nothing to run: no case's newest verdict is failed, flaky or unclear",
+      exit: 0,
+    };
   }
   return { selected, trialsOf: (name) => options.trials ?? failed?.get(name) ?? 1 };
 }
@@ -532,9 +553,6 @@ async function gradeReused(
       trial: here.get(item.trial.dir) ?? item.trial,
     })),
   };
-  context.stderr(
-    `grading ${plural(plan.items.length, "reused trial")} again: a key or grader changed`,
-  );
   return runScore({
     plan,
     tmp: lab.tmp,

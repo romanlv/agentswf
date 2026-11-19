@@ -24,7 +24,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   `env.ts` with services faked, graded against its key by `expect`, a criteria judge or your own
   graders; compares columns (`--against`, `--param`, `--vary`) by the dataset's `compare`; runs a
   whole trial in srt (`"sandbox": { "lab": "srt" }`); and loops (`awf-lab loop`), keeping a
-  proposer's change only when better. `packages/lab/docs/cases.md` is the reference.
+  proposer's change only when better. `packages/lab/docs/cases.md` is the reference. Each
+  command takes only its own flags, and `awf-lab {command} --help` prints its own.
 
 - `awf run --boxed`, for a caller that runs the whole `awf run` process in a sandbox of its own,
   as awf-lab does a trial: the workflow's sandboxes are set aside and every agent runs inside the

@@ -67,14 +67,19 @@ are its.
 | `run [--dataset {name}] [--cases a,b] [--failed] [--trials n] [--against {folder}] [--tags a,b] [--holdout] [--param k=v] [--vary k=a,b] [--fresh] [--dry-run] [--budget {usd}] [--json] [--yes]` | each case, each trial, in each column, in throwaway folders, graded against its key; a trial kept from before stands in when nothing that shaped it changed |
 | `report [{run}] [--case {name}] [--json \| --md]` | the last run again, or the one named; one case in full; Markdown to paste |
 | `score [{run}] [--grader {name} \| --judge {harness}/{model} [--voters n]] [--tags a,b] [--dry-run] [--budget {usd}] [--yes] [--json]` | grade kept trials again without running them |
-| `capture {run id} (--good \| --needs-work "{note}") [--dataset {name}]` | a new case from a past trial or a real run, its key a draft |
-| `label {run id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial, by its workflow run's id |
+| `capture {trial id} (--good \| --needs-work "{note}") [--dataset {name}]` | a new case from a past trial, or from a real run by its awf run id, its key a draft |
+| `label {trial id} (--good \| --needs-work "{note}" \| --clear)` | the person's verdict on a trial |
 | `loop {name} --budget {usd} [--program {file}] [--proposer {harness}/{model}] [--rounds n] [--trials n] [--cases a,b] [--param k=v] [--allowance {pct\|off}] [--dataset {name}]` | a proposer changes a copy of the code, kept only when `compare` says better |
 | `loop {name} --final --budget {usd}`, `loop {name} --patch` | the kept code against the start on the holdout, once; or as a patch |
 | `runs` | the runs kept, newest first |
 
 A run is named by its id, the time it began and four random hex digits
-(`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`).
+(`20261117-142233-a3f9`), or by those last four (`awf-lab report a3f9`). A trial is named by its
+own id, its workflow run's (`20261117T142240Z-c13b6e75`), which `report --case` lists: `label` and
+`capture` take it, and refuse a run's id, as `report` and `score` refuse a trial's.
+
+A command takes only its own flags: another command's is refused, naming whose it is.
+`awf-lab {command} --help` prints that command's synopsis, its flags and its exit codes.
 
 `run` and `score` print a plan with an estimate and ask at a terminal unless `--yes`. When their
 input is not a terminal, as in CI or a pipe, they don't ask: they run. `loop` asks nothing; its
@@ -342,8 +347,9 @@ parameter whose value `env.ts` looks up in its own table: `--vary variant=lenses
 A grade is only as good as its agreement with the person, and that drifts as criteria, prompts
 and models change, so it is measured on every report.
 
-- **`awf-lab label {run id} --good`**, or **`--needs-work "{note}"`**: the person's verdict on one
-  trial, found by its workflow run's id (`report --case` prints each trial's, with the command).
+- **`awf-lab label {trial id} --good`**, or **`--needs-work "{note}"`**: the person's verdict on
+  one trial, found by its id, its workflow run's (`report --case` prints each trial's, with the
+  command).
   The person runs it, or tells a coding agent what was wrong. `--clear` takes it back; a newer
   label replaces an older. `capture` of a trial labels it with its mark.
 - Labels are kept in `{store}/labels/{dataset}.jsonl`, one line each (the trial's workflow run
@@ -370,12 +376,14 @@ and models change, so it is measured on every report.
 ## The report
 
 One line per case that did not pass, with its passes, the first failing check and its reason, and
-its history; "passed, with notes" for unused mocks or stages never reached. Then case verdicts,
-trial counts (errored by whom, undecided, leaked, splits), median time and cost per trial with
-grading's cost apart, each dataset grader's pooled numbers, median time per stage, the judge and
+its history; "passed, with notes" for unused mocks or stages never reached; "not graded" with why
+(the key is a draft, or has no expect, must or must-not). Then case verdicts and trial counts
+(errored by whom, undecided, leaked, splits), each only when there are some, median time and cost
+per trial with grading's cost apart (no cost when the workflow ran no agents), each dataset grader's pooled numbers, median time per stage, the judge and
 whether it shares a family with the workflow's model, grades out of date, and runs history left
 out. `report --case` shows each trial's result, facts, votes and reasons, and the command for its
-agents' logs. `--json` output is `awf.case-report/0`; schemas are in `schema/`.
+agents' logs. `--json` output is `awf.case-report/0`; schemas are in `schema/`. After `run`'s own
+plan, which named the dataset, the code and the parameters, its report starts at the run's id.
 
 ## Rates: how sure
 

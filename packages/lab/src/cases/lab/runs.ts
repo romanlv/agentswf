@@ -23,6 +23,8 @@ export type CaseBar = {
   knownFailing: boolean;
   deciders?: ReadonlySet<string>;
   tags: readonly string[];
+  /** Why no grader would grade it, from its key as it is now. */
+  ungraded?: string;
 };
 
 /** `graders`: every grader that may decide besides `expect`, the dataset's and a test's. */
@@ -39,9 +41,23 @@ export function barsOf(
         knownFailing: c.key["known-failing"] === true,
         tags: c.key.tags ?? [],
         ...(graders ? { deciders: decidersOf(c.key, graders) } : {}),
+        ...ungradedOf(c, graders),
       },
     ]),
   );
+}
+
+/** Why no grader grades a case, when its key says: a draft, or nothing to grade against. */
+function ungradedOf(
+  c: CaseInfo,
+  graders: readonly Pick<LabGrader, "name" | "onDemand">[] | undefined,
+): { ungraded?: string } {
+  if (c.key.draft) return { ungraded: "the key is a draft" };
+  const empty = Object.keys(c.key.expect ?? {}).length === 0 && !c.key.must && !c.key["must-not"];
+  if (empty && (!graders || decidersOf(c.key, graders).size === 0)) {
+    return { ungraded: "key.md has no expect, must or must-not" };
+  }
+  return {};
 }
 
 const asked = (run: RunRecord, name: string) => run.asked.find((a) => a.case === name)?.trials ?? 0;

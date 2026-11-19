@@ -14,7 +14,7 @@ folders and marker search, the reach check, `expect`, blame, verdicts, the repor
 `grading.ts`, shared by `run` and `score`: a dataset's code graders through `code-graders.ts` and
 the grade helper, grader workflows through `workflow-graders.ts` and a grade folder that
 `gradeCase()` reads, and `score.ts`, which plans and grades kept trials again; the command line in
-`cli.ts`, `run` in `run-command.ts`, and what the commands share in `command-context.ts`; the loop in
+`cli.ts`, its help and each command's flags in one table in `usage.ts`, `run` in `run-command.ts`, and what the commands share in `command-context.ts`; the loop in
 `loop.ts` and `loop-command.ts`, its code copies in `loop-code.ts`, its records in
 `loop-records.ts`; and `retired.ts`, the older lab's commands and flags refused with what replaced
 them). It names no word of one workflow's domain (`mail`, `review`, `finding`); the boundary

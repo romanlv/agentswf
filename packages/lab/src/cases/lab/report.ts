@@ -67,6 +67,10 @@ export type RunReport = {
   leftOut?: readonly string[];
   /** Whose grades decide each case, from the current dataset and keys; all when unread. */
   decidersOf?: (caseName: string) => ReadonlySet<string> | undefined;
+  /** Why no grader grades a case, from its key as it is now. */
+  ungradedOf?: (caseName: string) => string | undefined;
+  /** The run's own plan was printed just before: its header says the run's id alone. */
+  followsPlan?: boolean;
 };
 
 const percent = (count: number, of: number) =>
@@ -432,6 +436,8 @@ export function renderRun({
   person,
   judgeLabeled,
   tagsOf = () => [],
+  ungradedOf = () => undefined,
+  followsPlan = false,
   verdicts: compared,
 }: RunReport): {
   text: string;
@@ -442,22 +448,33 @@ export function renderRun({
   const counts = new Set(run.asked.map((a) => a.trials));
   const each =
     counts.size === 1 ? `${plural([...counts][0]!, "trial")} each` : "trials per case as asked";
+  // After its plan, which said the dataset, the code and the parameters, a run says what is new.
+  const envDiffers = (folder: Folder) => folder.env !== run.folders[0]!.env;
   const lines = [
-    `${run.dataset} · ${plural(run.asked.length, "case")} · ${each} · run ${run.id}${partial ? " (partial)" : ""}`,
-    `code: ${describeFolder({ ...run.folders[0]!, path: undefined })}`,
+    followsPlan
+      ? `run ${run.id}${partial ? " (partial)" : ""}`
+      : `${run.dataset} · ${plural(run.asked.length, "case")} · ${each} · run ${run.id}${partial ? " (partial)" : ""}`,
+    ...(followsPlan ? [] : [`code: ${describeFolder({ ...run.folders[0]!, path: undefined })}`]),
     ...run.folders
       .slice(1)
-      .map(
-        (folder, i) =>
-          `against ${i + 1}: ${describeFolder(folder)}${folder.env !== run.folders[0]!.env ? ", env.ts differs" : ""}`,
+      .flatMap((folder, i) =>
+        followsPlan && !envDiffers(folder)
+          ? []
+          : [
+              followsPlan
+                ? `against ${i + 1}: env.ts differs`
+                : `against ${i + 1}: ${describeFolder(folder)}${envDiffers(folder) ? ", env.ts differs" : ""}`,
+            ],
       ),
-    ...(sharedParams(run).length > 0 ? [`params: ${sharedParams(run).join(" ")}`] : []),
+    ...(sharedParams(run).length > 0 && !followsPlan
+      ? [`params: ${sharedParams(run).join(" ")}`]
+      : []),
     ...(run.stopped
       ? [
           `${run.stopped === "budget" ? "stopped at --budget" : "stopped by the comparison"}: ${plural(Math.max(0, run.asked.reduce((n, a) => n + a.trials, 0) * run.columns.length - trials.length), "trial")} not run`,
         ]
       : []),
-    ...(run.columns.length > run.folders.length
+    ...(run.columns.length > run.folders.length && !followsPlan
       ? [`reference column: ${columnLabel(run, 0)}; the exit code and history are its`]
       : []),
     "",
@@ -471,10 +488,16 @@ export function renderRun({
         ? [`also fails in ${columnLabel(run, i + 1)}`]
         : [];
     });
+    // "1 errored" beside a why that says the trial errored says it twice.
+    const kind = row.why?.match(/^(errored|leaked)\b/)?.[1];
+    const note = row.tally.note
+      ?.split(", ")
+      .filter((part) => part !== `1 ${kind}`)
+      .join(", ");
     const said = [
       ...row.notes,
       ...(row.why ? [row.why] : []),
-      ...(row.tally.note ? [row.tally.note] : []),
+      ...(note ? [note] : []),
       ...alsoFails,
     ];
     return `  ${row.name.padEnd(20)} ${`${row.tally.passed}/${row.tally.trials}`.padEnd(5)} ${extra}${said.join("; ")}${history}`;
@@ -515,26 +538,33 @@ export function renderRun({
     "no verdict",
     rows.filter((r) => r.tally.none),
     (row) => {
+      const why =
+        row.tally.none === "not graded" ? (ungradedOf(row.name) ?? "no grader applies") : undefined;
+      const head = `${row.tally.none}${why ? `: ${why}` : ""}`;
       const said = row.notes.length > 0 || row.why || row.tally.note;
-      return said ? `${row.tally.none}: ` : `${row.tally.none}`;
+      return said ? `${head}${why ? "; " : ": "}` : head;
     },
   );
   if (lines.at(-1) !== "") lines.push("");
   if (others.length > 0) lines.push(...columnLines(run, rows, others, trials, compared), "");
 
+  // Each count once, and only when it is some: a zero says nothing.
+  const counted = (label: string, n: number, extra = "") =>
+    n > 0 ? [`${label} ${n}${extra}`] : [];
   const verdicts = (v: CaseVerdict) => must.filter((r) => r.tally.verdict === v).length;
-  lines.push(
-    [
-      `passed ${verdicts("passed")}`,
-      `failed ${verdicts("failed")}`,
-      `flaky ${verdicts("flaky")}`,
-      `unclear ${verdicts("unclear")}`,
-      `known failing ${known.length}${nowPassing.length > 0 ? ` (${nowPassing.length} now passing)` : ""}`,
-      ...(rows.some((r) => r.tally.none)
-        ? [`no verdict ${rows.filter((r) => r.tally.none).length}`]
-        : []),
-    ].join(" · "),
-  );
+  const tallies = [
+    ...counted("passed", verdicts("passed")),
+    ...counted("failed", verdicts("failed")),
+    ...counted("flaky", verdicts("flaky")),
+    ...counted("unclear", verdicts("unclear")),
+    ...counted(
+      "known failing",
+      known.length,
+      nowPassing.length > 0 ? ` (${nowPassing.length} now passing)` : "",
+    ),
+    ...counted("no verdict", rows.filter((r) => r.tally.none).length),
+  ];
+  if (tallies.length > 0) lines.push(tallies.join(" · "));
   if (others.length === 0 && ratesOf(rows).cases > 0) {
     lines.push(`rate: ${describeRates(ratesOf(rows))}`);
   }
@@ -553,15 +583,19 @@ export function renderRun({
   lines.push(
     [
       `trials ${trials.length}${run.columns.length > 1 ? ` in ${run.columns.length} columns` : ""}`,
-      ...(reusedCount > 0 ? [`reused ${reusedCount}`] : []),
-      `errored ${errored.length}${blame.length > 0 ? ` (${blame.join(", ")})` : ""}${elsewhere(run, errored)}`,
-      `undecided ${views.filter((t) => t.view.outcome === "undecided").length}`,
-      `leaked ${views.filter((t) => t.view.outcome === "leaked").length}`,
+      ...counted("reused", reusedCount),
+      ...counted(
+        "errored",
+        errored.length,
+        `${blame.length > 0 ? ` (${blame.join(", ")})` : ""}${elsewhere(run, errored)}`,
+      ),
+      ...counted("undecided", views.filter((t) => t.view.outcome === "undecided").length),
+      ...counted("leaked", views.filter((t) => t.view.outcome === "leaked").length),
     ].join(" · "),
   );
-  const counted = views.filter((t) => t.view.outcome !== "errored" && t.record.runId);
-  const ms = median(counted.map((t) => t.record.ms));
-  const priced = counted.filter((t) => t.record.estimate !== undefined);
+  const ran = views.filter((t) => t.view.outcome !== "errored" && t.record.runId);
+  const ms = median(ran.map((t) => t.record.ms));
+  const priced = ran.filter((t) => t.record.estimate !== undefined);
   const cost = median(priced.map((t) => t.record.estimate!));
   const total = trials.reduce((sum, t) => sum + (t.record.estimate ?? 0), 0);
   const reusedCost = trials
@@ -576,15 +610,23 @@ export function renderRun({
       ),
     0,
   );
-  const unpriced = counted.some(
-    (t) => t.record.estimate === undefined || (t.record.priced ?? 0) < (t.record.agents ?? 0),
+  // A run with no agents costs nothing to price; one whose agents' count is unknown may.
+  const noAgents = total === 0 && ran.every((t) => t.record.agents === 0);
+  const unpriced = ran.some(
+    (t) =>
+      (t.record.estimate === undefined && t.record.agents !== 0) ||
+      (t.record.priced ?? 0) < (t.record.agents ?? 0),
   );
   if (ms !== undefined) {
     lines.push(
       [
         `time per trial, median ${seconds(ms)}`,
-        ...(cost !== undefined ? [`est. cost per trial, median ${usd(cost)}`] : []),
-        `all trials ${usd(total)}${reusedCost > 0 ? `, ${usd(reusedCost)} of it reused trials, run before` : ""}${unpriced ? ", partly unpriced" : ""}`,
+        ...(noAgents
+          ? ["the workflow ran no agents"]
+          : [
+              ...(cost !== undefined ? [`est. cost per trial, median ${usd(cost)}`] : []),
+              `all trials ${usd(total)}${reusedCost > 0 ? `, ${usd(reusedCost)} of it reused trials, run before` : ""}${unpriced ? ", partly unpriced" : ""}`,
+            ]),
         ...(grading > 0 ? [`grading ${usd(grading)}`] : []),
       ].join(" · "),
     );
@@ -652,7 +694,7 @@ export function renderCase(
     const view = trialOutcome(record, trial.scores, deciders);
     lines.push(
       "",
-      `trial ${record.trial}${record.column > 0 ? ` (${columnLabel(run, record.column)})` : ""}: ${view.outcome}${record.runId ? ` · run ${record.runId}` : ""} · ${seconds(record.ms)}`,
+      `trial ${record.trial}${record.column > 0 ? ` (${columnLabel(run, record.column)})` : ""}: ${view.outcome}${record.runId ? ` · id ${record.runId}` : ""} · ${seconds(record.ms)}`,
     );
     const label = record.runId ? labels.get(record.runId) : undefined;
     if (label) lines.push(`  labeled ${label.mark}${label.note ? `: ${label.note}` : ""}`);

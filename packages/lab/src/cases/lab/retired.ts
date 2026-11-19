@@ -13,7 +13,7 @@ const COMMANDS: Record<string, string | null> = {
 const FLAGS: Record<string, string | null> = {
   "--scorer": "score --grader {name}",
   "--baseline":
-    "the reference column: your checkout, --against's first folder or --vary's first value",
+    "the reference column: your checkout under each --vary's first value; --against adds columns beside it",
   "--comparison": "compare in the dataset's graders.ts",
   "--rest-from": "a grader's previous parts, in its grade folder",
   "--categories": "the grader's numbers",

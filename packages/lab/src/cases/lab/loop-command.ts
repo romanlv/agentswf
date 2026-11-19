@@ -57,17 +57,10 @@ const DEFAULT_ALLOWANCE = 90;
 export async function loopCommand(context: Context, names: readonly string[]): Promise<number> {
   const { options } = context;
   const [name, ...extra] = names;
-  if (!name || extra.length > 0) throw new Refusal("awf-lab loop {name} --budget {usd}");
-  // A loop picks its own cases, columns and reuse: these would change what a try runs unseen.
-  const foreign = [
-    options.tags ? "--tags" : "",
-    options.against.length > 0 ? "--against" : "",
-    options.vary.length > 0 ? "--vary" : "",
-    options.failed ? "--failed" : "",
-    options.fresh ? "--fresh" : "",
-    options.holdout ? "--holdout" : "",
-  ].filter(Boolean);
-  if (foreign.length > 0) throw new Refusal(`a loop takes no ${foreign.join(", ")}`);
+  if (!name) throw new Refusal("loop needs a name: loop {name} --budget {usd}");
+  if (extra.length > 0) {
+    throw new Refusal(`loop takes one name; got ${names.length} words: ${names.join(" ")}`);
+  }
   const workspace = workspaceOf(context);
   const dir = loopDirOf(workspace.store, name);
   const top = workspace.repository ?? workspace.root;

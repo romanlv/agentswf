@@ -26,6 +26,7 @@ import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
 import { PROPOSER } from "./loop-command";
 import { Refusal } from "./refusal";
 import { readTrials, runIds } from "./store";
+import { usageProblems } from "./usage";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -399,7 +400,8 @@ describe("a case's verdict and the exit code, through the command line", () => {
   test("every case passed: 0", async () => {
     const { code, out } = await run({ a: {}, b: {} }, {}, 1);
     expect(code).toBe(0);
-    expect(out).toContain("passed 2 · failed 0");
+    expect(out).toMatch(/\npassed 2\nrate: [^\n]+\ntrials 2\n/);
+    expect(out).not.toMatch(/failed 0|errored 0|leaked 0/);
     expect(out).toContain("exit 0");
   });
 
@@ -799,8 +801,8 @@ describe("refusals before any trial: exit 2", () => {
       [["score", "--rescore", "x"], "--rescore went with the older lab, and nothing replaced it"],
       [["run", "--only", "x"], "--only went with the older lab"],
       [["run", "--where", "x"], "--where went with the older lab"],
-      [["run", "--allowance", "80"], "--allowance is the loop's: loop {name} --allowance"],
-      [["score", "--allowance", "off"], "--allowance is the loop's"],
+      [["run", "--allowance", "80"], "--allowance is not an option of run: it is loop's"],
+      [["score", "--allowance", "off"], "--allowance is not an option of score: it is loop's"],
       [["loop", "constructor", "--budget", "1"], "a loop runs code no person wrote"],
     ];
     const fake = scripted({});
@@ -877,7 +879,10 @@ describe("refusals before any trial: exit 2", () => {
     const where = project({ a: {} }, { sandbox: "lab" });
     const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
     expect(code).toBe(2);
-    expect(err).toContain('only "workflow"');
+    expect(err).toContain(
+      `sandbox "lab": "workflow" (trust the sandboxes the workflow opens itself) or { "lab": "srt" } (the lab's box)`,
+    );
+    expect(err).not.toContain("anyOf");
   });
 
   test("a dataset without agentReach", async () => {
@@ -1625,7 +1630,7 @@ describe("the criteria judge, through the command line", () => {
       "  criteria (claude/claude-sonnet-5-5 ×5 1.0): good 2, passed 2 · needs-work 2, failed 2 · grading $0.20",
     );
     // The verdict is still the configured judge's: every case passed.
-    expect(scored.out).toContain("passed 1 · failed 0");
+    expect(scored.out).toContain("\npassed 1\n");
     const entry = readTrials(storeOf(where), nthRun(storeOf(where), 1))[0]!.scores.at(-1)!
       .entries[0]!;
     expect(entry).toMatchObject({
@@ -1779,14 +1784,17 @@ describe("--against: the same cases on code in another folder", () => {
     const fake = scripted({ b: [fail], c: [fail] }, undefined, {
       [other]: { a: [fail], c: [fail] },
     });
-    const { code, out } = await lab(where, ["run", "--yes", "--against", other], {
+    const { code, out, err } = await lab(where, ["run", "--yes", "--against", other], {
       runner: fake.runner,
       inspect,
     });
     expect(code).toBe(1);
     expect(fake.calls).toHaveLength(6);
     expect(out).toContain("columns");
-    expect(out).toContain(`against 1: ${other}, branch main`);
+    // The plan names the folders; the report after it, the run's id alone.
+    expect(err).toContain(`against 1: ${other}, branch main`);
+    expect(out).toMatch(/^run \S+\n\n/);
+    expect((await lab(where, ["report"])).out).toContain(`against 1: ${other}, branch main`);
     expect(out).toContain("came out differently in against 1, largest difference first");
     expect(out).toMatch(/\n {2}a\s+this checkout 1\/1 passed · against 1 0\/1 failed/);
     expect(out).toMatch(/\n {2}b\s+this checkout 0\/1 failed · against 1 1\/1 passed/);
@@ -2060,7 +2068,9 @@ describe("capture: a past run becomes a case", () => {
 
   test("refusals: no such run, a real run without capture.ts, neither mark or both", async () => {
     const where = project({ a: {} });
-    expect((await lab(where, ["capture", "R-1", "--good"])).err).toContain("no run R-1");
+    expect((await lab(where, ["capture", "R-1", "--good"])).err).toContain(
+      "no trial or run R-1: neither a trial in",
+    );
     expect((await lab(where, ["capture", "R-1"])).err).toContain("--good or --needs-work");
     expect((await lab(where, ["capture", "R-1", "--good", "--needs-work", "x"])).code).toBe(2);
     const runDir = join(where.root, ".awf/runs/w/R-2");
@@ -2202,8 +2212,9 @@ describe("--param and --vary: a column per combination of parameters", () => {
       ),
     );
     expect(trial).toMatchObject({ column: 2, params: { model: "b", effort: "low" } });
-    expect(out).toContain("params: tz=utc");
-    expect(out).toContain(
+    const again = (await lab(where, ["report"])).out;
+    expect(again).toContain("params: tz=utc");
+    expect(again).toContain(
       "reference column: model=a effort=low; the exit code and history are its",
     );
     expect(out).toMatch(/\n {2}model=b effort=low\s+1\s+1\s/);
@@ -2499,7 +2510,8 @@ describe("trials reused when nothing that shaped them changed", () => {
     const fake = scripted({});
     const { code, err } = await lab(where, ["run", "--yes"], { runner: fake.runner });
     expect(fake.calls).toHaveLength(0);
-    expect(err).toContain("grading 1 reused trial again: a key or grader changed");
+    expect(err).toContain("grades 1 reused trial again, a key or grader changed");
+    expect(err).not.toContain("grading 1 reused trial again");
     expect(code).toBe(1);
     const trial = readTrials(storeOf(where), nthRun(storeOf(where), 2))[0]!;
     expect(trial.scores).toHaveLength(2);
@@ -2612,9 +2624,27 @@ describe("the person's labels", () => {
     const where = project({ a: {} });
     await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
     const id = runIdOf(where, 1, "a");
-    expect((await lab(where, ["label", "nope", "--good"])).err).toContain("no trial ran as nope");
-    expect((await lab(where, ["label", id])).code).toBe(2);
-    expect((await lab(where, ["label", id, "--good", "--clear"])).code).toBe(2);
+    expect((await lab(where, ["label", "nope", "--good"])).err).toContain("no trial nope in");
+    const none = await lab(where, ["label", id]);
+    expect(none.code).toBe(2);
+    expect(none.err).toBe('awf-lab: label needs --good, --needs-work "{note}" or --clear');
+    const both = await lab(where, ["label", id, "--good", "--clear"]);
+    expect(both.code).toBe(2);
+    expect(both.err).toContain("label takes one of --good");
+    const run = nthRun(storeOf(where), 1);
+    const lab4 = await lab(where, ["label", run.slice(-4), "--good"]);
+    expect(lab4.code).toBe(2);
+    expect(lab4.err).toBe(
+      `awf-lab: ${run.slice(-4)} is a lab run: label takes a trial's id, which report --case {case} lists`,
+    );
+    expect((await lab(where, ["capture", run, "--good"])).err).toContain(
+      `${run} is a lab run: capture takes a trial's id`,
+    );
+    const trialAsRun = await lab(where, ["report", id]);
+    expect(trialAsRun.code).toBe(2);
+    expect(trialAsRun.err).toBe(
+      `awf-lab: ${id} is a trial's id: report takes a run from awf-lab runs; label and capture take trial ids`,
+    );
   });
 });
 
@@ -3326,7 +3356,7 @@ describe("the loop: a proposer's copy kept only when better", () => {
     );
     expect(
       (await loop(where, ["l", "--budget", "1", "--tags", "x", "--fresh"], fake.runner)).err,
-    ).toContain("a loop takes no --tags, --fresh");
+    ).toContain("--tags is not an option of loop: it is run's and score's");
     expect((await loop(where, ["l", "--program", program], fake.runner)).err).toContain(
       "--budget {usd} is required",
     );
@@ -3338,5 +3368,144 @@ describe("the loop: a proposer's copy kept only when better", () => {
     expect(
       (await loop(plain, ["l", "--budget", "1", "--program", program], fake.runner)).err,
     ).toContain('"sandbox": { "lab": "srt" }');
+  });
+});
+
+describe("the command line says what is wrong, and what to do", () => {
+  test("a flag another command takes is refused, naming whose it is and a near miss's other", async () => {
+    const where = project({ a: {} });
+    const fake = scripted({});
+    const cases: [string[], string][] = [
+      [
+        ["run", "--case", "a"],
+        "--case is not an option of run: --case is report's; run takes --cases {a,b}",
+      ],
+      [
+        ["report", "--cases", "a"],
+        "--cases is not an option of report: --cases is run's and loop's; report takes --case {name}",
+      ],
+      [["run", "--md"], "--md is not an option of run: it is report's"],
+      [["runs", "--json"], "--json is not an option of runs: it is run's, report's and score's"],
+      [
+        ["report", "--budget", "5"],
+        "--budget is not an option of report: it is run's, score's and loop's",
+      ],
+      [
+        ["label", "x", "--dataset", "ds", "--good"],
+        "--dataset is not an option of label: it is run's, capture's and loop's",
+      ],
+    ];
+    for (const [argv, said] of cases) {
+      const { code, err } = await lab(where, argv, { runner: fake.runner });
+      expect(code).toBe(2);
+      expect(err).toBe(`awf-lab: ${said}`);
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("each command's help is its synopsis, its flags and its exit codes; compare is no command", async () => {
+    const where = project({ a: {} });
+    const run = await lab(where, ["run", "--help"]);
+    expect(run.code).toBe(0);
+    expect(run.out).toContain("[--holdout]");
+    expect(run.out).toContain("--trials {n}      trials per case; 1 by default");
+    expect(run.out).not.toContain("--grader");
+    expect(run.out).toContain("a budget stop");
+    const label = await lab(where, ["label", "-h"]);
+    expect(label.out).toContain("label {trial id}");
+    expect(label.out).toContain("exit: 0 done, 2 refused, 4 the lab broke");
+    expect(label.out).not.toContain("--trials");
+    const full = await lab(where, ["--help"]);
+    expect(full.out).toContain("--config {file}");
+    for (const line of full.out.split("\n")) expect(line.length).toBeLessThanOrEqual(100);
+    const compare = await lab(where, ["compare"]);
+    expect(compare.code).toBe(2);
+    expect(compare.err).toContain("compare is graders.ts's export, not a command: run --against");
+    expect(usageProblems()).toEqual([]);
+  });
+
+  test("a usage mistake says what is wrong first", async () => {
+    const where = project({ a: {} });
+    const words = await lab(where, ["case", "new", "ds/Right", "Case"]);
+    expect(words.err).toBe(
+      "awf-lab: case new takes one {dataset}/{case}; got 2 words: ds/Right Case",
+    );
+    expect((await lab(where, ["report", "a", "b"])).err).toBe(
+      "awf-lab: report takes one run; got 2: a b",
+    );
+    expect((await lab(where, ["report", "nope"])).err).toContain("nope is no run: a run is its id");
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect((await lab(where, ["report", "--json", "--md"])).err).toBe(
+      "awf-lab: report takes --json or --md, not both",
+    );
+    const wrong = await lab(where, ["report", "--case", "b"]);
+    expect(wrong.code).toBe(2);
+    expect(wrong.err).toMatch(/has no case b; its cases: a$/);
+  });
+
+  test("--tags that leave no case say which tags there are", async () => {
+    const where = project({
+      a: { key: keyMd("expect:\n  ok: true\ntags: [forms]\n") },
+      b: { key: keyMd("expect:\n  ok: true\ntags: [school]\n") },
+    });
+    const fake = scripted({});
+    const none = await lab(where, ["run", "--yes", "--tags", "nope"], { runner: fake.runner });
+    expect(none.code).toBe(2);
+    expect(none.out).toBe("no case in ds has tag nope; its tags: forms, school");
+    const picked = await lab(where, ["run", "--yes", "--cases", "a", "--tags", "school"], {
+      runner: fake.runner,
+    });
+    expect(picked.out).toBe("none of --cases a has tag school");
+    const untagged = project({ a: {} });
+    expect(
+      (await lab(untagged, ["run", "--yes", "--tags", "x"], { runner: fake.runner })).out,
+    ).toBe("no case in ds has tag x; its cases have no tags");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("a case not graded says why; an errored trial is said once", async () => {
+    const { out } = await run(
+      {
+        bare: { key: keyMd("") },
+        draft: { key: keyMd("draft: true\nexpect:\n  ok: true\n") },
+        broke: {},
+      },
+      { broke: [{ setupError: "no such file" }] },
+    );
+    expect(out).toMatch(/\n {2}bare\s+0\/1\s+not graded: key.md has no expect, must or must-not\n/);
+    expect(out).toMatch(/\n {2}draft\s+0\/1\s+not graded: the key is a draft\n/);
+    expect(out).toMatch(/\n {2}broke\s+0\/1\s+errored by dataset \(threw\): no such file\n/);
+    expect(out).toContain("trials 3 · errored 1 (1 by dataset)");
+  });
+
+  test("the cost line prices only where agents ran", async () => {
+    const where = project({ a: {} });
+    await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    const file = join(
+      storeOf(where),
+      "runs",
+      nthRun(storeOf(where), 1),
+      "trials",
+      "a",
+      "0-1",
+      "trial.json",
+    );
+    const trial = JSON.parse(readFileSync(file, "utf8"));
+    const { estimate: _, ...unpriced } = trial;
+    writeFileSync(file, JSON.stringify({ ...unpriced, agents: 0, priced: 0 }));
+    const none = (await lab(where, ["report"])).out;
+    expect(none).toContain("· the workflow ran no agents");
+    expect(none).not.toContain("unpriced");
+    writeFileSync(file, JSON.stringify({ ...unpriced, agents: 1, priced: 0 }));
+    expect((await lab(where, ["report"])).out).toContain("all trials $0.00, partly unpriced");
+  });
+
+  test("dataset.json's problems in words, its path relative to where the lab runs", async () => {
+    const where = project({ a: {} }, { timeout: "30 min", extra: 1 });
+    const { code, err } = await lab(where, ["run", "--yes"], { runner: scripted({}).runner });
+    expect(code).toBe(2);
+    expect(err).toContain("awf-lab: evals/ds/dataset.json is not valid:");
+    expect(err).toContain('timeout is a number and a unit, such as 30m or 90s, not "30 min"');
+    expect(err).toContain("unknown field extra; dataset.json's fields: $schema, kind, sandbox");
   });
 });

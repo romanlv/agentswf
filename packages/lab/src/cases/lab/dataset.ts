@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { checkSchema, describeProblems } from "../../shared/validate";
+import { checkSchema, describeProblems, explainProblems } from "../../shared/validate";
 import { parseKey } from "../format/key";
-import { DATASET_KIND, type Dataset, DatasetSchema, type Key } from "../format/settings";
+import {
+  DATASET_KIND,
+  type Dataset,
+  DatasetSchema,
+  type Key,
+  SETTINGS_PATTERNS,
+} from "../format/settings";
 import { Refusal } from "./refusal";
 
 /** The file a dataset's own code graders are named exports of. */
@@ -67,12 +73,13 @@ export function readDataset(name: string, dir: string): DatasetInfo {
   const raw = readJson(file);
   const checked = checkSchema(DatasetSchema, raw);
   if (!checked.ok) {
-    const sandbox = (raw as { sandbox?: unknown })?.sandbox;
-    const why =
-      sandbox !== undefined && sandbox !== "workflow"
-        ? `\n  sandbox ${JSON.stringify(sandbox)}: only "workflow" is supported, trusting the sandboxes the workflow opens`
-        : "";
-    throw new Refusal(describeProblems(file, checked.problems) + why);
+    const problems = explainProblems(checked.problems, {
+      schema: DatasetSchema,
+      value: raw,
+      noun: DATASET_FILE,
+      patterns: SETTINGS_PATTERNS,
+    });
+    throw new Refusal(describeProblems(file, problems));
   }
   const dataset = checked.value;
   const specs = graderSpecs({ name, dir, dataset });

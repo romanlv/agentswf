@@ -1,6 +1,6 @@
 import { isMap, isScalar, parseDocument } from "yaml";
-import { type Checked, checkSchema, type Problem } from "../../shared/validate";
-import { type Key, KeySchema } from "./settings";
+import { type Checked, checkSchema, explainProblems, type Problem } from "../../shared/validate";
+import { type Key, KeySchema, SETTINGS_PATTERNS } from "./settings";
 
 /** A `key.md`: its frontmatter, checked, and the note below it. */
 export type ReadKey = { key: Key; note: string };
@@ -25,11 +25,33 @@ export function parseKey(text: string): Checked<ReadKey> {
   });
   const yamlProblems = [...document.errors, ...document.warnings];
   if (yamlProblems.length > 0) {
-    return { ok: false, problems: yamlProblems.map((e) => ({ path: "/", message: e.message })) };
+    // The frontmatter starts on the file's second line.
+    const lineOf = (offset: number) => {
+      const before = match[1]!.slice(0, offset);
+      return `line ${before.split("\n").length + 1}:${offset - before.lastIndexOf("\n")}`;
+    };
+    return {
+      ok: false,
+      problems: yamlProblems.map((e) => ({
+        path: "",
+        message: `${lineOf(e.pos[0])}: ${e.message}`,
+      })),
+    };
   }
   const raw: unknown = document.toJS();
   const checked = checkSchema(KeySchema, raw);
-  if (!checked.ok) return checked;
+  if (!checked.ok) {
+    return {
+      ok: false,
+      problems: explainProblems(checked.problems, {
+        schema: KeySchema,
+        value: raw,
+        noun: "a key",
+        patterns: SETTINGS_PATTERNS,
+        hints: { marker: "case new writes one; copy one from another key, or remake the case" },
+      }),
+    };
+  }
   const key = checked.value;
   const problems: Problem[] = [];
   for (const name of Object.keys(key.expect ?? {})) {

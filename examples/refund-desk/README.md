@@ -35,8 +35,8 @@ case is flaky:
 flaky
   day-30               1/2   expect: action is "decline", the key wants "refund"
 
-passed 2 · failed 0 · flaky 1 · unclear 0 · known failing 0
-trials 6 · errored 0 · undecided 0 · leaked 0
+passed 2 · flaky 1
+trials 6
 time per trial, median 5.3s · est. cost per trial, median $0.0020 · all trials $0.01
 
 exit 3: a case is flaky or unclear

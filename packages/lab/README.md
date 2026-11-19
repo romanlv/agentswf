@@ -79,8 +79,8 @@ the kept code on them once, and `loop {name} --patch` prints it as a patch.
 | `run` | each case, each trial, in each column, graded | yes |
 | `score [{run}]` | grades kept trials again, such as with another grader or judge | yes |
 | `report [{run}]` | the last run, or the one named | no |
-| `capture {run id}` | a new case from a past trial or a real run | no |
-| `label {run id}` | your verdict on a trial | no |
+| `capture {trial id}` | a new case from a past trial or a real run | no |
+| `label {trial id}` | your verdict on a trial | no |
 | `loop {name}` | a proposer's changes, kept only when better | yes |
 | `runs` | the runs kept, newest first | no |
 

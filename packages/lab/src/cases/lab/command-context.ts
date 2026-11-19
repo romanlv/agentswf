@@ -1,6 +1,6 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { type AllowanceSource, awfAllowance } from "../../shared/allowance";
 import { findConfigFile } from "../../shared/config-file";
@@ -137,6 +137,18 @@ export function externalsOf(environment: CasesEnvironment): {
     ...(estimate ? { estimate } : {}),
     ...(allowance ? { allowance } : {}),
   };
+}
+
+/** A path as a person in `cwd` would type it: relative when under it. */
+export function shownPath(context: Pick<Context, "cwd">, path: string): string {
+  const under = relative(context.cwd, path);
+  return under && !under.startsWith("..") && !isAbsolute(under) ? under : path;
+}
+
+/** A message's paths under `cwd`, relative to it. */
+export function relativePaths(cwd: string, message: string): string {
+  const escaped = cwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return message.replace(new RegExp(`(^|[\\s(:'"=,])${escaped}/`, "gm"), "$1");
 }
 
 /** The environment a trial, grader or helper starts from: the lab's, less the calling session. */
@@ -344,6 +356,8 @@ export async function runReport(
     graders: readonly LabGrader[] | undefined;
     criteria: number;
     stale?: CaseReport["stale"];
+    /** The run's plan was printed just before. */
+    followsPlan?: boolean;
   },
 ) {
   const { info, run, trials, bars, stale } = args;
@@ -360,6 +374,8 @@ export async function runReport(
     ...(stale !== undefined ? { stale } : {}),
     decidersOf: (name) => bars.get(name)?.deciders,
     tagsOf: (name) => bars.get(name)?.tags ?? [],
+    ungradedOf: (name) => bars.get(name)?.ungraded,
+    ...(args.followsPlan ? { followsPlan: true } : {}),
     ...(verdicts ? { verdicts } : {}),
     leftOut: unreadableRuns(workspace.store).filter((id) => id < run.id),
     ...personal,

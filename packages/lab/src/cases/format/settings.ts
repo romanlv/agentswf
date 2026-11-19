@@ -9,12 +9,15 @@ export const KEY_KIND = "awf.case-key/0";
 
 const Text = Type.String({ minLength: 1 });
 
+const DURATION_PATTERN = "^[1-9][0-9]*(ms|s|m|h)$";
+const PASS_PATTERN = "^(all|[1-9][0-9]*/[1-9][0-9]*)$";
+
 /** `"30m"`, `"90s"`, `"2h"`: a duration as `awf run --timeout` takes it. */
-export const DurationSchema = Type.String({ pattern: "^[1-9][0-9]*(ms|s|m|h)$" });
+export const DurationSchema = Type.String({ pattern: DURATION_PATTERN });
 
 /** `"all"`, or a fraction of a case's trials that must pass, such as `"2/3"`. */
 export const PassSchema = Type.String({
-  pattern: "^(all|[1-9][0-9]*/[1-9][0-9]*)$",
+  pattern: PASS_PATTERN,
   description: '"all", or the fraction of trials that must pass, such as "2/3".',
 });
 
@@ -133,21 +136,22 @@ export const FactSchema = Type.Union([Type.String(), Type.Number(), Type.Boolean
 export type Fact = Type.Static<typeof FactSchema>;
 
 const Criterion = Type.String({ minLength: 1 });
+const MARKER_PATTERN = "^[a-z]+(-[a-z]+){2,}$";
+const TAG_PATTERN = "^[a-z0-9][a-z0-9-]*$";
+const FACT_NAME_PATTERN = "^[A-Za-z][A-Za-z0-9_]*$";
 
 export const KeySchema = Type.Object(
   {
     kind: Type.Literal(KEY_KIND),
-    marker: Type.String({ pattern: "^[a-z]+(-[a-z]+){2,}$" }),
-    expect: Type.Optional(
-      Type.Record(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_]*$" }), FactSchema),
-    ),
+    marker: Type.String({ pattern: MARKER_PATTERN }),
+    expect: Type.Optional(Type.Record(Type.String({ pattern: FACT_NAME_PATTERN }), FactSchema)),
     must: Type.Optional(Type.Array(Criterion, { minItems: 1 })),
     "must-not": Type.Optional(Type.Array(Criterion, { minItems: 1 })),
     "known-failing": Type.Optional(Type.Literal(true)),
     pass: Type.Optional(PassSchema),
     draft: Type.Optional(Type.Literal(true)),
     tags: Type.Optional(
-      Type.Array(Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }), {
+      Type.Array(Type.String({ pattern: TAG_PATTERN }), {
         minItems: 1,
         uniqueItems: true,
         description:
@@ -169,3 +173,12 @@ export const KeySchema = Type.Object(
 );
 
 export type Key = Type.Static<typeof KeySchema>;
+
+/** What each pattern of these files means, for a refusal to say in words. */
+export const SETTINGS_PATTERNS: Readonly<Record<string, string>> = {
+  [DURATION_PATTERN]: "a number and a unit, such as 30m or 90s",
+  [PASS_PATTERN]: "all, or the share of trials that must pass, such as 2/3",
+  [MARKER_PATTERN]: "three or more lowercase words joined by hyphens",
+  [TAG_PATTERN]: "lowercase letters, digits and hyphens",
+  [FACT_NAME_PATTERN]: "a letter, then letters, digits or _",
+};

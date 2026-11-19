@@ -28,6 +28,7 @@ import {
   loadDataset,
   lockHeld,
   type Options,
+  relativePaths,
   reportJson,
   runReport,
   tagged,
@@ -61,86 +62,16 @@ import {
   UnreadableRecord,
 } from "./store";
 import { trialSettingsOf } from "./trial-settings";
+import { commandUsage, fullUsage, refuseForeignFlags, refuseNotCommand } from "./usage";
 import type { CaseWorkspace } from "./workspace";
 
-export const CASES_USAGE = `usage: awf-lab [--config {file}] {command} …
-
-  case new {dataset}/{case}   a case folder and its key's marker; the first time, also
-                              awf-lab.json, the dataset's dataset.json and a stub env.ts
-  run [--dataset {name}] [--cases {a,b}] [--tags {a,b}] [--failed] [--dry-run] [--budget {usd}] [--trials {n}] [--against {folder}]
-      [--param {name}={value}] [--vary {name}={a,b}] [--fresh] [--yes]
-                              the workflow, as it is in your checkout, on each case, each trial
-                              in a throwaway folder, graded against its key
-  report [{run}] [--case {name}] [--json | --md]
-                              the last run again, or the run named by its id or last 4 characters
-  score [{run}] [--grader {name} | --judge {harness}/{model} [--voters {n}]] [--tags {a,b}] [--yes] [--dry-run] [--budget {usd}] [--json]
-                              grade the last run, or the one named, again without running a trial: each
-                              grader whose key or version changed, or that errored
-  capture {run id} (--good | --needs-work {note}) [--dataset {name}]
-                              a case from a past run: a trial's, from its case, or a real one,
-                              through the dataset's capture.ts; its key a draft to finish
-  label {run id} (--good | --needs-work {note} | --clear)
-                              the person's verdict on a trial, by its workflow run's id (report
-                              --case shows them); the report gives the lab's agreement with it
-  loop {name} --budget {usd} [--program {file}] [--proposer {harness/model}] [--rounds {n}]
-       [--trials {n}] [--cases {a,b}] [--param …] [--allowance {pct|off}] [--dataset {name}]
-                              a proposer changes a copy of the code from the tuning cases'
-                              feedback, the copy runs against the incumbent case by case until
-                              the dataset's compare stops it, and it is kept only when better; the
-                              first run names its program and starts from your checkout; again,
-                              it resumes
-  loop {name} --final [--budget {usd}]
-                              the kept code against the start on the held-out cases, once
-  loop {name} --patch         the kept code against the start, as a patch
-  runs                        the runs kept, newest first
-
-  --dataset {name}  the dataset: a folder beside awf-lab.json holding a dataset.json; with one,
-                    never named
-  --cases {a,b}     only these cases
-  --failed          only the cases whose newest verdict was failed, flaky or unclear, each with
-                    that run's trials unless --trials says
-  --trials {n}      trials a case; 1 unless told
-  --against {folder}
-                    also run the cases on the code in another checkout of the project, as a
-                    column beside yours; repeatable. Its env.ts and code run; its cases, keys
-                    and graders are never read
-  --fresh           run every trial anew; without it, a trial kept from an earlier run stands in
-                    when nothing that shaped it changed (the code, env.ts, the parameters, the
-                    case, the trial settings), within the dataset's reuseDays, 14 by default
-  --tags {a,b}      only the cases whose key lists one of these tags; on run and score
-  --holdout         run the cases dataset.json holds out, alone: every other command leaves them
-                    out, so a final check runs once on cases nothing was tuned on
-  --param {name}={value}
-                    a parameter for every trial, which env.ts reads as c.params; repeatable
-  --vary {name}={a,b}
-                    a column for each value, each folder; repeatable, every combination run.
-                    The reference column is your checkout under each --vary's first value: the
-                    exit code, history and --failed are its
-  --yes             no question before a run or a score
-  --grader {name}   score with this grader alone, one marked onDemand included
-  --judge {harness}/{model}
-                    score's criteria again with another judge, repeatable, beside the one that
-                    decides: the report gives each judge's agreement with your labels and its
-                    cost, and only judgeAgent's grades are in the verdict
-  --voters {n}      the --judge's voters per criterion, odd; 3 by default
-  --dry-run         print the plan of run or score, and run or grade nothing
-  --budget {usd}    run stops starting trials, and score before a grader workflow, once their
-                    estimates reach it: exit 3
-  --program {file}  a loop's steering, the operator's, read by its proposer each try
-  --proposer {harness/model}
-                    the loop's proposer; claude/claude-sonnet-5-5 unless told
-  --rounds {n}      the loop's tries this time; 1 unless told
-  --allowance {pct|off}
-                    a loop waits while a plan window its agents draw on is this far used; 90
-                    unless told
-  --json            the report, or score's plan and report, as JSON
-  --md              the report as Markdown, to paste into a pull request or an issue
-
-exit: 0 every case that must pass passed, 1 a case that must pass failed, 2 refused before any
-trial, 3 a case flaky or unclear, a partial run, or nothing graded, 4 the lab broke, 5 a trial
-errored by the dataset or by grading, or leaked`;
-
-function parse(argv: readonly string[]): { command?: string; names: string[]; options: Options } {
+function parse(argv: readonly string[]): {
+  command?: string;
+  names: string[];
+  options: Options;
+  /** The flags given, each once, as written; `-h` as `--help`. */
+  flags: string[];
+} {
   const options: Options = {
     failed: false,
     yes: false,
@@ -160,6 +91,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     patch: false,
   };
   const positional: string[] = [];
+  const flags = new Set<string>();
   const rest = [...argv];
   const value = (flag: string) => {
     const next = rest.shift();
@@ -168,6 +100,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
   };
   while (rest.length > 0) {
     const arg = rest.shift()!;
+    if (arg.startsWith("-")) flags.add(arg === "-h" ? "--help" : arg);
     switch (arg) {
       case "--config":
         options.config = value(arg);
@@ -295,7 +228,7 @@ function parse(argv: readonly string[]): { command?: string; names: string[]; op
     }
   }
   const [command, ...names] = positional;
-  return { ...(command ? { command } : {}), names, options };
+  return { ...(command ? { command } : {}), names, options, flags: [...flags] };
 }
 
 /** The case kind's command line: `case new`, `run`, `report` and `runs`. */
@@ -306,14 +239,20 @@ export async function runCases(
   const stdout = environment.stdout ?? ((text) => console.log(text));
   const stderr = environment.stderr ?? ((text) => void process.stderr.write(`${text}\n`));
   try {
-    const { command, names, options } = parse(argv);
-    if (options.help || !command) {
-      stdout(CASES_USAGE);
+    const { command, names, options, flags } = parse(argv);
+    if (!command) {
+      stdout(fullUsage());
       return options.help ? 0 : 2;
     }
-    if (options.allowance !== undefined && command !== "loop") {
-      throw new Refusal("--allowance is the loop's: loop {name} --allowance {percent}");
+    refuseNotCommand(command);
+    refuseRetiredCommand(command);
+    if (options.help) {
+      const own = commandUsage(command);
+      if (!own) throw new Refusal(`unknown command ${command}; awf-lab --help lists them`);
+      stdout(own);
+      return 0;
     }
+    refuseForeignFlags(command, flags);
     const context: Context = {
       cwd: environment.cwd ?? process.cwd(),
       home: environment.home ?? homedir(),
@@ -340,12 +279,11 @@ export async function runCases(
       case "loop":
         return await loopCommand(context, names);
       default:
-        refuseRetiredCommand(command);
-        throw new Refusal(`unknown command ${command}`);
+        throw new Refusal(`unknown command ${command}; awf-lab --help lists them`);
     }
   } catch (error) {
     if (error instanceof Refusal) {
-      stderr(`awf-lab: ${error.message}`);
+      stderr(`awf-lab: ${relativePaths(environment.cwd ?? process.cwd(), error.message)}`);
       return 2;
     }
     stderr(`awf-lab: ${(error as Error).message}`);
@@ -355,8 +293,15 @@ export async function runCases(
 
 function caseCommand(context: Context, names: readonly string[]): number {
   const [verb, address, ...extra] = names;
-  if (verb !== "new" || !address || extra.length > 0)
-    throw new Refusal("awf-lab case new {dataset}/{case}");
+  if (verb !== "new") {
+    throw new Refusal(`case takes new${verb ? `, not ${verb}` : ""}: case new {dataset}/{case}`);
+  }
+  if (!address) throw new Refusal("case new needs a {dataset}/{case}");
+  if (extra.length > 0) {
+    throw new Refusal(
+      `case new takes one {dataset}/{case}; got ${extra.length + 1} words: ${[address, ...extra].join(" ")}`,
+    );
+  }
   const config = findConfigFile(context.cwd, context.options.config);
   const evals = config ? join(config, "..") : join(gitTop(context.cwd) ?? context.cwd, "evals");
   const made = newCase(evals, address);
@@ -365,9 +310,14 @@ function caseCommand(context: Context, names: readonly string[]): number {
   return 0;
 }
 
+/** A trial's id, its workflow run's: `20261119T054028Z-c13b6e75`. */
+const TRIAL_ID = /^[0-9]{8}T[0-9]{6}Z-[0-9a-f]+$/;
+
 /** The run named, by its id or the last four characters of it, or the newest. */
-function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: string): RunRecord {
-  if (names.length > 1) throw new Refusal(usage);
+function chooseRun(workspace: CaseWorkspace, names: readonly string[], command: string): RunRecord {
+  if (names.length > 1) {
+    throw new Refusal(`${command} takes one run; got ${names.length}: ${names.join(" ")}`);
+  }
   const ids = runIds(workspace.store);
   const given = names[0];
   if (given === undefined) {
@@ -386,9 +336,14 @@ function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: st
     }
     return readRunOrRefuse(workspace, newest);
   }
+  if (TRIAL_ID.test(given)) {
+    throw new Refusal(
+      `${given} is a trial's id: ${command} takes a run from awf-lab runs; label and capture take trial ids`,
+    );
+  }
   if (!RUN_ID.test(given) && !/^[0-9a-f]{4}$/.test(given)) {
     throw new Refusal(
-      `${usage}\n  a run is its id, such as 20261117-142233-a3f9, or its last four characters`,
+      `${given} is no run: a run is its id, such as 20261117-142233-a3f9, or its last four characters; awf-lab runs lists them`,
     );
   }
   const found = ids.filter((id) => id === given || id.endsWith(`-${given}`));
@@ -400,6 +355,18 @@ function chooseRun(workspace: CaseWorkspace, names: readonly string[], usage: st
     );
   }
   return readRunOrRefuse(workspace, found[0]!);
+}
+
+/** Refuses a lab run's id given where a trial's is wanted, naming where trial ids are listed. */
+function refuseLabRun(workspace: CaseWorkspace, given: string, command: string): void {
+  const run =
+    RUN_ID.test(given) ||
+    (/^[0-9a-f]{4}$/.test(given) && runIds(workspace.store).some((id) => id.endsWith(`-${given}`)));
+  if (run) {
+    throw new Refusal(
+      `${given} is a lab run: ${command} takes a trial's id, which report --case {case} lists`,
+    );
+  }
 }
 
 function readRunOrRefuse(workspace: CaseWorkspace, id: string): RunRecord {
@@ -434,7 +401,13 @@ function staleGrades(
 
 async function report(context: Context, names: readonly string[]): Promise<number> {
   const workspace = workspaceOf(context);
-  const run = chooseRun(workspace, names, "awf-lab report [{run}] [--case {name}] [--json]");
+  if (context.options.json && context.options.md) {
+    throw new Refusal("report takes --json or --md, not both");
+  }
+  if (context.options.case && context.options.md) {
+    throw new Refusal("report --case prints one case as text or --json; --md is the whole run's");
+  }
+  const run = chooseRun(workspace, names, "report");
   let info: DatasetInfo | undefined;
   let cases: CaseInfo[] = [];
   try {
@@ -476,7 +449,11 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
   const { rows, others, verdicts, exit } = report;
   if (context.options.case) {
     const row = rows.find((r) => r.name === context.options.case);
-    if (!row) throw new Refusal(`run ${run.id} has no case ${context.options.case}`);
+    if (!row) {
+      throw new Refusal(
+        `run ${run.id} has no case ${context.options.case}; its cases: ${rows.map((r) => r.name).join(", ")}`,
+      );
+    }
     const own = trials.filter((t) => t.record.case === row.name);
     const runRoot = awfRunsOf(workspace.store);
     if (context.options.json) {
@@ -537,11 +514,7 @@ async function report(context: Context, names: readonly string[]): Promise<numbe
 async function score(context: Context, names: readonly string[]): Promise<number> {
   const { options, environment, stderr } = context;
   const workspace = workspaceOf(context);
-  const run = chooseRun(
-    workspace,
-    names,
-    "awf-lab score [{run}] [--grader {name}] [--yes] [--dry-run] [--budget {usd}] [--json]",
-  );
+  const run = chooseRun(workspace, names, "score");
   const { info, cases } = loadDataset(workspace, run.dataset, "all");
   const now = environment.now ?? (() => new Date());
   let inspected: Promise<FolderSetup> | undefined;
@@ -724,16 +697,27 @@ async function score(context: Context, names: readonly string[]): Promise<number
  */
 async function captureCommand(context: Context, names: readonly string[]): Promise<number> {
   const { options } = context;
-  const usage = 'awf-lab capture {run id} (--good | --needs-work "{note}") [--dataset {name}]';
   const [runId, ...extra] = names;
-  if (!runId || extra.length > 0) throw new Refusal(usage);
+  if (!runId) {
+    throw new Refusal(
+      "capture needs a trial's id, which report --case {case} lists, or a real run's awf run id",
+    );
+  }
+  if (extra.length > 0) {
+    throw new Refusal(`capture takes one id; got ${names.length}: ${names.join(" ")}`);
+  }
   if (options.good === (options.needsWork !== undefined)) {
-    throw new Refusal(`say how the run went, --good or --needs-work "{note}": ${usage}`);
+    throw new Refusal(
+      options.good
+        ? 'capture takes --good or --needs-work "{note}", not both'
+        : 'capture needs --good or --needs-work "{note}": how the run went',
+    );
   }
   const mark: Mark = options.good
     ? { mark: "good" }
     : { mark: "needs-work", note: options.needsWork! };
   const workspace = workspaceOf(context);
+  refuseLabRun(workspace, runId, "capture");
   const { info } = loadDataset(workspace, options.dataset);
   const lock = takeLock(workspace.labHome);
   if ("heldBy" in lock) throw new Refusal(lockHeld(workspace, lock.heldBy));
@@ -760,7 +744,7 @@ async function captureLocked(
   if (trial) {
     if (trial.record.dataset !== info.name) {
       throw new Refusal(
-        `run ${runId} is a trial of dataset ${trial.record.dataset}: --dataset ${trial.record.dataset}`,
+        `trial ${runId} is of dataset ${trial.record.dataset}: --dataset ${trial.record.dataset}`,
       );
     }
     const source = join(info.dir, "cases", trial.record.case);
@@ -798,7 +782,7 @@ async function captureLocked(
   );
   if (!found) {
     throw new Refusal(
-      `no run ${runId}: neither a trial in ${workspace.store} nor a run in ${join(workspace.root, ".awf/runs")}`,
+      `no trial or run ${runId}: neither a trial in ${workspace.store} nor a run in ${join(workspace.root, ".awf/runs")}`,
     );
   }
   const file = join(info.dir, CAPTURE_FILE);
@@ -863,15 +847,25 @@ function folderDigestOfCase(info: DatasetInfo, name: string, under: string): str
  */
 function label(context: Context, names: readonly string[]): number {
   const { options } = context;
-  const usage = 'awf-lab label {run id} (--good | --needs-work "{note}" | --clear)';
   const given = [options.good, options.needsWork !== undefined, options.clear].filter(Boolean);
-  if (names.length !== 1 || given.length !== 1) throw new Refusal(usage);
+  if (names.length === 0) {
+    throw new Refusal("label needs a trial's id, which report --case {case} lists");
+  }
+  if (names.length > 1) {
+    throw new Refusal(`label takes one trial's id; got ${names.length}: ${names.join(" ")}`);
+  }
+  if (given.length !== 1) {
+    throw new Refusal(
+      `label ${given.length === 0 ? "needs" : "takes one of"} --good, --needs-work "{note}" or --clear`,
+    );
+  }
   const workspace = workspaceOf(context);
   const runId = names[0]!;
+  refuseLabRun(workspace, runId, "label");
   const trial = findTrial(workspace.store, runId);
   if (!trial) {
     throw new Refusal(
-      `no trial ran as ${runId} in ${workspace.store}; awf-lab report --case {name} shows each trial's run id`,
+      `no trial ${runId} in ${workspace.store}; awf-lab report --case {case} lists each trial's id`,
     );
   }
   const mark = options.good ? "good" : options.clear ? "cleared" : "needs-work";
