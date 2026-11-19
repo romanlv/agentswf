@@ -35,7 +35,7 @@ type Command = {
 
 const EXIT_VERDICT = Object.entries(EXITS)
   .map(([code, meaning]) => `${code} ${meaning}`)
-  .join(", ");
+  .join("; ");
 const EXIT_PLAIN = "0 done, 2 refused, 4 the lab broke";
 const EXIT_LOOP =
   "0 done, 1 nothing kept to patch or check, 2 refused, 3 stopped at --budget, 4 the lab broke";

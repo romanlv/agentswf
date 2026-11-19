@@ -16,7 +16,6 @@ import {
 } from "./box";
 import {
   type Context,
-  columnVerdicts,
   countedGraders,
   envOf,
   externalsOf,
@@ -44,6 +43,7 @@ import { readLoopRecords, writeLoopRecords } from "./loop-records";
 import { newestEntries, trialOutcome, trialSpend } from "./outcome";
 import { Refusal } from "./refusal";
 import { type RunGiven, run } from "./run-command";
+import { columnVerdicts } from "./run-report";
 import { barsOf, type CaseBar } from "./runs";
 import { awfRunsOf, newRunId, readRunRecord, readTrials, runSpan, type StoredTrial } from "./store";
 import { type CaseWorkspace, inside } from "./workspace";

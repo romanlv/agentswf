@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { checkSchema, describeProblems } from "../../shared/validate";
+import { checkSchema, describeProblems, explainProblems } from "../../shared/validate";
 import { type GraderEntry, GraderEntrySchema } from "../format/records";
 
 /** What a grader returns: its entry's verdict, numbers, reasons, parts and notApplies. */
@@ -23,8 +23,16 @@ export type Answer = Pick<GraderEntry, "verdict" | "numbers" | "parts" | "notApp
  * naming the grader, otherwise.
  */
 export function checkAnswer(name: string, raw: unknown): Answer {
-  const checked = checkSchema(AnswerSchema, raw ?? {});
-  if (!checked.ok) throw new Error(describeProblems(`grader ${name}'s answer`, checked.problems));
+  const value = raw ?? {};
+  const checked = checkSchema(AnswerSchema, value);
+  if (!checked.ok) {
+    const problems = explainProblems(checked.problems, {
+      schema: AnswerSchema,
+      value,
+      noun: "an answer",
+    });
+    throw new Error(describeProblems(`grader ${name}'s answer`, problems));
+  }
   const grade = checked.value;
   const judged = grade.verdict !== undefined || grade.numbers !== undefined;
   if (!judged && grade.notApplies === undefined) {

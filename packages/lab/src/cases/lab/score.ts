@@ -99,7 +99,7 @@ export function regradePlan(args: {
         changed.push(trial);
         continue;
       }
-      const deciders = decidersOf(info.key, chosen);
+      const deciders = decidersOf(info.key, args.graders);
       const newest = new Map(newestEntries(trial.scores).map((e) => [entryName(e), e]));
       const expect =
         expectAgain &&

@@ -18,7 +18,7 @@ the grade helper, grader workflows through `workflow-graders.ts` and a grade fol
 in one table in `usage.ts` and `verdict.ts`, `run` in `run-command.ts`, `report` in
 `report-command.ts`, `score` in `score-command.ts`, `capture` and `label` in
 `capture-command.ts`, `runs` in `runs-command.ts`, what the commands share in
-`command-context.ts`, and how they write counts, money and time in `text.ts`; the loop in
+`command-context.ts`, the report a run ends with in `run-report.ts`, and how they write counts, money and time in `text.ts`; the loop in
 `loop.ts` and `loop-command.ts`, its code copies in `loop-code.ts`, its records in
 `loop-records.ts`; and `retired.ts`, the older lab's commands and flags refused with what replaced
 them). It names no word of one workflow's domain (`mail`, `review`, `finding`); the boundary

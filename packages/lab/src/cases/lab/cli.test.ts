@@ -1277,6 +1277,24 @@ describe("grader workflows and score", () => {
     expect(fake.graded[0]!.input.scratch).toBeNull();
   });
 
+  test("score --grader names a grader workflow, and a trial a cheap grader fails still skips it", async () => {
+    const where = project({ a: {} }, { graders: ["strict", { workflow: "graders/judge.ts" }] });
+    writeFileSync(
+      join(where.ds, "graders.ts"),
+      `export const strict = { kind: "awf.case-grader/0", readsFacts: false,
+        grade: () => ({ verdict: "failed", reasons: [{ about: "ok", text: "strict wants more" }] }) };`,
+    );
+    graderWorkflow(where, "judge");
+    const fake = scripted({}, judged("passed"));
+    expect((await lab(where, ["run", "--yes"], { runner: fake.runner })).code).toBe(1);
+    expect(fake.graded).toHaveLength(0);
+    const named = await lab(where, ["score", "--grader", "judge", "--yes"], {
+      runner: fake.runner,
+    });
+    expect(named.err).toMatch(/nothing in run \S+ to grade again/);
+    expect(fake.graded).toHaveLength(0);
+  });
+
   test("score never runs env.ts, grades again on a key edit with previous.json, on a minor bump without it, never on a patch", async () => {
     const where = project(
       { a: keyWith("expect:\n  ok: true\n") },

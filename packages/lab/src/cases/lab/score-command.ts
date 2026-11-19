@@ -10,7 +10,6 @@ import {
   envOf,
   externalsOf,
   loadDataset,
-  runReport,
   tagged,
   tmpOf,
   withLock,
@@ -22,6 +21,7 @@ import type { LabGrader } from "./grading";
 import { checkEnvFile } from "./inspect";
 import { writeRecords } from "./record-copies";
 import { Refusal } from "./refusal";
+import { runReport } from "./run-report";
 import { barsOf, criteriaCount } from "./runs";
 import { describePlan, regradePlan, runScore, type ScoreDone } from "./score";
 import { awfRunsOf, readTrials } from "./store";

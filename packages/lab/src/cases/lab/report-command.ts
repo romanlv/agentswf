@@ -4,8 +4,6 @@ import {
   chooseRun,
   countedGraders,
   loadDataset,
-  reportJson,
-  runReport,
   tmpOf,
   workspaceOf,
 } from "./command-context";
@@ -14,6 +12,7 @@ import type { LabGrader } from "./grading";
 import { readLabels } from "./labels";
 import { Refusal } from "./refusal";
 import { markdownOf, renderCase } from "./report";
+import { reportJson, runReport } from "./run-report";
 import { barsOf, criteriaCount } from "./runs";
 import { regradePlan } from "./score";
 import { awfRunsOf, readTrials, type StoredTrial } from "./store";

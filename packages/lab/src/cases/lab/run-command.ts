@@ -11,7 +11,6 @@ import {
   envOf,
   externalsOf,
   loadDataset,
-  runReport,
   shownPath,
   tagged,
   tmpOf,
@@ -35,6 +34,7 @@ import {
   reuseTrial,
   trialShaping,
 } from "./reuse";
+import { runReport } from "./run-report";
 import { barsOf, type CaseBar, criteriaCount, failedCases } from "./runs";
 import { regradePlan, runScore, type ScoreDone, type ScorePlan } from "./score";
 import {
