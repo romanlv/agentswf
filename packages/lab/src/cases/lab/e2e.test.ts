@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -181,11 +182,18 @@ test("a tiny dataset runs on the folder's own awf, and its runs read back from t
   expect(logs.text).toContain(right.runId!);
 }, 180_000);
 
-const dockerUp =
-  Bun.spawnSync(["docker", "info"], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+const docker = (...args: string[]) =>
+  Bun.spawnSync(["docker", ...args], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+// The sandbox's default image, tagged by a hash of its Dockerfile as the provider tags it: a box
+// opens only where it is built, and CI's runners have docker without it.
+const image = `awf-agent:${new Bun.CryptoHasher("sha256")
+  .update(readFileSync(join(PACKAGE, "../sandbox/docker/Dockerfile")))
+  .digest("hex")
+  .slice(0, 12)}`;
+const dockerUp = docker("info") && docker("image", "inspect", image);
 
 // Docker is the one sandbox provider that opens without a login or an install beyond itself; srt
-// needs its own binary. Where neither runs, this test is skipped and says so.
+// needs its own binary. Where neither runs, or the image isn't built, this test is skipped.
 test.skipIf(!dockerUp)(
   "a workflow dataset runs a workflow that opens its own sandbox, and the reach check passes on its records",
   async () => {

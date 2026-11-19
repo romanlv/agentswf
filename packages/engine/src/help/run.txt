@@ -37,7 +37,7 @@ such as {"read": ["/data/request.md"], "srt": {}}, naming srt or docker, whose r
 from --cwd. A workflow that opens a sandbox of its own is refused.
 --boxed is for a caller that runs this whole process in a sandbox of its own, as awf-lab does a
 trial: the workflow's sandboxes are set aside, wf.sandboxes.open opens none, and every agent runs
-as it would with no sandbox, inside the caller's box; run.json, the record and awf runs say it was
+as it would with no sandbox, inside the caller's box; run.json and the run's record say it was
 boxed. It never goes with --sandbox or --continue.
 A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its
 panes; --no-watch leaves it out, and awf still prints the command that shows them.
