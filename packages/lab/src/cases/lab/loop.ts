@@ -4,17 +4,13 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
-  realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { checkSchema, describeProblems } from "../../shared/validate";
 import {
   FINAL_KIND,
@@ -33,7 +29,17 @@ import {
 } from "../format/loop";
 import { retiredRecord } from "../format/records";
 import type { CaseInfo } from "./dataset";
+import {
+  branchCode,
+  changedFiles,
+  changeOf,
+  commitTry,
+  copyStart,
+  outOfScope,
+  outsideGit,
+} from "./loop-code";
 import { Refusal } from "./refusal";
+import { usd } from "./report";
 import type { CaseWorkspace } from "./workspace";
 
 // The loop (story 044, task 12): a proposer changes a copy of the incumbent's code, the copy runs
@@ -46,9 +52,6 @@ export const CHANGE_FILE = "change.patch";
 /** How many tries in a row that kept nothing stop a loop's command: the stall a person should look at. */
 export const STALL = 3;
 
-/** A run of this many characters of a tuning key's text in changed code is copied, not written. */
-export const PASTE = 40;
-
 export function loopDirOf(store: string, name: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(name)) {
     throw new Refusal(`a loop is named with letters, digits, - and _, not ${name}`);
@@ -60,207 +63,6 @@ export function loopDirOf(store: string, name: string): string {
 export function seededOrder(name: string, cases: readonly string[]): string[] {
   const rank = (c: string) => createHash("sha256").update(`${name}\0${c}`).digest("hex");
   return [...cases].sort((a, b) => (rank(a) < rank(b) ? -1 : 1));
-}
-
-function git(dir: string, args: readonly string[]): string {
-  const run = Bun.spawnSync(
-    ["git", "-c", "user.name=awf-lab", "-c", "user.email=awf-lab@localhost", "-C", dir, ...args],
-    { stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-  );
-  if (run.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} in ${dir}: ${run.stderr.toString().trim()}`);
-  }
-  return run.stdout.toString();
-}
-
-/**
- * The `node_modules` folders git ignores under `top`, linked into `code` at the same paths: a copy
- * runs on your install, as an `--against` worktree runs on its own.
- */
-function linkInstalls(top: string, code: string): void {
-  const listed = git(top, [
-    "ls-files",
-    "-z",
-    "--others",
-    "--ignored",
-    "--exclude-standard",
-    "--directory",
-  ]);
-  for (const path of listed.split("\0").filter(Boolean)) {
-    const clean = path.replace(/\/$/, "");
-    if (clean.split("/").at(-1) !== "node_modules") continue;
-    const target = join(code, clean);
-    if (existsSync(target)) continue;
-    mkdirSync(dirname(target), { recursive: true });
-    symlinkSync(realpathSync(join(top, clean)), target);
-  }
-  writeFileSync(join(code, ".git", "info", "exclude"), "node_modules\n");
-}
-
-/**
- * The start: what git would hold in your repository, less each dataset's cases, the records
- * folder and `hide`'s paths, copied into `code` and committed there, its installs linked.
- */
-export function copyStart(
-  top: string,
-  code: string,
-  workspace: CaseWorkspace,
-  // A checkout of the same repository to copy from, such as a worktree at the loop's start commit.
-  source = top,
-): void {
-  const listed = git(source, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
-  const evals = relative(top, workspace.evals);
-  const records = workspace.records ? relative(top, workspace.records) : undefined;
-  // `hide`'s paths hold what the box hides as it does keys: a copy never has them.
-  const hidden = (workspace.hide ?? []).map((h) => join(relative(top, workspace.root), h));
-  const under = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
-  const left = (path: string) =>
-    hidden.some((dir) => under(path, dir)) ||
-    (records !== undefined && (path === records || path.startsWith(`${records}/`))) ||
-    (path.startsWith(`${evals}/`) && path.slice(evals.length + 1).split("/")[1] === "cases");
-  mkdirSync(code, { recursive: true });
-  for (const path of new Set(listed.split("\0").filter(Boolean))) {
-    if (left(path)) continue;
-    const from = join(source, path);
-    let stat: ReturnType<typeof lstatSync>;
-    try {
-      stat = lstatSync(from);
-    } catch {
-      continue; // deleted in the working tree
-    }
-    const to = join(code, path);
-    mkdirSync(dirname(to), { recursive: true });
-    if (stat.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
-    else if (stat.isFile()) copyFileSync(from, to);
-  }
-  git(code, ["init", "-q"]);
-  linkInstalls(top, code);
-  git(code, ["add", "-A"]);
-  git(code, ["commit", "-q", "--allow-empty", "-m", "the start"]);
-}
-
-/** A try's code: a clone of its parent's, its installs linked as the start's. */
-export function branchCode(parent: string, code: string, top: string): void {
-  mkdirSync(dirname(code), { recursive: true });
-  // Git's objects never change once written: the clone links them rather than copying.
-  const run = Bun.spawnSync(["git", "clone", "-q", parent, code], {
-    stdout: "ignore",
-    stderr: "pipe",
-  });
-  if (run.exitCode !== 0) throw new Error(`git clone ${parent}: ${run.stderr.toString().trim()}`);
-  git(code, ["remote", "remove", "origin"]);
-  linkInstalls(top, code);
-}
-
-/**
- * What git doesn't see in a try's copy, which the scope check can't read: anything but the
- * installs linked as your checkout's. A try that writes code there, or replaces an install's link,
- * is refused.
- */
-export function outsideGit(code: string, top: string): string[] {
-  const listed = git(code, [
-    "ls-files",
-    "-z",
-    "--others",
-    "--ignored",
-    "--exclude-standard",
-    "--directory",
-  ]);
-  const problems: string[] = [];
-  for (const path of listed.split("\0").filter(Boolean)) {
-    const clean = path.replace(/\/$/, "");
-    const at = join(code, clean);
-    const linked =
-      clean.split("/").at(-1) === "node_modules" &&
-      lstatSync(at).isSymbolicLink() &&
-      existsSync(join(top, clean)) &&
-      realpathSync(at) === realpathSync(join(top, clean));
-    if (!linked) problems.push(`${clean}: outside git, so the scope check can't read it`);
-  }
-  return problems;
-}
-
-/** The paths a try changed, added, edited or deleted: its commit against its parent's. */
-export function changedFiles(code: string): string[] {
-  const listed = git(code, ["diff", "--name-only", "--no-renames", "-z", "HEAD~1", "HEAD"]);
-  return [...new Set(listed.split("\0").filter(Boolean))].sort();
-}
-
-/** What a try may not have done, from its changed files: nothing when it is in scope. */
-export function outOfScope(
-  code: string,
-  changed: readonly string[],
-  evals: string,
-  tuning: readonly CaseInfo[],
-): string[] {
-  if (changed.length === 0) return ["it changed nothing"];
-  const problems: string[] = [];
-  for (const path of changed) {
-    if (path === evals || path.startsWith(`${evals}/`)) problems.push(`${path}: under ${evals}/`);
-    if (path.split("/").includes("node_modules")) problems.push(`${path}: an install`);
-  }
-  const texts = tuning.flatMap((c) => keyTexts(c));
-  const markers = tuning.map((c) => c.key.marker);
-  for (const path of changed) {
-    const file = join(code, path);
-    if (!existsSync(file) || !lstatSync(file).isFile()) continue;
-    const content = readFileSync(file, "utf8");
-    for (const marker of markers) {
-      if (content.includes(marker)) problems.push(`${path}: holds a tuning key's marker`);
-    }
-    const flat = content.replace(/\s+/g, " ").toLowerCase();
-    const copied = texts.find((text) => {
-      for (let at = 0; at + PASTE <= text.length; at += PASTE / 4) {
-        if (flat.includes(text.slice(at, at + PASTE))) return true;
-      }
-      return false;
-    });
-    if (copied) problems.push(`${path}: copies a tuning key's words`);
-  }
-  return problems;
-}
-
-/** A key's own words, flattened: its note, criteria, expected strings and its `key/` files. */
-function keyTexts(info: CaseInfo): string[] {
-  const { key } = info;
-  const values = Object.values(key.expect ?? {}).filter((v): v is string => typeof v === "string");
-  return [info.note, ...(key.must ?? []), ...(key["must-not"] ?? []), ...values]
-    .concat(info.keyFiles.map((f) => Buffer.from(f.bytes).toString("utf8")))
-    .map((text) => text.replace(/\s+/g, " ").toLowerCase())
-    .filter((text) => text.length >= PASTE);
-}
-
-/** The proposer's change, committed as the try, whatever it is: the scope check reads it. */
-export function commitTry(code: string, n: number): void {
-  git(code, ["add", "-A"]);
-  git(code, ["commit", "-q", "--allow-empty", "-m", `try ${n}`]);
-}
-
-/** A try's own change, against its parent's code: what the records keep to build it again. */
-export function changeOf(code: string): string {
-  return git(code, ["diff", "--no-color", "--binary", "HEAD~1", "HEAD"]);
-}
-
-/** Builds a try's code again from its parent's and its change, as the records keep it. */
-export function rebuildTry(parent: string, code: string, change: string, top: string, n: number) {
-  branchCode(parent, code, top);
-  if (change.trim() !== "") {
-    const run = Bun.spawnSync(["git", "-C", code, "apply", "--binary", "-"], {
-      stdin: new TextEncoder().encode(change),
-      stdout: "ignore",
-      stderr: "pipe",
-    });
-    if (run.exitCode !== 0) {
-      throw new Error(`try ${n}'s change doesn't apply: ${run.stderr.toString().trim()}`);
-    }
-  }
-  commitTry(code, n);
-}
-
-/** The kept code against the start, as a patch. */
-export function patchOf(code: string): string {
-  const root = git(code, ["rev-list", "--max-parents=0", "HEAD"]).trim().split("\n")[0]!;
-  return git(code, ["diff", "--no-color", root, "HEAD"]);
 }
 
 const writeJson = (file: string, value: unknown, flag = "w") =>
@@ -316,7 +118,7 @@ export type TryRun = {
   spend: number;
 };
 
-/** What the loop is given to run trials and its proposer: `cli.ts` binds these to `run`. */
+/** What the loop is given to run trials and its proposer: `loop-command.ts` binds these to `run`. */
 export type LoopDeps = {
   /** The cases in `order` on these folders, the reference first, under a cap; `stop` per case. */
   runFolders(args: {
@@ -356,8 +158,6 @@ export type LoopRequest = {
   /** The tuning cases, every one the dataset doesn't hold out. */
   tuning: readonly CaseInfo[];
   holdout: readonly string[];
-  /** Only the first `cases` of the seeded order, when given. */
-  cases?: number;
   trials: number;
   /** `--param`s, as `name=value`. */
   params: readonly string[];
@@ -374,11 +174,10 @@ export type LoopOutcome = { exit: 0 | 1 | 3; why: string };
 function startOrResume(request: LoopRequest, deps: LoopDeps): Loop {
   const { dir } = request;
   const loop = readLoop(dir);
-  const order = seededOrder(
+  const tuning = seededOrder(
     request.name,
     request.tuning.map((c) => c.name),
   );
-  const tuning = request.cases ? order.slice(0, request.cases) : order;
   if (loop) {
     const now = {
       dataset: request.dataset,
@@ -491,8 +290,6 @@ function tryLedger(tryDir: string, deps: LoopDeps) {
 const digestOf = (bytes: Uint8Array) =>
   `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
-const usd = (n: number) => `$${n.toFixed(2)}`;
-
 /**
  * Tries until the rounds, the cap or a stall. Each try: the incumbent runs on the tuning cases (its
  * trials reused where nothing changed), the proposer changes a copy of it from that feedback, the
@@ -513,16 +310,8 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     exit: 3,
     why: `the cap of ${usd(cap)} is spent${what}: a larger --budget resumes it`,
   });
-  // A stall stops this command, not the loop: run it again, after a look, and it goes on.
-  const before = tries.length;
-  for (let round = 0; round < request.rounds; round++) {
-    const recent = tries.slice(before).slice(-STALL);
-    if (recent.length === STALL && recent.every((t) => t.decision !== "kept")) {
-      return {
-        exit: 0,
-        why: `${STALL} tries in a row kept nothing: look at them before spending more; run the loop again to go on`,
-      };
-    }
+  /** One try, decided; or why the loop stops before it is. */
+  const oneTry = async (): Promise<LoopOutcome | undefined> => {
     const n = tries.length + 1;
     const parent = incumbentOf(tries);
     const tryDir = join(dir, "tries", String(n));
@@ -603,7 +392,7 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
           why: answer.why ?? "the proposer gave no hypothesis",
           changed: [],
         });
-        continue;
+        return undefined;
       }
       commitTry(code, n);
       writeFileSync(join(tryDir, CHANGE_FILE), changeOf(code));
@@ -624,7 +413,7 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
     ];
     if (problems.length > 0) {
       decide({ decision: "refused", why: problems.join("; "), hypothesis, changed });
-      continue;
+      return undefined;
     }
     if (left() <= 0) return capped(` by try ${n}'s proposer`);
     await deps.waitForAllowance();
@@ -649,6 +438,20 @@ export async function runLoop(request: LoopRequest, deps: LoopDeps): Promise<Loo
       runId: ran.runId,
       verdict: verdict?.verdict ?? null,
     });
+    return undefined;
+  };
+  // A stall stops this command, not the loop: run it again, after a look, and it goes on.
+  const before = tries.length;
+  for (let round = 0; round < request.rounds; round++) {
+    const stopped = await oneTry();
+    if (stopped) return stopped;
+    const recent = tries.slice(before).slice(-STALL);
+    if (recent.length === STALL && recent.every((t) => t.decision !== "kept")) {
+      return {
+        exit: 0,
+        why: `${STALL} tries in a row kept nothing: look at them before spending more; run the loop again to go on`,
+      };
+    }
   }
   return { exit: 0, why: `${request.rounds} round${request.rounds === 1 ? "" : "s"} run` };
 }

@@ -19,7 +19,8 @@ import { type GradeCase, gradeCase } from "../env/grade-case";
 import { parseKey } from "../format/key";
 import { TRIAL_ENV } from "../format/trial-env";
 import type { TrialLine } from "../format/trial-file";
-import { type CasesEnvironment, runCases } from "./cli";
+import { runCases } from "./cli";
+import type { CasesEnvironment } from "./command-context";
 import type { LabGrader } from "./grading";
 import { type FolderSetup, inspectFolder, MIN_AGENTSWF } from "./inspect";
 import { PROPOSER } from "./loop-command";
@@ -3207,13 +3208,21 @@ describe("the loop: a proposer's copy kept only when better", () => {
   test("stops at the cap with exit 3; three tries that kept nothing stop the command, and a run again goes on", async () => {
     const { where, program } = loopProject(1);
     const stalled = loopRunner(["fail", "fail", "fail", 2]);
+    // Said as the third is decided, whatever --rounds asked for.
     const third = await loop(
       where,
-      ["l", "--budget", "5", "--program", program, "--rounds", "4"],
+      ["l", "--budget", "5", "--program", program, "--rounds", "3"],
       stalled.runner,
     );
     expect(third.out).toContain("3 tries in a row kept nothing");
-    expect(third.err).not.toContain("try 4");
+    const more = loopProject(1);
+    const asked = await loop(
+      more.where,
+      ["l", "--budget", "5", "--program", more.program, "--rounds", "5"],
+      loopRunner(["fail", "fail", "fail", 2]).runner,
+    );
+    expect(asked.out).toContain("3 tries in a row kept nothing");
+    expect(asked.err).not.toContain("try 4");
     const again = await loop(
       where,
       ["l", "--budget", "5", "--rounds", "1"],
@@ -3236,10 +3245,10 @@ describe("the loop: a proposer's copy kept only when better", () => {
     // Three tuning trials at $0.001 each: the cap is reached before the proposer would start.
     const capped = await loop(where, ["l", "--budget", "0.002", "--program", program], fake.runner);
     expect(capped.code).toBe(3);
-    expect(capped.out).toContain("the cap of $0.00 is spent by the incumbent's run");
+    expect(capped.out).toContain("the cap of $0.0020 is spent by the incumbent's run");
     expect(fake.shown).toHaveLength(0);
     const raised = await loop(where, ["l", "--budget", "5"], fake.runner);
-    expect(raised.err).toContain("loop l: the cap is now $5.00, was $0.00");
+    expect(raised.err).toContain("loop l: the cap is now $5.00, was $0.0020");
     expect(raised.err).toContain("try 1: kept");
     const decided = JSON.parse(
       readFileSync(join(storeOf(where), "loops/l/tries/1/try.json"), "utf8"),

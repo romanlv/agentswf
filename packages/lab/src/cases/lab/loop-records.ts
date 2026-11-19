@@ -1,14 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  CHANGE_FILE,
-  codeOf,
-  copyStart,
-  incumbentOf,
-  readLoop,
-  readTries,
-  rebuildTry,
-} from "./loop";
+import { git } from "./git";
+import { CHANGE_FILE, codeOf, incumbentOf, readLoop, readTries } from "./loop";
+import { copyStart, rebuildTry } from "./loop-code";
 import { Refusal } from "./refusal";
 import type { CaseWorkspace } from "./workspace";
 
@@ -105,6 +99,8 @@ function rebuildCode(dir: string, name: string, top: string, workspace: CaseWork
     }
     const checkout = `${codeOf(dir, 0)}.checkout`;
     rmSync(checkout, { recursive: true, force: true });
+    // A process cut here before left its checkout registered though gone, which `add` refuses.
+    git(top, ["worktree", "prune"]);
     git(top, ["worktree", "add", "--detach", "-q", checkout, loop.from.commit]);
     try {
       copyStart(top, codeOf(dir, 0), workspace, checkout);
@@ -120,16 +116,5 @@ function rebuildCode(dir: string, name: string, top: string, workspace: CaseWork
     if (existsSync(codeOf(dir, n))) continue;
     const change = readFileSync(join(dir, "tries", String(n), CHANGE_FILE), "utf8");
     rebuildTry(codeOf(dir, parentOf(n)), codeOf(dir, n), change, top, n);
-  }
-}
-
-function git(dir: string, args: readonly string[]): void {
-  const run = Bun.spawnSync(["git", "-C", dir, ...args], {
-    stdout: "ignore",
-    stderr: "pipe",
-    stdin: "ignore",
-  });
-  if (run.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} in ${dir}: ${run.stderr.toString().trim()}`);
   }
 }

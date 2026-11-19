@@ -11,8 +11,9 @@ export function checkVersion(version: string): string | undefined {
   return SEMVER.test(version) ? undefined : `version ${version} is not {major}.{minor}.{patch}`;
 }
 
-/** The `{major}.{minor}` results belong to. */
-export function seriesOf(version: string): string {
-  const [major, minor] = version.split(".");
-  return `${major}.${minor}`;
+/** The `{major}.{minor}` results belong to, so a patch bump keeps them. */
+export function minorOf(version: string): string;
+export function minorOf(version: string | undefined): string | undefined;
+export function minorOf(version: string | undefined): string | undefined {
+  return version?.split(".").slice(0, 2).join(".");
 }

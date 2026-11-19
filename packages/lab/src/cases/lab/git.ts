@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-function git(dir: string, args: readonly string[]): { ok: boolean; out: string } {
+function tryGit(dir: string, args: readonly string[]): { ok: boolean; out: string } {
   const run = Bun.spawnSync(["git", "-C", dir, ...args], {
     stdout: "pipe",
     stderr: "ignore",
@@ -9,9 +9,28 @@ function git(dir: string, args: readonly string[]): { ok: boolean; out: string }
   return { ok: run.exitCode === 0, out: run.stdout.toString() };
 }
 
+/**
+ * Git in `dir`, its stdout; throws with git's stderr when it fails. Commits are the lab's own, so
+ * they need no identity of the operator's.
+ */
+export function git(dir: string, args: readonly string[], stdin?: string): string {
+  const run = Bun.spawnSync(
+    ["git", "-c", "user.name=awf-lab", "-c", "user.email=awf-lab@localhost", "-C", dir, ...args],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+    },
+  );
+  if (run.exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} in ${dir}: ${run.stderr.toString().trim()}`);
+  }
+  return run.stdout.toString();
+}
+
 /** The top of the repository `dir` is in; undefined outside one. */
 export function gitTop(dir: string): string | undefined {
-  const { ok, out } = git(dir, ["rev-parse", "--show-toplevel"]);
+  const { ok, out } = tryGit(dir, ["rev-parse", "--show-toplevel"]);
   return ok ? out.trim() || undefined : undefined;
 }
 
@@ -21,8 +40,8 @@ export function gitTop(dir: string): string | undefined {
  * first commit.
  */
 export function projectOf(dir: string): { name: string; first: string } | undefined {
-  const roots = git(dir, ["rev-list", "--max-parents=0", "HEAD"]);
-  const common = git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const roots = tryGit(dir, ["rev-list", "--max-parents=0", "HEAD"]);
+  const common = tryGit(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (!roots.ok || !common.ok) return undefined;
   const first = roots.out.split("\n").filter(Boolean).sort()[0];
   const gitDir = common.out.trim();
@@ -37,9 +56,9 @@ export function gitState(dir: string): {
   commit: string | null;
   dirty: boolean;
 } {
-  const head = git(dir, ["rev-parse", "HEAD"]);
-  const branch = git(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  const status = git(dir, ["status", "--porcelain"]);
+  const head = tryGit(dir, ["rev-parse", "HEAD"]);
+  const branch = tryGit(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const status = tryGit(dir, ["status", "--porcelain"]);
   return {
     branch: branch.ok ? branch.out.trim() || null : null,
     commit: head.ok ? head.out.trim() || null : null,
@@ -69,7 +88,7 @@ export function historyHolds(dir: string, text: string): boolean {
 
 /** Every blob id in the repository at `dir`, whether a ref reaches it or not. */
 export function blobIds(dir: string): Set<string> {
-  const { ok, out } = git(dir, [
+  const { ok, out } = tryGit(dir, [
     "cat-file",
     "--batch-all-objects",
     "--unordered",

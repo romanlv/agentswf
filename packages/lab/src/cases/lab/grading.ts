@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { minorOf } from "../../shared/version";
 import type { Errored, GraderEntry, Previous } from "../format/records";
 import type { Agent, Fact, Key } from "../format/settings";
 import type { Answer } from "./answer";
@@ -85,10 +86,6 @@ export function keyDigestOf(info: Pick<CaseInfo, "dir" | "key" | "keyFiles">): s
   );
   return sha256(canonical({ key, files }));
 }
-
-/** `{major}.{minor}`: a grade belongs to it, so a patch bump keeps the grade. */
-export const minorOf = (version: string | undefined) =>
-  version === undefined ? undefined : version.split(".").slice(0, 2).join(".");
 
 const hasExpect = (key: Key) => Object.keys(key.expect ?? {}).length > 0;
 

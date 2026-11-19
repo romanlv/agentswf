@@ -1,4 +1,11 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AgentReach } from "../format/settings";
@@ -72,6 +79,40 @@ export type BoxPaths = {
   /** More the box reads: a loop's try folder, the proposer's working folder. */
   reads?: readonly string[];
 };
+
+/**
+ * A boxed run's own folders, made: its run root and a fresh home under `parent`, and a control
+ * root under `/tmp` for run `id`, which the caller removes after; and the variables that point
+ * the run at them. The operator's home holds harness state, and transcripts that can hold a key.
+ */
+export function boxedFolders(
+  parent: string,
+  id: string,
+): { runRoot: string; home: string; control: string; env: Record<string, string> } {
+  const runRoot = join(parent, "runs");
+  const home = join(parent, "home");
+  // Short, as the engine's sockets need. `/private/tmp` on macOS: the box denies `/tmp`, the
+  // link, and allows only the real path.
+  const control = join(
+    existsSync("/private/tmp") ? "/private/tmp" : "/tmp",
+    `awf-lab-${id.slice(-8)}`,
+  );
+  for (const dir of [runRoot, join(home, "tmp"), control]) mkdirSync(dir, { recursive: true });
+  return {
+    runRoot,
+    home,
+    control,
+    env: {
+      HOME: home,
+      // Harnesses that make their own folder under `/tmp` are pointed at the box's.
+      TMPDIR: join(home, "tmp"),
+      CLAUDE_CODE_TMPDIR: join(home, "tmp"),
+      // zsh makes a here-document's file under `/tmp` unless told otherwise.
+      TMPPREFIX: join(home, "tmp", "zsh"),
+      AWF_CONTROL_ROOT: control,
+    },
+  };
+}
 
 const unique = (xs: readonly string[]) => [...new Set(xs)];
 

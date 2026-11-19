@@ -17,7 +17,7 @@ export function seconds(ms: number): string {
   return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
 }
 
-const usd = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`;
+export const usd = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`;
 
 export function median(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;

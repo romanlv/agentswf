@@ -4,7 +4,14 @@ import { columnLike } from "./columns";
 import type { CaseInfo, DatasetInfo } from "./dataset";
 import { decidersOf, type LabGrader } from "./grading";
 import { type CaseRow, caseRow, trialOutcome } from "./outcome";
-import { readRunRecord, readTrials, runIds, type StoredTrial, UnreadableRecord } from "./store";
+import {
+  readableRuns,
+  readRunRecord,
+  readTrials,
+  runIds,
+  type StoredTrial,
+  UnreadableRecord,
+} from "./store";
 import { type CaseVerdict, caseVerdict } from "./verdict";
 
 /**
@@ -75,20 +82,12 @@ function earlier(
   before: string | undefined,
   bars: ReadonlyMap<string, CaseBar>,
 ): { run: RunRecord; verdicts: Map<string, CaseVerdict | undefined> }[] {
-  return runIds(store)
-    .filter((n) => before === undefined || n < before)
-    .flatMap((n) => {
-      try {
-        const run = readRunRecord(store, n);
-        if (!run || run.dataset !== dataset) return [];
-        const column = columnLike(run, root, params);
-        if (column === undefined) return [];
-        return [{ run, verdicts: verdictsOf(run, readTrials(store, n), bars, column) }];
-      } catch (error) {
-        if (error instanceof UnreadableRecord) return [];
-        throw error;
-      }
-    });
+  return [...readableRuns(store, { dataset })].flatMap(({ run, trials }) => {
+    if (before !== undefined && run.id >= before) return [];
+    const column = columnLike(run, root, params);
+    if (column === undefined) return [];
+    return [{ run, verdicts: verdictsOf(run, trials, bars, column) }];
+  });
 }
 
 /** The runs whose records this lab can't read, which history leaves out. */

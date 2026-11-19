@@ -15,16 +15,7 @@ import type { Dataset } from "../format/settings";
 import { type CaseInfo, folderDigest } from "./dataset";
 import { buildCase } from "./folders";
 import { trialOutcome } from "./outcome";
-import {
-  REUSED_FILE,
-  readRunRecord,
-  readTrials,
-  runIds,
-  type StoredTrial,
-  type TrialRef,
-  trialDirOf,
-  UnreadableRecord,
-} from "./store";
+import { REUSED_FILE, readableRuns, type StoredTrial, type TrialRef, trialDirOf } from "./store";
 import type { CaseWorkspace } from "./workspace";
 
 // A stored trial is reused when nothing that shaped it changed: the code, the parameters, the
@@ -158,15 +149,7 @@ export function reusableTrials(
 ): Map<string, StoredTrial[]> {
   const byKey = new Map<string, StoredTrial[]>();
   const seen = new Set<string>();
-  for (const id of runIds(store).reverse()) {
-    let trials: StoredTrial[];
-    try {
-      if (readRunRecord(store, id)?.dataset !== dataset) continue;
-      trials = readTrials(store, id);
-    } catch (error) {
-      if (error instanceof UnreadableRecord) continue;
-      throw error;
-    }
+  for (const { trials } of readableRuns(store, { dataset, newest: true })) {
     for (const trial of trials.sort((a, b) => b.record.at.localeCompare(a.record.at))) {
       const { record } = trial;
       if (!reusable(record, now, days) || seen.has(record.runId!)) continue;

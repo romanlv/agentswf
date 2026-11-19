@@ -210,6 +210,29 @@ export function runIds(store: string): string[] {
 export const RUN_ID = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/;
 
 /**
+ * The store's runs whose records read, each with its trials, oldest first unless `newest`; of one
+ * dataset when named. A run whose records don't read is left out: `runs` names it.
+ */
+export function* readableRuns(
+  store: string,
+  options: { dataset?: string; newest?: boolean } = {},
+): Generator<{ run: RunRecord; trials: StoredTrial[] }> {
+  const ids = runIds(store);
+  for (const id of options.newest ? ids.reverse() : ids) {
+    let read: { run: RunRecord; trials: StoredTrial[] } | undefined;
+    try {
+      const run = readRunRecord(store, id);
+      if (!run || (options.dataset !== undefined && run.dataset !== options.dataset)) continue;
+      read = { run, trials: readTrials(store, id) };
+    } catch (error) {
+      if (error instanceof UnreadableRecord) continue;
+      throw error;
+    }
+    yield read;
+  }
+}
+
+/**
  * A record this lab can't read: written before a `/0` format changed shape, or not JSON. History
  * leaves its run out; any other error is the lab's.
  */

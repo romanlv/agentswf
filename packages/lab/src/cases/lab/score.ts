@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type GraderEntry, SCORE_KIND } from "../format/records";
-import { type CaseInfo, folderDigest } from "./dataset";
+import { type CaseInfo, type DatasetInfo, folderDigest } from "./dataset";
 import { buildCase, makeTrialFolders } from "./folders";
 import {
+  decidersOf,
   EXPECT_VERSION,
   expectDigestOf,
   failsIn,
@@ -13,8 +14,8 @@ import {
   previousFrom,
   staleBecause,
 } from "./grading";
-import { entryName, newestEntries } from "./outcome";
-import { median } from "./report";
+import { entryName, gradingSpend, newestEntries } from "./outcome";
+import { median, usd } from "./report";
 import { appendScore, inputDirOf, keepInput, type StoredTrial } from "./store";
 
 /** One trial to grade again, and with what. */
@@ -170,6 +171,32 @@ export function planScore(args: {
   };
 }
 
+/**
+ * What grading again plans with a dataset's graders: every one not marked onDemand and `expect`,
+ * as a run's reused trials and a plain `score` grade them, unless `only` names the graders.
+ */
+export function regradePlan(args: {
+  trials: readonly StoredTrial[];
+  store: string;
+  info: DatasetInfo;
+  cases: readonly CaseInfo[];
+  graders: readonly LabGrader[];
+  tmp: string;
+  only?: { graders: readonly LabGrader[]; expect: boolean };
+}): ScorePlan {
+  const { graders } = args;
+  return planScore({
+    trials: args.trials,
+    store: args.store,
+    datasetDir: args.info.dir,
+    cases: args.cases,
+    graders: args.only?.graders ?? graders.filter((g) => !g.onDemand),
+    decidersOf: (c) => decidersOf(c.key, graders),
+    expect: args.only?.expect ?? true,
+    tmp: args.tmp,
+  });
+}
+
 /** The plan in lines, for the operator. */
 export function describePlan(plan: ScorePlan, run: string): string {
   const lines: string[] = [];
@@ -183,8 +210,8 @@ export function describePlan(plan: ScorePlan, run: string): string {
       `score run ${run}: ${plan.items.length} trial${plan.items.length === 1 ? "" : "s"} · ${graders}`,
     );
     const priced = [
-      ...(plan.estimate !== undefined ? [`est. $${plan.estimate.toFixed(2)}`] : []),
-      ...(plan.upTo !== undefined ? [`up to $${plan.upTo.toFixed(2)}`] : []),
+      ...(plan.estimate !== undefined ? [`est. ${usd(plan.estimate)}`] : []),
+      ...(plan.upTo !== undefined ? [`up to ${usd(plan.upTo)}`] : []),
     ];
     if (priced.length > 0) {
       lines.push(
@@ -228,8 +255,7 @@ export async function runScore(args: {
   const errored = new Map<string, number>();
   let spent = 0;
   let stopped = false;
-  const cost = (entries: readonly GraderEntry[]) =>
-    entries.reduce((sum, e) => sum + (e.estimate ?? 0), 0);
+  const cost = (entries: readonly GraderEntry[]) => gradingSpend([{ entries }]);
   for (const item of args.plan.items) {
     const { trial, info } = item;
     const newest = new Map(newestEntries(trial.scores).map((e) => [entryName(e), e]));

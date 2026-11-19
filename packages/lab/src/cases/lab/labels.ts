@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkSchema, describeProblems } from "../../shared/validate";
+import { minorOf } from "../../shared/version";
 import { type LabelRecord, LabelRecordSchema, retiredRecord } from "../format/records";
 import { newestEntries, trialOutcome, votersOf } from "./outcome";
 import { Refusal } from "./refusal";
@@ -97,7 +98,7 @@ function count(into: Agreement, mark: "good" | "needs-work", verdict: string | u
 /** A grader's name in agreement lines: a judge by its agent, voters and `{major}.{minor}`. */
 function graderName(entry: ReturnType<typeof newestEntries>[number]): string {
   if (!entry.agent) return entry.grader;
-  const minor = entry.version?.split(".").slice(0, 2).join(".");
+  const minor = minorOf(entry.version);
   return `${entry.grader} (${entry.agent.harness}/${entry.agent.model} ×${votersOf(entry.agent)}${minor ? ` ${minor}` : ""})`;
 }
 
@@ -187,7 +188,7 @@ export function judgeLabeled(
       if (!label || seen.has(record.runId!)) continue;
       const entry = newestEntries(scores).find((e) => e.grader === "criteria" && !e.beside);
       if (!entry || entry.skipped || entry.errored || !entry.verdict) continue;
-      const minor = entry.version?.split(".").slice(0, 2).join(".");
+      const minor = minorOf(entry.version);
       if (
         entry.agent?.harness !== judge.harness ||
         entry.agent?.model !== judge.model ||

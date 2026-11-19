@@ -21,6 +21,30 @@ export function newestEntries(scores: readonly ScoreRecord[]): GraderEntry[] {
   return [...byGrader.values()];
 }
 
+/** What grades are estimated at: their entries' estimates, summed. */
+export const gradingSpend = (scores: readonly { entries: readonly GraderEntry[] }[]) =>
+  scores.reduce((sum, s) => sum + s.entries.reduce((n, e) => n + (e.estimate ?? 0), 0), 0);
+
+/**
+ * What a run spent on one of its trials, as `--budget` counts it and a loop's ledger: a trial of
+ * its own, its workflow run and the grading it was given as it ran; a reused one, only the grades
+ * made again while the run ran, its workflow run counted where it ran. Grades `score` makes later
+ * are not the run's.
+ */
+export function trialSpend(
+  trial: StoredTrialView,
+  run: { started: string; finished?: string | undefined },
+): number {
+  if (!trial.record.reused) {
+    return (trial.record.estimate ?? 0) + gradingSpend(trial.scores.slice(0, 1));
+  }
+  return gradingSpend(
+    trial.scores.filter(
+      (s) => s.at >= run.started && (run.finished === undefined || s.at <= run.finished),
+    ),
+  );
+}
+
 export type TrialView = { outcome: Outcome; errored?: Pick<Errored, "by" | "reason"> };
 
 /**

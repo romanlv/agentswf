@@ -1,7 +1,8 @@
 import Type from "typebox";
 import { OUTCOMES, ParamsSchema, RunId } from "./records";
 
-// What `report --json` and `score --json` print: `/0`, like the records, until task 13.
+// What `report --json` and `score --json` print: `/0`, unlike the records, as main never printed
+// them and nothing reads an older copy back.
 
 export const REPORT_KIND = "awf.case-report/0";
 export const SCORED_KIND = "awf.case-scored/0";

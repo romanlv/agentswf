@@ -16,6 +16,7 @@ import {
   awfReads,
   type BoxProfile,
   boxCommand,
+  boxedFolders,
   boxNetwork,
   boxProfile,
   boxReach,
@@ -104,6 +105,7 @@ export async function runTrial(
   // the home folder, so `~/.awf/lab` too.
   const boxed = dataset.dataset.sandbox !== "workflow";
   const trialFile = boxed ? join(folders.parent, "trial.jsonl") : trialFileOf(workspace.labHome);
+  let own: ReturnType<typeof boxedFolders> | undefined;
   try {
     buildCase(dataset.dir, info, folders.dir);
     const input = folderDigest(folders.dir);
@@ -142,29 +144,20 @@ export async function runTrial(
     const settings = trialSettingsOf(dataset.name, dataset.dataset, dataset.dir);
     const id = newRunId(lab.now());
     const storeRuns = awfRunsOf(workspace.store);
-    const runRoot = boxed ? join(folders.parent, "runs") : storeRuns;
-    const home = join(folders.parent, "home");
-    // `/private/tmp` on macOS: the box denies `/tmp`, the link, and allows only the real path.
-    const control = join(
-      existsSync("/private/tmp") ? "/private/tmp" : "/tmp",
-      `awf-lab-${id.slice(-8)}`,
-    );
+    const path = [folder.bin, lab.env.PATH].filter(Boolean).join(":");
+    own = boxed ? boxedFolders(folders.parent, id) : undefined;
+    const runRoot = own?.runRoot ?? storeRuns;
     let box: { command: string[]; profile: BoxProfile } | undefined;
-    if (boxed) {
-      mkdirSync(runRoot, { recursive: true });
-      mkdirSync(join(home, "tmp"), { recursive: true });
-      // Short, as the engine's sockets need: under `/tmp`, the trial's own, removed after.
-      mkdirSync(control, { recursive: true });
-      const path = [folder.bin, lab.env.PATH].filter(Boolean).join(":");
+    if (own) {
       const profile = boxProfile(
         {
           root: folder.root,
           caseDir: folders.dir,
           scratch: folders.scratch,
           runRoot,
-          home,
+          home: own.home,
           trialFile,
-          control,
+          control: own.control,
           toolchain: [...toolchainOf(folder.root, path), ...awfReads(folder.awf)],
           hidden: hiddenOf(folder.root, workspace),
         },
@@ -174,25 +167,14 @@ export async function runTrial(
     }
     const env: Record<string, string> = {
       ...definedOf(withoutCallingSession(lab.env)),
-      PATH: [folder.bin, lab.env.PATH].filter(Boolean).join(":"),
+      PATH: path,
       [TRIAL_ENV.case]: folders.dir,
       [TRIAL_ENV.trial]: trialFile,
       [TRIAL_ENV.scratch]: folders.scratch,
       [TRIAL_ENV.root]: folder.root,
       [TRIAL_ENV.settings]: JSON.stringify(settings),
       [TRIAL_ENV.params]: JSON.stringify(params),
-      // A fresh home: the operator's holds harness state, and transcripts that can hold a key.
-      // Harnesses that make their own folder under `/tmp` are pointed at the box's.
-      ...(boxed
-        ? {
-            HOME: home,
-            TMPDIR: join(home, "tmp"),
-            CLAUDE_CODE_TMPDIR: join(home, "tmp"),
-            // zsh makes a here-document's file under `/tmp` unless told otherwise.
-            TMPPREFIX: join(home, "tmp", "zsh"),
-            AWF_CONTROL_ROOT: control,
-          }
-        : {}),
+      ...own?.env,
     };
     const result = await lab.runner({
       workflow: envFile,
@@ -208,7 +190,6 @@ export async function runTrial(
     });
     // The box's run records move into the store, where `awf logs` and history find them.
     if (boxed && existsSync(runRoot)) cpSync(runRoot, storeRuns, { recursive: true });
-    if (boxed) rmSync(control, { recursive: true, force: true });
     // The lab's own failures to read what the trial left: its result says nothing of the workflow.
     const unread: string[] = [];
     if (result.unread) unread.push(result.unread);
@@ -344,6 +325,7 @@ export async function runTrial(
     if (score) appendScore(dir, score);
     return { record: final, ...(score ? { score } : {}), dir };
   } finally {
+    if (own) rmSync(own.control, { recursive: true, force: true });
     rmSync(folders.parent, { recursive: true, force: true });
     rmSync(trialFile, { force: true });
   }
