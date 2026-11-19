@@ -331,6 +331,11 @@ process; one digest of "the code" for reuse; one table per dataset (poor for a l
 statistical thresholds for "came out differently" at a few trials (the list is for reading; task
 9's intervals and `compare` say how sure).
 
+Left as built, after the review rounds, until use says otherwise: `run` and `score` without a
+terminal start without asking; the `/1` loop records keep `spend` and a trial's `runId`; the
+lab's I/O files stay an exemption list; `AWF_CONTROL_ROOT` stays documented; `whole-set` and the
+lab's lock keep their current scope.
+
 ## Tasks at a glance
 
 - [x] 0. The mail triage's evals written against this design
