@@ -9,6 +9,10 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+### Added
+
+- `run.postsOf(participant)` in `testWorkflow`: the text the code posted to a participant, in order.
+
 ### Changed
 
 - `awf logs --wait` past its cap, 300s, says the cap and the value given, and points at `--follow`.

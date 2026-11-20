@@ -414,6 +414,8 @@ export type TestRun<Result> = {
   setsOf(agent: string): SetRecord[];
   /** The messages admitted for one agent, in the order sent: who sent each, whether it asked, and how it ended. */
   messagesOf(recipient: string): MessageRecord[];
+  /** What the code posted to one participant, in order. */
+  postsOf(participant: string): string[];
   /** Every agent opened, in the order opened. */
   agents: OpenedAgent[];
   /** The agent opened under `key`; throws, naming the keys opened, when there is none. */
@@ -613,6 +615,7 @@ export async function runTest<Result extends JsonValue>(
   let timers: TestRun<Result>["timers"] = [];
   let stages: StageLine[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
+  let posts: { participant: string; text: string }[] = [];
   const runRoot = directory();
   const deadline =
     timeoutMs === undefined ? undefined : { unixMilliseconds: Date.now() + timeoutMs };
@@ -749,6 +752,7 @@ export async function runTest<Result extends JsonValue>(
     }
     host.settle(await readTurns(run.dir));
     messages = await messagesIn(run.dir);
+    posts = await postsIn(run.dir);
     inLines = await readIn(run.dir);
     runLines = (await readRunLines(run.dir)).lines;
     timers = timersOf((await readWaits(run.dir, now())).timers);
@@ -823,6 +827,8 @@ export async function runTest<Result extends JsonValue>(
     setsOf: (agent) => host.sets.filter((set) => set.agent === agent),
     messagesOf: (recipient) =>
       messages.flatMap(({ to, ...each }) => (to === recipient ? [each] : [])),
+    postsOf: (participant) =>
+      posts.flatMap((post) => (post.participant === participant ? [post.text] : [])),
     agents,
     agentOf(key) {
       const agent = agents.find((opened) => opened.key === key);
@@ -859,6 +865,13 @@ export type MessageRecord = {
   end: "replied" | "failed" | "delivered" | "undelivered" | "pending";
   reason?: string;
 };
+
+/** The attempt's posts to participants, read from the run's event log. */
+async function postsIn(dir: string): Promise<{ participant: string; text: string }[]> {
+  return (await readEvents(dir)).flatMap((event) =>
+    event.kind === "participant-post" ? [{ participant: event.participant, text: event.text }] : [],
+  );
+}
 
 /** The attempt's messages, read from the run's event log. */
 async function messagesIn(dir: string): Promise<(MessageRecord & { to: string })[]> {

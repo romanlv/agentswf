@@ -176,6 +176,8 @@ test("declared, a reply and an end arrive under their names", async () => {
     "investigator:ended from investigator",
     'meta {"n":1}',
   ]);
+  expect(run.postsOf("thread")).toEqual(["got hi"]);
+  expect(run.postsOf("investigator")).toEqual([]);
 });
 
 test("declared, a reply is a signal a race takes whole", async () => {

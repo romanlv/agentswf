@@ -247,7 +247,8 @@ expect(run.value).toBe("Keep two, and link them.");
 - A route or message reaching a participant with no script fails the test, and so does a script
   that throws.
 - **`run.messagesOf("coordinator")`** is what it was sent and how each ended; a message to it is
-  `delivered` once recorded.
+  `delivered` once recorded. **`run.postsOf("coordinator")`** is the text the code posted to it
+  with `post`, in order.
 
 [People](/guide/people) covers participants in a real run.
 
@@ -366,7 +367,7 @@ the sandbox evals check what a real provider enforces.
   its pane was kept, and `forkedFrom` for a fork. It throws for a key never opened. **`run.agents`** lists them all.
 - **`run.messagesOf(key)`** is the messages an agent or participant was sent: `from`,
   `awaitReply`, and `end`, one of `replied`, `failed`, `delivered`, `undelivered` or `pending`,
-  with a `reason`.
+  with a `reason`. **`run.postsOf(key)`** is the text the code posted to a participant, in order.
 - **`run.decisions`** and **`run.logs`** are the decision calls and log lines.
 - **`run.stages`** is each stage the attempt entered, in order: its `name`, `outcome`, `attempt`,
   `started`, `at` (when it ended), `summary`, `reason` and `value`, and `provided` for a value
