@@ -29,7 +29,10 @@ this story no longer repeats them. [[workflow-cases]] is the earlier thinking.
 
 Tried live: the mail dataset (21 trials, all 7 cases passed, 36 criteria judged), the same against
 a worktree with a worse prompt (the other column failed 2 of 3), and refund-desk with a grader
-workflow, `score` and `capture`.
+workflow, `score` and `capture`.. The loop on air-1 (2026-11-19, `air16`, 16 tuning cases, 10
+held out, cap $150): five tries, each a new shape for the review's forks, all discarded as
+undecided; about $90 of estimates in all. It stopped itself after three tries in a row kept
+nothing, as designed.
 
 ## Outcome
 
@@ -498,6 +501,13 @@ Done when:
 - A test: a try that changes anything under `evals/` is refused, and generated code reaches no key.
 - A test: a loop stopped mid-try resumes.
 - Live: a short loop on refund-desk, then one round on air-1 under the cap the person sets.
+
+Live check, air-1 (2026-11-19 and 20): a loop resumed after a restart killed it mid-try (it needed
+every flag again; logged in `docs/stories/todo/workday-replay-findings.md`). Tries 1 to 5 each
+changed the review's fork shape (two more lenses, a gap pass, open lenses, a backward copy of each
+lens, area forks); each was compared with try 0 on the 16 tuning cases and discarded, none shown
+worse. Try 4 came closest: weighted recall +0.069 [+0.003, +0.14], but 5 cases won where 6 were
+needed. No try kept, so `--final` has nothing to run on the holdout.
 
 ### 13. One kind
 
