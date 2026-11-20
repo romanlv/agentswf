@@ -77,6 +77,10 @@ continued post-deploy/api-v42: timer
 continued post-deploy/web-v17: crashed
 ```
 
+A run it can't wake until you act, one that is `stuck` or one it can't read, gets a line on stderr
+and makes it exit 1, so a scheduler that watches exit codes tells you; the other runs are still
+woken.
+
 Every wake takes the run's lock, so a tick that comes while an event is waking the same run
 continues it once, not twice. Overlapping ticks are harmless, and the schedule is only how late a
 timer may be: with a tick every five minutes, the checker above starts up to five minutes after

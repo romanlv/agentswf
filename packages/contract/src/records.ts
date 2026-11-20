@@ -1329,6 +1329,8 @@ export type TickResultJson = {
     did: "started" | "continued";
     why: "event" | "timer" | "crashed" | "failed";
   }[];
+  /** Runs that failed three times in a row, so not woken; `awf runs {run}` says what to run next. */
+  stuck?: string[];
   /** Runs with events whose record can't be read, so not woken; `awf runs` says why. */
   unreadable?: string[];
 };

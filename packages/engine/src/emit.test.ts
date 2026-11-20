@@ -833,8 +833,8 @@ describe("awf tick", () => {
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       { home: p.home, environment: {}, launch },
     );
-    const woke = out[0] === undefined ? [] : (JSON.parse(out[0]) as TickResultJson).woke;
-    return { code, woke, err };
+    const result = out[0] === undefined ? undefined : (JSON.parse(out[0]) as TickResultJson);
+    return { code, woke: result?.woke ?? [], stuck: result?.stuck, err };
   };
 
   test("wakes each run that is due in its own project", async () => {
@@ -857,14 +857,28 @@ describe("awf tick", () => {
     await keyedRun(p, "stopped", [ended("stopped")]);
     await keyedRun(p, "live", [{ ...ALIVE }]);
     const launch = fakeLaunch();
-    const { code, woke } = await tick(p, launch);
-    expect(code).toBe(0);
+    const { code, woke, stuck, err } = await tick(p, launch);
+    // A stuck run is one nothing wakes again: the others are woken, and the tick fails for it.
+    expect(code).toBe(1);
+    expect(stuck).toEqual(["dd-case/stuck"]);
+    expect(err).toEqual([]);
     expect(woke.sort((a, b) => a.ref.localeCompare(b.ref))).toEqual([
       { ref: "dd-case/crashed", did: "continued", why: "crashed" },
       { ref: "dd-case/due", did: "continued", why: "timer" },
       { ref: "dd-case/failed", did: "continued", why: "failed" },
     ]);
     expect(launch.launched).toHaveLength(3);
+    const lines: string[] = [];
+    const text = await tickCommand(
+      [],
+      p.root,
+      { stdout: () => undefined, stderr: (t) => lines.push(t) },
+      { home: p.home, environment: {}, launch },
+    );
+    expect(text).toBe(1);
+    expect(lines).toEqual([
+      "awf: dd-case/stuck failed 3 times in a row and is not woken; awf runs dd-case/stuck says what to run next",
+    ]);
   });
 
   test("wakes its own project's runs, and --all every project's", async () => {
@@ -980,8 +994,8 @@ describe("awf tick", () => {
     const why = "an earlier awf made it, before run.json had a format; this awf does not read it";
     const launch = fakeLaunch();
     const ticked = await tick(p, launch);
-    // Not an error: it is named, and the run beside it, parked with its event untaken, is woken.
-    expect(ticked).toMatchObject({ code: 0, err: [] });
+    // Named, and the run beside it, parked with its event untaken, is woken; the tick fails for it.
+    expect(ticked).toMatchObject({ code: 1, err: [] });
     expect(ticked.woke.map((each) => each.ref)).toEqual(["dd-case/current"]);
     const out: string[] = [];
     const err: string[] = [];
@@ -991,7 +1005,7 @@ describe("awf tick", () => {
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       { home: p.home, environment: {}, launch },
     );
-    expect(json).toBe(0);
+    expect(json).toBe(1);
     expect((JSON.parse(out[0]!) as TickResultJson).unreadable).toEqual(["dd-case/old"]);
     err.length = 0;
     const text = await tickCommand(
@@ -1000,7 +1014,7 @@ describe("awf tick", () => {
       { stdout: () => undefined, stderr: (t) => err.push(t) },
       { home: p.home, environment: {}, launch },
     );
-    expect(text).toBe(0);
+    expect(text).toBe(1);
     expect(err).toEqual([
       "awf: 1 run with events can't be read and is not woken; awf runs says why",
     ]);

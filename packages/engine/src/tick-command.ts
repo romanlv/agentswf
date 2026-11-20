@@ -10,7 +10,7 @@ import { ENGINE_VERSION, EngineRefused, engineOf } from "./project-engine";
 import { listProjects, projectRunRoot } from "./projects";
 import { asksJson, printRefusal } from "./refusals";
 import { runLockFile, withRunLock } from "./run-lock";
-import { listRunEntries, listRuns } from "./run-state";
+import { listRunEntries, listRuns, STUCK_AFTER } from "./run-state";
 import { RunUnreadable, readAttempts } from "./runs";
 import { type Launch, wake } from "./wake";
 
@@ -44,6 +44,7 @@ export async function tickCommand(
   const { place, json } = parsed;
   const woke: TickResultJson["woke"] = [];
   const unreadable: string[] = [];
+  const stuck: string[] = [];
   let failed = false;
   const roots: string[] = [];
   /** Each project's runs on its own engine (ADR 0015): this one, or its own in a child. */
@@ -74,6 +75,8 @@ export async function tickCommand(
       }
       const ticked = await tickElsewhere(project, root, engine, context.environment, out);
       woke.push(...ticked.woke);
+      stuck.push(...ticked.stuck);
+      unreadable.push(...ticked.unreadable);
       if (!ticked.ok) failed = true;
     } else roots.push(root);
   };
@@ -111,6 +114,7 @@ export async function tickCommand(
         const why = await withRunLock(runLockFile(root, workflow, id), async () => {
           const woken = await wake(run, { ...context, nudgeLive: false });
           if (woken.why === "launch-failed") throw new Error(woken.error ?? "launch failed");
+          if (woken.why === "stuck") stuck.push(ref);
           if ((woken.did !== "started" && woken.did !== "continued") || !woken.cause)
             return undefined;
           return { did: woken.did, why: woken.cause };
@@ -122,6 +126,13 @@ export async function tickCommand(
       }
     }
   }
+  // Neither wakes again until someone acts, so a scheduled tick fails for them.
+  if (unreadable.length > 0 || stuck.length > 0) failed = true;
+  if (!json)
+    for (const ref of stuck)
+      out.stderr(
+        `awf: ${ref} failed ${STUCK_AFTER} times in a row and is not woken; awf runs ${ref} says what to run next`,
+      );
   if (unreadable.length > 0 && !json) {
     const runs = unreadable.length === 1 ? "1 run" : `${unreadable.length} runs`;
     out.stderr(
@@ -132,6 +143,7 @@ export async function tickCommand(
     const result: TickResultJson = {
       v: TICK_V,
       woke,
+      ...(stuck.length ? { stuck } : {}),
       ...(unreadable.length ? { unreadable } : {}),
     };
     out.stdout(JSON.stringify(result));
@@ -160,7 +172,7 @@ async function tickElsewhere(
   engine: InstalledEngine,
   environment: Readonly<Record<string, string | undefined>>,
   out: Out,
-): Promise<{ ok: boolean; woke: TickResultJson["woke"] }> {
+): Promise<{ ok: boolean; woke: TickResultJson["woke"]; stuck: string[]; unreadable: string[] }> {
   const child = Bun.spawn({
     cmd: [process.execPath, "--no-env-file", engine.bin, "tick", "--run-root", root, "--json"],
     cwd: project,
@@ -176,12 +188,17 @@ async function tickElsewhere(
   try {
     const result = JSON.parse(stdout) as Partial<TickResultJson>;
     if (!Array.isArray(result.woke)) throw new Error("no woke");
-    return { ok: code === 0, woke: result.woke };
+    return {
+      ok: code === 0,
+      woke: result.woke,
+      stuck: result.stuck ?? [],
+      unreadable: result.unreadable ?? [],
+    };
   } catch {
     out.stderr(
       `awf: ${project}'s agentswf ${engine.version} did not say what it woke (exit ${code})`,
     );
-    return { ok: false, woke: [] };
+    return { ok: false, woke: [], stuck: [], unreadable: [] };
   }
 }
 
