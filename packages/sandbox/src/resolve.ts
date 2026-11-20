@@ -56,23 +56,25 @@ export type ResolveOptions = {
 };
 
 /**
- * Checks an author's spec the way the types would, since a workflow is untyped at run time, and
- * resolves its paths once, at open: a sandbox holds what they named then, whatever moves later.
+ * Checks a spec's fields and their values, all but where its paths lead, and names its one
+ * provider, before anything is installed or opened: a run its caller boxes checks its specs this
+ * way, so a spec refused unboxed for its shape is refused boxed too. Its paths are checked against
+ * the machine when it is resolved.
  */
-export async function resolveSandbox(
+export function checkSandboxSpec(
   spec: unknown,
-  options: ResolveOptions,
-): Promise<SandboxResolution> {
+  inline: boolean,
+): { spec: Record<string, unknown>; provider: SandboxEnvironmentKey } {
   if (!isRecord(spec)) throw new Error("a sandbox spec must be an object");
   const allowed = new Set<string>([
     ...REACH_KEYS,
     ...SANDBOX_ENVIRONMENTS,
-    ...(options.inline ? [] : ["key", "cwd"]),
+    ...(inline ? [] : ["key", "cwd"]),
   ]);
   for (const key of Object.keys(spec)) {
     if (allowed.has(key)) continue;
     throw new Error(
-      options.inline && (key === "key" || key === "cwd" || key === "provider")
+      inline && (key === "key" || key === "cwd" || key === "provider")
         ? `an agent's inline sandbox cannot name ${key}; open a sandbox and pass its ref to share one`
         : `unknown sandbox field ${JSON.stringify(key)}`,
     );
@@ -85,6 +87,28 @@ export async function resolveSandbox(
   if (provider === undefined) {
     throw new Error('a sandbox spec names its provider: add "srt": {} or "docker": {}');
   }
+  if (spec.cwd !== undefined) checkPath(spec.cwd, "cwd");
+  for (const field of ["read", "write", "sockets"] as const) {
+    for (const path of list(spec[field], field)) checkPath(path, field);
+  }
+  for (const domain of list(spec.network, "network")) {
+    if (!isDomain(domain)) throw new Error(`not a sandbox domain: ${JSON.stringify(domain)}`);
+  }
+  if (spec.webSearch !== undefined && typeof spec.webSearch !== "boolean") {
+    throw new Error("sandbox webSearch must be true or false");
+  }
+  return { spec, provider };
+}
+
+/**
+ * Checks an author's spec the way the types would, since a workflow is untyped at run time, and
+ * resolves its paths once, at open: a sandbox holds what they named then, whatever moves later.
+ */
+export async function resolveSandbox(
+  given: unknown,
+  options: ResolveOptions,
+): Promise<SandboxResolution> {
+  const { spec, provider } = checkSandboxSpec(given, options.inline === true);
   const installed = options.providers.installed[provider];
   if (!installed) {
     const why = options.providers.unavailable?.[provider];
@@ -139,15 +163,7 @@ export async function resolveSandbox(
   const write = unique(await paths("write"));
   const read = unique(await paths("read")).filter((path) => !write.includes(path));
   const sockets = unique(await paths("sockets"));
-  if (spec.webSearch !== undefined && typeof spec.webSearch !== "boolean") {
-    throw new Error("sandbox webSearch must be true or false");
-  }
-  const network = unique(
-    list(spec.network, "network").map((domain) => {
-      if (!isDomain(domain)) throw new Error(`not a sandbox domain: ${JSON.stringify(domain)}`);
-      return domain.toLowerCase();
-    }),
-  );
+  const network = unique(list(spec.network, "network").map((d) => (d as string).toLowerCase()));
   // The most specific path naming a directory decides whether it is writable.
   const writableAt = (path: string) => writableIn({ read, write }, path);
   /** Each gitdir, and whether a writable worktree reaches it as its own or as a linked one's. */
@@ -358,18 +374,23 @@ export async function repositoryOf(path: string, home: string): Promise<Reposito
   return undefined;
 }
 
-async function resolvePath(
-  path: unknown,
-  base: string,
-  home: string,
-  field: string,
-): Promise<string> {
+/** A sandbox path's shape: a non-empty string, `~` only as the operator's home. */
+function checkPath(path: unknown, field: string): asserts path is string {
   if (typeof path !== "string" || path.trim() === "") {
     throw new Error(`sandbox ${field} needs a non-empty path, not ${JSON.stringify(path)}`);
   }
   if (path.startsWith("~") && path !== "~" && !path.startsWith("~/")) {
     throw new Error(`sandbox ${field} ${path}: only ~ and ~/ expand, to the operator's home`);
   }
+}
+
+async function resolvePath(
+  path: unknown,
+  base: string,
+  home: string,
+  field: string,
+): Promise<string> {
+  checkPath(path, field);
   const expanded = path === "~" ? home : path.startsWith("~/") ? join(home, path.slice(2)) : path;
   const absolute = isAbsolute(expanded) ? expanded : resolve(base, expanded);
   try {

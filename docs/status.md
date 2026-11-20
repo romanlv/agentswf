@@ -146,7 +146,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   found in them, graded. `packages/lab` builds them: `collect` freezes a GitLab MR,
   `draft-key` drafts its key, graders from two model families vote on it, and the set is sealed in
   `set.json`, each fixture pinned by a digest. The first set has 33 fixtures from 61 of the
-  private project's MRs.
+  private project's MRs. Since story 044 the tools live in the data repository, and the sets run as
+  cases.
 - [006 — typed decisions](stories/006-typed-decisions.md): done. A workflow asks a System One
   model (Jev, on OpenRouter) closed questions about a state and gets a probability for every answer
   back, recorded and costed apart from agents; `examples/triage` routes tickets with it
@@ -166,7 +167,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   two model families with a tiebreak; a trial on five cases put the lens catalogue well ahead of a
   single agent with or without a public review skill. Match first, measured in the data
   repository as accurate as the panel at a fifth of its time and list price, replaced it in
-  [story 011](stories/011-compare-variants.md).
+  [story 011](stories/011-compare-variants.md). Retired by story 044: reviews run as cases, the
+  scorer a dataset's grader workflow.
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
   rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, now `wfa`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
@@ -175,7 +177,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [010 — eval isolation](stories/010-eval-isolation.md): done. `awf run --sandbox {file}`
   puts every agent of a run in one operator sandbox and refuses a workflow's own; `awf-lab` runs
   every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
-  the request. The case is restored as the reviewer's clone was. Design:
+  the request. The case is restored as the reviewer's clone was. Since story 044 the lab's box
+  holds a whole trial instead. Design:
   [`design/evaluation.md`](design/evaluation.md).
 - [011 — compare variants](stories/011-compare-variants.md): done, approved 2026-09-30.
   `awf-lab report --baseline` gives each challenger a verdict (better, worse, tie or undecided,
@@ -186,7 +189,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   a change from noise; match first (`match-first`) is the review scorer and the panel retires.
   Its live check, a public review skill added to the codex baseline, was
   undecided at 16 cases: recall −0.01 [−0.08, +0.06], 36 s a case slower. A futility stop
-  (`minGain`, 0.05 in `default` 1.1.0) now ends such a run at a look.
+  (`minGain`, 0.05 in `default` 1.1.0) now ends such a run at a look. Since story 044 the rule is
+  `better.paired`, a dataset's `compare`, and `@agentswf/lab/compare` is gone.
 - [012 — workflow tests](stories/012-workflow-tests.md): done, approved 2026-09-30. A workflow's
   test beside it scripts each agent's and decision's answers, typed by the turn's schema (`answer`,
   `reply`), and runs the real engine against them: `testWorkflow` in
@@ -197,7 +201,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   The proposer writes workflow code, so trials run whole in a container; air-1 is split 23 tuning
   / 10 holdout. The first live loop (2026-10-01) ran one try, +0.035 at twice the cost, discarded;
   about 3 hours and $29 against a $25 cap. What it showed is missing is
-  [`loop-next`](stories/todo/loop-next.md).
+  [`loop-next`](stories/todo/loop-next.md). Since story 044 the loop runs on cases, for any
+  dataset.
 - [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): done,
   approved 2026-10-01. `awf run --here` takes the session it was typed in over as `agents.caller`
   ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)); its eval passes on claude, codex, pi
@@ -394,6 +399,23 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   `skills` (Q6, Q7); a sandbox's `launch` takes the operator's terminal (srt with a pty profile,
   docker `exec -t`).
 
+- [044 — run a workflow on cases you wrote, with its services faked, and get a score](stories/044-cases-for-a-workflow.md):
+  in progress, tasks 0, 2, 4 and 7 to 13 done, their review resolved; 3 and 6 built, their live
+  checks waiting on tasks 1 and 5. `awf-lab run` runs a dataset in a project's
+  `evals/`: each trial is the folder's own `awf run` of `env.ts` (`@agentswf/lab/cases`:
+  `defineEnv`, strict `c.mock`, `c.fake`, `c.http` through the lab's `fetch` preload, given stages
+  and `until`), graded by the key's `expect`, its `must` and `must-not` by the criteria judge, and
+  a dataset's own graders, code or a workflow (`gradeCase()`); a verdict per case and an exit
+  code; `report`, `runs`, `case new`, `--failed`, `score`, `capture` and `label`; columns from
+  `--against {folder}`, `--param` and `--vary`, compared by the dataset's `compare`; trials
+  reused while nothing that shaped them changed; the lab's box, srt around the whole trial; and
+  `loop`, a proposer whose copies of the code are kept only when better. It is awf-lab's one kind
+  since task 13: the review lab of stories 005, 008, 010, 011 and 013 is retired, its tools moved
+  to the data repository, and its records, `grade.json` and `awf-lab.json` are `/1`. The mail
+  triage's seven cases pass live, and air-1's reviews run and loop on it. Next: tasks 1 (labels on
+  the mail dataset) and 5 (web-to-cli's build, Q15), both the person's; then 3's and 6's live
+  checks.
+
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
@@ -401,7 +423,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 The aim, set 2026-11-02: someone can use agents.wf seriously and get value from it, as the site
 promises (durable runs, an engine that handles a quiet or hung agent, a run that parks with no
 process left). The autoresearch loop is a long-term bet, so [`comparison-efficiency`](stories/todo/comparison-efficiency.md) and
-[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait. The todo inbox
+[`loop-next`](stories/todo/loop-next.md) drop to P2, and security edge cases wait; story 044's
+tasks 7 to 13 (2026-11-16) moved the loop onto cases, and weigh both todos as they do. The todo inbox
 is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities). The P0s:
 
 - [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md): a stop says where and how to go

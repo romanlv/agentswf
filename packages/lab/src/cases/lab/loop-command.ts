@@ -1,0 +1,396 @@
+import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { waitingOnAllowance } from "../../shared/allowance";
+import { checkSchema, describeProblems } from "../../shared/validate";
+import { HypothesisSchema } from "../format/loop";
+import { DEFAULT_PROPOSER } from "../loop/propose.workflow";
+import {
+  awfReads,
+  boxCommand,
+  boxedFolders,
+  boxProfile,
+  hiddenAround,
+  hiddenOf,
+  MODEL_DOMAINS,
+  toolchainOf,
+} from "./box";
+import {
+  type Context,
+  countedGraders,
+  envOf,
+  externalsOf,
+  loadDataset,
+  type Options,
+  workspaceOf,
+} from "./command-context";
+import { type DatasetInfo, fileDigest } from "./dataset";
+import { gitState } from "./git";
+import { checkEnvFile, inspectFolder } from "./inspect";
+import {
+  codeOf,
+  incumbentOf,
+  keepRuns,
+  type LoopDeps,
+  loopDirOf,
+  readLoop,
+  readTries,
+  runFinal,
+  runLoop,
+  type TryRun,
+} from "./loop";
+import { patchOf } from "./loop-code";
+import { readLoopRecords, writeLoopRecords } from "./loop-records";
+import { newestEntries, trialOutcome, trialSpend } from "./outcome";
+import { Refusal } from "./refusal";
+import { type RunGiven, run } from "./run-command";
+import { columnVerdicts } from "./run-report";
+import { barsOf, type CaseBar } from "./runs";
+import { awfRunsOf, newRunId, readRunRecord, readTrials, runSpan, type StoredTrial } from "./store";
+import { type CaseWorkspace, inside } from "./workspace";
+
+export const PROPOSER = join(import.meta.dir, "../loop/propose.workflow.ts");
+
+/** The share of a plan window at which a loop waits, unless `--allowance` says. */
+const DEFAULT_ALLOWANCE = 90;
+
+/** `loop {name}`: tries, `--final` or `--patch`. */
+export async function loopCommand(context: Context, names: readonly string[]): Promise<number> {
+  const { options } = context;
+  const [name, ...extra] = names;
+  if (!name) throw new Refusal("loop needs a name: loop {name} --budget {usd}");
+  if (extra.length > 0) {
+    throw new Refusal(`loop takes one name; got ${names.length} words: ${names.join(" ")}`);
+  }
+  const workspace = workspaceOf(context);
+  const dir = loopDirOf(workspace.store, name);
+  const top = workspace.repository ?? workspace.root;
+  // A loop run elsewhere, as its committed records have it, goes on here.
+  if (workspace.records) readLoopRecords(dir, workspace.records, name, top, workspace);
+  const recorded = <T>(outcome: T): T => {
+    if (workspace.records) writeLoopRecords(dir, workspace.records, name);
+    return outcome;
+  };
+  if (options.patch) {
+    const kept = incumbentOf(readTries(dir));
+    if (!readLoop(dir)) throw new Refusal(`no loop ${name}`);
+    if (kept === 0) {
+      context.stderr(`loop ${name} kept nothing: no patch`);
+      return 1;
+    }
+    context.stdout(patchOf(codeOf(dir, kept)));
+    return 0;
+  }
+  const started = readLoop(dir);
+  const { info, cases } = loadDataset(workspace, started?.dataset ?? options.dataset);
+  const { cases: held } = loadDataset(workspace, info.name, true);
+  const sandbox = info.dataset.sandbox;
+  if (typeof sandbox !== "object" || !("lab" in sandbox)) {
+    throw new Refusal(
+      `a loop runs code no person wrote: ${info.name}'s dataset.json needs "sandbox": { "lab": "srt" }`,
+    );
+  }
+  const graders = join(info.dir, "graders.ts");
+  if (!existsSync(graders)) {
+    throw new Refusal(
+      `a loop keeps a try only when better: ${info.name} needs compare in graders.ts`,
+    );
+  }
+  const bars = barsOf(info, [...cases, ...held], await countedGraders(context, workspace, info));
+  // A final check runs under the loop's own parameters.
+  const scoped =
+    options.final && started
+      ? { ...context, options: { ...options, param: [...started.params] } }
+      : context;
+  const deps = loopDeps(scoped, {
+    workspace,
+    info,
+    bars,
+    top,
+    dir,
+    comparison: `graders.ts ${fileDigest(graders).slice(0, 19)}`,
+  });
+
+  if (options.final) {
+    if (options.budget === undefined) {
+      throw new Refusal("a final check runs trials at a cost: --budget {usd} is required");
+    }
+    const outcome = await runFinal({ dir, budget: options.budget }, deps).finally(() =>
+      recorded(undefined),
+    );
+    context.stdout(outcome.why);
+    return outcome.exit;
+  }
+  if (options.budget === undefined) {
+    throw new Refusal("a loop runs until its estimates reach a cap: --budget {usd} is required");
+  }
+  const state = gitState(workspace.root);
+  const outcome = await runLoop(
+    {
+      name,
+      dataset: info.name,
+      dir,
+      top,
+      workspace,
+      tuning: options.cases ? cases.filter((c) => options.cases!.includes(c.name)) : cases,
+      holdout: held.map((c) => c.name),
+      trials: options.trials ?? 1,
+      params: options.param,
+      rounds: options.rounds ?? 1,
+      budget: options.budget,
+      ...(options.program ? { program: resolve(context.cwd, options.program) } : {}),
+      proposer: options.proposer ?? started?.proposer ?? DEFAULT_PROPOSER,
+      from: { path: workspace.root, commit: state.commit, dirty: state.dirty },
+    },
+    deps,
+  ).finally(() => recorded(undefined));
+  context.stdout(`loop ${name}: ${outcome.why}`);
+  return outcome.exit;
+}
+
+function loopDeps(
+  context: Context,
+  at: {
+    workspace: CaseWorkspace;
+    info: DatasetInfo;
+    bars: ReadonlyMap<string, CaseBar>;
+    top: string;
+    dir: string;
+    comparison: string;
+  },
+): LoopDeps {
+  const { options, environment } = context;
+  const { workspace, info, bars } = at;
+  const { runner, estimate, allowance } = externalsOf(environment);
+  const limit = options.allowance ?? DEFAULT_ALLOWANCE;
+  // The agents a loop draws on, as far as it can name them: the proposer, and any parameter
+  // value that is a harness/model.
+  const named = () => [
+    readLoop(at.dir)?.proposer ?? options.proposer ?? DEFAULT_PROPOSER,
+    ...options.param.map((p) => p.slice(p.indexOf("=") + 1)),
+  ];
+  const wait =
+    allowance && limit !== "off"
+      ? waitingOnAllowance(async () => undefined, allowance, { limit, log: context.stderr })
+      : undefined;
+  return {
+    comparison: at.comparison,
+    log: (line) => context.stderr(line),
+    now: environment.now ?? (() => new Date()),
+    async waitForAllowance() {
+      if (wait) await wait({ argv: named() });
+    },
+    estimatedIn(runIds) {
+      return runIds.reduce((sum, id) => sum + spendOf(workspace.store, id), 0);
+    },
+    async runFolders({ folders, order, budget, stopOnVerdict, holdout, started }) {
+      const { budget: _, ...rest } = options;
+      const scoped: Context = {
+        ...context,
+        options: {
+          ...rest,
+          dataset: info.name,
+          yes: true,
+          fresh: false,
+          failed: false,
+          holdout: holdout ?? false,
+          against: [],
+          vary: [],
+          json: false,
+          dryRun: false,
+          ...(Number.isFinite(budget) ? { budget: Math.max(budget, 0.01) } : {}),
+        } satisfies Options,
+      };
+      const given: RunGiven = {
+        folders,
+        order,
+        report: false,
+        ...(started ? { started } : {}),
+        ...(stopOnVerdict
+          ? {
+              stop: async (run, trials) => {
+                const verdict = (
+                  await columnVerdicts(scoped, {
+                    workspace,
+                    info,
+                    run,
+                    trials: bothRan(trials, folders.length),
+                    bars,
+                  })
+                )?.[0];
+                return verdict !== undefined && "verdict" in verdict && verdict.verdict.stop;
+              },
+            }
+          : {}),
+      };
+      const done = await run(scoped, given);
+      const runId = done.id;
+      if (!runId) {
+        throw new Error(
+          `the try's run never started${done.unstarted ? `: ${done.unstarted}` : ""}`,
+        );
+      }
+      const record = readRunRecord(workspace.store, runId)!;
+      // Decided by nothing: the loop stops undecided, and resumes with this try.
+      if (record.broke) throw new Error(`the lab broke during run ${runId}: ${record.broke}`);
+      const trials = readTrials(workspace.store, runId);
+      const verdicts =
+        folders.length > 1
+          ? await columnVerdicts(scoped, {
+              workspace,
+              info,
+              run: record,
+              trials: bothRan(trials, folders.length),
+              bars,
+            })
+          : undefined;
+      const first = verdicts?.[0];
+      const result: TryRun = {
+        runId,
+        ...(record.stopped ? { stopped: record.stopped } : {}),
+        ...(first
+          ? {
+              verdict:
+                "verdict" in first
+                  ? {
+                      verdict: first.verdict.verdict,
+                      stop: first.verdict.stop,
+                      reason: first.verdict.reason,
+                    }
+                  : { error: first.error },
+            }
+          : {}),
+        spend: spendOf(workspace.store, runId),
+      };
+      return result;
+    },
+    feedback(runId, column) {
+      return readTrials(workspace.store, runId)
+        .filter((t) => t.record.column === column)
+        .map(({ record, scores }) => ({
+          case: record.case,
+          trial: record.trial,
+          outcome: trialOutcome(record, scores).outcome,
+          ...(record.facts ? { facts: record.facts } : {}),
+          ...(record.workflowError ? { workflowError: record.workflowError } : {}),
+          grades: newestEntries(scores).map((e) => ({
+            grader: e.grader,
+            ...(e.verdict ? { verdict: e.verdict } : {}),
+            ...(e.numbers ? { numbers: e.numbers } : {}),
+            ...(e.reasons ? { reasons: e.reasons } : {}),
+            ...(e.parts
+              ? { parts: e.parts.map((p) => ({ about: p.about, label: p.label, why: p.why })) }
+              : {}),
+            ...(e.errored ? { errored: e.errored } : {}),
+          })),
+        }));
+    },
+    async propose({ tryDir, code, bundle, proposer }) {
+      // The copy's own install, which its box reads, not your checkout's.
+      const copyRoot = join(code, relative(at.top, workspace.root));
+      const folder = await (environment.inspect ?? inspectFolder)(
+        copyRoot,
+        checkEnvFile(join(copyRoot, relative(workspace.root, info.dir))),
+      );
+      const id = newRunId((environment.now ?? (() => new Date()))());
+      const own = join(tryDir, "proposer");
+      const { runRoot, home, control, env: boxEnv } = boxedFolders(own, id);
+      const trialFile = join(own, "trial.jsonl");
+      writeFileSync(trialFile, "");
+      const path = [folder.bin, (environment.env ?? process.env).PATH].filter(Boolean).join(":");
+      const harness = proposer.slice(0, proposer.indexOf("/"));
+      const lab = realpathSync(join(import.meta.dir, "../../.."));
+      const profile = boxProfile(
+        {
+          root: lab,
+          caseDir: bundle,
+          scratch: code,
+          runRoot,
+          home,
+          trialFile,
+          control,
+          toolchain: [...toolchainOf(code, path), ...awfReads(folder.awf)],
+          // The store and the lab's home whole but this try's folder, where the proposer works.
+          hidden: [
+            ...hiddenOf(code, workspace).filter(
+              (path) => path !== workspace.store && path !== workspace.labHome,
+            ),
+            ...hiddenAround(workspace.labHome, [tryDir]),
+            // A store set outside the lab's home, as awf-lab.json's store may be.
+            ...(inside(workspace.labHome, workspace.store)
+              ? []
+              : hiddenAround(workspace.store, [tryDir])),
+          ],
+          readOnly: [join(code, relative(at.top, workspace.evals))],
+          reads: [tryDir],
+        },
+        [...(MODEL_DOMAINS[harness] ?? [])],
+      );
+      try {
+        const result = await runner({
+          workflow: PROPOSER,
+          cwd: tryDir,
+          timeout: "30m",
+          argv: ["--runtime", proposer],
+          runRoot,
+          id,
+          awf: { bin: folder.awf.bin, dir: folder.awf.dir },
+          quiet: true,
+          env: { ...envOf(context), PATH: path, ...boxEnv },
+          boxed: true,
+          box: boxCommand(profile, join(own, "box.json")),
+        });
+        keepRuns(runRoot, awfRunsOf(workspace.store));
+        const record = result.record;
+        // A proposer cut short prints no record; its folder still says what its agent is estimated at.
+        const unrecorded =
+          record || !estimate ? undefined : await estimate(folder.awf, runRoot, id, envOf(context));
+        const spend = record?.accounting.totals.estimate ?? unrecorded ?? 0;
+        if (record?.outcome !== "completed") {
+          return {
+            spend,
+            ...(record ? { runId: record.runId } : {}),
+            why: `the proposer's run ${record?.outcome ?? "printed no record"}: ${
+              (record && "reason" in record ? record.reason : undefined) ??
+              result.unread ??
+              result.stderr.trim().split("\n").at(-1) ??
+              ""
+            }`,
+          };
+        }
+        const checked = checkSchema(HypothesisSchema, record.value);
+        if (!checked.ok) {
+          return {
+            spend,
+            runId: record.runId,
+            why: describeProblems("the proposer's answer", checked.problems),
+          };
+        }
+        return { spend, runId: record.runId, hypothesis: checked.value };
+      } finally {
+        rmSync(control, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+/**
+ * The trials of the cases every column has run: a try's run holds the incumbent's reused trials of
+ * every case from its start, and a comparison weighs only what both have.
+ */
+function bothRan(trials: readonly StoredTrial[], columns: number): StoredTrial[] {
+  const ran = new Map<string, Set<number>>();
+  for (const t of trials) {
+    const seen = ran.get(t.record.case) ?? new Set<number>();
+    seen.add(t.record.column);
+    ran.set(t.record.case, seen);
+  }
+  return trials.filter((t) => (ran.get(t.record.case)?.size ?? 0) === columns);
+}
+
+/** What a run's trials and their grades are estimated at, as its `--budget` counted them. */
+function spendOf(store: string, id: string): number {
+  const run = readRunRecord(store, id);
+  if (!run) return 0;
+  const span = runSpan(store, run);
+  return readTrials(store, id).reduce((sum, t) => sum + trialSpend(t, span), 0);
+}

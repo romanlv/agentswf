@@ -246,6 +246,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
         ? `last event ${clockTime(view.lastEventAt)}`
         : duration(span(status, now).ms),
       ...money(view.estimate, view.unknownCost),
+      ...(status.run.record.boxed ? ["boxed by its caller"] : []),
     ].join("  "),
   ];
   // Every other attempt file, a launch that never claimed its number included.
@@ -331,6 +332,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ...(view.stage ? { stage: view.stage } : {}),
       ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
       ...(view.estimate === undefined ? {} : { estimate: view.estimate }),
+      ...(status.run.record.boxed ? { boxed: true as const } : {}),
       ...(status.waiting ? { waiting: status.waiting } : {}),
       dir: status.run.dir,
     },

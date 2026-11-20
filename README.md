@@ -339,8 +339,9 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
    workflow can be compared on quality, time and cost.
 3. **Runs that improve runs.** Try variants of a workflow (prompts, models, harnesses, how many
    verifiers) against cases with known answers, and keep the ones that are better, faster or
-   cheaper. The first piece exists: `awf-lab` scores code-review workflows against old merge
-   requests whose real problems are known.
+   cheaper. `awf-lab` runs a workflow on cases you wrote, grades each result against its key,
+   compares two versions case by case, and can loop: an agent changes the code, kept only when
+   better.
 
 ## Not yet
 
@@ -358,7 +359,7 @@ bun run check             # lint, format, types and package boundaries
 ```
 
 - [The workflow API](https://agents.wf/reference/workflow-api): every call a workflow can make, on one page
-- [`packages/lab`](packages/lab/README.md): scoring review workflows against cases with known answers
+- [`packages/lab`](packages/lab/README.md): running a workflow on cases with known answers, and comparing versions
 - [`docs/status.md`](docs/status.md): what runs today and what comes next
 - [`docs/testing.md`](docs/testing.md): the test levels, from free to live, and what each costs
 - [`docs/foundation.md`](docs/foundation.md): the design argument behind the package boundaries

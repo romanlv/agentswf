@@ -1,0 +1,6 @@
+{
+  "id": "A-2207",
+  "customer": "Dana Reyes",
+  "deliveredAt": "2026-11-02T10:00:00Z",
+  "items": [{ "name": "Blue mug", "price": 18 }, { "name": "Set of four plates", "price": 34 }]
+}

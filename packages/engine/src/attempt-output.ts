@@ -76,6 +76,7 @@ export async function keepRecords(
       accounting: settled.accounting,
       usage: settled.usage,
       artifacts: dir,
+      ...(attempt.run.record.boxed ? { boxed: true as const } : {}),
       ...(settled.sandboxes ? { sandboxes: settled.sandboxes } : {}),
       ...(settled.skills ? { skills: settled.skills } : {}),
       ...(settled.panes ? { panes: settled.panes } : {}),

@@ -10,6 +10,9 @@ depends_on: ["011"]
 
 # Make a comparison decide what it can, sooner
 
+Written for the review lab, now retired (story 044): `run --baseline` is the case lab's reference
+column, and the comparison is a dataset's `compare`; `check` was dropped with nothing in its place.
+
 Give the standard comparison, whose futility stop is built, an equivalence margin the dataset can
 resolve, have check say what a verdict can decide, and make run --baseline cheaper and faster, from
 what story 011's live check cost.

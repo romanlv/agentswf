@@ -1,0 +1,10 @@
+{
+  "id": "O-two-mugs",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-01T10:00:00Z",
+  "items": [
+    { "name": "Mug", "price": 12 },
+    { "name": "Mug", "price": 12 },
+    { "name": "Saucer", "price": 6 }
+  ]
+}

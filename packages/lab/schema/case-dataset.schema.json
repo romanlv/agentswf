@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab dataset of cases",
+  "type": "object",
+  "required": ["kind", "sandbox", "agentReach"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "const": "awf.case-dataset/0"
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "workflow",
+          "description": "Trust the sandboxes the workflow opens itself."
+        },
+        {
+          "type": "object",
+          "required": ["lab"],
+          "properties": {
+            "lab": {
+              "type": "string",
+              "const": "srt"
+            }
+          },
+          "additionalProperties": false,
+          "description": "The lab's box: the whole trial (awf run, env.ts, the workflow and its agents) in one srt sandbox that reads no key, the workflow's own sandboxes set aside."
+        }
+      ],
+      "description": "Where a trial runs: the workflow's own sandboxes, or the lab's box."
+    },
+    "agentReach": {
+      "type": "object",
+      "required": ["network"],
+      "properties": {
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*$"
+          },
+          "description": "Domains the workflow's agents may reach, beyond their model domains."
+        },
+        "webSearch": {
+          "type": "boolean",
+          "description": "false when absent."
+        },
+        "sockets": {
+          "type": "boolean",
+          "description": "Whether a sandbox may hold sockets; false when absent."
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeout": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*(ms|s|m|h)$",
+      "description": "The limit of a trial's workflow body; \"30m\" when absent.",
+      "~optional": true
+    },
+    "setupTimeout": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*(ms|s|m|h)$",
+      "description": "The limit of setup, and again of observe with teardown; \"10m\" when absent.",
+      "~optional": true
+    },
+    "realHosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Hosts the workflow's own code may reach for real, beyond the engine's."
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^(all|[1-9][0-9]*/[1-9][0-9]*)$",
+      "description": "\"all\", or the fraction of trials that must pass, such as \"2/3\"."
+    },
+    "holdout": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Cases set aside for a final check: run, --failed and history leave them out, run --holdout runs them alone, and a loop's proposer never sees them."
+    },
+    "reuseDays": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many days a stored trial may stand in for a new one when nothing that shaped it changed; 14 when absent, 0 never."
+    },
+    "keep": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Paths saved from the scratch folder after a trial."
+    },
+    "graders": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "required": ["grader"],
+            "properties": {
+              "grader": {
+                "type": "string",
+                "minLength": 1
+              },
+              "onDemand": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["workflow"],
+            "properties": {
+              "workflow": {
+                "type": "string",
+                "pattern": "^graders/.+\\.ts$",
+                "description": "A grader workflow in the dataset's graders/ folder."
+              },
+              "readsFacts": {
+                "type": "boolean"
+              },
+              "onDemand": {
+                "type": "boolean",
+                "description": "Run only by score --grader; never decides a verdict."
+              },
+              "timeout": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*(ms|s|m|h)$",
+                "description": "Its run's limit; the dataset's timeout when absent.",
+                "~optional": true
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "The dataset's own graders; exempt from /0 for now."
+    },
+    "judgeAgent": {
+      "type": "object",
+      "required": ["harness", "model"],
+      "properties": {
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "voters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "multipleOf": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "description": "A dataset of cases for one workflow."
+}

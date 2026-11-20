@@ -452,6 +452,11 @@ export type RunRecord = {
   file?: string;
   /** `awf run --workspace` and `--keep-panes`, which every attempt keeps; absent, neither was given. */
   panes?: RunPanes;
+  /**
+   * `awf run --boxed`: its caller ran the whole run in a box of its own, so its agents ran there and
+   * every sandbox the workflow named was set aside. Absent, the run's sandboxes are its own.
+   */
+  boxed?: true;
 };
 
 /**
@@ -1097,7 +1102,8 @@ export type StageStateJson = (typeof STAGE_STATES)[number];
  */
 export type RunJson = {
   v: 2;
-  run: RunHeadJson & { estimate?: number; dir: string };
+  /** `boxed`: the run ran in its caller's box, its own sandboxes set aside, as `run.json` says. */
+  run: RunHeadJson & { estimate?: number; boxed?: true; dir: string };
   attempts: {
     attempt: number;
     started: string;
@@ -1479,6 +1485,8 @@ export type OutputRecord = {
    * exhaustively over a sandbox's `provider`.
    */
   sandboxes?: SandboxRecord[];
+  /** `awf run --boxed`: the run ran in its caller's box, its own sandboxes set aside, as `run.json` says. */
+  boxed?: true;
   /** Each agent's skills, once per agent, including one that never completed a turn. */
   skills?: AgentSkillsRecord[];
   /** Where each TUI agent's pane went, once per agent. Absent when the run placed none. */

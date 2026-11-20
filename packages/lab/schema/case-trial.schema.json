@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab case trial",
+  "type": "object",
+  "required": [
+    "kind",
+    "run",
+    "dataset",
+    "case",
+    "column",
+    "trial",
+    "params",
+    "awf",
+    "input",
+    "sandbox",
+    "agentReach",
+    "models",
+    "at",
+    "ms",
+    "unused",
+    "refused",
+    "kept",
+    "leaked"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-trial/1"
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "case": {
+      "type": "string",
+      "minLength": 1
+    },
+    "column": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "trial": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "params": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*$": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "reuse": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reused": {
+      "type": "object",
+      "required": ["run", "column", "trial"],
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trial": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "awf": {
+      "type": "object",
+      "required": ["bin", "version"],
+      "properties": {
+        "bin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "workflow"
+        },
+        {
+          "type": "string",
+          "const": "lab"
+        }
+      ]
+    },
+    "agentReach": {
+      "type": "object",
+      "required": ["network"],
+      "properties": {
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*$"
+          },
+          "description": "Domains the workflow's agents may reach, beyond their model domains."
+        },
+        "webSearch": {
+          "type": "boolean",
+          "description": "false when absent."
+        },
+        "sockets": {
+          "type": "boolean",
+          "description": "Whether a sandbox may hold sockets; false when absent."
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runOutcome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runReason": {
+      "type": "string"
+    },
+    "ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "setupMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "estimate": {
+      "type": "number",
+      "minimum": 0
+    },
+    "known": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "priced": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "agents": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result": {},
+    "facts": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "stages": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {}
+      }
+    },
+    "stageMs": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "given": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "until": {
+      "type": "string"
+    },
+    "neverReached": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unused": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "refused": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["what", "by", "phase", "message"],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "function"
+              },
+              {
+                "type": "string",
+                "const": "host"
+              }
+            ]
+          },
+          "phase": {
+            "enum": ["setup", "body", "observe", "teardown"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "kept": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "leaked": {
+      "type": "boolean"
+    },
+    "reach": {
+      "type": "object",
+      "required": ["ok", "problems", "sockets", "sandboxes"],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sockets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sandboxes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "provider", "network", "webSearch", "agents"],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "network": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "webSearch": {
+                "type": "boolean"
+              },
+              "agents": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "stopped": {
+      "type": "string"
+    },
+    "workflowError": {
+      "type": "string"
+    },
+    "errored": {
+      "type": "object",
+      "required": ["by", "phase", "reason"],
+      "properties": {
+        "by": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "dataset"
+            },
+            {
+              "type": "string",
+              "const": "grading"
+            },
+            {
+              "type": "string",
+              "const": "provider"
+            },
+            {
+              "type": "string",
+              "const": "lab"
+            }
+          ]
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "setup"
+            },
+            {
+              "type": "string",
+              "const": "body"
+            },
+            {
+              "type": "string",
+              "const": "observe"
+            },
+            {
+              "type": "string",
+              "const": "teardown"
+            },
+            {
+              "type": "string",
+              "const": "after"
+            }
+          ]
+        },
+        "code": {
+          "enum": [
+            "threw",
+            "timed-out",
+            "refused",
+            "prepare",
+            "workflow-missing",
+            "workflow-loaded-early",
+            "events",
+            "given-refused",
+            "stage-missing",
+            "facts-missing",
+            "fact-type",
+            "no-observe",
+            "reach",
+            "login"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "retried": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

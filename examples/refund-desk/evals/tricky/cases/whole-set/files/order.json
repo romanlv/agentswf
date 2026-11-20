@@ -1,0 +1,6 @@
+{
+  "id": "O-whole-set",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-09T10:00:00Z",
+  "items": [{ "name": "Plates, set of five", "price": 40 }, { "name": "Napkin rings", "price": 10 }]
+}

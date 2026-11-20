@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab run of cases",
+  "type": "object",
+  "required": ["kind", "id", "dataset", "folders", "columns", "asked", "started"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-run/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "folders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "branch", "commit", "dirty", "env"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "env": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["folder", "params"],
+        "properties": {
+          "folder": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "params": {
+            "type": "object",
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "asked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case", "trials"],
+        "properties": {
+          "case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trials": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "started": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "broke": {
+      "type": "string"
+    },
+    "stopped": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "budget"
+        },
+        {
+          "type": "string",
+          "const": "compare"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

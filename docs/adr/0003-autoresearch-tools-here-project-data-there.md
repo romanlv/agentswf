@@ -3,7 +3,9 @@
 **Decided:** 2026-09-25, in [story 005](../stories/005-review-fixtures.md). **Amends:**
 [ADR 0002](0002-autoresearch-lives-here.md), which left the home inside this repository open and
 assumed the workflows being tuned live here; `foundation.md` §7 and §10's autoresearch rows.
-**Amended:** 2026-09-26, fixture sets moved out of the workflows repository into their own.
+**Amended:** 2026-09-26, fixture sets moved out of the workflows repository into their own;
+2026-11-15, in [story 044](../stories/044-cases-for-a-workflow.md), cases for a workflow live
+beside it (below).
 
 ## What was decided
 
@@ -48,3 +50,30 @@ know it exists. `scripts/check-boundaries.ts` enforces this.
   project's variants are tuned where they live.
 - The design of the fixture format lives in `format.ts` and story 005. No separate design note:
   a third copy would drift.
+
+## Amendment: cases for a workflow live beside it (2026-11-15)
+
+[Story 044](../stories/044-cases-for-a-workflow.md) adds a second kind of case: one written by
+hand for any workflow, in an `evals/` folder of the repository that holds the workflow, with its
+key (`key.md`, `key/`) beside it.
+
+- **Why beside the workflow:** these cases are small (an input, a few files, a key), written by
+  the person who changes the workflow, and checked in the same commit as the change they test,
+  like a unit test. A second repository would split each change in two. What made review
+  fixtures need their own repository, a frozen checkout per case, does not apply.
+- **What keeps a key from the agents:** the lab copies a case into a folder outside the repository
+  before a trial and never copies `key.md` or `key/`; a marker in each key, searched for after
+  every trial, says when one leaked. The workflow's own sandboxes keep its agents out of the
+  repository's `evals/`.
+- **Private data still stays out of this repository.** A case can hold real mail or real code;
+  it lives in the project's repository, which is the project's to keep private. Nothing here
+  changes for review fixtures until reviews move onto the new kind
+  ([[044-cases-for-a-workflow|story 044]]).
+
+## Amended (story 044, 2026-11-18)
+
+What is general turned out to be cases for any workflow, not the review fixture format. The
+review tools (the fixture format, its checker, `collect`, `draft-key` and the match grader) moved
+to the project's own autoresearch repository, beside its fixture sets, and `packages/lab` keeps
+only the case lab: datasets of cases, graders, comparison and the loop. The split stands; its line
+moved.

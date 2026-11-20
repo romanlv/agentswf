@@ -20,6 +20,7 @@ import {
   type FakeSandboxOptions,
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
+import { parseCommand } from "./run-command";
 import { readRunLines } from "./run-lines";
 import { listRuns } from "./run-state";
 import { readEvents } from "./runs";
@@ -107,6 +108,8 @@ function setup(
   host?: AgentRunHostFactory,
   /** The operator's sandbox for the whole run, as `awf run --sandbox` gives it. */
   runSpec?: unknown,
+  /** `awf run --boxed`: the caller boxes the whole run, and the workflow's sandboxes are set aside. */
+  setAside = false,
 ) {
   const fake = createFakeSandboxProvider(options);
   const providers: SandboxProviders = { installed: { srt: fake.provider } };
@@ -127,6 +130,7 @@ function setup(
         sandboxesDir: runDirs.tempRunDir(),
         machineRoot: runDirs.tempRunDir(),
         ...(runSpec === undefined ? {} : { run: runSpec }),
+        ...(setAside ? { setAside: true as const } : {}),
       },
       onLog: (message) => logs.push(message),
     });
@@ -786,6 +790,90 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
       await rm(canary, { force: true });
     }
   }, 60_000);
+});
+
+describe("awf run --boxed: the workflow's sandboxes set aside", () => {
+  test("nothing opens: a sandbox of its own, a ref and an inline spec all run as host agents", async () => {
+    const { events, run } = setup({}, undefined, undefined, true);
+    const result = await run(async (context) => {
+      const wide = await context.sandboxes.open({ key: "wide", srt: {}, read: [root] });
+      const inRef = await open(context, { key: "a", sandbox: wide });
+      const inline = await open(context, { key: "b", sandbox: { srt: {}, read: [root] } });
+      return [inRef, inline].length;
+    });
+    expect(result.value).toBe(2);
+    expect(kinds(events)).toEqual([]);
+    expect(result.sandboxes ?? []).toEqual([]);
+  });
+
+  test("a spec is checked as if it opened: a key used twice, a spec naming no provider", async () => {
+    const boxed = () => setup({}, undefined, undefined, true).run;
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {} });
+        await context.sandboxes.open({ key: "box", srt: {} });
+        return 0;
+      }),
+    ).rejects.toThrow("sandbox box is already open");
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", read: [root] } as never);
+        return 0;
+      }),
+    ).rejects.toThrow("a sandbox spec names its provider");
+  });
+
+  test("a spec's values are checked as if it opened: a bad network domain, a field not a list", async () => {
+    const boxed = () => setup({}, undefined, undefined, true).run;
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {}, network: ["https://x.example"] });
+        return 0;
+      }),
+    ).rejects.toThrow('not a sandbox domain: "https://x.example"');
+    await expect(
+      boxed()(async (context) => {
+        await context.sandboxes.open({ key: "box", srt: {}, read: "src" as never });
+        return 0;
+      }),
+    ).rejects.toThrow("sandbox read must be a list");
+  });
+
+  test("an agent's inline spec is checked as if it opened", async () => {
+    await expect(
+      setup({}, undefined, undefined, true).run(async (context) => {
+        await open(context, { key: "a", sandbox: { srt: {}, network: ["not a domain"] } });
+        return 0;
+      }),
+    ).rejects.toThrow("domain");
+  });
+
+  test("an agent's sandbox is refused as an unboxed run refuses it", async () => {
+    const boxed = (sandbox: unknown) =>
+      setup({}, undefined, undefined, true).run(async (context) => {
+        await open(context, { key: "a", sandbox: sandbox as never });
+        return 0;
+      });
+    await expect(boxed("srt")).rejects.toThrow(
+      "an agent's sandbox is a ref from sandboxes.open or an inline spec",
+    );
+    await expect(boxed({ key: "wide", provider: "srt" })).rejects.toThrow(
+      "not a sandbox this run opened",
+    );
+    await expect(boxed({ key: "wide", srt: {} })).rejects.toThrow(
+      "an agent's inline sandbox cannot name key",
+    );
+  });
+
+  test("--boxed goes with neither --sandbox nor --continue", async () => {
+    await writeFile(join(work, "s.json"), JSON.stringify({ srt: {} }));
+    const parse = (argv: string[]) => () => parseCommand(["run", ...argv], work);
+    expect(parse(["w.ts", "--boxed", "--sandbox", "s.json"])).toThrow(
+      "--boxed and --sandbox do not go together",
+    );
+    expect(parse(["w.ts", "--boxed", "--id", "x", "--continue"])).toThrow("--boxed starts a run");
+    expect(parseCommand(["run", "w.ts", "--boxed"], work).boxed).toBe(true);
+  });
 });
 
 describe("a run's sandboxes, opening as the run ends", () => {

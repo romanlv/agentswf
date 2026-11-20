@@ -2,7 +2,7 @@ import { assertLiveOptIn, interruption, report } from "./live";
 import { gather, problems } from "./run-sandbox";
 
 /**
- * `awf run --sandbox`, live, under docker: `run-sandbox` with the workspace's and every run's
+ * `awf run --sandbox`, live, under docker: `run-sandbox` with every run's
  * sandbox a container of the default image. docker's daemon must answer. 3 agents, ~1½ min, ~$0.15
  * at list prices.
  */

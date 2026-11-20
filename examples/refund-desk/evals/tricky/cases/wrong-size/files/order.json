@@ -1,0 +1,6 @@
+{
+  "id": "O-wrong-size",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-04T10:00:00Z",
+  "items": [{ "name": "Boots, size 42", "price": 40 }, { "name": "Socks", "price": 8 }]
+}

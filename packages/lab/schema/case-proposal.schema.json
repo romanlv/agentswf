@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab loop's proposal.json",
+  "type": "object",
+  "required": ["kind", "hypothesis", "spend", "feedback"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-proposal/1"
+    },
+    "hypothesis": {
+      "type": "object",
+      "required": ["change", "hypothesis", "predicted", "mechanism"],
+      "properties": {
+        "change": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What changed, in a sentence."
+        },
+        "hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why it should do better."
+        },
+        "predicted": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effect expected on the comparison's numbers, and its cost."
+        },
+        "mechanism": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the trials must show if the hypothesis holds."
+        }
+      },
+      "additionalProperties": false
+    },
+    "spend": {
+      "type": "number",
+      "minimum": 0
+    },
+    "feedback": {
+      "type": "number",
+      "minimum": 0
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,6 @@
+{
+  "id": "A-2251",
+  "customer": "Lee Marsh",
+  "deliveredAt": "2026-11-05T16:00:00Z",
+  "items": [{ "name": "Teapot", "price": 24 }, { "name": "Two cups", "price": 30 }]
+}

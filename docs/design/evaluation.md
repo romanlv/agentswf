@@ -4,9 +4,10 @@ Where an evaluated workflow runs, who builds that place, and how we know nothing
 answer. **Decided 2026-09-29: the run's sandbox**, built by [[010-eval-isolation|story 010]]; the
 whole run in a container followed for workflows nobody wrote (story 013, task 2).
 
-Terms are the lab's ([`packages/lab`](../../packages/lab/docs/reference.md#The%20words)): a **dataset** of
-**cases**, each with a **key**; a **variant** is the workflow evaluated; a **trial** is one variant
-on one case; a **scorer** grades a trial against the key.
+Terms are the review lab's, now retired: a **dataset** of **cases**, each with a **key**; a
+**variant** is the workflow evaluated; a **trial** is one variant on one case; a **scorer** grades
+a trial against the key. The case lab of [story 044](../stories/044-cases-for-a-workflow.md) calls
+a variant a **column** and a scorer a **grader**.
 
 ## The problem
 

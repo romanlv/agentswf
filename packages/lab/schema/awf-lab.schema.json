@@ -2,179 +2,57 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "awf-lab workspace",
   "type": "object",
-  "required": ["clone", "datasets", "dataset", "results", "runs", "variants", "scorers"],
+  "required": ["kind"],
   "properties": {
     "$schema": {
       "type": "string"
     },
-    "clone": {
+    "kind": {
       "type": "string",
-      "minLength": 1,
-      "description": "The project's main-branch clone that case snapshots restore from."
+      "const": "awf.lab-workspace/1"
     },
-    "datasets": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The folder holding datasets."
-    },
-    "dataset": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The dataset a command uses unless --dataset names one."
-    },
-    "results": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Where trials and scores go: {results}/{dataset}/…"
-    },
-    "runs": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Where awf run keeps run directories; not committed, records never need them."
-    },
-    "variants": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "description": "Globs of *.variant.ts files; a variant is named by its file's stem."
-    },
-    "scorers": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "description": "Globs of *.scorer.ts files; `match-first`, the package's own, is always there."
-    },
-    "scorer": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The scorer a command uses unless --scorer names one; `match-first`, the package's own, if absent."
-    },
-    "comparisons": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "description": "Globs of *.compare.ts files; `default`, the package's standard review comparison, is always there."
-    },
-    "comparison": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The comparison report uses with a baseline unless --comparison names one; `default` if absent."
-    },
-    "trials": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Trials a case unless --trials says otherwise; 1 if absent. Two or more let a comparison see how much one case varies."
-    },
-    "baseline": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The variant a report compares against unless --baseline names one."
-    },
-    "budget": {
+    "judgeAgent": {
       "type": "object",
-      "required": ["usd"],
+      "required": ["harness", "model"],
       "properties": {
-        "usd": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Priced at list prices, as a run's accounting estimates it."
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "voters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "multipleOf": 1
         }
       },
-      "additionalProperties": false
-    },
-    "sandbox": {
-      "anyOf": [
-        {
-          "type": "object",
-          "required": ["srt"],
-          "properties": {
-            "srt": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["docker"],
-          "properties": {
-            "docker": {
-              "type": "object",
-              "properties": {
-                "image": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["container"],
-          "properties": {
-            "container": {
-              "type": "object",
-              "required": ["image"],
-              "properties": {
-                "image": {
-                  "type": "string",
-                  "minLength": 1,
-                  "description": "An image holding bun, git and codex: the docker provider's default."
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        }
-      ],
-      "description": "The provider of the sandbox every trial's agents run in, which holds the checkout and the request and nothing else: { \"srt\": {} }, the default, { \"docker\": { \"image\"?: … } }, or { \"container\": { \"image\": … } }, which runs the workflow itself in the container too.",
+      "additionalProperties": false,
+      "description": "The criteria judge's harness and model; a dataset.json may give its own.",
       "~optional": true
     },
-    "seed": {
+    "store": {
       "type": "string",
       "minLength": 1,
-      "description": "Orders cases for --cases {n}; awf-lab."
+      "description": "Where runs of cases are kept, in place of ~/.awf/lab/{project}-{first commit}; never inside the repository."
     },
-    "holdout": {
-      "type": "object",
-      "patternProperties": {
-        "^.*$": {
-          "type": "object",
-          "required": ["cases", "chosen"],
-          "properties": {
-            "cases": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              },
-              "minItems": 1,
-              "uniqueItems": true
-            },
-            "chosen": {
-              "type": "string",
-              "format": "date",
-              "description": "When the cases were set aside: before the first proposal."
-            }
-          },
-          "additionalProperties": false
-        }
+    "records": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A folder inside evals/ the run, trial and score records are also written to, to be committed, so a fresh clone sees them."
+    },
+    "hide": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
       },
-      "description": "By dataset, the cases set aside for a loop's final check: no command selects, shows or reports them, and no proposer sees them."
+      "uniqueItems": true,
+      "description": "Paths in the code folder, relative to it, the lab's box hides as it hides keys: tracked files that hold or quote a key, such as an older lab's fixtures."
     }
   },
-  "additionalProperties": false,
-  "description": "An awf-lab workspace, in its second form."
+  "additionalProperties": false
 }

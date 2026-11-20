@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab loop's loop.json",
+  "type": "object",
+  "required": [
+    "kind",
+    "name",
+    "dataset",
+    "started",
+    "from",
+    "program",
+    "proposer",
+    "trials",
+    "params",
+    "cap",
+    "tuning",
+    "holdout",
+    "comparison"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-loop/1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started": {
+      "type": "string",
+      "minLength": 1
+    },
+    "from": {
+      "type": "object",
+      "required": ["path", "commit", "dirty"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "program": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trials": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "cap": {
+      "type": "object",
+      "required": ["usd"],
+      "properties": {
+        "usd": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "tuning": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "holdout": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "comparison": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

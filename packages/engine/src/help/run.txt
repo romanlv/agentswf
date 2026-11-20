@@ -2,7 +2,7 @@ usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]
        awf run [options] <workflow-file> --id <id> --continue
 run options: --id <id>, --continue, --from-stage <stage>, --values <file>,
              --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,
-             --workspace <run|origin|name>, --keep-panes <never|on-failure|always>,
+             --boxed, --workspace <run|origin|name>, --keep-panes <never|on-failure|always>,
              --json, --quiet, --no-watch, --here
 
 Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or, with
@@ -35,6 +35,10 @@ a person's question still print. Everything left out is kept for awf logs.
 --sandbox puts every agent of the run in one sandbox, working in --cwd; the file is a JSON spec
 such as {"read": ["/data/request.md"], "srt": {}}, naming srt or docker, whose relative paths are
 from --cwd. A workflow that opens a sandbox of its own is refused.
+--boxed is for a caller that runs this whole process in a sandbox of its own, as awf-lab does a
+trial: the workflow's sandboxes are set aside, wf.sandboxes.open opens none, and every agent runs
+as it would with no sandbox, inside the caller's box; run.json and the run's record say it was
+boxed. It never goes with --sandbox or --continue.
 A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its
 panes; --no-watch leaves it out, and awf still prints the command that shows them.
 --workspace says where each TUI agent's tab opens: run, the run's own Herdr workspace (the

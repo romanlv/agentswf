@@ -33,9 +33,10 @@ What still stands here and is not in the story: the reasons a case binds to the 
 stage names, running from a stage and the test generator (plan steps 3 and 4), and Considered and
 dropped.
 
-The words are the lab's ([`packages/lab`](../../packages/lab/docs/reference.md#The%20words)):
-**dataset**, **case**, **key**, **variant**, **trial**, **scorer**, **judge**, **score**,
-**report**. This adds three. A key's items are **criteria**. A case is **written** by hand or
+The words are the review lab's, as it was then: **dataset**, **case**, **key**, **variant**,
+**trial**, **scorer**, **judge**, **score**, **report**; the case lab of
+[story 044](../stories/044-cases-for-a-workflow.md) calls a variant a **column** and a scorer a
+**grader**. This adds three. A key's items are **criteria**. A case is **written** by hand or
 **captured** from a run. A trial's **scope** is how much of the workflow runs live in it.
 
 "Eval" stays what it means here, a `*.eval.ts` check that a feature still works on live agents
@@ -247,7 +248,7 @@ person's words too.
 All in `packages/lab`. Its case side is review's throughout: a case is a fixture and an answer
 key, restore takes a bundle, a trial stores findings, a scorer is handed `--fixture` and
 `--findings`, and the scratch checkout is deleted before scoring. So this is
-[[second-case-kind]], with a captured or written case as the second kind instead of triage:
+[[044-cases-for-a-workflow|story 044]], with a captured or written case as the second kind instead of triage:
 
 | Piece | What it is |
 | --- | --- |

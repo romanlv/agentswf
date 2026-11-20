@@ -8,7 +8,7 @@ export const WORKSPACE_MANIFEST_GLOBS = [
 
 /**
  * The modules whose dependency is selected by a user path: the operator's workflow loader,
- * awf-lab's, which loads variant and judge files, the client's check that a workflow's `file`
+ * awf-lab's grade helper, which loads a dataset's graders, the client's check that a workflow's `file`
  * exports it, and the program its test runs, which imports a workflow as a program does.
  */
 export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
@@ -16,7 +16,7 @@ export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
     repositoryPath === "packages/engine/src/workflow-loader.ts" ||
     repositoryPath === "packages/engine/src/client/exported.ts" ||
     repositoryPath === "packages/engine/src/client/reply-probe.fixture.ts" ||
-    repositoryPath === "packages/lab/src/review/lab/load.ts"
+    repositoryPath === "packages/lab/src/cases/env/grade-helper.ts"
   );
 }
 

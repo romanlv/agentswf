@@ -1,0 +1,6 @@
+{
+  "id": "O-late-amount",
+  "customer": "Sam Reyes",
+  "deliveredAt": "2026-11-01T10:00:00Z",
+  "items": [{ "name": "Lamp", "price": 48 }]
+}

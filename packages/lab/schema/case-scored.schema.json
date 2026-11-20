@@ -1,0 +1,860 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab score --json",
+  "type": "object",
+  "required": ["kind", "plan"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-scored/0"
+    },
+    "plan": {
+      "type": "object",
+      "required": ["run", "trials", "grades", "maybe", "unpriced", "changed"],
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+        },
+        "trials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "grades": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "maybe": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "estimate": {
+          "type": "number",
+          "minimum": 0
+        },
+        "upTo": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unpriced": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["case", "trial"],
+            "properties": {
+              "case": {
+                "type": "string",
+                "minLength": 1
+              },
+              "trial": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "done": {
+      "type": "object",
+      "required": ["graded", "errored", "estimate", "stopped"],
+      "properties": {
+        "graded": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "errored": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "estimate": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stopped": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "report": {
+      "type": "object",
+      "required": [
+        "kind",
+        "run",
+        "dataset",
+        "partial",
+        "exit",
+        "params",
+        "reused",
+        "rates",
+        "tags",
+        "cases",
+        "numbers",
+        "numbersLeftOut",
+        "agreement"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "awf.case-report/0"
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+        },
+        "dataset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "exit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "params": {
+          "type": "object",
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_-]*$": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "reused": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rates": {
+          "type": "object",
+          "required": ["cases", "passed"],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "interval": {
+              "type": "array",
+              "additionalItems": false,
+              "items": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "minItems": 2
+            },
+            "mean": {
+              "type": "object",
+              "required": ["mean"],
+              "properties": {
+                "mean": {
+                  "type": "number"
+                },
+                "interval": {
+                  "type": "array",
+                  "additionalItems": false,
+                  "items": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 2
+                }
+              },
+              "additionalProperties": false
+            },
+            "k": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "passAll": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passAny": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tag", "cases", "passed", "failing"],
+            "properties": {
+              "tag": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failing": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "verdict",
+              "passed",
+              "trials",
+              "knownFailing",
+              "outcomes",
+              "notes",
+              "history"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verdict": {
+                "anyOf": [
+                  {
+                    "enum": ["passed", "failed", "flaky", "unclear"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "none": {
+                "enum": ["not graded", "graded by numbers"]
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "trials": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "knownFailing": {
+                "type": "boolean"
+              },
+              "outcomes": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "leaked",
+                    "errored",
+                    "failed",
+                    "stopped",
+                    "undecided",
+                    "passed",
+                    "graded by numbers",
+                    "not graded"
+                  ]
+                }
+              },
+              "why": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "enum": ["passed", "failed", "flaky", "unclear"]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "numbers": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["count", "of"],
+                      "properties": {
+                        "count": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "of": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["values"],
+                      "properties": {
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "numbersLeftOut": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "agreement": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["a", "b", "verdicts", "parts"],
+            "properties": {
+              "a": {
+                "type": "string",
+                "minLength": 1
+              },
+              "b": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verdicts": {
+                "type": "object",
+                "required": ["alike", "of"],
+                "properties": {
+                  "alike": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "of": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "parts": {
+                "type": "object",
+                "required": ["alike", "of"],
+                "properties": {
+                  "alike": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "of": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "labels": {
+          "type": "object",
+          "required": ["good", "needsWork", "notCompared", "graders", "disagreements"],
+          "properties": {
+            "good": {
+              "type": "object",
+              "required": ["labeled", "agreed"],
+              "properties": {
+                "labeled": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agreed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "needsWork": {
+              "type": "object",
+              "required": ["labeled", "agreed"],
+              "properties": {
+                "labeled": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agreed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "notCompared": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["grader", "good", "needsWork", "cost", "deciding"],
+                "properties": {
+                  "grader": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "good": {
+                    "type": "object",
+                    "required": ["labeled", "agreed"],
+                    "properties": {
+                      "labeled": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "agreed": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "needsWork": {
+                    "type": "object",
+                    "required": ["labeled", "agreed"],
+                    "properties": {
+                      "labeled": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "agreed": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "cost": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "deciding": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "disagreements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["case", "column", "trial", "mark", "outcome"],
+                "properties": {
+                  "case": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "trial": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "mark": {
+                    "enum": ["good", "needs-work"]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "stale": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "object",
+              "required": ["unread"],
+              "properties": {
+                "unread": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "rates",
+              "path",
+              "branch",
+              "commit",
+              "dirty",
+              "params",
+              "envDiffers",
+              "numbers",
+              "numbersLeftOut",
+              "cases"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "compare": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": ["version", "verdict"],
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "verdict": {
+                        "type": "object",
+                        "required": ["verdict", "stop", "reason", "metrics"],
+                        "properties": {
+                          "verdict": {
+                            "enum": ["better", "worse", "tie", "undecided"]
+                          },
+                          "stop": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "metrics": {
+                            "type": "array",
+                            "items": {}
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["error"],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "rates": {
+                "type": "object",
+                "required": ["cases", "passed"],
+                "properties": {
+                  "cases": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "passed": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "interval": {
+                    "type": "array",
+                    "additionalItems": false,
+                    "items": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "minItems": 2
+                  },
+                  "mean": {
+                    "type": "object",
+                    "required": ["mean"],
+                    "properties": {
+                      "mean": {
+                        "type": "number"
+                      },
+                      "interval": {
+                        "type": "array",
+                        "additionalItems": false,
+                        "items": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "minItems": 2
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "k": {
+                    "type": "integer",
+                    "minimum": 2
+                  },
+                  "passAll": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "passAny": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "difference": {
+                "type": "object",
+                "required": ["cases", "mean", "shown"],
+                "properties": {
+                  "cases": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "mean": {
+                    "type": "number"
+                  },
+                  "interval": {
+                    "type": "array",
+                    "additionalItems": false,
+                    "items": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "minItems": 2
+                  },
+                  "shown": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "branch": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "commit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dirty": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "patternProperties": {
+                  "^[A-Za-z][A-Za-z0-9_-]*$": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "envDiffers": {
+                "type": "boolean"
+              },
+              "numbers": {
+                "type": "object",
+                "patternProperties": {
+                  "^.*$": {
+                    "type": "object",
+                    "patternProperties": {
+                      "^.*$": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": ["count", "of"],
+                            "properties": {
+                              "count": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "of": {
+                                "type": "number",
+                                "minimum": 0
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": ["values"],
+                            "properties": {
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "numbersLeftOut": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cases": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "verdict", "passed", "trials"],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "verdict": {
+                      "anyOf": [
+                        {
+                          "enum": ["passed", "failed", "flaky", "unclear"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "passed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "trials": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "trials": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "additionalProperties": false,
+      "description": "awf-lab report --json."
+    }
+  },
+  "additionalProperties": false,
+  "description": "awf-lab score --json."
+}

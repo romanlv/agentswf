@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab grade folder's grade.json",
+  "type": "object",
+  "required": ["kind", "case", "scratch", "params", "readsFacts"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-grade/1"
+    },
+    "case": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scratch": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "params": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*$": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "readsFacts": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -96,7 +96,7 @@ retired; `awf-lab check`.
 Out of scope:
 
 - The proposer, the history, the spend cap and the holdout: [[013-autoresearch-loop]].
-- A second kind of case's dataset, restore and runner: [[second-case-kind]].
+- A second kind of case's dataset, restore and runner: [[044-cases-for-a-workflow|story 044]].
 - Several challengers at once, and variants run in parallel.
 - A stored metrics record: the numbers are derived, and storing them would freeze a format one kind
   used.
@@ -197,7 +197,7 @@ Settled with the user on 2026-09-30.
 1. **Generic now: the scorer and the comparison; a second kind of case next.**
    - `compare/` is proved by a synthetic kind of case in its tests.
    - The dataset, restore and variant stay review's until a second real kind:
-     [[second-case-kind]].
+     [[044-cases-for-a-workflow|story 044]].
 2. **Review's standard comparison:**
    - weighted recall is the primary;
    - the guards are wrong claims (+0.05) and precision (−0.05);
@@ -234,7 +234,7 @@ built here.
 | Run the baseline once on the whole dataset; `run --ahead n`; a cost estimate for a new variant; a progress line | [[comparison-efficiency]] |
 | A held-out set, chosen before the first proposal and checked rarely; the headline is fresh trials of the kept variant | [[013-autoresearch-loop]] |
 | Proposer input, one hypothesis per try, predicted effect, refusing proposals under the resolution, root-cause rounds, stricter later rounds, GEPA's Pareto front for parents, a model × effort staircase, a thin agent skill | [[013-autoresearch-loop]]; what it left, [[loop-next]] |
-| A second kind of case (triage), and scorers that declare their own metrics | [[second-case-kind]] |
+| A second kind of case (triage), and scorers that declare their own metrics | [[044-cases-for-a-workflow|story 044]] |
 | Claude voters for match first | [[judge-opus-voter]] |
 | A betting e-process when looks can't be planned; marking verdicts under 10 cases indicative; flagging a trial whose profile differs from the baseline's; a page showing every case in full; rebuild variance | later, no todo yet |
 

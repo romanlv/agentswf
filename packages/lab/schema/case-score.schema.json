@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab case score",
+  "type": "object",
+  "required": ["kind", "at", "entries"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "awf.case-score/1"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["grader", "key", "reasons"],
+        "properties": {
+          "grader": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "verdict": {
+            "enum": ["passed", "failed", "undecided"]
+          },
+          "numbers": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": ["count", "of"],
+                    "properties": {
+                      "count": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "of": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["value"],
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["about", "text"],
+              "properties": {
+                "about": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["about"],
+              "properties": {
+                "about": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "verdict": {
+                  "enum": ["passed", "failed", "undecided", "not judged"]
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "data": {},
+                "why": {
+                  "type": "string"
+                },
+                "settled": {
+                  "enum": ["agreed", "majority", "tiebreak", "unsettled", "given"]
+                },
+                "votes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["by"],
+                    "properties": {
+                      "by": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "verdict": {
+                        "enum": ["passed", "failed", "undecided", "not judged"]
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "data": {},
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "notApplies": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "agent": {
+            "type": "object",
+            "required": ["harness", "model"],
+            "properties": {
+              "harness": {
+                "type": "string",
+                "minLength": 1
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "voters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9,
+                "multipleOf": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "estimate": {
+            "type": "number",
+            "minimum": 0
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "errored": {
+            "type": "object",
+            "required": ["reason"],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "beside": {
+            "type": "boolean",
+            "const": true
+          },
+          "skipped": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
