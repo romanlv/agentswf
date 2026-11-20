@@ -373,16 +373,17 @@ The harness's scratch, used only by the attempt that made it:
 
 - `work/skills/sources/`: the run's checked snapshot of each
   [skill](/guide/agents#instructions-and-skills) its agents are given.
-- `work/agents/{uuid}/`: the skills placed for an agent on the host, and a codex agent's own home.
 - `work/staging/`: where a harness home is built before it moves into place.
 - `work/forks/`: a forked session's files, copied out of a parent with a home of its own.
 
 What each agent was given is in `out.json`'s `skills`, and on its `agent-opened` line.
 
-A codex agent on the host given skills runs with a harness home of its own,
-`work/agents/{uuid}/home`, seeded with copies of your codex login. Its sessions are kept there,
+An agent on the host given skills gets their copies outside the run, in
+`~/.awf/skills/{workflow}/{id}/{uuid}/` ([Per machine](#per-machine-awf)), so an agent whose working
+directory holds the run's folder is given them too. A codex agent there runs with a harness home
+of its own, `{uuid}/home`, seeded with copies of your codex login. Its sessions are kept there,
 not in `~/.codex`, as its `session` line's `home` says, so `awf logs` and the run's usage read
-them from the run's folder.
+them from it.
 
 ### Formats
 
@@ -413,6 +414,7 @@ What awf keeps for every run on the machine, whatever their run root.
 | --- | --- |
 | `~/.awf/projects` | each project awf has started a run with events in, one absolute path a line: where a run named to `awf runs`, `awf logs`, `awf reply` or `awf send` is looked for after the current folder, and what `awf tick --all` wakes |
 | `~/.awf/sandboxes/{workflow}/{id}/{uuid}/` | each sandbox a run opened: `homes/`, the harness home of each agent in it, holding a copy of its login and its native session files; under docker, `quarantine/`, where a protected file an agent changed is moved |
+| `~/.awf/skills/{workflow}/{id}/{uuid}/` | the skills placed for an agent a run opened on the host, and a host codex agent's own home, holding a copy of its login and its native session files |
 | `~/.awf/coordinator/` | a socket per live run that has an outside participant or events, which `awf reply`, `awf send` and an event's nudge reach it through, removed when the run ends; `AWF_COORDINATOR_DIR` moves it ([Configuration](/reference/configuration)) |
 | `~/.awf/herdr/config.toml` | the Herdr config of the sessions awf starts: no toasts, no sound. Written when absent and never overwritten, so you may edit it |
 | `~/.awf/herdr/sessions/`, `~/.awf/herdr/locks/` | which Herdr workspace each live run's panes are in, and short locks while one is made |
@@ -437,11 +439,11 @@ Nothing awf keeps is needed by another run, and nothing is read from a deleted r
 lose is the run itself:
 
 - **A run's folder**, once `awf runs` doesn't show it `running`. You lose its record and the
-  chance to continue it. A run whose host codex agents were given skills holds copies of your
-  codex login in `work/agents/`, so delete its folder, or that folder, once you are done with it.
+  chance to continue it. Its host agents' skills, and the copies of your codex login a host codex
+  agent given skills holds, are in `~/.awf/skills/{workflow}/{id}`: delete that too.
 - **A run's views and scratch, `out.json`, `report.md` and `work/`**, once no attempt of it is
-  running: a continue needs none of them. Deleting `work/` loses its codex agents' activity in
-  `awf logs`, and what they used if no attempt has read it yet.
+  running: a continue needs none of them. Deleting `work/` loses its skill snapshots, which the next
+  attempt makes again.
 - **A parked run with `events`** is not running, but deleting it drops the events it is waiting
   on; a starting event for its id later makes a new run. A run with `events` that has returned
   refuses every later event, so deleting its folder is how its id starts again.
@@ -450,6 +452,8 @@ lose is the run itself:
 - **`~/.awf/sandboxes/{workflow}/{id}`**, once that run has ended and you won't read its sandboxed
   agents with `awf logs` or continue it. Its homes hold copies of your logins, so delete them when
   you are done with a run you sandboxed.
+- **`~/.awf/skills/{workflow}/{id}`**, once that run has ended and you won't read its host codex
+  agents with `awf logs` or continue it. A codex agent's home holds copies of your codex login.
 - **The skills cache**, while no run is running: a run fetches a skill whenever an agent given
   one opens. The next run fetches again.
 - **Temporary files** (`.tmp-*`, `.new-*`) and a `/tmp/awf-doors-*` folder whose run has ended: awf

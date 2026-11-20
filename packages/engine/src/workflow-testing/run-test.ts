@@ -714,6 +714,7 @@ export async function runTest<Result extends JsonValue>(
           installed: { srt: sandboxes.provider, docker: sandboxes.provider },
         },
         sandboxesDir: directory(),
+        skillsDir: directory(),
         machineRoot: directory(),
         // An agent here launches nothing, so it needs no harness's executable or login.
         homes: SCRIPTED_HOMES,

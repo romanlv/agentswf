@@ -50,6 +50,11 @@ export type RunSandboxOptions = {
    * a provider that denies it hides none of a sandbox's own.
    */
   sandboxesDir: string;
+  /**
+   * Where a host agent's skills are copied, each agent's in a directory of its own: outside the
+   * project, so no agent's working directory holds them, which claude refuses.
+   */
+  skillsDir: string;
   /** The operator's `~/.awf`, which no sandbox reaches. */
   machineRoot: string;
   /** Where holders reach live runs' coordinators, `AWF_COORDINATOR_DIR` if it moved; no sandbox reaches it. */

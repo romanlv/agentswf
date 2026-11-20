@@ -39,7 +39,7 @@ import { HOLDER_V, holderCommand } from "./holder-command";
 import { INBOX_V, inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
 import { LOGS_V, logsCommand } from "./logs-command";
-import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
+import { coordinatorDir, machinePaths, sandboxesDirOf, skillsDirOf } from "./machine";
 import { OPEN_V, openCommand } from "./open-command";
 import {
   allowanceReader,
@@ -747,6 +747,7 @@ async function runAttempt(
       sandboxes: {
         providers: installed.sandboxes ?? { installed: {} },
         sandboxesDir: sandboxesDirOf(home, run.record),
+        skillsDir: skillsDirOf(home, run.record),
         machineRoot: machinePaths(home).root,
         coordinatorRoot,
         ...(sandbox === undefined ? {} : { run: sandbox }),

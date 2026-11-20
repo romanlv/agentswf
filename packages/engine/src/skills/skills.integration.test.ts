@@ -7,7 +7,6 @@ import type { JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
 import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing";
-import { openRun } from "../runs";
 import { createTempRunDirs, future, runNew } from "../testing";
 import { WorkflowRunError } from "../workflow-runner";
 
@@ -30,6 +29,8 @@ const PI_OUTPUT = `echo '{"type":"session","id":"s"}'`;
 const runDirs = createTempRunDirs();
 const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-skills-")));
 const work = join(root, "work");
+/** Where host agents' skills go: `~/.awf/skills/{workflow}/{id}` in a run `awf run` starts. */
+const skillsDir = join(root, "agent-skills");
 const logs = join(root, "logs");
 const saved = { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME };
 
@@ -91,6 +92,7 @@ function run<Result extends JsonValue>(
     sandboxes: {
       providers: { installed: { srt: fake.provider } },
       sandboxesDir: runDirs.tempRunDir(),
+      skillsDir,
       machineRoot: runDirs.tempRunDir(),
     },
     skillCache: join(root, "cache"),
@@ -159,8 +161,7 @@ describe("agent skills", () => {
       return null;
     }, runRoot);
     const found = result.skills?.[0]?.home ?? "";
-    const { dir } = await openRun(runRoot, "skills", result.runId);
-    expect(found.startsWith(join(dir, "work", "agents"))).toBe(true);
+    expect(found.startsWith(skillsDir)).toBe(true);
     const log = await turns(join(found, "codex.log"));
     expect(log[0]).toContain("skill: alpha");
     expect(log[0]).not.toContain("operators-own");
@@ -257,6 +258,8 @@ printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
     const [first, second] = await turns(join(logs, "pi.log"));
     const skillPath = /--skill (\S+)/.exec(first!)?.[1];
     expect(first).toContain("--no-skills --skill ");
+    // Outside the run, so an agent whose working directory holds the run root is given them too.
+    expect(skillPath!.startsWith(`${skillsDir}/`)).toBe(true);
     expect(await readFile(join(skillPath!, "SKILL.md"), "utf8")).toContain("name: alpha");
     expect(second).not.toContain("--no-skills");
     expect(result.skills?.find((given) => given.agent === "left")?.skills).toBe("operator");

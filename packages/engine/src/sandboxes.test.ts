@@ -125,6 +125,7 @@ function setup(
       sandboxes: {
         providers,
         sandboxesDir: runDirs.tempRunDir(),
+        skillsDir: runDirs.tempRunDir(),
         machineRoot: runDirs.tempRunDir(),
         ...(runSpec === undefined ? {} : { run: runSpec }),
       },
@@ -521,6 +522,7 @@ describe("sandboxed agents", () => {
         sandboxes: {
           providers,
           sandboxesDir: runDirs.tempRunDir(),
+          skillsDir: runDirs.tempRunDir(),
           machineRoot: runDirs.tempRunDir(),
         },
       },
@@ -718,6 +720,7 @@ describe("the operator's sandbox for the whole run", () => {
         sandboxes: {
           providers: { installed: { srt: slow } },
           sandboxesDir: runDirs.tempRunDir(),
+          skillsDir: runDirs.tempRunDir(),
           machineRoot: runDirs.tempRunDir(),
           run: { srt: {} },
         },
@@ -767,6 +770,7 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
           sandboxes: {
             providers: installed,
             sandboxesDir: runDirs.tempRunDir(),
+            skillsDir: runDirs.tempRunDir(),
             machineRoot: runDirs.tempRunDir(),
           },
         },
@@ -806,6 +810,7 @@ describe("a run's sandboxes, opening as the run ends", () => {
       sandboxes: {
         providers: { installed: { srt: provider } },
         sandboxesDir: runDirs.tempRunDir(),
+        skillsDir: runDirs.tempRunDir(),
         machineRoot: runDirs.tempRunDir(),
       },
       runRoot: runDirs.tempRunDir(),

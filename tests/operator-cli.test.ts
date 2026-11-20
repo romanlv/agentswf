@@ -2284,7 +2284,7 @@ describe("awf run's stages", () => {
       const dir = join(cwd, ".awf", "runs", "fixture", "r1");
       expect(existsSync(join(dir, "out.json"))).toBe(true);
       expect(existsSync(join(dir, "work", "skills"))).toBe(true);
-      expect(existsSync(join(dir, "work", "agents"))).toBe(true);
+      expect(existsSync(join(HOME, ".awf", "skills", "fixture", "r1"))).toBe(true);
       if (remove) {
         rmSync(join(dir, "out.json"));
         rmSync(join(dir, "work"), { recursive: true });

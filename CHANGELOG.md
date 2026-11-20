@@ -20,6 +20,10 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 - `awf tick` exits 1 when a run with events is stuck or can't be read, naming it on stderr and under `stuck` or `unreadable` with `--json`, so a scheduler sees a run nothing will wake again.
 - `awf logs` shows why a stage failed on its `stage ended` line, and a log line's fields after its text.
 
+### Fixed
+
+- A claude agent whose working directory holds the run's folder can be given `skills`: a host agent's skills, and a host codex agent's own home, are placed in `~/.awf/skills/{workflow}/{id}`, outside the project, not in the run's `work/agents`.
+
 ## 0.1.1 — 2026-11-09
 
 ### Added

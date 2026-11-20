@@ -687,6 +687,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     sandboxes,
     skills,
     runDir,
+    ...(options.sandboxes ? { skillsDir: options.sandboxes.skillsDir } : {}),
     locks,
     environment,
     ...(options.sandboxes?.homes ? { homes: options.sandboxes.homes } : {}),
@@ -988,6 +989,8 @@ class WorkflowOwner {
       skills: RunSkills;
       failRun(error: Error): void;
       runDir: string;
+      /** Where host agents' skills go; absent, the run's `work/agents`. */
+      skillsDir?: string;
       livenessPolicy?: LivenessPolicy;
       defaultWindowMs?: number;
       locks: CredentialLocks;
@@ -2299,11 +2302,13 @@ class WorkflowOwner {
     const resolved = await this.options.skills.resolve(sources);
     const id = randomUUID();
     // Real paths: claude compares them with its working directory, codex keys its trust by them.
-    const [runDir, realCwd] = await Promise.all([realpath(this.options.runDir), realpath(cwd)]);
+    const parent = this.options.skillsDir ?? join(workDir(this.options.runDir), "agents");
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    const [root, realCwd] = await Promise.all([realpath(parent), realpath(cwd)]);
     const given = skillsLayout(
       execution.harness,
       resolved.map((skill) => skill.name),
-      { bundle: join(workDir(runDir), "agents", id), cwd: realCwd },
+      { bundle: join(root, id), cwd: realCwd },
     );
     this.options.skills.record(key, resolved, given.ownHome);
     const { ownHome } = given;
@@ -2314,7 +2319,7 @@ class WorkflowOwner {
     await mkdir(dirname(ownHome), { recursive: true });
     const seeded = await seedHome(
       ownHome,
-      join(workDir(runDir), "staging", id),
+      join(workDir(this.options.runDir), "staging", id),
       (this.options.homes ?? OPERATOR_HOMES).host(
         execution.harness,
         ownHome,

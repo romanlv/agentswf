@@ -39,7 +39,7 @@ const SKILLS: Readonly<Record<Harness, SkillsSupport | Absent>> = {
       const inside = relative(cwd, bundle);
       if (inside === "" || (!inside.startsWith("..") && !isAbsolute(inside))) {
         throw new Error(
-          `claude cannot be given skills from ${bundle}, inside its working directory; put the run root outside it`,
+          `claude cannot be given skills from ${bundle}, inside its working directory; give the agent a working directory that does not hold it`,
         );
       }
       return { names, directory: join(bundle, ".claude", "skills"), sandboxed: false };
