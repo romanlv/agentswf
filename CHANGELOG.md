@@ -17,6 +17,7 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 - `awf logs --wait` past its cap, 300s, says the cap and the value given, and points at `--follow`.
 - `awf tick` exits 1 when a run with events is stuck or can't be read, naming it on stderr and under `stuck` or `unreadable` with `--json`, so a scheduler sees a run nothing will wake again.
+- `awf logs` shows why a stage failed on its `stage ended` line, and a log line's fields after its text.
 
 ## 0.1.1 — 2026-11-09
 

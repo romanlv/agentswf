@@ -28,8 +28,10 @@ import {
   encodeHandle,
   type FileCache,
   type ReadEvent,
+  type RunLog,
   readRun,
   START,
+  stageKey,
   timeOf,
 } from "./run-read";
 import { checkRunEngine, findRun, findRunByRef, type RunStatus } from "./run-state";
@@ -209,16 +211,25 @@ class Reader {
 
 type Read = Awaited<ReturnType<Reader["next"]>>;
 
-/** Where each operation ran, and each tool call's input, by its id, so its end shows it. */
+/**
+ * Where each operation ran, and each tool call's input, by its id, so its end shows it; and why
+ * each stage ended, so its end's line says it.
+ */
 type Places = {
   stage: Map<string, string>;
   agent: Map<string, string>;
   calls: Map<string, { input: JsonObject; ended: boolean }>;
+  reasons: ReadonlyMap<string, string>;
 };
 
-function operationPlaces(lines: readonly { line: RunLogLine }[]): Places {
-  const places: Places = { stage: new Map(), agent: new Map(), calls: new Map() };
-  for (const { line } of lines) {
+function operationPlaces(log: RunLog): Places {
+  const places: Places = {
+    stage: new Map(),
+    agent: new Map(),
+    calls: new Map(),
+    reasons: log.stageReasons,
+  };
+  for (const { line } of log.lines) {
     if (line.kind === "tool-called")
       places.calls.set(line.call, { input: line.input, ended: false });
     if (line.kind === "tool-ended") {
@@ -289,7 +300,7 @@ function quietSessions(read: Read): Set<number> {
 }
 
 function kept(read: Read, options: LogsOptions, json = false) {
-  const stages = operationPlaces(read.log.lines);
+  const stages = operationPlaces(read.log);
   const quiet = json ? new Set<number>() : quietSessions(read);
   const events = read.events.filter(
     (event) =>
@@ -504,7 +515,7 @@ async function oneEvent(
       only: handle.kind === "activity" ? handle.file : "",
     },
   );
-  const stages = operationPlaces(read.log.lines);
+  const stages = operationPlaces(read.log);
   const event = read.events.find((each) => each.handle === encodeHandle(handle));
   if (!event) throw missing;
   const screens = await keptScreens(status.run.dir, [event]);
@@ -644,8 +655,13 @@ function describeLine(line: RunLogLine, places: Places): string {
       return `attempt ${line.attempt} ended  ${line.outcome}`;
     case "stage-started":
       return "stage started";
-    case "stage-ended":
-      return `stage ${line.source ?? "ended"}  ${line.outcome}`;
+    case "stage-ended": {
+      const reason =
+        line.outcome === "succeeded"
+          ? undefined
+          : places.reasons.get(stageKey(line.attempt, line.stage));
+      return `stage ${line.source ?? "ended"}  ${line.outcome}${reason ? `  ${said(reason)}` : ""}`;
+    }
     case "operation-started":
       return `${operation(line.of)} started${line.label ? `  label "${said(line.label)}"` : ""}`;
     case "operation-failed":
@@ -667,9 +683,9 @@ function describeLine(line: RunLogLine, places: Places): string {
     case "agent-forked":
       return `forked from ${line.from ? said(line.from, 60) : "the calling session"}`;
     case "log":
-      return said(line.text);
+      return `${said(line.text)}${fieldsOf(line.fields)}`;
     case "warning":
-      return `warning: ${said(line.text)}`;
+      return `warning: ${said(line.text)}${fieldsOf(line.fields)}`;
     case "decision-asked":
       return `decision "${said(line.key)}" asked  ${line.model}`;
     case "decision-ended":
@@ -742,6 +758,11 @@ function describeLine(line: RunLogLine, places: Places): string {
 }
 
 /** `tool call close_item {"id":"a1"}  ok  → Closed a1.`, apart from the harness's own tools. */
+/** A log line's fields, shortened, after its text. */
+function fieldsOf(fields: JsonObject | undefined): string {
+  return fields && Object.keys(fields).length > 0 ? `  ${said(JSON.stringify(fields))}` : "";
+}
+
 function toolLine(
   tool: string,
   input: JsonObject | undefined,

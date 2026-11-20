@@ -50,9 +50,16 @@ export type RunLog = {
   runLines: number;
   sessions: NativeSession[];
   agents: Map<AgentKey, RunAgent>;
+  /** Why each stage ended as it did, by `stageKey`: `run.jsonl`'s reason, which the log's line lacks. */
+  stageReasons: Map<string, string>;
   /** Why `run.jsonl` could not be read, so no session is known. */
   unreadSessions?: string;
 };
+
+/** A stage's key in `RunLog.stageReasons`: its attempt and name. */
+export function stageKey(attempt: number, stage: string): string {
+  return `${attempt}/${stage}`;
+}
 
 /** `ended`: no attempt is running, so a span still open on the calling session ended with it. */
 export async function readRunLog(
@@ -67,11 +74,16 @@ export async function readRunLog(
         const sessions = lines.flatMap((line, index) =>
           line.kind === "session" && kept.has(line) ? [{ number: index + 1, line }] : [],
         );
-        return { sessions, count: lines.length };
+        const stageReasons = new Map<string, string>();
+        for (const line of kept)
+          if (line.kind === "stage" && line.reason)
+            stageReasons.set(stageKey(line.attempt, line.name), line.reason);
+        return { sessions, count: lines.length, stageReasons };
       },
       (error: unknown) => ({
         sessions: [] as { number: number; line: SessionLine }[],
         count: 0,
+        stageReasons: new Map<string, string>(),
         unread: messageOf(error),
       }),
     ),
@@ -180,6 +192,7 @@ export async function readRunLog(
     runLines: recorded.count,
     sessions,
     agents,
+    stageReasons: recorded.stageReasons,
     ...("unread" in recorded ? { unreadSessions: recorded.unread } : {}),
   };
 }

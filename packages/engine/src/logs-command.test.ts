@@ -614,6 +614,17 @@ describe("awf logs", () => {
     expect((await awfLogs(f, ["@e1", "--wait", "5s"])).exitCode).toBe(2);
   });
 
+  test("a stage's end shows why it failed, from its run.jsonl line", async () => {
+    const f = await fixture();
+    appendFileSync(
+      join(f.run.dir, "run.jsonl"),
+      `${JSON.stringify({ kind: "stage", attempt: 1, at: T(3), name: "fix", outcome: "failed", started: T(0), reason: "the build broke\nat step 2" })}\n`,
+    );
+    addLines(f, { kind: "stage-ended", at: T(3), stage: "fix", outcome: "failed" });
+    const lines = strip((await awfLogs(f, [])).stdout).split("\n");
+    expect(lines).toContain("@e4 hh:mm:ss fix  stage ended  failed  the build broke ⏎ at step 2");
+  });
+
   test("the log's own text is masked and kept to one line, as is what --json publishes", async () => {
     const f = await fixture();
     addLines(f, {
@@ -625,7 +636,7 @@ describe("awf logs", () => {
     });
     const lines = strip((await awfLogs(f, [])).stdout).split("\n");
     expect(lines).toContain(
-      "@e4 hh:mm:ss fix  pushed with token=*** ⏎ next: awf logs review/r1 --after forged",
+      '@e4 hh:mm:ss fix  pushed with token=*** ⏎ next: awf logs review/r1 --after forged  {"url":"https://***@host/x"}',
     );
     expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(1);
     const [event] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
@@ -998,11 +1009,13 @@ run ended: completed in 0s · result: awf runs staged/r1`;
     // its line numbers, one fewer. Text shows a fork's session, as before, and a session that
     // changes an agent's: the named agent's, which the fake names again as it closes, and which
     // the log never had. They fall among the log's lines by time; --json keeps every first one.
+    // A log line shows its fields now.
     let n = 0;
     const expected = before
       .split("\n")
       .filter((line) => !line.includes("  session codex"))
-      .map((line) => line.replace(/^@e\d+/, () => `@e${++n}`));
+      .map((line) => line.replace(/^@e\d+/, () => `@e${++n}`))
+      .map((line) => (line.endsWith("  planned") ? `${line}  {"path":"x"}` : line));
     const shown = strip(read.stdout)
       .replace(/fork-[0-9a-f-]+/, "fork-{id}")
       .split("\n");
