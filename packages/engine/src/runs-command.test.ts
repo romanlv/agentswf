@@ -553,6 +553,24 @@ describe("awf runs", () => {
     );
   });
 
+  test("a run that is running is listed past the limit, after the newest", async () => {
+    const cwd = runDirs.tempRunDir();
+    for (let minute = 0; minute < 22; minute += 1) {
+      await makeRun(cwd, "review", `r${minute}`, [
+        { started: T(minute), ended: T(minute), outcome: "completed" },
+      ]);
+    }
+    const old = await makeRun(cwd, "review", "old", [{ started: T(0), ...ALIVE }]);
+    await writeJson(join(old.dir, "run.json"), { ...old.record, created: T(0) });
+    const listed = (await awfRuns(cwd)).stdout.split("\n");
+    expect(listed).toHaveLength(22);
+    expect(listed.at(-2)).toMatch(/^review\/old +running /);
+    expect(listed.at(-1)).toBe("… 2 older (--limit 23)");
+    const json = JSON.parse((await awfRuns(cwd, "--json")).stdout);
+    expect(json.runs.map((run: { ref: string }) => run.ref).at(-1)).toBe("review/old");
+    expect(json.more).toEqual({ older: true });
+  });
+
   test("a sandboxed agent's native files are found under its sandbox's home", async () => {
     const cwd = runDirs.tempRunDir();
     const home = runDirs.tempRunDir();

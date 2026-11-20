@@ -82,7 +82,18 @@ type Listed =
 
 async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
   const runs = await listRunEntries(place.runRoot);
-  const shown = runs.slice(0, limit);
+  // A run working now is listed however long ago it started, after the newest.
+  const live = await Promise.all(
+    runs.slice(limit).map((run) =>
+      run instanceof RunUnreadable
+        ? undefined
+        : runStatus(run, undefined, now).then(
+            (status) => (status.state === "running" ? run : undefined),
+            () => undefined,
+          ),
+    ),
+  );
+  const shown = [...runs.slice(0, limit), ...live.filter((run) => run !== undefined)];
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
       run instanceof RunUnreadable
