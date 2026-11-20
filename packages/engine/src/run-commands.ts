@@ -114,9 +114,17 @@ export function currentStage(
   return [...open].at(-1) ?? last.stage;
 }
 
+/**
+ * The state a run is shown in: `parked` for one whose process only holds warm agents at its wait,
+ * which is `running` to everything that reaches the process.
+ */
+export function shownState(status: RunStatus): RunStatus["state"] | "parked" {
+  return status.warm ? "parked" : status.state;
+}
+
 /** `running`, or `running (unchecked, last event 09:41:07)` where its process could not be asked. */
 export function stateWord(status: RunStatus, lastEventAt?: number): string {
-  if (status.state !== "running" || status.checked) return status.state;
+  if (status.state !== "running" || status.checked) return shownState(status);
   return `running (unchecked${lastEventAt === undefined ? "" : `, last event ${clockTime(lastEventAt)}`})`;
 }
 

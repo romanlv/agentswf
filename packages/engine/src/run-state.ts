@@ -1,5 +1,11 @@
 import { dirname, join } from "node:path";
-import type { AttemptRecord, ClaimedAttempt, WaitingJson } from "@agentswf/contract/records";
+import type {
+  AttemptRecord,
+  ClaimedAttempt,
+  RunLogLine,
+  WaitingJson,
+  WarmJson,
+} from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { checkProjectEngine } from "./project-engine";
@@ -15,6 +21,7 @@ import {
   type Run,
   RunUnreadable,
   readAttemptFiles,
+  readEvents,
   sameStart,
 } from "./runs";
 import { readWaits } from "./waits";
@@ -42,6 +49,11 @@ export type RunStatus = {
   checked: boolean;
   /** A run of a workflow with `events` at its wait, live or parked: what its last `wait` line says. */
   waiting?: WaitingJson;
+  /**
+   * A `running` run whose process sits at its wait only for idle agents' `keepAlive` windows: parked
+   * in all but its process, which an event still nudges. Read from the event log, at best.
+   */
+  warm?: WarmJson[];
   /**
    * A completed run of a workflow with `events`: how many events no wait took by when it returned,
    * from its lines. Its last batch taken was handled, as the code returned after it.
@@ -84,12 +96,47 @@ export async function runStatus(
       ? undefined
       : await readWaits(run.dir, Date.parse(returned)).then(untakenAtReturn, () => undefined);
   const stuck = status.state !== "running" && stuckOf(status.files);
+  const warm =
+    waiting && status.state === "running" && status.checked
+      ? await readEvents(run.dir).then(
+          (lines) => warmOf(lines, status.attempts.at(-1)?.attempt, at),
+          () => undefined,
+        )
+      : undefined;
   return {
     ...status,
     ...(waiting ? { waiting } : {}),
+    ...(warm ? { warm } : {}),
     ...(unacknowledged === undefined ? {} : { unacknowledged }),
     ...(stuck ? { state: "stuck" } : {}),
   };
+}
+
+/**
+ * The agents a live wait is held warm for, from the attempt's log read back to the last turn: none
+ * when a turn is still under way, so the run is working, not parked.
+ */
+function warmOf(
+  lines: readonly RunLogLine[],
+  attempt: number | undefined,
+  at: number,
+): WarmJson[] | undefined {
+  const warm: WarmJson[] = [];
+  const ended = new Set<string>();
+  const seen = new Set<string>();
+  for (const line of [...lines].reverse()) {
+    if (line.attempt !== attempt) break;
+    if (line.kind === "turn" || line.kind === "compact" || line.kind === "operation-failed") {
+      ended.add(line.operationId);
+    } else if (line.kind === "operation-started") {
+      if (!ended.has(line.operationId)) return undefined;
+      seen.add(line.agent);
+    } else if (line.kind === "agent-warm" && !seen.has(line.agent)) {
+      seen.add(line.agent);
+      if (Date.parse(line.until) > at) warm.unshift({ agent: line.agent, until: line.until });
+    }
+  }
+  return warm.length > 0 ? warm : undefined;
 }
 
 /** An event run's wait, while it is running or parked there: its label and `until`. */

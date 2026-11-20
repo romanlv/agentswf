@@ -285,6 +285,7 @@ every line but a `turn` or `compact` has `at`.
 | `stage-started`, `stage-ended` | a stage's span; a reused or provided stage writes only its end |
 | `operation-started`, `operation-failed` | a turn delivered, or failing before it settled |
 | `agent-opened`, `agent-stopped`, `agent-forked` | an agent's life: where it runs, the `sandbox` it was admitted to and the `domains` its harness added there, its skills, its pane and whether that pane was kept |
+| `agent-warm` | the run's wait stays live for an idle agent's `keepAlive` window, rather than parking: `agent` and `until`, written again when the window's end moves |
 | `sandbox-opened` | a sandbox, as it opened |
 | `log`, `warning` | the workflow's `wf.log`, and awf's warnings |
 | `decision-asked`, `decision-ended` | a decision |

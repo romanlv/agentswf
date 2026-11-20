@@ -65,7 +65,9 @@ check-readme/20261031-1650-9d1f  stopped      10-31 16:50  2m 05s   $0.06
 
 A row per run, newest first: its name, its status, when it started, how long it took, and an
 estimate at list prices where its agents reported usage. It lists 20; `--limit {n}` lists another
-number. A run still running is listed after them however long ago it started. A run of a workflow with [events](/guide/events) that is waiting shows what it waits for.
+number. A run still running is listed after them however long ago it started. A run of a workflow with [events](/guide/events) that is waiting shows what it waits for. One whose
+process stays only for an agent's `keepAlive` window shows `parked`, with the agent and when its
+window ends; an event still reaches it at once.
 A run an earlier awf made, before its record had a format, is listed `unreadable`, and nothing
 else of it is read ([Data](/reference/data)).
 

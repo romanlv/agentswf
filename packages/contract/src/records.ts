@@ -750,6 +750,11 @@ export type RunEvent = {
       /** A TUI agent's pane, as its workflow wrote it and where it was placed. */
       pane?: Omit<AgentPaneRecord, "callPath" | "agent">;
     }
+  /**
+   * The run's wait stays live for an idle agent's `keepAlive` window rather than parking: written as
+   * the wait goes live, and again when the window's end moves.
+   */
+  | { kind: "agent-warm"; agent: AgentKey; until: string }
   /** With whether its pane was kept, decided as it closed. */
   | ({ kind: "agent-stopped"; agent: AgentKey; callPath: string[]; harness: HarnessKind } & Pick<
       PanePlacement,
@@ -1030,6 +1035,9 @@ export type WaitTake = { name: string; from?: string; turn?: string; due?: strin
  */
 export type WaitingJson = { label?: string; until?: string };
 
+/** An idle agent a run's live wait is held warm for, by its `keepAlive`, and until when. */
+export type WarmJson = { agent: string; until: string };
+
 /** A run as both commands head it. `checked: false`: a `running` whose process was not asked. */
 export type RunHeadJson = {
   ref: string;
@@ -1039,6 +1047,8 @@ export type RunHeadJson = {
   /** Once the run has ended. */
   duration?: number;
   waiting?: WaitingJson;
+  /** With state `parked` while its process holds these agents warm at its wait. */
+  warm?: WarmJson[];
 };
 
 /** `awf runs --json`. */
@@ -1053,6 +1063,8 @@ export type RunsJson = {
         duration?: number;
         estimate?: number;
         waiting?: WaitingJson;
+        /** With state `parked` while its process holds these agents warm at its wait. */
+        warm?: WarmJson[];
       }
     | { ref: string; unreadable: string }
   )[];
@@ -1431,6 +1443,7 @@ export const RUN_EVENT_VERSIONS = {
   "sandbox-opened": 1,
   "agent-opened": 1,
   "agent-stopped": 1,
+  "agent-warm": 1,
   "agent-forked": 1,
   log: 1,
   warning: 1,

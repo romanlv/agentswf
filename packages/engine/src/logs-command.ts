@@ -16,6 +16,7 @@ import {
   MAX_WAIT_SECONDS,
   nextLogs,
   POLL_MS,
+  shownState,
   span,
   stateWord,
 } from "./run-commands";
@@ -407,7 +408,7 @@ async function page(
       v: LOGS_V,
       run: {
         ref: status.ref,
-        state: status.state,
+        state: shownState(status),
         checked: status.checked,
         ...(stage ? { stage } : {}),
         ambiguous: alsoRunning.length > 0,
@@ -522,7 +523,7 @@ async function oneEvent(
   if (json) {
     const document: LogsJson = {
       v: LOGS_V,
-      run: { ref: status.ref, state: status.state, checked: status.checked },
+      run: { ref: status.ref, state: shownState(status), checked: status.checked },
       events: [publish(event, stages, screens)],
     };
     out.stdout(JSON.stringify(document, null, 2));
@@ -680,6 +681,8 @@ function describeLine(line: RunLogLine, places: Places): string {
       return `opened  ${line.harness}${line.caller ? "  (the calling session)" : ""}`;
     case "agent-stopped":
       return "stopped";
+    case "agent-warm":
+      return `warm, the run parked at its wait, until ${clockTime(line.until)}`;
     case "agent-forked":
       return `forked from ${line.from ? said(line.from, 60) : "the calling session"}`;
     case "log":

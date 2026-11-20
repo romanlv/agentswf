@@ -8,7 +8,7 @@ import { exists } from "./files";
 import { appendIn } from "./in-lines";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readRunLines } from "./run-lines";
-import { createRun, logFile } from "./runs";
+import { createRun, logFile, readEvents } from "./runs";
 import {
   answering,
   caseRun,
@@ -380,6 +380,58 @@ test("an event run continues on its agents' sessions with its log deleted betwee
   const second = adapter();
   await attempt(2, second).then(() => expect.unreachable(), parked);
   expect(second.activations[0]?.continues).toEqual({ harness: "codex", sessionRef: "fake-worker" });
+});
+
+test("a wait held live for an agent's keepAlive window logs it warm, once, until the window ends", async () => {
+  const workflow = caseRun(async (wf) => {
+    const worker = await wf.agents.open({
+      key: "worker",
+      runtime: "codex",
+      keepAlive: { window: "0.3s" },
+    });
+    await worker.run({ prompt: "Look.", schema: DOC });
+    await wf.receive({ label: "next" });
+    return null;
+  });
+  const runRoot = runDirs.tempRunDir();
+  const run = await createRun(runRoot, {
+    id: "k",
+    workflow: workflow.meta.name,
+    argv: [],
+    cwd: process.cwd(),
+    sandbox: null,
+  });
+  const fake = createFakeAdapter({
+    harnesses: ["codex"],
+    script: (context) => ({
+      act: async () => {
+        await submit(context.binding!, { path: "x" });
+      },
+    }),
+  });
+  const before = Date.now();
+  await runWorkflow(workflow, null, {
+    runRoot,
+    run: {
+      dir: run.dir,
+      id: "k",
+      ...(await claimLines(run.dir, 1)),
+      events: true,
+      park: async () => undefined,
+    },
+    runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+    deadline: future(),
+  }).then(
+    () => expect.unreachable(),
+    (error) => expect(String(error)).toContain("parked"),
+  );
+  const warm = (await readEvents(run.dir)).filter((line) => line.kind === "agent-warm");
+  expect(warm).toEqual([
+    expect.objectContaining({ kind: "agent-warm", agent: "worker", until: expect.any(String) }),
+  ]);
+  const until = Date.parse((warm[0] as { until: string }).until);
+  expect(until).toBeGreaterThan(before);
+  expect(until).toBeLessThanOrEqual(Date.now());
 });
 
 test("a session its agent reports after its last turn settled is the one a continue resumes", async () => {

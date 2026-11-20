@@ -752,6 +752,52 @@ test("an event run at its wait shows the wait's label and next timer, live or pa
   expect(text).toMatch(/30 unseen · until /);
 });
 
+test("a run whose process holds only warm agents at its wait shows parked, and until when", async () => {
+  const cwd = runDirs.tempRunDir();
+  const execution = { harness: "claude", model: "m" };
+  // Ahead of the list's clock and the real one, which the one run's view reads.
+  const until = new Date(Date.now() + 3_600_000).toISOString();
+  const turn = { callPath: [], agent: "reviewer", operationId: "op-1", execution };
+  const warm = await makeRun(
+    cwd,
+    "dd-case",
+    "warm",
+    [{ ...ALIVE, started: T(10) }],
+    [
+      { kind: "operation-started", at: T(10), of: "turn", ...turn },
+      { kind: "turn", outcome: "answered", ...turn },
+      { kind: "agent-warm", at: T(12), agent: "reviewer", until },
+    ],
+  );
+  // A turn started since: the run is working, whatever its warm line said.
+  const working = await makeRun(
+    cwd,
+    "dd-case",
+    "working",
+    [{ ...ALIVE, started: T(11) }],
+    [
+      { kind: "agent-warm", at: T(12), agent: "reviewer", until: T(40) },
+      { kind: "operation-started", at: T(13), of: "turn", ...turn, operationId: "op-2" },
+    ],
+  );
+  for (const run of [warm, working]) {
+    await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
+    settle(run, { kind: "wait", label: "next" });
+  }
+  const json = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
+  expect(json.runs).toMatchObject([
+    { ref: "dd-case/working", state: "running", waiting: { label: "next" } },
+    { ref: "dd-case/warm", state: "parked", warm: [{ agent: "reviewer", until }] },
+  ]);
+  expect(json.runs[0]).not.toHaveProperty("warm");
+  const text = (await awfRuns(cwd)).stdout.split("\n");
+  expect(text.find((line) => line.startsWith("dd-case/warm"))).toMatch(
+    /^dd-case\/warm +parked .*next · reviewer warm until \d\d:\d\d$/,
+  );
+  const one = JSON.parse((await awfRuns(cwd, "dd-case/warm", "--json")).stdout);
+  expect(one.run).toMatchObject({ state: "parked", warm: [{ agent: "reviewer" }] });
+});
+
 test("an event run that returned says how many events no wait took, from its lines", async () => {
   const cwd = runDirs.tempRunDir();
   const run = await makeRun(cwd, "dd-case", "done", [

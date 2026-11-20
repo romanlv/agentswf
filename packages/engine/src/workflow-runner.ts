@@ -642,6 +642,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // Every run's timers are its own lines; a run of a workflow with events takes its events with them.
   // A plain run without `park` waits for its timers in its process.
   const { park } = options.run;
+  /** Each agent's window end as last written, so a wait that stays live writes it once. */
+  const warm = new Map<AgentKey, number>();
   const waits = new RunWaits({
     runDir,
     lines: options.run.lines,
@@ -661,7 +663,19 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
               fatal.reject(stop);
               throw stop;
             },
-            ...(options.run.live ? { live: options.run.live } : {}),
+            live: async (until) => {
+              for (const key of owner.agentKeys()) {
+                const end = owner.liveUntilOf(key);
+                if (end === undefined || warm.get(key) === end) continue;
+                warm.set(key, end);
+                events.event({
+                  kind: "agent-warm",
+                  agent: key,
+                  until: new Date(end).toISOString(),
+                });
+              }
+              await options.run.live?.(until);
+            },
             ...(options.run.skip ? { skip: options.run.skip } : {}),
           },
         }
@@ -1515,6 +1529,11 @@ class WorkflowOwner {
       this.#inFlight.size === 0 &&
       [...this.#logical.values()].every((agent) => !agent.busy)
     );
+  }
+
+  /** Every logical agent's key. */
+  agentKeys(): AgentKey[] {
+    return [...this.#logical.keys()];
   }
 
   /** The end of an idle agent's open window. */

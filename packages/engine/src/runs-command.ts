@@ -6,7 +6,15 @@ import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./comm
 import { messageOf } from "./errors";
 import help from "./help/runs.txt" with { type: "text" };
 import { asksJson, printRefusal } from "./refusals";
-import { continueOf, estimateOf, failed, nextLogs, span, stateWord } from "./run-commands";
+import {
+  continueOf,
+  estimateOf,
+  failed,
+  nextLogs,
+  shownState,
+  span,
+  stateWord,
+} from "./run-commands";
 import { encodeCursor } from "./run-read";
 import { findRunByRef, listRunEntries, type RunStatus, runStatus } from "./run-state";
 import { clockTime, masked, money, said } from "./run-text";
@@ -117,12 +125,13 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
       const { started, ended } = span(status, now);
       return {
         ref: status.ref,
-        state: status.state,
+        state: shownState(status),
         checked: status.checked,
         started: new Date(started).toISOString(),
         ...(ended === undefined ? {} : { duration: ended - started }),
         ...(estimate === undefined ? {} : { estimate }),
         ...(status.waiting ? { waiting: status.waiting } : {}),
+        ...(status.warm ? { warm: status.warm } : {}),
       };
     });
     const document: RunsJson = {
@@ -170,7 +179,10 @@ function waitingText(status: RunStatus): string {
   const never = status.unacknowledged;
   if (!waiting) return never ? `${never} event${never === 1 ? "" : "s"} never taken` : "";
   const until = waiting.until ? `until ${dayTime(Date.parse(waiting.until))}` : "";
-  return [waiting.label, until].filter(Boolean).join(" · ") || "waiting";
+  const warm = (status.warm ?? []).map(
+    (each) => `${each.agent} warm until ${clockTime(each.until).slice(0, 5)}`,
+  );
+  return [waiting.label, until, ...warm].filter(Boolean).join(" · ") || "waiting";
 }
 
 function dayTime(at: number): string {
@@ -337,12 +349,13 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
     v: RUNS_ONE_V,
     run: {
       ref: status.ref,
-      state: status.state,
+      state: shownState(status),
       checked: status.checked,
       ...(view.stage ? { stage: view.stage } : {}),
       ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
       ...(view.estimate === undefined ? {} : { estimate: view.estimate }),
       ...(status.waiting ? { waiting: status.waiting } : {}),
+      ...(status.warm ? { warm: status.warm } : {}),
       dir: status.run.dir,
     },
     // Every attempt file, a launch that never claimed its number included, `failed` with its reason.
