@@ -69,6 +69,7 @@ import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
 import { TICK_V, tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
+import { WAKE_V, wakeCommand } from "./wake-command";
 import type { EventWorkflow, LoadedWorkflow } from "./workflow-loader";
 import {
   type RunWorkflowOptions,
@@ -232,6 +233,7 @@ export async function runOperatorCli(
       }),
     emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
+    wake: () => wakeCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, now(), environment.home),
     logs: () =>
       logsCommand(
@@ -318,6 +320,7 @@ const JSON_VERSION = {
   run: RUN_V,
   emit: EMIT_V,
   tick: TICK_V,
+  wake: WAKE_V,
   runs: RUNS_V,
   logs: LOGS_V,
   inbox: INBOX_V,

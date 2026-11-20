@@ -137,6 +137,15 @@ crashed. Run it on a schedule: [Hosting events](/guide/hosting-events) covers th
 <!--@include: @/../packages/engine/src/help/tick.txt-->
 ```
 
+### awf wake {#wake}
+
+Wakes a parked run now, rather than when its wait's timer is due: once you've fixed what parked
+it, its retry needn't wait out its time. It fires that one timer, recorded as your wake.
+
+```text
+<!--@include: @/../packages/engine/src/help/wake.txt-->
+```
+
 ## Look at runs
 
 ### awf runs {#runs}

@@ -192,6 +192,8 @@ below). [Harnesses](/guide/harnesses#where-panes-go) covers panes and placement.
 - **A failing run gets two more tries, then stops.** After a crash or a failure, the next tick or
   event continues it; the third failure in a row leaves it `stuck`, and nothing wakes it again.
   `awf logs` says why it failed; once it's fixed, `awf runs {run}` says what to run next.
+- **A parked run waits out its timer.** Once you've fixed what parked it, `awf wake {run}` fires
+  the timer its wait takes now, rather than at its due time, and continues it.
 - **A stopped or cancelled run stays that way.** Neither a tick nor an event continues it; you do,
   as [Runs](/guide/runs) shows.
 - **A workflow that polls on a schedule is a plain run.** Nothing keeps two of its runs from

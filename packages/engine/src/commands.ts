@@ -10,6 +10,7 @@ import { usage as runUsage } from "./run-command";
 import { runsUsage } from "./runs-command";
 import { testUsage } from "./test-command";
 import { tickUsage } from "./tick-command";
+import { wakeUsage } from "./wake-command";
 
 /**
  * Every `awf` command: what the index, `awf help` and the suggestion read, and what the dispatch is
@@ -36,6 +37,11 @@ export const COMMANDS = [
     group: "Run a workflow",
     commands: { tick: "Wake the runs of workflows with events that are due" },
     help: tickUsage,
+  },
+  {
+    group: "Run a workflow",
+    commands: { wake: "Wake a parked run now, firing its wait's timer early" },
+    help: wakeUsage,
   },
   {
     group: "Look at runs",

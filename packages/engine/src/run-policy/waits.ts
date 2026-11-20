@@ -1,4 +1,10 @@
-import type { EventLine, RunLine, Taken, WaitTake } from "@agentswf/contract/records";
+import {
+  type EventLine,
+  OPERATOR_WAKE,
+  type RunLine,
+  type Taken,
+  type WaitTake,
+} from "@agentswf/contract/records";
 import { type AgentEnded, awfEventOf, type JsonValue } from "@agentswf/contract/workflow";
 
 type LineOf<K extends RunLine["kind"]> = Extract<RunLine, { kind: K }>;
@@ -45,6 +51,8 @@ export type TimerState = {
   taken: boolean;
   /** Taken, or due by the time the lines were read: no longer a deadline to wait for. */
   fired: boolean;
+  /** When an operator's wake made it due, before its own `due`. */
+  woken?: string;
 };
 
 /** What a wait can take and what the waits have done, from `run.jsonl` and `in.jsonl` at a time. */
@@ -107,7 +115,12 @@ export function foldWaits(given: {
     events.set(event.id, event);
     met.set(event.id, met.size);
   };
-  for (const line of given.events)
+  const wakes: { timer: unknown; at: string }[] = [];
+  for (const line of given.events) {
+    if (line.name === OPERATOR_WAKE) {
+      wakes.push({ timer: (line.data as { timer?: unknown } | null)?.timer, at: line.at });
+      continue;
+    }
     add({
       id: line.id,
       name: line.name,
@@ -118,6 +131,7 @@ export function foldWaits(given: {
       ...(line.starts ? { starts: true as const } : {}),
       ...(line.source === undefined ? {} : { source: line.source }),
     });
+  }
   const acknowledged = new Set<string>();
   const races = new Map<string, { branch: string; ids: string[] }>();
   const timers = new Map<string, TimerState>();
@@ -130,7 +144,7 @@ export function foldWaits(given: {
       if (entry.timer !== undefined) {
         const timer = timers.get(entry.timer);
         if (timer) timer.taken = true;
-        add(timerEvent(entry.id, entry.timer, timer?.due ?? at));
+        add(timerEvent(entry.id, entry.timer, timer?.woken ?? timer?.due ?? at));
       } else if (entry.branch !== undefined && entry.due !== undefined) {
         add(timeEvent(entry.id, entry.branch, entry.due));
       }
@@ -149,6 +163,14 @@ export function foldWaits(given: {
             taken: false,
             fired: false,
           };
+          // An operator's wake came before it was due: due from the earliest such wake.
+          const woken = wakes
+            .filter(
+              (wake) => wake.timer === line.name && Date.parse(wake.at) < Date.parse(line.due),
+            )
+            .map((wake) => wake.at)
+            .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+          if (woken !== undefined) timer.woken = woken;
           timers.set(line.name, timer);
         }
         if (line.cancelled) {
@@ -200,9 +222,10 @@ export function foldWaits(given: {
     }
   }
   for (const timer of timers.values()) {
-    timer.fired = timer.taken || Date.parse(timer.due) <= now;
-    if (!timer.cancelled && !timer.taken && Date.parse(timer.due) <= now)
-      add(timerEvent(ids.timer(timer.name), timer.name, timer.due));
+    const due = timer.woken ?? timer.due;
+    timer.fired = timer.taken || Date.parse(due) <= now;
+    if (!timer.cancelled && !timer.taken && Date.parse(due) <= now)
+      add(timerEvent(ids.timer(timer.name), timer.name, due));
   }
   const taken = new Set(held);
   const order = (a: string, b: string) => {
@@ -257,6 +280,24 @@ function isTimeRead(state: WaitState, ids: readonly string[]): boolean {
 function pendingTimers(state: WaitState): TimerState[] {
   return [...state.timers.values()]
     .filter((timer) => !timer.fired && !timer.cancelled)
+    .sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
+}
+
+/**
+ * The timers an operator's wake can fire, taken by the wait the run is at: pending, or fired by an
+ * earlier wake that nothing took, as when its launch failed.
+ */
+export function wakeableTimers(state: WaitState): TimerState[] {
+  const wait = state.lastWait;
+  if (!wait?.waiting) return [];
+  return [...state.timers.values()]
+    .filter(
+      (timer) =>
+        !timer.cancelled &&
+        !timer.taken &&
+        (!timer.fired || timer.woken !== undefined) &&
+        wouldTake({ name: "timer:due", from: timer.name }, wait.takes),
+    )
     .sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { EventLine, RunLine } from "@agentswf/contract/records";
+import { type EventLine, OPERATOR_WAKE, type RunLine } from "@agentswf/contract/records";
 import {
   type DerivedIds,
   firstReceive,
@@ -10,6 +10,7 @@ import {
   unendedTurns,
   unfenced,
   type WaitState,
+  wakeableTimers,
   wakeCause,
 } from "./waits";
 
@@ -201,6 +202,45 @@ describe("waking", () => {
     const closed = fold(lines, [event("x"), event("c", at, "dd.closed")], T + 60_000);
     expect(wakeCause(closed, closed.lastWait?.takes)).toBe("event");
     expect(hasWork(quiet, quiet.lastWait?.takes)).toBe(false);
+  });
+
+  test("an operator's wake fires the timer it names from the wake on, as its own record", () => {
+    const lines: RunLine[] = [
+      ...parked({ kind: "wait", attempt: 1, at, takes: [{ name: "timer:due", from: "retry" }] }),
+      { kind: "timer", attempt: 1, at, name: "remind", due: iso(T + 86_400_000), when: "1d" },
+    ];
+    const wake: EventLine = {
+      at: iso(T + 1_000),
+      id: "w1",
+      name: OPERATOR_WAKE,
+      data: { timer: "retry" },
+      from: "operator",
+    };
+    expect(wakeCause(fold(lines, [wake], T), undefined)).toBeUndefined();
+    const woken = fold(lines, [wake], T + 1_000);
+    expect(wakeCause(woken, woken.lastWait?.takes)).toBe("timer");
+    // Never an event the code is handed; the timer's own due is kept, the wake beside it.
+    expect(woken.unacknowledged).toEqual(["awf.timer.retry"]);
+    expect(woken.events.get("awf.timer.retry")?.at).toBe(iso(T + 1_000));
+    expect(woken.timers.get("retry")).toMatchObject({
+      due: iso(T + 60_000),
+      woken: iso(T + 1_000),
+      fired: true,
+    });
+    expect(woken.timers.get("remind")?.fired).toBe(false);
+    // Woken and not taken, as when its launch failed, a wake may fire it again.
+    expect(wakeableTimers(woken).map((timer) => timer.name)).toEqual(["retry"]);
+    // Taken, its event keeps the wake's time on every later read.
+    const taken = fold(
+      [
+        ...lines,
+        { kind: "took", attempt: 2, at, took: [{ id: "awf.timer.retry", timer: "retry" }] },
+      ],
+      [wake],
+      T + 2_000,
+    );
+    expect(taken.events.get("awf.timer.retry")?.at).toBe(iso(T + 1_000));
+    expect(wakeableTimers(taken)).toEqual([]);
   });
 });
 

@@ -268,6 +268,10 @@ while holding the run's lock, `{id}.lock` beside the run's folder, which is also
 run is made or woken, and as it parks. An event that starts a run is in the file before the run's folder appears. What the run
 did with each event is in `run.jsonl`'s `wait`, `took` and `race` lines.
 
+`awf wake` appends a line of its own: `name` is `awf:wake`, `from` is `operator`, and `data` is
+`{"timer": …}`, the timer it fired. The run's code is never handed it; that timer counts as due
+from the line's `at`, and its own due stays in `run.jsonl`.
+
 ### log.jsonl
 
 The run's event log, for people: a line per turn, nudges included, and per compaction, as each

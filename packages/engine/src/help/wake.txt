@@ -1,0 +1,14 @@
+usage: awf wake <run> [--timer <name>] [--cwd <directory>] [--run-root <directory>] [--json]
+
+Wakes a parked run of a workflow with events now, rather than at its wait's timer: once what
+parked it is fixed, its retry need not wait out its time. The timer the run's wait takes fires
+now, recorded as the operator's wake in its in.jsonl, its own due kept; every other timer stays
+as it was. A wait with several names one with --timer. A run at a wait its process holds live,
+as keepAlive does, is told at once. A wait with no timer, a run that is neither parked nor at a
+wait, or one that is stuck, isn't woken: awf runs <run> says what wakes it.
+
+Prints the timer it fired and what was done to the run: continued, nudged, or why not. --json
+prints one document, or a refusal whose code says why it failed: usage, wake, no-run, ambiguous,
+id, unreachable, no-engine, other-engine or internal-error. Exits 0 when the timer fired; 1 when
+the run isn't found or can't be read, or its attempt could not be started (the wake is kept, and
+awf tick tries again); 2 on a usage error, or when there is no timer to fire.

@@ -561,7 +561,8 @@ export type RunLine = {
 
 /**
  * A line of `in.jsonl`, an event the run's code takes, appended by a sender under the run's lock.
- * Names stay as awf records them (`participant:reply`, `agent:ended`). Tier: public, stable.
+ * Names stay as awf records them (`participant:reply`, `agent:ended`); `OPERATOR_WAKE` is the one
+ * line the code is never handed. Tier: public, stable.
  */
 export type EventLine = {
   at: string;
@@ -574,6 +575,12 @@ export type EventLine = {
   /** The integration that sent it, as `awf emit --source` names it. */
   source?: string;
 };
+
+/**
+ * `awf wake`'s line in `in.jsonl`, from `operator`, its data `{ timer }`: the operator woke the run,
+ * and the timer named counts as due from the line's `at`, its own `due` kept.
+ */
+export const OPERATOR_WAKE = "awf:wake";
 
 export {
   type RunView,
@@ -1335,6 +1342,19 @@ export type TickResultJson = {
   unreadable?: string[];
 };
 
+/** `awf wake --json`: the timer the wake fired, and what was done to the run. */
+export type WakeResultJson = {
+  v: 1;
+  /** `{workflow}/{id}`. */
+  ref: string;
+  timer: string;
+  /** Its own due, which the wake came before. */
+  due: string;
+  did: WakeDid;
+  why?: WakeWhy;
+  error?: string;
+};
+
 /**
  * `awf inbox --json`'s last line when it read nothing. Version 2 renamed `not-found` to `no-run`
  * and `bad-cursor` to `cursor`, its items moving with it.
@@ -1383,6 +1403,7 @@ export const REFUSAL_CODES = [
   "no-session",
   "live",
   "opened",
+  "wake",
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

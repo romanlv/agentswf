@@ -356,6 +356,46 @@ test("a --from-stage never reached keeps the timers of the wait it was parked at
   expect((await readAttempts(run)).at(-1)?.outcome).toBe("parked");
 }, 60_000);
 
+test("awf wake fires the parked wait's timer now, as the operator's wake, and the race takes it", async () => {
+  const { root, file, home } = eventProject(dirs, "deadline.ts", DEADLINE);
+  const out: string[] = [];
+  const io = {
+    home,
+    environment: { ...process.env, HOME: home },
+    cwd: root,
+    stdout: (t: string) => out.push(t),
+    stderr: (t: string) => out.push(`! ${t}`),
+  };
+  expect(await runOperatorCli(["run", file, "--id", "w"], io)).toBe(0);
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-deadline", "w");
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
+  out.length = 0;
+  expect(await runOperatorCli(["wake", "e2e-deadline/w", "--timer", "nope"], io)).toBe(2);
+  expect(out).toEqual(["! awf: e2e-deadline/w's wait has no timer nope; it has approval@timeout"]);
+  out.length = 0;
+  expect(await runOperatorCli(["wake", "e2e-deadline/w"], io)).toBe(0);
+  expect(out).toEqual([
+    expect.stringMatching(
+      /^woke e2e-deadline\/w: timer approval@timeout, due \d\d:\d\d:\d\d, fired now; continued$/,
+    ),
+  ]);
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "completed");
+  const output = JSON.parse(await Bun.file(join(run.dir, "out.json")).text()) as { value: unknown };
+  expect(output.value).toBe("timeout");
+  const woke = (await Bun.file(join(run.dir, "in.jsonl")).text())
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  expect(woke.at(-1)).toMatchObject({
+    name: "awf:wake",
+    from: "operator",
+    data: { timer: "approval@timeout" },
+  });
+  out.length = 0;
+  expect(await runOperatorCli(["wake", "e2e-deadline/w", "--json"], io)).toBe(2);
+  expect(JSON.parse(out[0]!)).toMatchObject({ v: 1, code: "wake" });
+}, 60_000);
+
 test("a continue reads the project's .env again, and not what the sender exported", async () => {
   const { root, file, home } = eventProject(
     dirs,

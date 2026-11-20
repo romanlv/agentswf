@@ -12,6 +12,7 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 ### Added
 
 - `run.postsOf(participant)` in `testWorkflow`: the text the code posted to a participant, in order.
+- `awf wake <run> [--timer <name>]`: wakes a parked run now, firing the timer its wait takes early, recorded as the operator's wake in `in.jsonl` (`awf:wake`); every other timer keeps its due.
 
 ### Changed
 
