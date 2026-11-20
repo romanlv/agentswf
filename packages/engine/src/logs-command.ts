@@ -153,7 +153,11 @@ function parseLogs(rest: readonly string[]): LogsOptions {
         throw new Error("--limit needs a whole number");
       options.limit = limit;
     } else if (arg === "--wait") {
-      options.waitSeconds = parseWait(value(), MAX_WAIT_SECONDS);
+      options.waitSeconds = parseWait(
+        value(),
+        MAX_WAIT_SECONDS,
+        "--follow reads until the run ends",
+      );
       waitGiven = true;
     } else if (arg === "--follow") options.follow = true;
     else if (arg === "--full") options.full = true;

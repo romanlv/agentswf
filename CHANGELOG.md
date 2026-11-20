@@ -9,6 +9,10 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+### Changed
+
+- `awf logs --wait` past its cap, 300s, says the cap and the value given, and points at `--follow`.
+
 ## 0.1.1 — 2026-11-09
 
 ### Added

@@ -19,9 +19,10 @@ export function parseDuration(value: string, flag: string): number {
 
 /**
  * `--wait`, in seconds from none to `maxSeconds`: a duration, `"90s"`. A bare number of seconds,
- * which it took before 0.1.0-beta.6, is refused with its replacement.
+ * which it took before 0.1.0-beta.6, is refused with its replacement; past the cap, `longer` says
+ * what waits longer.
  */
-export function parseWait(value: string, maxSeconds: number): number {
+export function parseWait(value: string, maxSeconds: number, longer?: string): number {
   if (/^\d+(\.\d+)?$/.test(value))
     throw new Error(
       `--wait takes a duration up to ${maxSeconds}s: give --wait ${Math.min(Number(value), maxSeconds)}s`,
@@ -32,7 +33,10 @@ export function parseWait(value: string, maxSeconds: number): number {
   } catch (error) {
     throw new Error(`--wait takes a duration up to ${maxSeconds}s: ${messageOf(error)}`);
   }
-  if (seconds > maxSeconds) throw new Error(`--wait takes a duration up to ${maxSeconds}s`);
+  if (seconds > maxSeconds)
+    throw new Error(
+      `--wait is at most ${maxSeconds}s, not ${value}${longer === undefined ? "" : `; ${longer}`}`,
+    );
   return seconds;
 }
 

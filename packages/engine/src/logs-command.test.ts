@@ -290,6 +290,11 @@ describe("awf logs", () => {
     const bare = await awfLogs(f, ["--after", cursor, "--wait", "90"]);
     expect(bare.exitCode).toBe(2);
     expect(bare.stderr).toContain("--wait takes a duration up to 300s: give --wait 90s");
+    const long = await awfLogs(f, ["--after", cursor, "--wait", "600s"]);
+    expect(long.exitCode).toBe(2);
+    expect(long.stderr).toStartWith(
+      "awf: --wait is at most 300s, not 600s; --follow reads until the run ends\n",
+    );
     expect((await awfLogs(f, ["--after", cursor, "--wait", "1.5m"])).stdout).toContain(
       "nothing new in 90s",
     );
