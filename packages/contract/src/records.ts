@@ -1178,6 +1178,8 @@ export type LogEventJson = { handle: string; at: string } & (
     })
   /** A `run.jsonl` line that first names a session, its handle `r{n}`. */
   | Extract<RunLine, { kind: "session" }>
+  /** An event a sender gave the run, its `in.jsonl` line, its handle `i{n}`. */
+  | ({ kind: "event" } & EventLine)
 );
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

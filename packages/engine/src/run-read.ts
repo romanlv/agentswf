@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { Activity, RunLine, RunLogLine } from "@agentswf/contract/records";
+import type { Activity, EventLine, RunLine, RunLogLine } from "@agentswf/contract/records";
 import type { AgentKey, HarnessKind } from "@agentswf/contract/workflow";
 import { findHarness, harnessState, readActivity } from "@agentswf/harness";
 import { messageOf } from "./errors";
+import { readIn } from "./in-lines";
 import { readRunLines } from "./run-lines";
 import { unfenced } from "./run-policy/waits";
 import { readNumberedEvents } from "./runs";
@@ -261,29 +262,38 @@ async function sessionFiles(
  * byte offset. Opaque to its holder, who copies it back; versioned, so a later awf can refuse an
  * old one.
  */
-export type Cursor = { log: number; run: number; files: Record<string, number> };
+/** Where a read stopped: the log's line, `run.jsonl`'s, each native file's offset, and `in.jsonl`'s line. */
+export type Cursor = { log: number; run: number; files: Record<string, number>; in: number };
 
 /** A read from the start. */
-export const START: Cursor = Object.freeze({ log: 0, run: 0, files: Object.freeze({}) });
+export const START: Cursor = Object.freeze({ log: 0, run: 0, files: Object.freeze({}), in: 0 });
 
 export function encodeCursor(cursor: Cursor): string {
-  const fields = [cursor.log, cursor.run, cursor.files];
+  const fields = [cursor.log, cursor.run, cursor.files, cursor.in];
   return `c2.${Buffer.from(JSON.stringify(fields)).toString("base64url")}`;
 }
 
 export function decodeCursor(text: string): Cursor | undefined {
   if (!text.startsWith("c2.")) return undefined;
   try {
-    const [log, run, files] = JSON.parse(Buffer.from(text.slice(3), "base64url").toString("utf8"));
+    // A cursor from before `in.jsonl` was read has no fourth field: its events read from the start.
+    const [log, run, files, inbound = 0] = JSON.parse(
+      Buffer.from(text.slice(3), "base64url").toString("utf8"),
+    );
     const line = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
-    if (!line(log) || !line(run) || typeof files !== "object" || files === null) {
+    if (!line(log) || !line(run) || !line(inbound) || typeof files !== "object" || files === null) {
       return undefined;
     }
     const offsets = Object.entries(files as Record<string, unknown>);
     if (!offsets.every(([, offset]) => Number.isSafeInteger(offset) && (offset as number) >= 0)) {
       return undefined;
     }
-    return { log, run, files: Object.fromEntries(offsets) as Record<string, number> };
+    return {
+      log,
+      run,
+      files: Object.fromEntries(offsets) as Record<string, number>,
+      in: inbound,
+    };
   } catch {
     return undefined;
   }
@@ -298,11 +308,13 @@ function fileName(file: Pick<SessionFile, "session" | "key">): string {
 export type Handle =
   | { kind: "event"; line: number }
   | { kind: "run"; line: number }
+  | { kind: "in"; line: number }
   | { kind: "activity"; file: string; offset: number; index: number };
 
 export function encodeHandle(handle: Handle): string {
   if (handle.kind === "event") return `e${handle.line}`;
   if (handle.kind === "run") return `r${handle.line}`;
+  if (handle.kind === "in") return `i${handle.line}`;
   const index = handle.index > 0 ? `.${handle.index}` : "";
   return `${handle.file}.${handle.offset.toString(16)}${index}`;
 }
@@ -313,6 +325,8 @@ export function decodeHandle(text: string): Handle | undefined {
   if (event) return { kind: "event", line: Number(event[1]) };
   const run = /^r([1-9]\d*)$/.exec(plain);
   if (run) return { kind: "run", line: Number(run[1]) };
+  const inbound = /^i([1-9]\d*)$/.exec(plain);
+  if (inbound) return { kind: "in", line: Number(inbound[1]) };
   const activity = /^(a[1-9]\d*(?:-[0-9a-f]{12})?)\.([0-9a-f]+)(?:\.([1-9]\d*))?$/.exec(plain);
   if (!activity) return undefined;
   return {
@@ -335,6 +349,8 @@ export type ReadEvent = {
 } & (
   | { source: "log"; line: RunLogLine }
   | { source: "run"; line: SessionLine }
+  /** An event a sender gave the run, its `in.jsonl` line. */
+  | { source: "in"; line: EventLine }
   | {
       source: "activity";
       agent?: AgentKey;
@@ -405,6 +421,19 @@ export async function readRun(
     });
   }
   const run = Math.max(cursor.run, log.runLines);
+  // A sender's events, among the rest by time; read whole, as a run is sent few.
+  const inbound = cursor.in < Number.MAX_SAFE_INTEGER ? await readIn(runDir) : [];
+  for (const [index, line] of inbound.entries()) {
+    if (index + 1 <= cursor.in) continue;
+    events.push({
+      handle: encodeHandle({ kind: "in", line: index + 1 }),
+      at: line.at,
+      time: Date.parse(line.at) || Number.NEGATIVE_INFINITY,
+      source: "in",
+      line,
+    });
+  }
+  const inRead = Math.max(cursor.in, inbound.length);
   const files = { ...cursor.files };
   // A pane's pi names its session twice, by id and by path: one file, read once.
   const seen = new Set<string>();
@@ -476,8 +505,9 @@ export async function readRun(
   events.sort((a, b) => a.time - b.time);
   const more = horizon < Number.POSITIVE_INFINITY;
   const beyond = events.findIndex((event) => event.time > horizon);
-  if (beyond < 0) return { events, cursor: { log: last, run, files }, log, cut, more };
-  const next = cutCursor(events, beyond, { log: last, run, files });
+  const end: Cursor = { log: last, run, files, in: inRead };
+  if (beyond < 0) return { events, cursor: end, log, cut, more };
+  const next = cutCursor(events, beyond, end);
   return { events: events.slice(0, beyond), cursor: next, log, cut, more };
 }
 
@@ -486,11 +516,12 @@ export async function readRun(
  * time order and the log's lines in line order among them, so nothing shown is read again.
  */
 export function cutCursor(all: readonly ReadEvent[], cut: number, end: Cursor): Cursor {
-  const next: Cursor = { log: end.log, run: end.run, files: { ...end.files } };
+  const next: Cursor = { log: end.log, run: end.run, files: { ...end.files }, in: end.in };
   for (const event of all.slice(cut)) {
     const handle = decodeHandle(event.handle)!;
     if (handle.kind === "event") next.log = Math.min(next.log, handle.line - 1);
     else if (handle.kind === "run") next.run = Math.min(next.run, handle.line - 1);
+    else if (handle.kind === "in") next.in = Math.min(next.in, handle.line - 1);
     else
       next.files[handle.file] = Math.min(next.files[handle.file] ?? handle.offset, handle.offset);
   }

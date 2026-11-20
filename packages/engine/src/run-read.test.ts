@@ -107,22 +107,27 @@ describe("a run reference", () => {
 
 describe("cursors and handles", () => {
   test("round-trip, and anything else is refused", () => {
-    const cursor = { log: 12, run: 3, files: { a1: 4096, "a2-9b2e00aa11cc": 17 } };
+    const cursor = { log: 12, run: 3, files: { a1: 4096, "a2-9b2e00aa11cc": 17 }, in: 2 };
     expect(decodeCursor(encodeCursor(cursor))).toEqual(cursor);
+    // One from before in.jsonl was read reads its events from the start.
+    const before = `c2.${Buffer.from(JSON.stringify([12, 3, {}])).toString("base64url")}`;
+    expect(decodeCursor(before)).toEqual({ log: 12, run: 3, files: {}, in: 0 });
     const old = `c1.${Buffer.from(JSON.stringify([12, {}])).toString("base64url")}`;
     for (const bad of [
       "c2.zzz",
       "c3.e30",
       "",
       old,
-      encodeCursor({ log: -1, run: 0, files: {} }),
-      encodeCursor({ log: 0, run: -1, files: {} }),
+      encodeCursor({ log: -1, run: 0, files: {}, in: 0 }),
+      encodeCursor({ log: 0, run: -1, files: {}, in: 0 }),
+      encodeCursor({ log: 0, run: 0, files: {}, in: -1 }),
     ]) {
       expect(decodeCursor(bad)).toBeUndefined();
     }
     for (const handle of [
       { kind: "event" as const, line: 216 },
       { kind: "run" as const, line: 4 },
+      { kind: "in" as const, line: 3 },
       { kind: "activity" as const, file: "a3", offset: 0x1f4c, index: 0 },
       { kind: "activity" as const, file: "a3-9b2e00aa11cc", offset: 7, index: 2 },
     ]) {
@@ -255,7 +260,9 @@ describe("reading a run", () => {
     const shown = read.events.map((each) =>
       each.source === "activity"
         ? `${each.handle} ${each.agent} ${each.operation} ${each.activity.type}`
-        : `${each.handle} ${each.line.kind}`,
+        : each.source === "in"
+          ? `${each.handle} event ${each.line.name}`
+          : `${each.handle} ${each.line.kind}`,
     );
     expect(shown).toEqual([
       "e1 agent-opened",

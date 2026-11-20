@@ -394,6 +394,37 @@ describe("awf logs", () => {
     ]);
   });
 
+  test("an event a sender gave the run is a line of its own, by time, and pages as the rest", async () => {
+    const f = await fixture();
+    const sent = (at: string, id: string, name: string, data: unknown) =>
+      appendFileSync(
+        join(f.run.dir, "in.jsonl"),
+        `${JSON.stringify({ at, id, name, data, from: "operator" })}\n`,
+      );
+    sent(T(0), "c1", "test.rerun", { ticket: "PROJ-1" });
+    const page = strip((await awfLogs(f, [])).stdout).split("\n");
+    expect(page).toContain('@i1 hh:mm:ss event test.rerun from operator  {"ticket":"PROJ-1"}');
+    const json = JSON.parse((await awfLogs(f, ["--json"])).stdout);
+    expect(json.events.find((event: { handle: string }) => event.handle === "i1")).toEqual({
+      handle: "i1",
+      kind: "event",
+      at: T(0),
+      id: "c1",
+      name: "test.rerun",
+      data: { ticket: "PROJ-1" },
+      from: "operator",
+    });
+    const one = strip((await awfLogs(f, ["@i1", "--full"])).stdout).split("\n");
+    expect(one[0]).toBe("(in.jsonl's line; common credential shapes are masked)");
+    sent(T(5), "c2", "awf:wake", { timer: "retry" });
+    const next = await awfLogs(f, ["--after", json.cursor]);
+    expect(
+      strip(next.stdout)
+        .split("\n")
+        .filter((line) => line.startsWith("@")),
+    ).toEqual(['@i2 hh:mm:ss event awf:wake from operator  {"timer":"retry"}']);
+  });
+
   test("--tool and --grep keep the calls asked for across a page, and --full prints each whole", async () => {
     const f = await fixture();
     const long = `/work/${"deep/".repeat(40)}notes.md`;
@@ -720,7 +751,7 @@ describe("awf logs", () => {
     addActivity(f, T(2), [{ type: "text", text: "x".repeat(4.5 * 1024 * 1024) }]);
     addActivity(f, T(3), [{ type: "text", text: "Done." }]);
     const read = await awfLogs(f, []);
-    const start = `c2.${Buffer.from(JSON.stringify([0, 0, {}])).toString("base64url")}`;
+    const start = `c2.${Buffer.from(JSON.stringify([0, 0, {}, 0])).toString("base64url")}`;
     expect(read.stdout).toContain(
       `(showing 4 of the last 4 read; from the start: awf logs review/r1 --after ${start})`,
     );

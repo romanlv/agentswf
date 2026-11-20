@@ -1,5 +1,11 @@
 import { homedir } from "node:os";
-import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
+import type {
+  EventLine,
+  LogEventJson,
+  LogsJson,
+  RouteEnds,
+  RunLogLine,
+} from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { duration } from "./accounting/format";
 import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
@@ -554,10 +560,12 @@ async function oneEvent(
     status.run.dir,
     status.run.record.cwd,
     handle.kind === "event"
-      ? { log: handle.line - 1, run: none, files: {} }
+      ? { log: handle.line - 1, run: none, files: {}, in: none }
       : handle.kind === "run"
-        ? { log: none, run: handle.line - 1, files: {} }
-        : { log: none, run: none, files: { [handle.file]: handle.offset } },
+        ? { log: none, run: handle.line - 1, files: {}, in: none }
+        : handle.kind === "in"
+          ? { log: none, run: none, files: {}, in: handle.line - 1 }
+          : { log: none, run: none, files: { [handle.file]: handle.offset }, in: none },
     {
       ended: status.state !== "running",
       full: options.full || json,
@@ -580,7 +588,7 @@ async function oneEvent(
   const lines = [describeEvent(event, stages, screens)];
   if (options.full) {
     lines.unshift(
-      `(${{ activity: "native text", log: "the log's line", run: "run.jsonl's line" }[event.source]}; common credential shapes are masked)`,
+      `(${{ activity: "native text", log: "the log's line", run: "run.jsonl's line", in: "in.jsonl's line" }[event.source]}; common credential shapes are masked)`,
     );
     const text = fullText(event);
     if (text) lines.push(...text.split("\n").map((line) => `  ${line}`));
@@ -641,6 +649,13 @@ function publish(
   if (event.source === "run") {
     return { handle: event.handle, ...(masked(event.line, limit) as typeof event.line) };
   }
+  if (event.source === "in") {
+    return {
+      handle: event.handle,
+      kind: "event",
+      ...(masked(event.line, limit) as typeof event.line),
+    };
+  }
   const { version: _version, ...fields } = event.line;
   return {
     handle: event.handle,
@@ -687,11 +702,19 @@ function describeEvent(event: ReadEvent, stages: Places, screens: Screens): stri
       ? describeActivity(event.activity)
       : event.source === "run"
         ? `session ${event.line.harness} ${event.line.session}`
-        : describeLine(event.line, stages);
+        : event.source === "in"
+          ? describeIn(event.line)
+          : describeLine(event.line, stages);
   const { screen } = screenOf(event, screens);
   return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}${
     screen ? `  screen: ${screen}` : ""
   }`;
+}
+
+/** `event test.rerun from operator  {"case":"k"}`: what a sender gave the run, to take or to wake it. */
+function describeIn(line: EventLine): string {
+  const data = line.data === null ? "" : `  ${said(JSON.stringify(line.data), 80)}`;
+  return `event ${said(line.name, 60)} from ${said(line.from, 60)}${data}`;
 }
 
 function describeLine(line: RunLogLine, places: Places): string {

@@ -108,7 +108,9 @@ its prompts, its tool calls and their results, its messages. Without a run named
 newest run here, and notes any other that is running. It shows the last 40 events.
 
 Each line starts with a handle: `@e…` for the run's events, `@r…` for a fork's session or one an
-agent moved to, from `run.jsonl`, and `@a…` for an agent's activity; `--json` has every agent's
+agent moved to, from `run.jsonl`, `@i…` for an event a sender gave a run with events, from
+`in.jsonl`, such as an `awf emit` or an `awf wake`, so you see what woke it, and `@a…` for an
+agent's activity; `--json` has every agent's
 first session too. A line is cut short;
 `awf logs {run} @{handle} --full` prints it whole, and `--full` on a page prints each event whole.
 
