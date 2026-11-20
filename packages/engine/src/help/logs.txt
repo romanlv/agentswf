@@ -1,13 +1,15 @@
-usage: awf logs [<run>] [@<handle>] [--agent <key>] [--stage <name>] [--after <cursor>]
-                [--limit <n>] [--wait <duration> | --follow] [--full] [--cwd <directory>]
-                [--run-root <directory>] [--json]
+usage: awf logs [<run>] [@<handle>] [--agent <key>] [--stage <name>] [--tool <name>]...
+                [--grep <text>] [--after <cursor>] [--limit <n>] [--wait <duration> | --follow]
+                [--full] [--cwd <directory>] [--run-root <directory>] [--json]
 
 What a run did and is doing: its events and what its agents did, read from their own session
 files, merged by time. With no run, the newest here. Without --after, the last 40 events; with
 it, what came after, oldest first. Every answer ends with the command that gets only what is
 new. --wait: with nothing to show yet, wait for the first event, at most that long, up to 5m,
-such as 90s; --follow prints each event as it comes until the run ends. @<handle> names one
-event, and --full prints its text, with common credential shapes masked; --json carries it
+such as 90s; --follow prints each event as it comes until the run ends. --tool keeps the calls
+of a tool, by name in any case, such as Read, and may be given again; --grep keeps the events
+whose whole text holds the text given, in its case. @<handle> names one event; --full prints
+each event's whole text beneath it, with common credential shapes masked; --json carries it
 always.
 
 With --json, a failure prints a refusal whose code says why: usage, no-run, ambiguous, id,

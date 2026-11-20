@@ -394,6 +394,32 @@ describe("awf logs", () => {
     ]);
   });
 
+  test("--tool and --grep keep the calls asked for across a page, and --full prints each whole", async () => {
+    const f = await fixture();
+    const long = `/work/${"deep/".repeat(40)}notes.md`;
+    addActivity(f, T(2), [
+      { type: "tool_use", id: "t1", name: "Read", input: { file_path: long } },
+      { type: "tool_use", id: "t2", name: "Bash", input: { command: "cat notes.md" } },
+      { type: "tool_use", id: "t3", name: "Read", input: { file_path: "/work/plan.md" } },
+      { type: "text", text: "Read both." },
+    ]);
+    const reads = strip((await awfLogs(f, ["--tool", "read"])).stdout).split("\n");
+    expect(reads.filter((line) => line.startsWith("@"))).toEqual([
+      expect.stringMatching(/ tool Read  \/work\/deep\/.*…$/),
+      expect.stringMatching(/ tool Read  \/work\/plan\.md$/),
+    ]);
+    expect(reads.at(-1)).toMatch(/^next: awf logs review\/r1 --tool read --after \S+ --wait 90s$/);
+    const full = strip(
+      (await awfLogs(f, ["--tool", "Read", "--grep", "notes.md", "--full"])).stdout,
+    );
+    expect(full.split("\n").filter((line) => line.startsWith("@"))).toHaveLength(1);
+    expect(full).toContain(long);
+    const grep = strip((await awfLogs(f, ["--grep", "notes.md"])).stdout).split("\n");
+    expect(
+      grep.filter((line) => line.startsWith("@")).map((line) => line.split("  ").at(-2)),
+    ).toEqual(["tool Read", "tool Bash"]);
+  });
+
   test("a page's JSON carries each activity's native text, masked, the line its short cut", async () => {
     const f = await fixture();
     const argument = `wfa result op-1 <<'WF_JSON'\n{"approved":false,"note":"${"z".repeat(200)}"}\nWF_JSON`;
@@ -933,7 +959,7 @@ describe("awf logs", () => {
     expect((await awfLogs(f, ["--follow", "--json"])).exitCode).toBe(2);
     for (const wait of ["301", "301s", "6m", "-1s", "90x", "1e2"])
       expect((await awfLogs(f, ["--wait", wait])).exitCode).toBe(2);
-    expect((await awfLogs(f, ["--full"])).exitCode).toBe(2);
+    expect((await awfLogs(f, ["--tool"])).exitCode).toBe(2);
   });
 
   test("a fake-harness run reads as it did before its sessions moved to run.jsonl", async () => {

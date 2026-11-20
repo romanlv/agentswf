@@ -63,6 +63,10 @@ type LogsOptions = {
   waitSeconds: number;
   follow: boolean;
   full: boolean;
+  /** Only the calls of these tools, by name, any case. */
+  tools: string[];
+  /** Only the events whose whole text holds it. */
+  grep?: string;
 };
 
 /** The clock and the pause between polls, which tests drive. */
@@ -107,7 +111,13 @@ export async function logsCommand(
           `cursor ${options.after} does not fit this run; start again: ${again}`,
         );
     }
-    const read = new Reader(status, after, clock, options.limit * 2, json);
+    const read = new Reader(
+      status,
+      after,
+      clock,
+      options.limit * 2,
+      json || options.full || options.grep !== undefined,
+    );
     // Lines are numbered by their place in the file, past any that were skipped.
     if (after) {
       const { log } = await read.next();
@@ -137,6 +147,7 @@ function parseLogs(rest: readonly string[]): LogsOptions {
     waitSeconds: 0,
     follow: false,
     full: false,
+    tools: [],
   };
   let waitGiven = false;
   for (let index = 0; index < rest.length; index += 1) {
@@ -148,6 +159,8 @@ function parseLogs(rest: readonly string[]): LogsOptions {
       return given;
     };
     if (arg === "--agent") options.agent = value();
+    else if (arg === "--tool") options.tools.push(value());
+    else if (arg === "--grep") options.grep = value();
     else if (arg === "--stage") options.stage = value();
     else if (arg === "--after") options.after = value();
     else if (arg === "--limit") {
@@ -172,9 +185,6 @@ function parseLogs(rest: readonly string[]): LogsOptions {
   if (options.follow && waitGiven) throw new Error("--follow and --wait do not go together");
   if (options.handle && (waitGiven || options.follow)) {
     throw new Error("@<handle> reads one event; it takes no --wait or --follow");
-  }
-  if (options.full && !options.handle) {
-    throw new Error("--full prints one event: name it, @<handle>");
   }
   return options;
 }
@@ -302,6 +312,7 @@ function quietSessions(read: Read): Set<number> {
 
 function kept(read: Read, options: LogsOptions, json = false) {
   const stages = operationPlaces(read.log);
+  const tools = new Set(options.tools.map((tool) => tool.toLowerCase()));
   const quiet = json ? new Set<number>() : quietSessions(read);
   const events = read.events.filter(
     (event) =>
@@ -316,9 +327,39 @@ function kept(read: Read, options: LogsOptions, json = false) {
       (options.agent === undefined ||
         agentOf(event, stages) === options.agent ||
         sidesOf(event).includes(options.agent)) &&
-      (options.stage === undefined || stageOf(event, stages) === options.stage),
+      (options.stage === undefined || stageOf(event, stages) === options.stage) &&
+      (options.tools.length === 0 || tools.has(toolOf(event) ?? "")) &&
+      (options.grep === undefined || wholeText(event, stages).includes(options.grep)),
   );
   return { events, stages };
+}
+
+/** The tool an event calls, lower case: an agent's call, or one through `wfa`; none for any other. */
+function toolOf(event: ReadEvent): string | undefined {
+  if (event.source === "activity")
+    return event.activity.type === "tool" ? event.activity.tool.toLowerCase() : undefined;
+  if (event.source !== "log") return undefined;
+  const { line } = event;
+  return line.kind === "tool-called" || line.kind === "tool-ended" || line.kind === "tool-refused"
+    ? line.tool.toLowerCase()
+    : undefined;
+}
+
+/** An event as one line, and its text whole: what `--grep` searches and `--full` prints. */
+function wholeText(event: ReadEvent, places: Places): string {
+  return `${describeEvent(event, places, new Map())}\n${fullText(event) ?? ""}`;
+}
+
+/** An event's text whole, its credential shapes masked: an agent's native text, or the line. */
+function fullText(event: ReadEvent): string | undefined {
+  return event.source === "activity" ? event.text : JSON.stringify(masked(event.line), null, 2);
+}
+
+/** An event's line, and with `--full` its text whole beneath it. */
+function shownEvent(event: ReadEvent, places: Places, screens: Screens, full: boolean): string {
+  const line = describeEvent(event, places, screens);
+  const text = full ? fullText(event) : undefined;
+  return text ? [line, ...text.split("\n").map((each) => `  ${each}`)].join("\n") : line;
 }
 
 function decodeHandleLine(handle: string): number {
@@ -397,6 +438,9 @@ async function page(
   const filters = [
     ...(options.agent ? ["--agent", options.agent] : []),
     ...(options.stage ? ["--stage", options.stage] : []),
+    ...options.tools.flatMap((tool) => ["--tool", tool]),
+    ...(options.grep === undefined ? [] : ["--grep", options.grep]),
+    ...(options.full ? ["--full"] : []),
   ];
   // A run that ended has a next only while its page stopped before the newest event.
   const running = status.state === "running";
@@ -444,7 +488,11 @@ async function page(
     const total = read.cut ? `the last ${events.length} read` : `${events.length}`;
     lines.push(`(showing ${shown.length} of ${total}${of}; ${more})`);
   }
-  lines.push(...shown.map((event) => describeEvent(event, stages, screens)));
+  if (options.full && shown.length > 0)
+    lines.push(
+      "(each event's native text or line follows it; common credential shapes are masked)",
+    );
+  lines.push(...shown.map((event) => shownEvent(event, stages, screens, options.full)));
   lines.push(
     trailer(
       status,
@@ -474,7 +522,7 @@ async function follow(
     // Without a cursor it starts from the last `--limit`, as a page would.
     const shown = first && !reader.from ? events.slice(-options.limit) : events;
     const screens = await keptScreens(reader.status.run.dir, shown);
-    for (const event of shown) out.stdout(describeEvent(event, stages, screens));
+    for (const event of shown) out.stdout(shownEvent(event, stages, screens, options.full));
     cursor = read.cursor;
     // A read that stopped short goes on at once.
     if (!read.more) {
@@ -534,8 +582,7 @@ async function oneEvent(
     lines.unshift(
       `(${{ activity: "native text", log: "the log's line", run: "run.jsonl's line" }[event.source]}; common credential shapes are masked)`,
     );
-    const text =
-      event.source === "activity" ? event.text : JSON.stringify(masked(event.line), null, 2);
+    const text = fullText(event);
     if (text) lines.push(...text.split("\n").map((line) => `  ${line}`));
   }
   out.stdout(lines.join("\n"));

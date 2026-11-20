@@ -110,12 +110,14 @@ newest run here, and notes any other that is running. It shows the last 40 event
 Each line starts with a handle: `@e…` for the run's events, `@r…` for a fork's session or one an
 agent moved to, from `run.jsonl`, and `@a…` for an agent's activity; `--json` has every agent's
 first session too. A line is cut short;
-`awf logs {run} @{handle} --full` prints it whole.
+`awf logs {run} @{handle} --full` prints it whole, and `--full` on a page prints each event whole.
 
 ```sh
 awf logs {run} --agent reviewer       # one agent, and the messages to and from it
 awf logs {run} --stage review         # one stage
 awf logs {run} @a1.9e2 --full           # one event's whole text
+awf logs {run} --tool Read --full       # every file its agents read, each call whole
+awf logs {run} --grep migrations/       # the events whose whole text mentions it
 awf logs {run} --limit 200            # more than the last 40
 ```
 
