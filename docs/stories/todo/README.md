@@ -92,6 +92,8 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[claude-file-login]] — a sandboxed claude signs in from a login file, not a setup token.
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
 - [[interrupted-accounting-read]] — a Ctrl-C after the work is done keeps the spend.
+- [[self-expiring-harness-prompts]] — a prompt that will deny itself, such as claude's "can't
+  be sure it read this command", lets the agent carry on instead of blocking the run.
 
 ### P2
 
