@@ -88,7 +88,9 @@ question open longer than a week as a run to stop and start again.
 
 In a workflow that reacts to [events](/guide/events), an agent opened with `keepAlive` keeps the run
 live for a window after each turn, an hour by default: a person's `awf send` in that window is a
-warm turn in the same pane rather than a cold start after the run parks.
+warm turn in the same pane rather than a cold start after the run parks. While it stays live it
+runs the workflow file it started with: after you change the file, `awf park {run}` parks it at
+its wait, and the next event runs the file as it is now.
 [`examples/keep-alive`](https://github.com/romanlv/agentswf/tree/main/examples/keep-alive) shows one,
 and [Events](/reference/workflow-api#events) in the workflow API has the rules.
 

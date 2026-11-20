@@ -655,6 +655,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
             idle: () => owner.idle(),
             timeout: (signal) => owner.timeout(signal),
             liveUntil: () => owner.liveUntil(),
+            closeWindows: () => owner.closeWindows(),
             park: async (wait) => {
               // No wake carries `--from-stage`: parked short of it, the redo would be lost unsaid.
               const unreached = stages.fromStageUnreached;
@@ -971,6 +972,8 @@ type AgentOpening = {
 
 class WorkflowOwner {
   readonly #cleanupFailures: Error[] = [];
+  /** The operator asked this attempt to park: no agent's window holds it live. */
+  #windowsClosed = false;
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
   /** The skills each agent's harness was given, as placed: what its session lines record. */
@@ -1540,6 +1543,11 @@ class WorkflowOwner {
   liveUntilOf(key: AgentKey): number | undefined {
     const agent = this.#logical.get(key);
     return agent && !agent.busy ? agent.liveUntil() : undefined;
+  }
+
+  /** Every agent's window ends now, its `onTimeout` due, for `awf park`. */
+  closeWindows(): void {
+    this.#windowsClosed = true;
   }
 
   /** The end of the earliest window an agent holds open: the run stays live to it. */
@@ -2494,6 +2502,7 @@ class WorkflowOwner {
       keepPane: () => this.#agents.get(key)?.identity.asked?.keepPane,
       keepAlive: () => this.#agents.get(key)?.keepAlive,
       defaultWindowMs: this.options.defaultWindowMs ?? DEFAULT_WINDOW_MS,
+      windowsClosed: () => this.#windowsClosed,
       now: this.options.now,
       // Its socket is its authority: a kept agent's harness lives on, and must not answer.
       revoke: () =>
@@ -2962,6 +2971,8 @@ class LogicalAgent implements AgentRef {
       keepAlive(): KeepAlive | undefined;
       /** Its window when `keepAlive` gives no `window`. */
       defaultWindowMs: number;
+      /** Its run was asked to park: it holds no window. */
+      windowsClosed(): boolean;
       /** The run's time, which its window is measured on. */
       now: () => number;
       /** Closes its result channel, once its pane is kept. */
@@ -3013,7 +3024,8 @@ class LogicalAgent implements AgentRef {
   /** The end of its window while one is open; a closed agent holds none. */
   liveUntil(now = this.options.now()): number | undefined {
     const keepAlive = this.options.keepAlive();
-    if (this.#closed || !keepAlive || this.#lastEnd === undefined) return undefined;
+    if (this.#closed || !keepAlive || this.#lastEnd === undefined || this.options.windowsClosed())
+      return undefined;
     const until = this.#lastEnd + (keepAlive.windowMs ?? this.options.defaultWindowMs);
     return until > now ? until : undefined;
   }
@@ -3027,9 +3039,15 @@ class LogicalAgent implements AgentRef {
     if (!onTimeout || !this.#timeoutOwed || this.#closed || this.busy || this.#started)
       return undefined;
     if (this.liveUntil(now) !== undefined) return undefined;
+    // Once after a park: an `onTimeout` whose turn would owe another would keep the run from parking.
+    if (this.options.windowsClosed()) {
+      if (this.#parkTimedOut) return undefined;
+      this.#parkTimedOut = true;
+    }
     this.#timeoutOwed = false;
     return onTimeout;
   }
+  #parkTimedOut = false;
 
   /**
    * Something arrived for it: its open operation's supervisor looks again, and an agent with

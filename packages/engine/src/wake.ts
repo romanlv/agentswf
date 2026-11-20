@@ -173,7 +173,9 @@ const KEPT = new Set([
 const KEPT_PREFIXES = ["LC_", "XDG_"];
 
 /** A nudge over the run's socket, which a run with `events` opens at its start. */
-function nudgeOver(context: WakeContext): (run: Run) => Promise<boolean> {
+export function nudgeOver(
+  context: Pick<WakeContext, "home" | "environment">,
+): (run: Run) => Promise<boolean> {
   return async (run) => {
     const dir = coordinatorDir(context.home, context.environment);
     const socket = await liveCoordinatorSocket(dir, { state: "running", run });

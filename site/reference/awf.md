@@ -146,6 +146,15 @@ it, its retry needn't wait out its time. It fires that one timer, recorded as yo
 <!--@include: @/../packages/engine/src/help/wake.txt-->
 ```
 
+### awf park {#park}
+
+Parks a run whose attempt stays live for its agents' `keepAlive` windows, so its next event runs
+the workflow's file as it is now. Run it after you change a workflow under a warm run.
+
+```text
+<!--@include: @/../packages/engine/src/help/park.txt-->
+```
+
 ## Look at runs
 
 ### awf runs {#runs}

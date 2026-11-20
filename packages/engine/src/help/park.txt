@@ -1,0 +1,13 @@
+usage: awf park <run> [--cwd <directory>] [--run-root <directory>] [--json]
+
+Asks a run of a workflow with events whose attempt is still live, held at its wait by its agents'
+keepAlive windows, to park there instead: each warm agent's onTimeout runs, once, and the attempt
+ends parked. The next event, awf tick or awf wake continues the run on its workflow's file as it
+is then, its agents resuming their sessions. Use it once you change the file under a warm run. A
+run in a turn parks at its next wait, once the turn ends. The ask is recorded in its in.jsonl,
+for that attempt alone; an awf before this one ignores it.
+
+Prints what it asked, or that the run is parked already. --json prints one document, or a
+refusal whose code says why it failed: usage, park, no-run, ambiguous, id, unreachable,
+no-engine, other-engine or internal-error. Exits 0 when the run was asked, or is parked already;
+1 when the run isn't found or can't be read; 2 on a usage error, or when the run isn't running.

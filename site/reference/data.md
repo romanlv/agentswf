@@ -271,6 +271,9 @@ did with each event is in `run.jsonl`'s `wait`, `took` and `race` lines.
 `awf wake` appends a line of its own: `name` is `awf:wake`, `from` is `operator`, and `data` is
 `{"timer": …}`, the timer it fired. The run's code is never handed it; that timer counts as due
 from the line's `at`, and its own due stays in `run.jsonl`.
+`awf park` appends one too: `name` is `awf:park`, `from` is `operator`, and `data` is
+`{"attempt": …}`, the live attempt it asks to park at its wait. The code is never handed it, and
+it asks that attempt alone.
 
 ### log.jsonl
 

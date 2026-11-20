@@ -49,6 +49,7 @@ import {
   openRuntime,
   type RunSession,
 } from "./operator-runtime";
+import { PARK_V, parkCommand } from "./park-command";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { asksJson, NO_JSON, printRefusal, readFailureCode, refusalLine } from "./refusals";
 import { parseCommand, RUN_V, type RunCommand, usage } from "./run-command";
@@ -234,6 +235,7 @@ export async function runOperatorCli(
     emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     wake: () => wakeCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
+    park: () => parkCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, now(), environment.home),
     logs: () =>
       logsCommand(
@@ -321,6 +323,7 @@ const JSON_VERSION = {
   emit: EMIT_V,
   tick: TICK_V,
   wake: WAKE_V,
+  park: PARK_V,
   runs: RUNS_V,
   logs: LOGS_V,
   inbox: INBOX_V,

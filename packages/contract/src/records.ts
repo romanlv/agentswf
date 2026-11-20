@@ -561,8 +561,8 @@ export type RunLine = {
 
 /**
  * A line of `in.jsonl`, an event the run's code takes, appended by a sender under the run's lock.
- * Names stay as awf records them (`participant:reply`, `agent:ended`); `OPERATOR_WAKE` is the one
- * line the code is never handed. Tier: public, stable.
+ * Names stay as awf records them (`participant:reply`, `agent:ended`); `OPERATOR_WAKE` and
+ * `OPERATOR_PARK` are the lines the code is never handed. Tier: public, stable.
  */
 export type EventLine = {
   at: string;
@@ -581,6 +581,13 @@ export type EventLine = {
  * and the timer named counts as due from the line's `at`, its own `due` kept.
  */
 export const OPERATOR_WAKE = "awf:wake";
+
+/**
+ * `awf park`'s line in `in.jsonl`, from `operator`, its data `{ attempt }`: that attempt parks at
+ * its wait rather than stay live for its agents' `keepAlive` windows, so the next event runs the
+ * workflow's file as it is then. An attempt's number is never reused, so a line asks one attempt.
+ */
+export const OPERATOR_PARK = "awf:park";
 
 export {
   type RunView,
@@ -1356,6 +1363,19 @@ export type TickResultJson = {
   unreadable?: string[];
 };
 
+/**
+ * `awf park --json`: `asked` the attempt to park, `asked-already` when a park was asked of it
+ * before, or `parked-already` when no attempt is live. `warm`: it sits at its wait, and parks now.
+ */
+export type ParkResultJson = {
+  v: 1;
+  /** `{workflow}/{id}`. */
+  ref: string;
+  did: "asked" | "asked-already" | "parked-already";
+  attempt?: number;
+  warm?: boolean;
+};
+
 /** `awf wake --json`: the timer the wake fired, and what was done to the run. */
 export type WakeResultJson = {
   v: 1;
@@ -1418,6 +1438,7 @@ export const REFUSAL_CODES = [
   "live",
   "opened",
   "wake",
+  "park",
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

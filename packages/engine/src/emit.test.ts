@@ -15,6 +15,7 @@ import { emitCommand } from "./emit-command";
 import { writeJson } from "./files";
 import { readIn } from "./in-lines";
 import { logsCommand } from "./logs-command";
+import { parkCommand } from "./park-command";
 import { listProjects, projectOf } from "./projects";
 import { runLinesFile } from "./run-lines";
 import { claimNow, releaseClaim, runLockFile, runOpenFile, withRunLock } from "./run-lock";
@@ -879,6 +880,62 @@ describe("awf tick", () => {
     expect(lines).toEqual([
       "awf: dd-case/stuck failed 3 times in a row and is not woken; awf runs dd-case/stuck says what to run next",
     ]);
+  });
+
+  test("awf park asks the live attempt once, says a parked run is parked, and refuses the rest", async () => {
+    const p = project();
+    const live = await keyedRun(p, "live", [{ ...ALIVE }]);
+    await keyedRun(p, "rested", [ended("parked")]);
+    await keyedRun(p, "stopped", [ended("stopped")]);
+    let nudged = 0;
+    const park = async (...argv: string[]) => {
+      const out: string[] = [];
+      const err: string[] = [];
+      const code = await parkCommand(
+        argv,
+        p.root,
+        { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
+        {
+          home: p.home,
+          environment: {},
+          nudge: async () => {
+            nudged += 1;
+            return true;
+          },
+        },
+      );
+      return { code, out, err };
+    };
+    expect(await park("dd-case/live")).toMatchObject({
+      code: 0,
+      out: ["parking dd-case/live: attempt 1, at its next wait, once its turn ends"],
+    });
+    expect((await readIn(live.dir)).at(-1)).toMatchObject({
+      name: "awf:park",
+      from: "operator",
+      data: { attempt: 1 },
+    });
+    const again = await park("dd-case/live", "--json");
+    expect(JSON.parse(again.out[0]!)).toEqual({
+      v: 1,
+      ref: "dd-case/live",
+      did: "asked-already",
+      attempt: 1,
+      warm: false,
+    });
+    expect((await readIn(live.dir)).filter((line) => line.name === "awf:park")).toHaveLength(1);
+    // A nudge, never a launch: asked once, nudged once.
+    expect(nudged).toBe(1);
+    expect(await park("dd-case/rested")).toMatchObject({
+      code: 0,
+      out: ["dd-case/rested is parked already"],
+    });
+    expect(await park("dd-case/stopped")).toMatchObject({
+      code: 2,
+      err: [
+        "awf: dd-case/stopped is stopped, not running; awf runs dd-case/stopped says what to run next",
+      ],
+    });
   });
 
   test("wakes its own project's runs, and --all every project's", async () => {

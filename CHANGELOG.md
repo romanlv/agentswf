@@ -15,6 +15,7 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 - `awf wake <run> [--timer <name>]`: wakes a parked run now, firing the timer its wait takes early, recorded as the operator's wake in `in.jsonl` (`awf:wake`); every other timer keeps its due.
 - `awf logs --tool <name>` keeps one tool's calls, any case and repeatable, and `--grep <text>` the events whose whole text holds it; `--full` now works on a page, printing each event whole.
 - `awf logs` shows each event a sender gave a run with events, from `in.jsonl`, as a line of its own (`@i{n}`, kind `event` in `--json`), so what woke a run is in its log; `--after` cursors carry its place.
+- `awf park <run>`: parks a run whose attempt stays live for its agents' `keepAlive` windows, each warm agent's `onTimeout` run once, so the next event runs the workflow file as it is then. Recorded in `in.jsonl` as `awf:park` for that attempt alone.
 
 ### Changed
 

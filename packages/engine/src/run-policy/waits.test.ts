@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { type EventLine, OPERATOR_WAKE, type RunLine } from "@agentswf/contract/records";
+import {
+  type EventLine,
+  OPERATOR_PARK,
+  OPERATOR_WAKE,
+  type RunLine,
+} from "@agentswf/contract/records";
 import {
   type DerivedIds,
   firstReceive,
@@ -241,6 +246,25 @@ describe("waking", () => {
     );
     expect(taken.events.get("awf.timer.retry")?.at).toBe(iso(T + 1_000));
     expect(wakeableTimers(taken)).toEqual([]);
+  });
+});
+
+describe("an operator's park", () => {
+  test("names the attempt it asks, and is never an event a wait takes", () => {
+    const park = (id: string, data: unknown): EventLine => ({
+      at,
+      id,
+      name: OPERATOR_PARK,
+      data: data as never,
+      from: "operator",
+    });
+    const state = fold(
+      [{ kind: "wait", attempt: 2, at }],
+      [park("p1", { attempt: 2 }), park("p2", { attempt: "3" }), park("p3", null), event("x")],
+    );
+    expect([...state.parks]).toEqual([2]);
+    expect([...state.events.keys()]).toEqual(["x"]);
+    expect(state.unacknowledged).toEqual(["x"]);
   });
 });
 

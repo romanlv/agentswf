@@ -76,6 +76,8 @@ export type Parking = {
   timeout(signal?: AbortSignal): Promise<boolean>;
   /** The end of the earliest agent window still open: the run stays live to it, not parked. */
   liveUntil(): number | undefined;
+  /** An operator asked this attempt to park: every agent's window ends now. */
+  closeWindows?(): void;
   /** Writes the attempt's `parked` ending, holding the run's lock, so a waker sees it at once. */
   park(wait: WaitingJson): Promise<void>;
   /**
@@ -462,6 +464,7 @@ export class RunWaits {
         // Before the read too: what is appended after the read changes it, nudged or not.
         const size = await sizeOf(runDir);
         const state = await this.#state();
+        if (state.parks.has(this.#attempt)) this.options.parking?.closeWindows?.();
         if (readyFor(state, takes).length > 0) {
           const events = await took();
           if (events) return events.map(eventOf);

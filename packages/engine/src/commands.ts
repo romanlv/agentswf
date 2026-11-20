@@ -6,6 +6,7 @@ import { inboxUsage } from "./inbox-command";
 import { initUsage } from "./init-command";
 import { logsUsage } from "./logs-command";
 import { openUsage } from "./open-command";
+import { parkUsage } from "./park-command";
 import { usage as runUsage } from "./run-command";
 import { runsUsage } from "./runs-command";
 import { testUsage } from "./test-command";
@@ -42,6 +43,11 @@ export const COMMANDS = [
     group: "Run a workflow",
     commands: { wake: "Wake a parked run now, firing its wait's timer early" },
     help: wakeUsage,
+  },
+  {
+    group: "Run a workflow",
+    commands: { park: "Park a warm run at its wait, so its next event runs the current file" },
+    help: parkUsage,
   },
   {
     group: "Look at runs",

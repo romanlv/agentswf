@@ -1,5 +1,6 @@
 import {
   type EventLine,
+  OPERATOR_PARK,
   OPERATOR_WAKE,
   type RunLine,
   type Taken,
@@ -79,6 +80,8 @@ export type WaitState = {
   now: number;
   /** How it derives a timer's and a time's id. */
   ids: DerivedIds;
+  /** The attempts an operator asked to park at their wait, by `awf park`. */
+  parks: ReadonlySet<number>;
 };
 
 /**
@@ -116,7 +119,13 @@ export function foldWaits(given: {
     met.set(event.id, met.size);
   };
   const wakes: { timer: unknown; at: string }[] = [];
+  const parks = new Set<number>();
   for (const line of given.events) {
+    if (line.name === OPERATOR_PARK) {
+      const attempt = (line.data as { attempt?: unknown } | null)?.attempt;
+      if (Number.isSafeInteger(attempt) && (attempt as number) > 0) parks.add(attempt as number);
+      continue;
+    }
     if (line.name === OPERATOR_WAKE) {
       wakes.push({ timer: (line.data as { timer?: unknown } | null)?.timer, at: line.at });
       continue;
@@ -252,6 +261,7 @@ export function foldWaits(given: {
     ...(started ? { started } : {}),
     now,
     ids,
+    parks,
   };
 }
 

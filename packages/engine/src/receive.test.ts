@@ -1,6 +1,6 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { readRun } from "@agentswf/contract/records";
+import { OPERATOR_PARK, readRun } from "@agentswf/contract/records";
 import { AgentEnded, defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
@@ -432,6 +432,131 @@ test("a wait held live for an agent's keepAlive window logs it warm, once, until
   const until = Date.parse((warm[0] as { until: string }).until);
   expect(until).toBeGreaterThan(before);
   expect(until).toBeLessThanOrEqual(Date.now());
+});
+
+describe("awf park", () => {
+  /** A worker held warm an hour, whose onTimeout runs a turn of its own; and its run. */
+  async function warmRun() {
+    const timeouts: number[] = [];
+    const workflow = caseRun(async (wf) => {
+      const worker = await wf.agents.open({
+        key: "worker",
+        runtime: "codex",
+        keepAlive: {
+          window: "1h",
+          onTimeout: async (agent) => {
+            timeouts.push(Date.now());
+            await agent.run({ prompt: "Wrap up.", schema: DOC });
+          },
+        },
+      });
+      await worker.run({ prompt: "Look.", schema: DOC });
+      await wf.receive({ label: "next" });
+      return null;
+    });
+    const runRoot = runDirs.tempRunDir();
+    const run = await createRun(runRoot, {
+      id: "k",
+      workflow: workflow.meta.name,
+      argv: [],
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+    const askPark = (attempt: number) =>
+      appendIn(run.dir, {
+        at: new Date().toISOString(),
+        id: `awf.park.${attempt}`,
+        name: OPERATOR_PARK,
+        data: { attempt },
+        from: "operator",
+      });
+    /** Runs attempt `n`; `during` is the fake turn's act, `live` each pass the wait stays live. */
+    const attempt = async (
+      n: number,
+      hooks: { during?: () => Promise<void>; live?: (nudge: () => void) => Promise<void> } = {},
+    ) => {
+      let nudge: () => void = () => undefined;
+      const parked: string[] = [];
+      let turns = 0;
+      const fake = createFakeAdapter({
+        harnesses: ["codex"],
+        continues: true,
+        script: (context) => ({
+          act: async () => {
+            turns += 1;
+            if (turns === 1) await hooks.during?.();
+            await submit(context.binding!, { path: "x" });
+          },
+        }),
+      });
+      const ended = await runWorkflow(workflow, null, {
+        runRoot,
+        run: {
+          dir: run.dir,
+          id: "k",
+          ...(await claimLines(run.dir, n)),
+          events: true,
+          listenNudges: (given) => {
+            nudge = given;
+          },
+          live: async () => hooks.live?.(nudge),
+          park: async (wait) => {
+            parked.push(wait.label ?? "");
+          },
+        },
+        runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(fake) },
+        deadline: future(),
+      }).then(
+        () => "returned",
+        (error) => String(error),
+      );
+      return { ended, parked, turns };
+    };
+    return { attempt, askPark, timeouts };
+  }
+
+  test("at a warm wait, each warm agent's onTimeout runs once and the attempt parks", async () => {
+    const { attempt, askPark, timeouts } = await warmRun();
+    let asked = false;
+    const first = await attempt(1, {
+      live: async (nudge) => {
+        if (asked) return;
+        asked = true;
+        await askPark(1);
+        nudge();
+      },
+    });
+    expect(first.ended).toContain("parked");
+    expect(first.parked).toEqual(["next"]);
+    // Its own turn's end would owe it another: once after a park, however many turns it runs.
+    expect(timeouts).toHaveLength(1);
+    expect(first.turns).toBe(2);
+  });
+
+  test("asked in a turn, it parks at its next wait without going live; the next attempt is warm", async () => {
+    const { attempt, askPark, timeouts } = await warmRun();
+    let wentLive = 0;
+    const first = await attempt(1, {
+      during: () => askPark(1),
+      live: async () => {
+        wentLive += 1;
+      },
+    });
+    expect(first.ended).toContain("parked");
+    expect(wentLive).toBe(0);
+    expect(timeouts).toHaveLength(1);
+    // Attempt 1's ask is not attempt 2's: it goes live, until asked itself.
+    const second = await attempt(2, {
+      live: async (nudge) => {
+        wentLive += 1;
+        if (wentLive > 1) return;
+        await askPark(2);
+        nudge();
+      },
+    });
+    expect(second.ended).toContain("parked");
+    expect(wentLive).toBeGreaterThan(0);
+  });
 });
 
 test("a session its agent reports after its last turn settled is the one a continue resumes", async () => {
