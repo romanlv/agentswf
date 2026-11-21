@@ -22,6 +22,8 @@ test("every claude launch refuses messages from the user's other sessions", asyn
       expect(JSON.parse(argv[at + 1]!)).toEqual({
         crossSessionInbound: "refuse",
         skillOverrides: { "auto-mode-setup": "off" },
+        // A sandboxed agent's own, joined to awf's: claude would keep only the last.
+        ...(launchArgs.length ? { permissions: { denyInsteadOfPrompting: true } } : {}),
       });
     }
   }

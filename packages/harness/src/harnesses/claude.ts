@@ -35,14 +35,14 @@ function claudeInteractive(
   sessionHint?: string,
 ): TurnPlan {
   return {
-    argv: [
+    argv: oneSettings([
       "claude",
       "--allowed-tools",
       "Bash",
       ...(sessionHint ? ["--session-id", sessionHint] : []),
       ...claudeSettings(settings),
       ...launchArgs,
-    ],
+    ]),
     ...(sessionHint ? { sessionId: sessionHint } : {}),
   };
 }
@@ -53,7 +53,15 @@ function claudeOperatorResume(
   settings: LaunchSettings = {},
   launchArgs: readonly string[] = [],
 ): TurnPlan {
-  return { argv: ["claude", "--resume", sessionId, ...claudeSettings(settings), ...launchArgs] };
+  return {
+    argv: oneSettings([
+      "claude",
+      "--resume",
+      sessionId,
+      ...claudeSettings(settings),
+      ...launchArgs,
+    ]),
+  };
 }
 
 /**
@@ -70,6 +78,23 @@ function claudeSettings({ model, effort }: LaunchSettings): string[] {
 }
 
 const SESSION_SETTINGS = ["--settings", JSON.stringify(CLAUDE_SESSION_SETTINGS)];
+
+/** claude keeps only its last `--settings`, so one a launch adds joins awf's, where awf's stood. */
+function oneSettings(argv: readonly string[]): string[] {
+  const merged: Record<string, unknown> = {};
+  const out: string[] = [];
+  let at = -1;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== "--settings") {
+      out.push(argv[i]!);
+      continue;
+    }
+    Object.assign(merged, JSON.parse(argv[++i]!));
+    if (at < 0) at = out.push("--settings", "") - 1;
+  }
+  if (at >= 0) out[at] = JSON.stringify(merged);
+  return out;
+}
 
 /**
  * Whether claude holds a prompt unsent in its input box, the last pair of rules on its screen:
@@ -122,7 +147,7 @@ const CLAUDE = {
   // The session is named at launch, so its file can be read while the first turn runs; the id
   // printed by `--output-format json` confirms it.
   headlessTurn: (prompt, { sessionHint, launchArgs = [], ...settings }) => ({
-    argv: [
+    argv: oneSettings([
       "claude",
       "-p",
       "--session-id",
@@ -133,12 +158,12 @@ const CLAUDE = {
       "--allowed-tools",
       "Bash",
       ...claudeSettings(settings),
-    ],
+    ]),
     stdin: prompt,
     sessionId: sessionHint,
   }),
   resumeTurn: (prompt, sessionId, { launchArgs = [], ...settings }) => ({
-    argv: [
+    argv: oneSettings([
       "claude",
       "-p",
       "--resume",
@@ -149,7 +174,7 @@ const CLAUDE = {
       "--allowed-tools",
       "Bash",
       ...claudeSettings(settings),
-    ],
+    ]),
     stdin: prompt,
   }),
   readSessionId: (stdout) => text(lastJson(stdout)?.session_id),
@@ -158,7 +183,7 @@ const CLAUDE = {
   // Only `stream-json` prints the compaction: its boundary, then the summary as a synthetic
   // user row. `json` prints an empty result either way.
   compactHeadless: (focus, sessionId, { launchArgs = [], ...settings }) => ({
-    argv: [
+    argv: oneSettings([
       "claude",
       "-p",
       "--resume",
@@ -168,7 +193,7 @@ const CLAUDE = {
       "stream-json",
       "--verbose",
       ...claudeSettings(settings),
-    ],
+    ]),
     stdin: `/compact ${focus}`,
     read: (stdout) => {
       const rows = jsonLines(stdout);
@@ -190,7 +215,7 @@ const CLAUDE = {
   // `/cost` is a local command: the fork is written and its cost printed, and nothing is sent.
   // A turn means the model was asked after all, and the copy holds more than it was given.
   forkSession: (sessionId, newSessionId, { model, launchArgs = [], home }) => ({
-    argv: [
+    argv: oneSettings([
       "claude",
       "-p",
       "--resume",
@@ -202,7 +227,7 @@ const CLAUDE = {
       "--output-format",
       "json",
       ...claudeSettings({ model }),
-    ],
+    ]),
     stdin: "/cost",
     sessionId: newSessionId,
     read: (stdout) => {

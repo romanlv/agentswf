@@ -27,6 +27,7 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ### Fixed
 
+- A sandboxed claude agent no longer ends its turn `blocked` on a Claude Code safety check it would deny itself (a dangerous `rm`, a command it can't parse): the check denies the call at once and the agent carries on. A person's `awf open` of the session still asks.
 - A claude agent whose working directory holds the run's folder can be given `skills`: a host agent's skills, and a host codex agent's own home, are placed in `~/.awf/skills/{workflow}/{id}`, outside the project, not in the run's `work/agents`.
 
 ## 0.1.1 — 2026-11-09

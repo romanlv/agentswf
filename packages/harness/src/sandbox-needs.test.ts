@@ -76,8 +76,16 @@ describe("sandboxNeeds", () => {
       executable: claude,
       reads: [],
     });
-    expect(sandboxedArgs("claude", false)).toEqual(["--disallowed-tools", "WebSearch,WebFetch"]);
-    expect(sandboxedArgs("claude", true)).toEqual([]);
+    expect(sandboxedArgs("claude", false)).toEqual([
+      "--disallowed-tools",
+      "WebSearch,WebFetch",
+      "--settings",
+      '{"permissions":{"denyInsteadOfPrompting":true}}',
+    ]);
+    expect(sandboxedArgs("claude", true)).toEqual([
+      "--settings",
+      '{"permissions":{"denyInsteadOfPrompting":true}}',
+    ]);
   });
 
   test("codex: its home seeded from the operator's, its release tree, and search off", async () => {
@@ -233,9 +241,17 @@ describe("sandboxNeeds", () => {
   test("each turn plan puts the real flags where nothing swallows them or what follows", () => {
     for (const harness of ["claude", "codex", "pi", "cursor"] as const) {
       const spec = HARNESSES[harness];
-      const args = sandboxedArgs(harness, false);
+      // claude's own `--settings` joins awf's one, wherever that stands.
+      const args = sandboxedArgs(harness, false).filter(
+        (arg, i, all) =>
+          harness !== "claude" || (arg !== "--settings" && all[i - 1] !== "--settings"),
+      );
       for (const model of ["m", undefined]) {
-        const context = { ...(model ? { model } : {}), sessionHint: "s", launchArgs: args };
+        const context = {
+          ...(model ? { model } : {}),
+          sessionHint: "s",
+          launchArgs: sandboxedArgs(harness, false),
+        };
         for (const plan of [
           spec.headlessTurn("prompt", context),
           spec.resumeTurn!("prompt", "session", context),

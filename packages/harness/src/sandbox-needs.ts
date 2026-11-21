@@ -30,6 +30,8 @@ type SandboxedHarness = {
    * nest in awf's (story 042).
    */
   operatorArgs?: readonly string[];
+  /** What an agent's turns add after `args` and a person's resume never does. */
+  agentArgs?: readonly string[];
   /** What turns off its model-side web tools, which reach past `network` (X15), unless a spec keeps them. */
   webSearch: readonly string[] | Absent;
   /** Whether an agent on the host may have a home of its own, which skills can need. */
@@ -73,6 +75,10 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     args: [],
     // This home's settings bypass every prompt; a person's resume asks, as on the host (Q2).
     operatorArgs: ["--permission-mode", "manual"],
+    // A built-in safety check still asks in bypass mode (a dangerous rm, a command it can't
+    // parse), and the pane blocks on its dialog; denied at once, the agent rewrites the command.
+    // Not in the home's settings, which a person's resume reads too: any source's true wins.
+    agentArgs: ["--settings", JSON.stringify({ permissions: { denyInsteadOfPrompting: true } })],
     // One argument for the list, and never last: the flag takes every argument up to the next.
     // WebFetch was not measured past the allowlist; it goes with search until it is.
     webSearch: ["--disallowed-tools", "WebSearch,WebFetch"],
@@ -273,14 +279,18 @@ function sandboxedOrThrow(harness: string): SandboxedHarness {
 export function sandboxedArgs(harness: string, webSearch: boolean): readonly string[] {
   const needs = sandboxed(harness);
   if (isAbsent(needs)) return [];
-  return webSearch || isAbsent(needs.webSearch) ? needs.args : [...needs.webSearch, ...needs.args];
+  return [...sharedArgs(needs, webSearch), ...(needs.agentArgs ?? [])];
 }
 
 /** What a person's resume in a sandbox adds: the harness's own sandbox off where it would nest. */
 export function sandboxedOperatorArgs(harness: string, webSearch: boolean): readonly string[] {
   const needs = sandboxed(harness);
   if (isAbsent(needs)) return [];
-  return [...(needs.operatorArgs ?? []), ...sandboxedArgs(harness, webSearch)];
+  return [...(needs.operatorArgs ?? []), ...sharedArgs(needs, webSearch)];
+}
+
+function sharedArgs(needs: SandboxedHarness, webSearch: boolean): readonly string[] {
+  return webSearch || isAbsent(needs.webSearch) ? needs.args : [...needs.webSearch, ...needs.args];
 }
 
 /** The arguments an agent's harness is launched with: its sandbox's, where it has one, then its skills'. */

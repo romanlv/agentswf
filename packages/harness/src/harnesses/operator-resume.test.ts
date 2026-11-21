@@ -39,12 +39,16 @@ test("codex in awf's sandbox runs with its own off, as an agent's turns do, and 
   ]);
   expect(args.slice(4)).toEqual([...sandboxedArgs("codex", false)]);
   expect(sandboxedOperatorArgs("pi", false)).toEqual(sandboxedArgs("pi", false));
-  // The sandboxed home's settings bypass claude's prompts; the person's resume turns them back on.
+  // The sandboxed home's settings bypass claude's prompts; the person's resume turns them back on,
+  // and only an agent's turns deny a prompt instead of waiting on it.
+  const deny = ["--settings", '{"permissions":{"denyInsteadOfPrompting":true}}'];
+  expect(sandboxedArgs("claude", false).slice(-2)).toEqual(deny);
   expect(sandboxedOperatorArgs("claude", false)).toEqual([
     "--permission-mode",
     "manual",
-    ...sandboxedArgs("claude", false),
+    ...sandboxedArgs("claude", false).slice(0, -2),
   ]);
+  expect(sandboxedOperatorArgs("claude", false).join(" ")).not.toContain("denyInsteadOfPrompting");
 });
 
 test("a sandboxed agent's resume takes its sandboxed arguments, last", () => {
