@@ -2346,7 +2346,7 @@ class WorkflowOwner {
     await mkdir(dirname(ownHome), { recursive: true });
     const seeded = await seedHome(
       ownHome,
-      join(workDir(this.options.runDir), "staging", id),
+      join(root, ".staging", id),
       (this.options.homes ?? OPERATOR_HOMES).host(
         execution.harness,
         ownHome,

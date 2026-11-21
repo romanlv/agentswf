@@ -16,10 +16,10 @@ import {
   stateWord,
 } from "./run-commands";
 import { encodeCursor } from "./run-read";
-import { findRunByRef, listRunEntries, type RunStatus, runStatus } from "./run-state";
+import { findRunByRef, listRunEntries, type RunStatus, runStatus, statusOf } from "./run-state";
 import { clockTime, masked, money, said } from "./run-text";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
-import { isClaimed, RunUnreadable } from "./runs";
+import { isClaimed, type Run, RunUnreadable, readAttemptFiles } from "./runs";
 
 /** `awf runs --json`'s `"v"`, the list's, and `awf runs {run} --json`'s. */
 export const RUNS_V = 1 satisfies RunsJson["v"];
@@ -88,20 +88,26 @@ type Listed =
   | { status: RunStatus; estimate?: number; unknown: number }
   | { ref: string; unreadable: string };
 
+/** How many runs past the limit are read at once for whether they run. */
+const LIVE_READS = 16;
+
 async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
   const runs = await listRunEntries(place.runRoot);
-  // A run working now is listed however long ago it started, after the newest.
-  const live = await Promise.all(
-    runs.slice(limit).map((run) =>
-      run instanceof RunUnreadable
-        ? undefined
-        : runStatus(run, undefined, now).then(
-            (status) => (status.state === "running" ? run : undefined),
-            () => undefined,
-          ),
-    ),
-  );
-  const shown = [...runs.slice(0, limit), ...live.filter((run) => run !== undefined)];
+  // A run working now is listed however long ago it started, after the newest: its attempts read
+  // alone, a few runs at a time, as a project can hold thousands.
+  const live: Run[] = [];
+  const past = runs.slice(limit);
+  for (let start = 0; start < past.length; start += LIVE_READS) {
+    const found = await Promise.all(
+      past.slice(start, start + LIVE_READS).map(async (run) => {
+        if (run instanceof RunUnreadable) return undefined;
+        const files = await readAttemptFiles(run).catch(() => undefined);
+        return files && statusOf(run, files, undefined, now).state === "running" ? run : undefined;
+      }),
+    );
+    live.push(...found.filter((run) => run !== undefined));
+  }
+  const shown = [...runs.slice(0, limit), ...live];
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
       run instanceof RunUnreadable

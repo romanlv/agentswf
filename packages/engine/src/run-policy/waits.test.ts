@@ -233,6 +233,10 @@ describe("waking", () => {
       fired: true,
     });
     expect(woken.timers.get("remind")?.fired).toBe(false);
+    // Due while it sat parked and nothing ticked, a wake fires it as it is.
+    expect(wakeableTimers(fold(lines, [], T + 61_000)).map((timer) => timer.name)).toContain(
+      "retry",
+    );
     // Woken and not taken, as when its launch failed, a wake may fire it again.
     expect(wakeableTimers(woken).map((timer) => timer.name)).toEqual(["retry"]);
     // Taken, its event keeps the wake's time on every later read.

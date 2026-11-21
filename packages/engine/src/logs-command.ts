@@ -13,6 +13,7 @@ import { parseWait } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import help from "./help/logs.txt" with { type: "text" };
+import { readIn } from "./in-lines";
 import { screenFile } from "./ops";
 import { asksJson, printRefusal, refusalLine } from "./refusals";
 import {
@@ -128,7 +129,16 @@ export async function logsCommand(
     if (after) {
       const { log } = await read.next();
       const past = after.run > log.runLines && log.unreadSessions === undefined;
-      if (after.log > (log.lines.at(-1)?.number ?? 0) || past) {
+      // A sender's events past what it was sent would stay hidden until as many came.
+      const unsent =
+        after.in > 0 &&
+        after.in < Number.MAX_SAFE_INTEGER &&
+        after.in >
+          (await readIn(status.run.dir).then(
+            (lines) => lines.length,
+            () => after.in,
+          ));
+      if (after.log > (log.lines.at(-1)?.number ?? 0) || past || unsent) {
         throw new DoesNotFit(
           `cursor ${options.after} does not fit this run; start again: ${again}`,
         );
@@ -236,7 +246,8 @@ type Places = {
   stage: Map<string, string>;
   agent: Map<string, string>;
   calls: Map<string, { input: JsonObject; ended: boolean }>;
-  reasons: ReadonlyMap<string, string>;
+  /** A stage's end that did not succeed, and why. */
+  reasons: Map<RunLogLine, string>;
 };
 
 function operationPlaces(log: RunLog): Places {
@@ -244,9 +255,17 @@ function operationPlaces(log: RunLog): Places {
     stage: new Map(),
     agent: new Map(),
     calls: new Map(),
-    reasons: log.stageReasons,
+    reasons: new Map(),
   };
+  const ends = new Map<string, number>();
   for (const { line } of log.lines) {
+    if (line.kind === "stage-ended" && line.outcome !== "succeeded") {
+      const key = stageKey(line.attempt, line.stage);
+      const n = ends.get(key) ?? 0;
+      ends.set(key, n + 1);
+      const reason = log.stageReasons.get(key)?.[n];
+      if (reason) places.reasons.set(line, reason);
+    }
     if (line.kind === "tool-called")
       places.calls.set(line.call, { input: line.input, ended: false });
     if (line.kind === "tool-ended") {
@@ -727,10 +746,7 @@ function describeLine(line: RunLogLine, places: Places): string {
     case "stage-started":
       return "stage started";
     case "stage-ended": {
-      const reason =
-        line.outcome === "succeeded"
-          ? undefined
-          : places.reasons.get(stageKey(line.attempt, line.stage));
+      const reason = places.reasons.get(line);
       return `stage ${line.source ?? "ended"}  ${line.outcome}${reason ? `  ${said(reason)}` : ""}`;
     }
     case "operation-started":

@@ -780,7 +780,18 @@ test("a run whose process holds only warm agents at its wait shows parked, and u
       { kind: "operation-started", at: T(13), of: "turn", ...turn, operationId: "op-2" },
     ],
   );
-  for (const run of [warm, working]) {
+  // Its agent stopped since its warm line: nothing holds it warm.
+  const stopped = await makeRun(
+    cwd,
+    "dd-case",
+    "stopped",
+    [{ ...ALIVE, started: T(9) }],
+    [
+      { kind: "agent-warm", at: T(12), agent: "reviewer", until },
+      { kind: "agent-stopped", at: T(13), agent: "reviewer", callPath: [], harness: "claude" },
+    ],
+  );
+  for (const run of [warm, working, stopped]) {
     await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
     settle(run, { kind: "wait", label: "next" });
   }
@@ -788,7 +799,9 @@ test("a run whose process holds only warm agents at its wait shows parked, and u
   expect(json.runs).toMatchObject([
     { ref: "dd-case/working", state: "running", waiting: { label: "next" } },
     { ref: "dd-case/warm", state: "parked", warm: [{ agent: "reviewer", until }] },
+    { ref: "dd-case/stopped", state: "running" },
   ]);
+  expect(json.runs[2]).not.toHaveProperty("warm");
   expect(json.runs[0]).not.toHaveProperty("warm");
   const text = (await awfRuns(cwd)).stdout.split("\n");
   expect(text.find((line) => line.startsWith("dd-case/warm"))).toMatch(

@@ -20,7 +20,7 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 ### Changed
 
 - `awf logs --wait` past its cap, 300s, says the cap and the value given, and points at `--follow`.
-- `awf tick` exits 1 when a run with events is stuck or can't be read, naming it on stderr and under `stuck` or `unreadable` with `--json`, so a scheduler sees a run nothing will wake again.
+- `awf tick` exits 1 when a run with events is stuck or can't be read, naming a stuck one on stderr, and each under `stuck` or `unreadable` with `--json`, so a scheduler sees a run nothing will wake again.
 - `awf logs` shows why a stage failed on its `stage ended` line, and a log line's fields after its text.
 - `awf runs` lists every run still running after the newest 20, however long ago it started.
 - `awf runs` and `awf logs` show a run `parked` once its process stays only for agents' `keepAlive` windows, with each agent and when its window ends (`warm` in `--json`); `log.jsonl` records it as `agent-warm`.

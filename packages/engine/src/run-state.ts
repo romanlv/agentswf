@@ -131,6 +131,8 @@ function warmOf(
     } else if (line.kind === "operation-started") {
       if (!ended.has(line.operationId)) return undefined;
       seen.add(line.agent);
+    } else if (line.kind === "agent-stopped") {
+      seen.add(line.agent);
     } else if (line.kind === "agent-warm" && !seen.has(line.agent)) {
       seen.add(line.agent);
       if (Date.parse(line.until) > at) warm.unshift({ agent: line.agent, until: line.until });

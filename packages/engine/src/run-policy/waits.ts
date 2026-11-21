@@ -294,8 +294,8 @@ function pendingTimers(state: WaitState): TimerState[] {
 }
 
 /**
- * The timers an operator's wake can fire, taken by the wait the run is at: pending, or fired by an
- * earlier wake that nothing took, as when its launch failed.
+ * The timers an operator's wake can fire, taken by the wait the run is at: any not taken yet, so
+ * pending, due while nothing ticked, or fired by an earlier wake whose launch failed.
  */
 export function wakeableTimers(state: WaitState): TimerState[] {
   const wait = state.lastWait;
@@ -305,7 +305,6 @@ export function wakeableTimers(state: WaitState): TimerState[] {
       (timer) =>
         !timer.cancelled &&
         !timer.taken &&
-        (!timer.fired || timer.woken !== undefined) &&
         wouldTake({ name: "timer:due", from: timer.name }, wait.takes),
     )
     .sort((a, b) => Date.parse(a.due) - Date.parse(b.due));

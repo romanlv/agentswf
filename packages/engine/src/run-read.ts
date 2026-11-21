@@ -51,8 +51,11 @@ export type RunLog = {
   runLines: number;
   sessions: NativeSession[];
   agents: Map<AgentKey, RunAgent>;
-  /** Why each stage ended as it did, by `stageKey`: `run.jsonl`'s reason, which the log's line lacks. */
-  stageReasons: Map<string, string>;
+  /**
+   * Why each stage that did not succeed ended so, by `stageKey`, in the order they ended:
+   * `run.jsonl`'s reason, which the log's line lacks. An event run enters a stage once an event.
+   */
+  stageReasons: Map<string, (string | undefined)[]>;
   /** Why `run.jsonl` could not be read, so no session is known. */
   unreadSessions?: string;
 };
@@ -75,16 +78,18 @@ export async function readRunLog(
         const sessions = lines.flatMap((line, index) =>
           line.kind === "session" && kept.has(line) ? [{ number: index + 1, line }] : [],
         );
-        const stageReasons = new Map<string, string>();
-        for (const line of kept)
-          if (line.kind === "stage" && line.reason)
-            stageReasons.set(stageKey(line.attempt, line.name), line.reason);
+        const stageReasons = new Map<string, (string | undefined)[]>();
+        for (const line of kept) {
+          if (line.kind !== "stage" || line.outcome === "succeeded") continue;
+          const key = stageKey(line.attempt, line.name);
+          stageReasons.set(key, [...(stageReasons.get(key) ?? []), line.reason]);
+        }
         return { sessions, count: lines.length, stageReasons };
       },
       (error: unknown) => ({
         sessions: [] as { number: number; line: SessionLine }[],
         count: 0,
-        stageReasons: new Map<string, string>(),
+        stageReasons: new Map<string, (string | undefined)[]>(),
         unread: messageOf(error),
       }),
     ),

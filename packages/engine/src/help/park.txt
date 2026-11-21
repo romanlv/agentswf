@@ -10,4 +10,5 @@ for that attempt alone; an awf before this one ignores it.
 Prints what it asked, or that the run is parked already. --json prints one document, or a
 refusal whose code says why it failed: usage, park, no-run, ambiguous, id, unreachable,
 no-engine, other-engine or internal-error. Exits 0 when the run was asked, or is parked already;
-1 when the run isn't found or can't be read; 2 on a usage error, or when the run isn't running.
+1 when the run isn't found or can't be read; 2 on a usage error, or when the run has no attempt
+running: one without events, or one that ended, failed or is stuck.

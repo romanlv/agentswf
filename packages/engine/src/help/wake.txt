@@ -11,4 +11,5 @@ Prints the timer it fired and what was done to the run: continued, nudged, or wh
 prints one document, or a refusal whose code says why it failed: usage, wake, no-run, ambiguous,
 id, unreachable, no-engine, other-engine or internal-error. Exits 0 when the timer fired; 1 when
 the run isn't found or can't be read, or its attempt could not be started (the wake is kept, and
-awf tick tries again); 2 on a usage error, or when there is no timer to fire.
+awf tick tries again); 2 on a usage error, or when the run has no timer to fire: one without events, finished, stopped
+or stuck, or at a wait with none.

@@ -436,8 +436,8 @@ describe("awf logs", () => {
     ]);
     const reads = strip((await awfLogs(f, ["--tool", "read"])).stdout).split("\n");
     expect(reads.filter((line) => line.startsWith("@"))).toEqual([
-      expect.stringMatching(/ tool Read  \/work\/deep\/.*…$/),
-      expect.stringMatching(/ tool Read  \/work\/plan\.md$/),
+      expect.stringMatching(/ tool Read {2}\/work\/deep\/.*…$/),
+      expect.stringMatching(/ tool Read {2}\/work\/plan\.md$/),
     ]);
     expect(reads.at(-1)).toMatch(/^next: awf logs review\/r1 --tool read --after \S+ --wait 90s$/);
     const full = strip(
@@ -678,8 +678,15 @@ describe("awf logs", () => {
       `${JSON.stringify({ kind: "stage", attempt: 1, at: T(3), name: "fix", outcome: "failed", started: T(0), reason: "the build broke\nat step 2" })}\n`,
     );
     addLines(f, { kind: "stage-ended", at: T(3), stage: "fix", outcome: "failed" });
+    // An event run enters it again in the same attempt: each end says its own reason.
+    appendFileSync(
+      join(f.run.dir, "run.jsonl"),
+      `${JSON.stringify({ kind: "stage", attempt: 1, at: T(5), name: "fix", outcome: "failed", started: T(4), reason: "bad input" })}\n`,
+    );
+    addLines(f, { kind: "stage-ended", at: T(5), stage: "fix", outcome: "failed" });
     const lines = strip((await awfLogs(f, [])).stdout).split("\n");
     expect(lines).toContain("@e4 hh:mm:ss fix  stage ended  failed  the build broke ⏎ at step 2");
+    expect(lines).toContain("@e5 hh:mm:ss fix  stage ended  failed  bad input");
   });
 
   test("the log's own text is masked and kept to one line, as is what --json publishes", async () => {
@@ -979,7 +986,13 @@ describe("awf logs", () => {
     // A cursor past the end of either file, and one an awf before run.jsonl's sessions gave.
     const cursor = (fields: unknown[], version = "c2") =>
       `${version}.${Buffer.from(JSON.stringify(fields)).toString("base64url")}`;
-    for (const after of [cursor([4, 0, {}]), cursor([3, 2, {}]), cursor([0, {}], "c1")]) {
+    // And one past the events senders gave it, which would hide those to come.
+    for (const after of [
+      cursor([4, 0, {}]),
+      cursor([3, 2, {}]),
+      cursor([0, {}], "c1"),
+      cursor([3, 1, {}, 2]),
+    ]) {
       expect(await awfLogs(f, ["review/r1", "--after", after])).toMatchObject({
         exitCode: 1,
         stderr: `cursor ${after} does not fit this run; start again: awf logs review/r1`,
