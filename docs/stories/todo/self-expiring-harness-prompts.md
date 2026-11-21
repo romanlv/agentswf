@@ -19,9 +19,10 @@ a zsh one-liner with `${=a}`), and permission settings don't skip it. It says "C
 automatically block this request in 1:54, to avoid holding up an unattended session". awf's Herdr
 adapter confirms the dialog after a moment and ends the turn `blocked`, which a workflow reads as
 "only a person can answer": web-to-cli's build then blocks the request. Had the prompt denied
-itself, the agent would have rewritten the command. Three of workday-web's builds stopped this way
-(replay R-0010, and the lab's attachments case in both columns of one round), more than any other
-cause once case faults were out.
+itself, the agent would have rewritten the command. Five of workday-web's builds stopped this way
+(replay R-0010, and the lab's attachments case in both columns of two rounds), more than any other
+cause once case faults were out; another trigger is "Dangerous rm operation on possibly-empty
+variable path" (`rm -rf $D/*`), and a prompt rule telling agents to avoid such commands didn't stop it.
 
 Notes:
 - Where: `dialogWait` and `confirmedDialog` in `packages/harness/src/adapters/herdr.ts`, which see
