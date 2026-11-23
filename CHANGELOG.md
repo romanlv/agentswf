@@ -9,6 +9,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-23
+
 ### Added
 
 - `wfa -h` lists what an agent can do with `wfa`, in a run or outside one.
