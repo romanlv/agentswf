@@ -122,3 +122,13 @@ from the stories built, some from the vision.
 - Why: repeatable, reliable workflows that are also cheap and fast; working with agents at scale;
   trying agent organization patterns without losing your sanity orchestrating them; testing
   harnesses and skills; knowing which tools work for your domain.
+
+## Improvements
+
+- Workflow runs become traces, used for evals: re-run an older trace, or part of it, with a
+  modified workflow or skill, over multiple trials.
+
+
+## explainer
+those workflows are still complicated, they are hard to review and reason about, what if there is a human friendly version that specifies or explains solution (to be used by agents too), like a high level explanation, and there is actual code that matches it, if code or doc is updated, it should come through a phase of verifying, syncing 
+this is like compile cycle in machines, just another level of it, and if fact it can have multiple levels itself

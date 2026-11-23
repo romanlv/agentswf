@@ -241,7 +241,7 @@ if (!author) throw new Error("review-loop requires an author participant");
 const reviewer = await wf.agents.open({
   key: "reviewer",
   runtime: args.runtime,
-  skills: [{ path: new URL("./skills/air-code-review", import.meta.url) }],
+  skills: [{ path: new URL("./skills/code-review", import.meta.url) }],
 });
 
 await wf.messages.allow({

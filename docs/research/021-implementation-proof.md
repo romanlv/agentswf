@@ -273,7 +273,7 @@ Probe command logs are under `/private/tmp/`:
 - `awf-021-pane-long-queue.log`; root `awf-021-pane-81Dll4`.
 - `awf-021-pane-multiline.log`; root `awf-021-pane-8EzhFe`.
 
-Native transcripts are under `/Users/roman/.claude/projects/`, in the corresponding
+Native transcripts are under `~/.claude/projects/`, in the corresponding
 `-private-tmp-{root}-work` directory:
 
 | Probe | Session file |

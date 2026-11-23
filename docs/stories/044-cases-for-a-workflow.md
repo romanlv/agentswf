@@ -51,7 +51,7 @@ exists.
 
 Also here: `awf-lab capture {run id}` turns a past run into a new case.
 
-It is built and tried on two workflows that pull in opposite directions, and the story ends with
+		It is built and tried on two workflows that pull in opposite directions, and the story ends with
 working evals in each one's own repository:
 - **A mail triage**, `school-mail` in `romanlv/mini-workflows` (`~/dev/mini-workflows`). A
   scheduled workflow reads new mail; one agent per email decides whether it

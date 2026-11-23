@@ -84,8 +84,8 @@ of deterministic replay.
 ## Evidence
 
 - The implement-ticket prototype: two live runs on one ticket, the second continuing in qa after a
-  code fix, with a side effect at a stage boundary that ran again (`~/dev/braintrust/agent/workflows/
-  implement-ticket/run-notes.md`).
+  code fix, with a side effect at a stage boundary that ran again (its run notes, kept in the private
+  workspace it was built in).
 - E6 ([findings](../findings/README.md), "What the journal cannot replay"). Its tests are in git
   history only: `git show fd34b33:experiments/_archive/journal-limits.test.ts`.
 - GitHub Actions' runs and attempts, `dbt retry`, make's rule that a rebuilt step outdates

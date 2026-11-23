@@ -81,7 +81,7 @@ awf run flow.ts --continue PROJ-1515 --from-stage qa      # …or from qa on
 
 
 Why now:
-- The first live runs ([run notes](~/dev/braintrust/agent/workflows/implement-ticket/run-notes.md))
+- The first live runs (their run notes, kept in the private workspace)
   needed all of this:
   - the view couldn't say the run was in QA;
   - the agent that did everything was one cost line;
@@ -226,7 +226,7 @@ The facts are as found before this story.
 
 ### Outside the repo
 
-- `~/dev/braintrust/agent/workflows/script.ts` shrinks or goes.
+- The private workspace's `workflows/script.ts` shrinks or goes.
 - `implement-ticket/flow.ts` moves onto awf's stages, and loses its record beside the ticket.
 
 ## Tasks at a glance
@@ -831,7 +831,7 @@ feature-delivery, one subagent covering both lenses, 2026-10-04. Resolved:
   stop, exit 3, whose doc path is in `stages/ticket-doc.json`.
 
 Left: implement-ticket on awf's stages, its live run, and the cheap `examples/` runs side by side.
-Its files in `~/dev/braintrust/agent/workflows` are untracked, and moving them onto the new API
+Its files in the private workspace's `workflows/` are untracked, and moving them onto the new API
 breaks them under main's awf until this branch is merged, so it waits for the operator.
 
 - Architecture and scope:

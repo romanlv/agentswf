@@ -39,8 +39,8 @@ today. Raw token counts cannot be compared across variants either. A sol token c
 terra token, and a cached input token costs about a tenth of an uncached one. The estimate turns
 them into one number that means the same thing for every model and harness: what this run would
 cost on the API. A plan's allowance is drawn down roughly in proportion to the model's list price,
-so the estimate also tracks how much of a subscription a run consumed. That is the reasoning in
-`braintrust/agent/loops/shared/usage/price.ts`, and those figures have held up in use.
+so the estimate also tracks how much of a subscription a run consumed. That is the reasoning of the
+private usage module awf's accounting was ported from, and those figures have held up in use.
 
 ## Scope
 
@@ -91,7 +91,7 @@ Out of scope:
 - Fact: foundation §7 says an optimiser calls the engine programmatically, so the summary must come
   from `runWorkflow` and not only from the CLI.
 
-### The proven module: `braintrust/agent/loops/shared/usage/`
+### The proven module: a private workspace's `usage/`
 
 This is Claude usage accounting whose figures have held up in use. Its files are `records.ts`,
 `price.ts`, `claude.ts`, `recorder.ts` and `store.ts`, with tests. What it settled:
@@ -653,8 +653,8 @@ Work:
 
 Plan (Gate 1, 2026-09-23):
 
-- **Catalogue review.** `awf run ~/dev/braintrust/workflows/catalogue-review.ts --timeout 30m`,
-  from the braintrust worktree the last run reviewed (`air-password-login-client-claim`), against
+- **Catalogue review.** `awf run {workspace}/workflows/catalogue-review.ts --timeout 30m`,
+  from the private worktree the last run reviewed, against
   `origin/main...HEAD`. That file puts every lens on codex terra and every verifier on codex sol,
   on the Herdr host and the ChatGPT subscription. It is read-only: its instructions forbid edits.
 - **Two short agents.** A scratch script runs one claude haiku agent on the Herdr host, and one pi
@@ -965,8 +965,8 @@ with its own scripts, and compared them with each run's output.
 
 Runs:
 
-- **Catalogue review.** `awf run ~/dev/braintrust/workflows/catalogue-review.ts` in
-  `air-password-login-client-claim`, from 19:06:10 to 19:14:10 UTC, with exit 0. The printed line
+- **Catalogue review.** `awf run {workspace}/workflows/catalogue-review.ts` in
+  the private worktree, from 19:06:10 to 19:14:10 UTC, with exit 0. The printed line
   was:
 
   ```

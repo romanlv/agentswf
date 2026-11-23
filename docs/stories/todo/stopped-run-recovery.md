@@ -79,4 +79,4 @@ they do.
 - [story 018](../018-workflow-stages.md): knowing which stage stopped; it leaves starting from a stage here.
 - [[028-run-logs-and-telemetry]]: where a stopped run's state would be read (`awf runs {id}`).
 - ADR 0010: the calling session as an agent.
-- The run notes: `~/dev/braintrust/agent/workflows/implement-ticket/run-notes.md`.
+- The run notes: implement-ticket's, kept in the private workspace it was built in.

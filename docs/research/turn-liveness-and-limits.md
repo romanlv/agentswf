@@ -18,9 +18,9 @@ both describe `agent_settled`.
 
 Local reference checkouts inspected:
 
-- Codex: `/Users/roman/dev/ref-repos/codex`, commit
+- Codex: `ref-repos/codex`, commit
   `1cc7e2361237ce7244430ee1d581c77f95c57ac8`.
-- Pi: `/Users/roman/dev/ref-repos/pi`, commit
+- Pi: `ref-repos/pi`, commit
   `6f7551516b84278eb9da1c340c8e7bc66be1a6ba`.
 
 ## Claude: a documented observation seam exists
@@ -66,7 +66,7 @@ nudge when the pending-task count reaches zero. This is an architectural inferen
 ## The original failure provides narrower evidence than the initial hypothesis
 
 Read-only inspection of the implement-ticket transcript
-`~/.claude/projects/-Users-roman-dev-braintrust-agent/5dbd8155-35fa-42da-968a-9a33e435f361.jsonl`
+`~/.claude/projects/{private project}/5dbd8155-35fa-42da-968a-9a33e435f361.jsonl`
 found a Claude **2.1.287** tool result with `backgroundTaskId: bbxx8fio7` at line 1867,
 2026-10-02T21:02:02.502Z. Lines 1939 and 1941 enqueue task notifications for `b3u5t19ze`
 and `bbxx8fio7`, both **killed**, at 21:02:36.674Z and 21:02:36.690Z. The run notes describe

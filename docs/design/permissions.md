@@ -23,7 +23,7 @@ container).
 
 The evidence is [[sandbox-providers]], story 004's measurements of srt and docker with these
 harnesses, and before it a study of the same harnesses under Seatbelt and in containers, verified
-2026-08-08: `braintrust/docs/agent-sandboxing.md`, cited below as *the study*.
+2026-08-08 in a private workspace and kept outside this repository, cited below as *the study*.
 
 ## Two kinds of agent
 

@@ -10,7 +10,7 @@ depends_on: ["009"]
 
 # Release from CI, and settle what the beta left open
 
-agents.wf is public and published: `agentswf` and `@agentswf/*` at 0.1.0-beta.4, released by hand
+agents.wf is public and published: `agentswf` and `@agentswf/*` at 0.1.1, released by hand
 with `scripts/release.ts`. What the launch plan of 2026-09-28 still holds open:
 
 - **Trusted publishing.** pi and codex publish from CI on a `v*` tag through npm's OIDC trusted
@@ -20,8 +20,3 @@ with `scripts/release.ts`. What the launch plan of 2026-09-28 still holds open:
   mark them unstable, or hold them to the same promise as the rest.
 - **`engines.bun`** is `>=1.4.0` on every package, the only version tried: the minimum tested, or
   `BUN_VERSION`? `os: ["darwin", "linux"]` is on none.
-- **"charged"**: done; it is `reportedCost`, in `out.json` version 6, and an operation's files
-  carry a `version`. What remains, whether billing was observed or assumed, is
-  [[billing-provenance]].
-- **Prerelease tags.** Betas go out under `latest`, so a plain install gets the newest
-  (`scripts/release.ts`); tag prereleases by id once out of beta.

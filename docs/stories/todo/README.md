@@ -105,12 +105,12 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[workflow-in-sandbox]], [[sandbox-host-protection]], [[sandbox-setsid-escape]] — containment's
   edge cases.
 - [[linux-host-sandbox]] — a sandbox on the host on Linux, where awf refuses srt (X24).
-- [[split-large-modules]], [[test-host-teardown]] — the repository's own.
+- [[split-large-modules]] — the repository's own.
 
 ### P3
 
 - [[review-shapes-and-models]], [[key-growth-from-runs]], [[jev-noise-audit]],
   [[second-case-kind]], [[judge-opus-voter]] — the loop's research and the lab's data.
-- [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]],
-  [[wfa-help]] — the launch.
+- [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]] —
+  the launch.
 - [[agent-release]], [[workflow-test-generated-answers]], [[workflow-test-virtual-time]].

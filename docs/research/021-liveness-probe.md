@@ -133,7 +133,7 @@ also have timestamps that are not strictly ordered by transcript append position
 source order/correlation instead of sorting by wall-clock timestamps.
 
 The private source transcript is session `5dbd8155-35fa-42da-968a-9a33e435f361` under
-`~/.claude/projects/-Users-roman-dev-braintrust-agent/`. Only metadata was extracted here;
+the private project's `~/.claude/projects/` directory. Only metadata was extracted here;
 private task content and tool output are omitted.
 
 ## Architectural conclusion and remaining gate

@@ -179,11 +179,11 @@ Out of scope:
 
 ### Hosts
 
-- `~/dev/braintrust/awf-chat/src/awf/cli-holder.ts`: `toCode` reads `emit`'s refusal;
+- awf-chat's `src/awf/cli-holder.ts`: `toCode` reads `emit`'s refusal;
   `holderCommand` and `inbox` read the renamed codes and the new success shape; `parseLine`'s
   `v`.
-- `~/dev/braintrust/awf-chat/src/awf/watch.ts`: `bad-cursor` → `cursor`.
-- `~/dev/braintrust/awf-chat/src/core/presenter.ts`, `src/core/ledger.ts`: match
+- awf-chat's `src/awf/watch.ts`: `bad-cursor` → `cursor`.
+- awf-chat's `src/core/presenter.ts`, `src/core/ledger.ts`: match
   `code === "delivered"`; `HolderResult` in `src/core/ports.ts` takes the new success shape.
 
 ## Design
