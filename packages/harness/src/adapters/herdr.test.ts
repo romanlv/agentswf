@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
   mkdirSync,
@@ -13,7 +13,7 @@ import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
 import { isolateHarnessHomes, recordCompaction, recordTurn } from "../testing/turn-records";
-import { createHerdrRunHostFactory, type HerdrConfig } from "./herdr";
+import { createHerdrRunHostFactory as createFactory, type HerdrConfig } from "./herdr";
 
 let homes: ReturnType<typeof isolateHarnessHomes>;
 beforeAll(() => {
@@ -21,6 +21,26 @@ beforeAll(() => {
 });
 beforeEach(() => homes.fresh());
 afterAll(() => homes.restore());
+
+type RunHost = Awaited<ReturnType<ReturnType<typeof createFactory>["openRun"]>>;
+/** Every host a test opens, closed after it even when an assertion threw first. */
+const openHosts = new Set<RunHost>();
+afterEach(async () => {
+  const hosts = [...openHosts];
+  openHosts.clear();
+  await Promise.allSettled(hosts.map((host) => host.close()));
+});
+function createHerdrRunHostFactory(...args: Parameters<typeof createFactory>) {
+  const factory = createFactory(...args);
+  return {
+    ...factory,
+    async openRun(...spec: Parameters<typeof factory.openRun>) {
+      const host = await factory.openRun(...spec);
+      openHosts.add(host);
+      return host;
+    },
+  };
+}
 
 /** Herdr's settle wait, as distinct from the wait for a dialog a recorded turn holds open. */
 function settleWait(input: ProcessInput): boolean {

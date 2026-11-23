@@ -64,6 +64,8 @@ export async function installSandboxedDoor(
   };
 }
 
+const BUNDLE_TIMEOUT_MS = 60_000;
+
 /**
  * `wfa` as one file's source, which a sandbox can read where it cannot read this workspace. Built by
  * a `bun build` of its own: in process, the bundler resolved packages against the test runner's
@@ -76,12 +78,18 @@ export async function buildAgentBundle(): Promise<string> {
     cwd: dirname(entry),
     stdout: "pipe",
     stderr: "pipe",
+    // A wedged bundler would otherwise hold the run, or a test process, with no deadline.
+    timeout: BUNDLE_TIMEOUT_MS,
   });
   const [code, bundle, stderr] = await Promise.all([
     built.exited,
     new Response(built.stdout).text(),
     new Response(built.stderr).text(),
   ]);
+  if (built.signalCode)
+    throw new Error(
+      `could not bundle wfa: bun build ended by ${built.signalCode}, its limit ${BUNDLE_TIMEOUT_MS} ms`,
+    );
   if (code !== 0) throw new Error(`could not bundle wfa: ${stderr.trim().slice(0, 400)}`);
   return bundle;
 }
