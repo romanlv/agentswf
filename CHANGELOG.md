@@ -11,27 +11,30 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## 0.2.0 — 2026-11-23
 
+Better tools for runs that wait on events: park, wake, and see what woke them.
+
 ### Added
 
-- `wfa -h` lists what an agent can do with `wfa`, in a run or outside one.
-- `run.postsOf(participant)` in `testWorkflow`: the text the code posted to a participant, in order.
-- `awf wake <run> [--timer <name>]`: wakes a parked run now, firing the timer its wait takes early, recorded as the operator's wake in `in.jsonl` (`awf:wake`); every other timer keeps its due.
-- `awf logs --tool <name>` keeps one tool's calls, any case and repeatable, and `--grep <text>` the events whose whole text holds it; `--full` now works on a page, printing each event whole.
-- `awf logs` shows each event a sender gave a run with events, from `in.jsonl`, as a line of its own (`@i{n}`, kind `event` in `--json`), so what woke a run is in its log; `--after` cursors carry its place.
-- `awf park <run>`: parks a run whose attempt stays live for its agents' `keepAlive` windows, each warm agent's `onTimeout` run once, so the next event runs the workflow file as it is then. Recorded in `in.jsonl` as `awf:park` for that attempt alone.
+- `awf park <run>`: the next event runs the current workflow file.
+- `awf wake <run> [--timer <name>]`: fire a parked run's timer now.
+- `awf logs --tool <name>` and `--grep <text>` filters; `--full` works on a page.
+- `awf logs` shows the events that woke a run.
+- `wfa -h`.
+- `run.postsOf(participant)` in `testWorkflow`.
 
 ### Changed
 
-- `awf logs --wait` past its cap, 300s, says the cap and the value given, and points at `--follow`.
-- `awf tick` exits 1 when a run with events is stuck or can't be read, naming a stuck one on stderr, and each under `stuck` or `unreadable` with `--json`, so a scheduler sees a run nothing will wake again.
-- `awf logs` shows why a stage failed on its `stage ended` line, and a log line's fields after its text.
-- `awf runs` lists every run still running after the newest 20, however long ago it started.
-- `awf runs` and `awf logs` show a run `parked` once its process stays only for agents' `keepAlive` windows, with each agent and when its window ends (`warm` in `--json`); `log.jsonl` records it as `agent-warm`.
+- `awf tick` exits 1 when a run is stuck or unreadable.
+- `awf runs` and `awf logs` show a run held only by warm agents as `parked`.
+- `awf runs` lists every running run, not just the newest 20.
+- `awf logs` shows why a stage failed.
+- `awf logs --wait` past its 300s cap points at `--follow`.
 
 ### Fixed
 
-- A sandboxed claude agent no longer ends its turn `blocked` on a Claude Code safety check it would deny itself (a dangerous `rm`, a command it can't parse): the check denies the call at once and the agent carries on. A person's `awf open` of the session still asks.
-- A claude agent whose working directory holds the run's folder can be given `skills`: a host agent's skills, and a host codex agent's own home, are placed in `~/.awf/skills/{workflow}/{id}`, outside the project, not in the run's `work/agents`.
+- A sandboxed claude agent no longer gets `blocked` on a Claude Code safety prompt.
+- `skills` work for a claude agent whose working directory holds the run's folder.
+- A stuck `wfa` build fails the run after 60s instead of hanging it.
 
 ## 0.1.1 — 2026-11-09
 
