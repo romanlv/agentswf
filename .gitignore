@@ -18,3 +18,5 @@ docs/.obsidian/workspace*.json
 
 # examples/nudges keeps its live runs' state here
 .nudges/
+
+**/syncthing-folder-*

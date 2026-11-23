@@ -54,7 +54,7 @@ export interface Case {
 }
 declare function openCase(root: string, id: string): Case;
 declare const DD_CASES: string;
-declare const AIR: string;
+declare const SERVICE_REPO: string;
 declare const INVESTIGATOR: { standing: string } & Record<
   "first" | "reopen" | "close" | "closedReply" | "update",
   string
@@ -93,7 +93,7 @@ const caseRun = defineWorkflow({
     const investigator = await wf.agents.open({
       key: "investigator",
       runtime: "claude",
-      cwd: AIR,
+      cwd: SERVICE_REPO,
       instructions: INVESTIGATOR.standing,
       tools: {
         close_case: tool({

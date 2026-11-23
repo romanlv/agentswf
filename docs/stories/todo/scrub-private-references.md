@@ -22,12 +22,13 @@ Notes:
 - Nothing sensitive: the references are a company name and its projects' paths (the operator,
   2026-11-02), so this is tidiness, not exposure.
 
-- Files that still name the private workspace, its paths, projects or skills:
-  - `docs/design/README.md`, `docs/design/composition.md` and `docs/design/permissions.md`;
-  - `docs/stories/002-cost-and-time-accounting.md` and `docs/stories/004-sandboxed-agents.md`;
-  - `packages/harness/src/usage/usage.test.ts` and
-    `packages/engine/src/accounting/accounting.test.ts`: comments on where code was ported from,
-    and a real home-directory path used as test data.
+- **Done, 2026-11-13:** the workspace's paths and home-directory paths are out of the docs, the
+  tests' comments and data, and `examples/event-sketches`. **Remains**, each a choice:
+  - the review project's name, in story 013's screen and [[review-shapes-and-models]]: it is
+    in the loop's variant names (`air-skill`, `air-lenses`) that the data repository's records
+    use, so renaming breaks the link to them;
+  - `awf-chat`, the operator's chat host, named as an app in stories 034 and 043, no longer by
+    path.
 - Git history holds all of the above and more, and is public already. Rewriting it now breaks
   every clone; decide whether it is worth that.
 - `experiments/_archive/` has them in logs, results and `e1/headless.ts`. It is frozen evidence, so

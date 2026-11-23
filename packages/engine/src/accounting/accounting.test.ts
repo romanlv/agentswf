@@ -38,7 +38,6 @@ const spent = (model: string, used: Partial<TokenUsage>, delegated = false): Mod
   tokens: tokens(used),
 });
 
-// Ported from `braintrust/agent/loops/shared/usage/records.test.ts`.
 describe("costOf", () => {
   test("uncached input bills at the model's input rate, output at its output rate", () => {
     expect(costOf(tokens({ input: 1_000_000 }), OPUS)).toBe(5);

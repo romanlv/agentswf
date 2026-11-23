@@ -87,7 +87,6 @@ describe("claude sessions", () => {
     });
   });
 
-  // Ported from `braintrust/agent/loops/shared/usage/claude.test.ts`.
   type Row = {
     requestId?: string;
     model?: string;
@@ -125,8 +124,8 @@ describe("claude sessions", () => {
   }
 
   const SESSION = "a9bfbb6d-a9e7-478b-ad89-a78b9324a3a8";
-  const CWD = "/Users/roman/dev/braintrust/agent";
-  const PROJECT = "-Users-roman-dev-braintrust-agent";
+  const CWD = "/Users/operator/dev/project";
+  const PROJECT = "-Users-operator-dev-project";
 
   function projects(files: Record<string, string[]>): string {
     const root = mkdtempSync(join(tmpdir(), "claude-usage-"));
