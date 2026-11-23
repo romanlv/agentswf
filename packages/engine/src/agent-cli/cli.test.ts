@@ -617,3 +617,33 @@ describe("wfa tool", () => {
     ).toBe(2);
   });
 });
+
+describe("wfa -h", () => {
+  const never = async (): Promise<ControlResponse> => {
+    throw new Error("help must not connect");
+  };
+
+  test("inside a run, lists every command by the launcher's own path and exits 0", async () => {
+    for (const flag of ["-h", "--help", "help"]) {
+      const outcome = await runCli(["--at", ENDPOINT, "--as", "/run/x/wfa", flag], null, never);
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.stderr).toBe("");
+      for (const command of ["result", "waiting", "tool", "peers", "send", "reply"])
+        expect(outcome.stdout).toMatch(new RegExp(`^  ${command} `, "m"));
+      expect(outcome.stdout).toContain("usage: /run/x/wfa <command>");
+      expect(outcome.stdout).not.toContain("not in a run");
+    }
+  });
+
+  test("outside a run, still prints the help and says wfa needs a run's launcher", async () => {
+    const outcome = await runCli(["-h"], null, never);
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toContain("usage: wfa <command>");
+    expect(outcome.stdout).toContain("not in a run");
+  });
+
+  test("outside a run, a command never waits on standard input", async () => {
+    const stream = new ReadableStream<Uint8Array>({ start() {} });
+    expect(await readCliStdin(["result", "op-1"], false, stream)).toBeNull();
+  });
+});

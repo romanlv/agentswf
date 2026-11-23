@@ -31,6 +31,27 @@ function usage(wfa: string): string {
   ].join("\n");
 }
 
+/** `wfa -h`: what wfa can do. Its own table, since wfa compiles against contract only. */
+function help(wfa: string): string {
+  return [
+    "wfa is how an agent in a run answers it and talks to the agents beside it.",
+    "",
+    `usage: ${wfa} <command> [arguments]`,
+    "",
+    "Answer the run",
+    "  result     Answer a request, by the call id it named",
+    "  waiting    Say a request is waiting on something, so its deadline holds",
+    "  tool       Call a tool the workflow gave this agent",
+    "",
+    "Talk to other agents",
+    "  peers      The agents this one can message",
+    "  send       Message an agent",
+    "  reply      Answer a message an agent sent",
+    "",
+    usage(wfa),
+  ].join("\n");
+}
+
 function messageUsage(wfa: string, indent = "usage: "): string[] {
   return [
     `${indent}${wfa} send [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
@@ -74,6 +95,12 @@ export async function runCli(
     command: [command, ...args],
   } = launched(argv);
   const wfa = launcher ?? "wfa";
+  if (command === "-h" || command === "--help" || command === "help") {
+    const outside = endpoint
+      ? ""
+      : "\n\nThis shell is not in a run: wfa works only through the launcher a run installs.";
+    return { exitCode: 0, stdout: `${help(wfa)}${outside}\n`, stderr: "" };
+  }
   if (!endpoint) {
     return usageError("wfa must be run through the launcher the workflow engine installed");
   }
@@ -483,7 +510,8 @@ function launched(argv: readonly string[]): {
   command: readonly string[];
 } {
   const [flag, endpoint, ...rest] = argv;
-  if (flag !== "--at" || !endpoint) return { command: rest };
+  if (flag !== "--at") return { command: argv };
+  if (!endpoint) return { command: rest };
   let command = rest;
   let launcher: string | undefined;
   if (command[0] === "--as") {
@@ -528,7 +556,10 @@ export async function readCliStdin(
   stream: ReadableStream<Uint8Array>,
 ): Promise<string | null> {
   if (isTTY) return null;
-  const [verb, ...args] = launched(argv).command;
+  const { endpoint, command } = launched(argv);
+  // Outside a launcher wfa only refuses or prints its help, so it never waits on a pipe.
+  if (!endpoint) return null;
+  const [verb, ...args] = command;
   const parsed = verb === "send" || verb === "reply" ? messageArgs(args) : undefined;
   const reads =
     ((verb === "result" || verb === "tool") && args.length === 1) ||
