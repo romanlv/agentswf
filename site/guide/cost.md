@@ -75,7 +75,7 @@ second Ctrl-C cut short, is read by the next one as it starts. A figure is price
 with the price table built into awf: one list price per model, read from the vendors' pricing pages
 on a date. So `awf runs` and a continued run's total price every attempt with the table of the awf
 reading them. `out.json` keeps the attempt's figures priced as it ran, and names the table it used,
-as `list prices 2026-10-07`, beside the totals, each stage's, model's and agent's share, and every
+as `list prices 2026-11-25`, beside the totals, each stage's, model's and agent's share, and every
 turn's tokens by model.
 
 The same table prices every agent, on a plan or per token. A plan isn't billed per token, but its

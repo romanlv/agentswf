@@ -164,8 +164,17 @@ describe("published prices", () => {
     expect(costOf(tokens({ cacheWrite: 1_000_000 }), PUBLISHED_PRICES.rate("gpt-5.5")!)).toBe(5);
   });
 
+  test("Gemini 4 Neon is priced under each effort cursor names it by, with no cache write", () => {
+    for (const model of ["gemini-4-neon", "gemini-4-neon-low", "gemini-4-neon-xhigh"]) {
+      const rate = PUBLISHED_PRICES.rate(model)!;
+      expect(costOf(tokens({ input: 1_000_000, output: 1_000_000 }), rate)).toBe(18);
+      expect(costOf(tokens({ cacheRead: 1_000_000, cacheWrite: 1_000_000 }), rate)).toBe(0.15);
+    }
+    expect(PUBLISHED_PRICES.rate("gemini-4-neon-fast")).toBeUndefined();
+  });
+
   test("names the table every figure came from", () => {
-    expect(PUBLISHED_PRICES.basis).toBe("list prices 2026-10-07");
+    expect(PUBLISHED_PRICES.basis).toBe("list prices 2026-11-25");
   });
 });
 
