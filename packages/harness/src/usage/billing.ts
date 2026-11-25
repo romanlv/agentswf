@@ -72,15 +72,22 @@ export async function readCodexBilling(run: RunProcess): Promise<Billing> {
 }
 
 /**
- * Whether cursor is logged in, by `cursor-agent status --format json`. It says nothing of the plan
- * or of an API key's billing.
+ * Whether cursor is logged in, by `cursor-agent status --format json`, or else by an API key:
+ * status reads only a stored login and never `CURSOR_API_KEY`, which `--list-models` authenticates
+ * with, failing without a login (cursor-agent 2026.11.22). It says nothing of the plan or of an API
+ * key's billing.
  */
 export async function readCursorLogin(run: RunProcess): Promise<boolean> {
-  const result = await run({
+  const status = await run({
     argv: ["cursor-agent", "status", "--format", "json"],
     timeoutMs: STATUS_TIMEOUT_MS,
   });
-  return result.exitCode === 0 && parseRow(result.stdout)?.isAuthenticated === true;
+  if (status.exitCode === 0 && parseRow(status.stdout)?.isAuthenticated === true) return true;
+  const models = await run({
+    argv: ["cursor-agent", "--list-models"],
+    timeoutMs: STATUS_TIMEOUT_MS,
+  });
+  return models.exitCode === 0;
 }
 
 export async function readPiBilling(

@@ -407,6 +407,7 @@ describe("operator runtime", () => {
       const calls: string[] = [];
       const run: RunProcess = async (input) => {
         calls.push(input.argv.join(" "));
+        if (input.argv.includes("--list-models")) return { ...success(""), exitCode: 1 };
         return input.argv[0] === "claude"
           ? success(JSON.stringify({ loggedIn: true, ...claude }))
           : success(codex);
@@ -456,7 +457,7 @@ describe("operator runtime", () => {
     ).toContain("Codex subscription authentication is required");
     const cursorStatus = (isAuthenticated: boolean) => JSON.stringify({ isAuthenticated });
     expect((await opened(claudeAi, cursorStatus(false), "cursor")).first).toBe(
-      "Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out",
+      "Cursor authentication is required (`cursor-agent login`, or a key in CURSOR_API_KEY); `cursor-agent status` reads as logged out and `cursor-agent --list-models` refuses",
     );
     expect((await opened(claudeAi, cursorStatus(true), "cursor")).first).toBeUndefined();
     // A codex-only run asks codex once and never asks claude: claude's login can be absent.

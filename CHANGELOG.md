@@ -33,6 +33,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   `wf.deadline`.
 - A run starts where `ps` is forbidden, as inside srt: the process takes its own start time from
   its uptime.
+- A cursor agent logged in only by `CURSOR_API_KEY` passes the run's login check, which read
+  `cursor-agent status` alone, and that ignores the key.
 
 ### Added
 

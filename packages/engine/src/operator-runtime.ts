@@ -518,7 +518,7 @@ const LOGINS: Readonly<Record<Harness, ((run: RunProcess) => Promise<void>) | Ab
   async cursor(run) {
     if (!(await readCursorLogin(run))) {
       throw new Error(
-        "Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out",
+        "Cursor authentication is required (`cursor-agent login`, or a key in CURSOR_API_KEY); `cursor-agent status` reads as logged out and `cursor-agent --list-models` refuses",
       );
     }
   },

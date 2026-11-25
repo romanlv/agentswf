@@ -88,10 +88,10 @@ or no `codex` on your PATH. Run `codex login` and sign in with ChatGPT.
 ### `Cursor authentication is required`
 
 ```text
-Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out
+Cursor authentication is required (`cursor-agent login`, or a key in CURSOR_API_KEY); `cursor-agent status` reads as logged out and `cursor-agent --list-models` refuses
 ```
 
-Run `cursor-agent login`. What each harness needs installed: [Install](/guide/install#each-harness).
+Run `cursor-agent login`, or export a Cursor API key as `CURSOR_API_KEY`. What each harness needs installed: [Install](/guide/install#each-harness).
 
 ### `{harness} needs a login`
 

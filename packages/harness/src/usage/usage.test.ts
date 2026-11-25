@@ -15,7 +15,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
-import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
+import {
+  claudeBilling,
+  codexBilling,
+  piBilling,
+  readCodexBilling,
+  readCursorLogin,
+} from "./billing";
 import { dropClaudeForkCommand, findClaudeSession, readClaudeUsage as readClaude } from "./claude";
 import { findCodexSession, inheritCodexSessionId, readCodexUsage as readCodex } from "./codex";
 import {
@@ -1035,6 +1041,29 @@ describe("billing", () => {
     expect(await readCodexBilling(async () => ({ ...(await run()), exitCode: 127 }))).toBe(
       "unknown",
     );
+  });
+
+  test("cursor: a stored login, or else a key `--list-models` authenticates with", async () => {
+    const asked: string[] = [];
+    const cursor =
+      (authenticated: boolean, keyWorks: boolean) => async (input: { argv: readonly string[] }) => {
+        asked.push(input.argv.join(" "));
+        const listing = input.argv.includes("--list-models");
+        return {
+          stdout: listing
+            ? "Available models\n"
+            : JSON.stringify({ isAuthenticated: authenticated }),
+          stderr: "",
+          exitCode: listing && !keyWorks ? 1 : 0,
+          timedOut: false,
+        };
+      };
+    expect(await readCursorLogin(cursor(true, false))).toBe(true);
+    expect(asked).toEqual(["cursor-agent status --format json"]);
+    // `status` reads logged out with only CURSOR_API_KEY set.
+    expect(await readCursorLogin(cursor(false, true))).toBe(true);
+    expect(await readCursorLogin(cursor(false, false))).toBe(false);
+    expect(asked.at(-1)).toBe("cursor-agent --list-models");
   });
 
   test("pi: the provider pi logged decides, else the model's, else pi's default", () => {
