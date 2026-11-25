@@ -11,7 +11,7 @@ import { assertLiveOptIn, recorded, report, runLive } from "./live";
  * 020): each agent opens at `low`, is set to `high`, then to another model, with a turn between
  * each. Its record must say so, and so must what the harness itself logged it ran at: claude's
  * transcript, codex's rollout, pi's shell. Its last turn must still know the word its first was
- * told. One run of six agents, a metered headless claude among them, about a minute and $0.50 at
+ * told. One run of six agents, a headless claude among them, about a minute and $0.50 at
  * list prices.
  */
 const EFFORT = join(import.meta.dir, "../examples/effort/workflow.ts");

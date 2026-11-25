@@ -4976,7 +4976,7 @@ function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
   );
   if (flat.length > 0)
     throw new Error(
-      `agent ${spec.key}: a fork's ${flat.join(", ")} go in its runtime: fork({ key, runtime: { ${flat.join(", ")} } })`,
+      `agent ${spec.key}: a fork's ${flat.join(", ")} ${flat.length === 1 ? "goes" : "go"} in its runtime: fork({ key, runtime: { ${flat.join(", ")} } })`,
     );
   if (runtime === undefined) return rest;
   if (typeof runtime !== "object" || runtime === null || Array.isArray(runtime)) {

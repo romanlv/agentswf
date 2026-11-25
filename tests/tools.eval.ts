@@ -9,12 +9,12 @@ import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
  * Story 035's tools, live, from the lesson alone: every harness on its cheap model, in a pane and
- * headless but claude's, which headless is billed per token. Each agent lists the open items, a
+ * headless. Each agent lists the open items, a
  * tool with no input; labels one, a tool taught as JSON; closes both, a tool taught with flags, one
  * with a title holding `'` and `$HOME` as its reason; and returns its result with flags. `slow`
  * then makes `list_open` take longer than a harness lets a shell command run (M2): 15 s on codex,
  * which hands it back at 10 s, and 40 s on cursor, which backgrounds it at 30 s; its handler must run
- * once, with no refusal. Seven agents, about a minute; all but pi came to about $0.11 at list
+ * once, with no refusal. Eight agents, about a minute; all but pi came to about $0.11 at list
  * prices. `slow` two more, about two minutes.
  */
 const TOOLS = join(import.meta.dir, "../examples/tools/workflow.ts");

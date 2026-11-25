@@ -266,7 +266,7 @@ Done, signed off 2026-11-06: [028 — an agent sees what a run is doing](stories
   every project's. A workflow declares its events; `awf emit --id
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
-- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): done. Live on every harness, headless and in their TUI, claude in its TUI only.
+- [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): done. Live on every harness, headless and in their TUI; claude headless since 2026-11-24.
 - [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): done;
   the watcher's case run in Slack is left to the operator.
   `keepAlive: { window?, onTimeout? }` on an agent of a workflow with events keeps the run live

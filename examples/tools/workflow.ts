@@ -10,7 +10,7 @@ import {
 import Type from "typebox";
 import { RUNTIMES as QUICK } from "../quick-check/workflow";
 
-/** quick-check's cheap models, and a codex TUI agent: every harness in its TUI, and all but claude headless. */
+/** quick-check's cheap models, and a codex TUI agent: every harness headless and in its TUI. */
 export const RUNTIMES = {
   ...QUICK,
   "codex-tui": { harness: "codex", model: "gpt-6-luna" },

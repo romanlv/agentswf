@@ -2982,7 +2982,7 @@ describe("keys and routes refused", () => {
       { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
     );
     expect(result.value).toContain(
-      "a fork's placement go in its runtime: fork({ key, runtime: { placement } })",
+      "a fork's placement goes in its runtime: fork({ key, runtime: { placement } })",
     );
   });
 

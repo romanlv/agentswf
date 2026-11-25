@@ -79,10 +79,10 @@ What they cover between them:
   [[021-implementation-proof]].
   Inspect native receipt evidence and persisted waiting events, not merely agent prose or exit code.
 
-- `harnesses` — quick-check across codex, pi and cursor headless and claude, pi and cursor in a
+- `harnesses` — quick-check across every harness headless and claude, pi and cursor in a
   Herdr pane, through `awf run`. Every answer must be right, each including a follow-up in the same
   session, and every agent's spend known and billed to its subscription, but cursor's: its billing
-  is unknown, and a pane's cursor prints no usage. 6 agents, ~40 s, ~$0.13.
+  is unknown, and a pane's cursor prints no usage. 7 agents, ~40 s, ~$0.14.
 - `messaging` — story 029's delivery, with `--await-reply` turned on for what it tests: an asker
   asks a keeper that has never run for a codeword only it knows, the question wakes the keeper,
   and its answer resumes the asker's same call. Headless on claude, codex, pi and cursor, and in their
@@ -92,8 +92,8 @@ What they cover between them:
   headless session's record, a claude TUI agent's receipt), `unconfirmed` where it cannot (cursor's
   store, a codex, pi or cursor TUI agent). `bun tests/messaging.eval.ts codex-tui` runs one; with no
   names, the four headless ones. 8 agents each way, ~25 s, ~$0.25.
-- `tools` — story 035's tools, from the lesson alone, on codex, pi and cursor headless and in their
-  TUI, and claude in its TUI: each agent lists the open items, a tool with no input, labels one, a
+- `tools` — story 035's tools, from the lesson alone, on every harness headless and in its
+  TUI: each agent lists the open items, a tool with no input, labels one, a
   tool taught as JSON, and closes both with flags, one reason holding `'` and `$HOME`, which must
   arrive word for word; then answers with flags. It prints each agent's refused and failed calls
   and rejected results. `bun tests/tools.eval.ts slow` makes the no-input tool take 15 s on codex

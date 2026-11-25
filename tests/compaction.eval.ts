@@ -9,7 +9,7 @@ import { assertLiveOptIn, recorded, report, runLive } from "./live";
  * asked both. An answer means the harness compacted; the codename back means the focus reached it;
  * the colour back means the session went on. A headless cursor has no compaction and must say so,
  * then go on. One run of eight agents, a pane claude, codex, pi and cursor among them, about two minutes and $0.20
- * at list prices, a metered headless claude included.
+ * at list prices, a headless claude included.
  */
 const COMPACTION = join(import.meta.dir, "../examples/compaction/workflow.ts");
 
