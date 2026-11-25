@@ -22,12 +22,11 @@ export const RUNTIMES = {
   cursor: { harness: "cursor", model: "gpt-5.6-luna-high" },
   // headless: a process per turn, nothing to watch
   quiet: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-  // headless claude is per token, and says so
-  "metered-claude": {
+  // headless claude runs on your Claude plan, as its TUI does
+  "headless-claude": {
     harness: "claude",
     model: "sonnet",
     placement: "headless",
-    metered: true,
   },
 } satisfies Record<string, RuntimeSelection>;
 // #endregion runtimes
@@ -95,23 +94,6 @@ export default defineWorkflow({
     };
   },
 });
-
-// #region unmetered
-export const unmetered = defineWorkflow({
-  meta: {
-    name: "unmetered",
-    description: "A headless claude agent without metered: true.",
-  },
-  async run(wf) {
-    // rejects: headless claude is billed per token even on a subscription login; set metered: true to run it
-    await wf.agents.open({
-      key: "summarizer",
-      runtime: { harness: "claude", model: "sonnet", placement: "headless" },
-    });
-    return null;
-  },
-});
-// #endregion unmetered
 
 export const unlisted = defineWorkflow({
   meta: {

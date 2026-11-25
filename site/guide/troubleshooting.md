@@ -120,19 +120,7 @@ sandboxed agent of theirs takes a token from the environment you run `awf` in. R
 `claude setup-token` and export what it prints as `CLAUDE_CODE_OAUTH_TOKEN`, or export a Cursor
 API key as `CURSOR_API_KEY`. [Install](/guide/install#each-harness) lists each harness's needs.
 
-## Metered claude and API keys
-
-### `headless claude is billed per token even on a subscription login`
-
-```text
-headless claude is billed per token even on a subscription login; set metered: true to run it
-```
-
-A headless claude agent runs `claude -p`, which is metered on any login, so awf refuses to open
-it without your consent. Drop `placement: "headless"` to run it in its TUI, the default, which
-stays on your plan; or add `metered: true` to its runtime if per-token billing is what you want.
-`awf test` refuses it the same way. The refusal comes when that agent opens, which may be after
-other agents have done work: [Harnesses](/guide/harnesses#subscription-and-metered).
+## API keys
 
 ### `subscription runtime refused metered credential environment`
 

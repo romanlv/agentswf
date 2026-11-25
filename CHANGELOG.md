@@ -9,6 +9,12 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 
 ## Unreleased
 
+### Breaking
+
+- Headless claude runs on your Claude plan, as its TUI does, and its record reads `billing` from
+  the login. `metered: true` is gone: delete it from every runtime. A workflow that still passes it
+  fails to type-check, and a fork's runtime with `metered` is refused at run time.
+
 ## 0.2.0 — 2026-11-23
 
 Better tools for runs that wait on events: park, wake, and see what woke them.

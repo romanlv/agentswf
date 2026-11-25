@@ -9,9 +9,8 @@ import {
 import Type from "typebox";
 
 /**
- * A cheap model for each, so a check costs cents. Codex, pi and cursor run headless, and pi and
- * cursor in their TUI as well; claude stays in its TUI, because headless it is billed per token even on
- * a subscription.
+ * A cheap model for each, so a check costs cents. Each runs headless, and claude, pi and cursor in
+ * their TUI as well.
  */
 export const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
@@ -22,6 +21,7 @@ export const RUNTIMES = {
   },
   "pi-tui": { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
   claude: { harness: "claude", model: "claude-sonnet-5-5" },
+  "claude-headless": { harness: "claude", model: "claude-haiku-5-5", placement: "headless" },
   cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
   "cursor-tui": { harness: "cursor", model: "composer-2.5" },
 } as const satisfies Record<string, ExecutionConfig>;

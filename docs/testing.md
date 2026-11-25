@@ -1,10 +1,8 @@
 # Testing
 
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
-the run's own accounting. Every live check here runs on subscription logins, and the estimate is
-what the same tokens would cost metered, a proxy for the quota used, with one exception: claude
-headless, which `sandbox-srt`, `sandbox-docker`, `compaction`, `effort` and `review-judge` run, is billed per
-token even on a subscription (E3), so its share of those evals is money.
+the run's own accounting. Every live check here runs on subscription logins, headless claude included, and the estimate is
+what the same tokens would cost metered, a proxy for the quota used.
 
 ## Levels
 
@@ -116,14 +114,13 @@ What they cover between them:
 - `compaction` — native compaction (stories 015, 019) on every harness in their TUI and headless: each
   compacts with a focus naming a codename it was never told, then must recall it and what it noted
   before. A headless cursor, which has none, must refuse, saying why. `bun
-  tests/compaction.eval.ts pi pi-tui` runs only those. 8 agents, ~60 s, ~$0.63 at list prices,
-  the headless claude's share billed per token.
+  tests/compaction.eval.ts pi pi-tui` runs only those. 8 agents, ~60 s, ~$0.63 at list prices.
 - `fork` — forks (story 016) on every harness, in their TUI and headless, across a placement change
   and after a compaction: each worker notes a codename, is forked, then notes a release. Each fork
   must answer the codename through its own channel and not know the release, and its first turn
   must read at least half its prompt from the cache, except a TUI cursor, which prints no
   usage. `bun tests/fork.eval.ts codex claude>headless` runs only those cases. 32 agents, ~2 min,
-  ~$1.40 at list prices, the headless claude's share billed per token.
+  ~$1.40 at list prices.
 - `fan-out` — many TUI agents at once (story concurrent-agents): twelve codex, six claude and
   four cursor panes prompted together, twice each, the second turn needing the first's context.
   Every answer must be right and the run end with nothing left unresolved, claude's and codex's
@@ -133,7 +130,7 @@ What they cover between them:
   agent opens at `low`, is set to `high`, then to another model, a turn between each. Its record
   must say so, and so must what the harness itself logged it ran at: claude's transcript, codex's
   rollout, pi's shell; its last turn must still know the word its first was told. 6 agents, ~1 min,
-  ~$0.50 at list prices, the headless claude's share billed per token.
+  ~$0.50 at list prices.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
   each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
   with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;
@@ -163,7 +160,7 @@ What they cover between them:
   a git hook, another sandbox's home. One tool call runs it and the agent relays its output, which
   the workflow splits back by command. Checked from the agents' own transcripts, the listener and
   the working tree. The coder runs first, then the tester and reviewer together. 3 agents, ~40 s,
-  ~$0.10–0.16, claude's part billed per token, estimated. codex runs on gpt-5.6-sol: luna declined
+  ~$0.10–0.16 at list prices. codex runs on gpt-5.6-sol: luna declined
   the probe's commands when they were listed one by one. Neither is skipped: each fails, saying why, where its
   provider is not installed or docker's daemon does not answer within 30 s, so a sandbox
   regression cannot pass unseen. `sandbox-docker` builds the default image first when it is
@@ -189,8 +186,7 @@ What they cover between them:
   The judgement must pass `checkScorerResult` and hit both planted issues; how many of the six labels
   match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna
   and claude sonnet judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
-  $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token
-  ([`billing-provenance`](stories/todo/billing-provenance.md)). Three runs,
+  $0.07–0.14 of claude's own reported cost, which claude prints on a plan too. Three runs,
   2026-09-27: 5/6 labels, κ 0.80.
 - `run-sandbox` and `run-sandbox-docker` — `awf run --sandbox` (story 010). awf-lab runs a probe
   variant on a synthetic case, in the workspace's sandbox: two codex agents that name no sandbox,
@@ -211,11 +207,6 @@ Story 021 measured its final host/SRT waiting pair at about $0.23; each scenario
 
 Not covered live, on purpose:
 
-- claude headless outside a sandbox, beyond what a feature needs: it is billed per token even on a
-  subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
-  `compaction` and `effort` run it, as a headless claude's compaction and settings are what they
-  check; and `review-judge` runs it, as
-  the panel runs its judges headless.
 - Combinatorial deadline, admission, check-in and cleanup races stay in deterministic offline
   tests. `turn-liveness` exercises their provider integration; it does not replace fake-clock
   coverage or establish every provider's receipt/cleanup behavior.

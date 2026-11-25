@@ -56,13 +56,6 @@ export type AgentPlacement = "tui" | "headless";
 export type PlacementChoice = {
   /** Defaults to `tui`. */
   placement?: AgentPlacement;
-  /**
-   * The author's consent to per-token billing, needed to run headless a harness that bills that
-   * way even on a subscription login, as `claude -p` does (E3). The run host refuses such an agent
-   * without it. It says nothing about how an agent was billed: see `Billing`. It is dropped from a
-   * TUI agent, where it means nothing.
-   */
-  metered?: true;
 };
 
 export function placementOf(choice: PlacementChoice): AgentPlacement {
@@ -77,7 +70,7 @@ export type RuntimeAliases = Readonly<Record<RuntimeAliasName, RuntimeTarget>>;
 export type ExecutionRequirements = PlacementChoice & {
   /**
    * Fields the alias names (`harness`, `model`) are constraints: when supplied they must match
-   * it. Fields the agent owns (`placement`, `metered`) are added to it. Reopening an agent, they
+   * it. The field the agent owns (`placement`) is added to it. Reopening an agent, they
    * are constraints too: left out, the agent stays as it was opened.
    */
   alias: RuntimeAliasName;

@@ -75,9 +75,11 @@ still live. Load-bearing conclusions:
   that fails correctly. The measured conditions were narrow: short JSON, a trivial task, sequential
   execution, no blocked agents, pre-granted permissions. 4 of 480 needed a nudge to land; E3, which
   sends none, lost 4 of 80. **Delivery is feasible and needs a nudge policy — it is not "solved".**
-- A pane on a subscription is charged to nobody *on the measured account*; `claude -p` bills
-  metered even with no API key in the environment. E3 says the mechanism is undocumented and
-  account-specific. **Cost is a first-class domain concern.**
+- A pane on a subscription is charged to nobody *on the measured account*. E3 read `claude -p` as
+  billed metered even with no API key in the environment; that reading is superseded: Anthropic's
+  [FAQ](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans)
+  says a plan login's `claude -p` draws on the plan's limits, and a probe on 2026-11-24 agrees
+  ([findings](findings/README.md)). **Cost is a first-class domain concern.**
 - Branching a session (fork, `/fork`, `/clear`) re-paid the context almost everywhere in E7.
   Measured again in 2026-10 ([`fork-cache.md`](findings/fork-cache.md)), awf's forks now read
   their parent's cache in every placement.
@@ -211,9 +213,8 @@ terminal backend. Contains the launch table, `command.ts`, host and provider ada
 Pricing and aggregation are policy and live elsewhere; see section 8.
 
 Placement is the agent's: `tui`, the default, or `headless`, part of the resolved agent identity
-and every usage record. A workflow chooses it because it changes what an agent costs and how it can
-be continued: a headless claude is billed per token even on a subscription (E3), so it also needs
-`metered: true`. Runtime aliases name a harness, a model and an effort. Operator configuration
+and every usage record. A workflow chooses it because it changes how an agent can be watched and
+continued. Runtime aliases name a harness, a model and an effort. Operator configuration
 installs one run host, and every logical agent crosses the same host interface: inspection,
 authority, deadlines, cancellation, cleanup and evidence stay symmetric across placements.
 Swapping Herdr for another pane provider must not change workflow definitions or runtime aliases.
@@ -393,8 +394,7 @@ It is the most demanding consumer, which makes it the useful one to design again
 **Everything it varies must be injectable, with workload and provisioning kept distinct.** Harness,
 model, effort, placement, skills and tools are workload parameters. The terminal host,
 authentication route, funding pool and admission are operator provisioning and accounting policy.
-A workflow's `metered: true` only consents to the funding consequence of a placement; the route and
-the pool stay the operator's. The alias table and run policy are arguments to the engine, not files
+The route and the pool are the operator's; a workflow names none. The alias table and run policy are arguments to the engine, not files
 it silently loads.
 
 **The engine has a programmatic entry point.** Run a workflow with injected configuration, get a

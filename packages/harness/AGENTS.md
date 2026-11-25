@@ -64,6 +64,6 @@ Before editing:
 - **A session adapter is not a provider.** Herdr, a future tmux integration, and direct subprocess
   execution are replaceable session adapters selected by operator configuration. Each serves one
   placement and refuses an agent asking for the other, so a direct caller of the headless adapter
-  sets `placement: "headless"`, and `metered: true` for claude.
+  sets `placement: "headless"`.
 - **The engine uses only the run host.** It opens sessions through `AgentRunHostFactory`, never an
   adapter directly.

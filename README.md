@@ -99,8 +99,8 @@ command.
 ### Things to know
 
 - **TUI agents**, the default, need Herdr. Headless agents don't.
-- **Claude on a subscription works in its TUI only.** Headless claude is billed per token as API
-  usage, so awf refuses it unless the runtime says `metered: true`.
+- **Claude runs on your Claude plan, in its TUI or headless.** `claude -p` draws on the plan's
+  limits like the TUI does.
 - **Sandboxes** need `srt` or docker.
 - **A workflow file is trusted code.** It runs with your permissions; sandbox the agents, not the
   workflow.

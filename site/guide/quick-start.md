@@ -115,8 +115,8 @@ Before you run it:
   unset them first. [Configuration](/reference/configuration#refused) lists them all.
 - To use another harness, change `runtime`. An agent without `placement: "headless"` runs in its
   TUI, which needs Herdr ([Harnesses](/guide/harnesses)).
-- Headless claude is refused unless the runtime says `metered: true`; claude in its TUI runs on
-  your subscription ([why](/guide/harnesses#subscription-and-metered)).
+- claude runs on your subscription, in its TUI or headless
+  ([Harnesses](/guide/harnesses#subscription-and-metered)).
 
 While the run goes, the terminal shows its agent and what it is doing. When it ends, awf prints a
 closing block. Its shape is fixed; the figures here are only an example:
@@ -191,8 +191,7 @@ real agent. Before the first real run, read the workflow for what they can't:
 
 - **The runtimes.** Which harness and model each agent runs on decides what the run costs and
   which login it uses. An agent without `placement: "headless"` opens in its TUI, which needs
-  [Herdr](https://herdr.dev). A headless claude agent needs `metered: true`, your consent to
-  per-token billing: check that the agent set it because you meant it.
+  [Herdr](https://herdr.dev).
 - **The loops.** Every loop needs a limit, and every turn's outcome needs handling: a turn can end
   without an answer, and `outcome.reason` says why ([Outcomes](/reference/workflow-api#outcomes)).
 - **The prompts and schemas.** They are the agents' whole brief. A schema that is too loose lets

@@ -19,7 +19,6 @@ describe("runtimeOf", () => {
       model: "claude-sonnet-5-5",
       effort: "max",
       placement: "headless",
-      metered: true,
     });
   });
 

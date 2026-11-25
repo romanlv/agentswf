@@ -56,11 +56,20 @@ Two parts:
    forces on workflows and on `format/runtime.ts`, and correct the claims in `docs/testing.md`,
    `docs/foundation.md` §4, `examples/quick-check` and `examples/single-agent-review`.
 
+   **Done, 2026-11-24:** the rule is dropped. `meteredHeadless` is gone from every harness spec,
+   and `metered: true` from the author surface, `format/runtime.ts`, the examples and the docs;
+   a headless claude's `billing` is read from `claude auth status`, as a pane's is. Evidence:
+   Anthropic's [FAQ](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans)
+   ("When you're signed in with your Claude plan instead, `claude -p` and Agent SDK usage still
+   draw from your plan's usage limits"), and a probe: `claude -p` on haiku, a claude.ai Max login,
+   no API key, printed `apiKeySource: "none"` and a `rate_limit_event` on the plan's `seven_day`
+   window with `isUsingOverage: false`, overage refused as `out_of_credits`, and answered.
+   **Remains:** part 1's provenance.
+
 Evidence since (story 022, 2026-10-05): one headless `claude -p` turn on a subscription login
 printed a `rate_limit_event` with `isUsingOverage: false` and moved the plan's five-hour and
 seven-day windows, and `claude -p /usage` says "You are currently using your subscription to power
 your Claude Code usage". Both point to headless claude drawing on the plan. `awf allowance claude`
 before and after a turn is now the measurement part 2 asks for.
 
-Until then, spend is reported as list-price estimates, and headless claude's billing as
-unverified.
+Until part 1 lands, spend is reported as list-price estimates.

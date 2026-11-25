@@ -1047,7 +1047,7 @@ describe("billing", () => {
     expect(piBilling(auth, "", "anthropic/claude-opus-5", undefined)).toBe("unknown");
   });
 
-  test("a headless claude agent is charged whatever its login; a pane asks the login", async () => {
+  test("a claude agent's billing is its login's, headless or in a pane", async () => {
     const statuses: string[][] = [];
     const run = async (input: { argv: readonly string[] }) => {
       statuses.push([...input.argv]);
@@ -1062,10 +1062,13 @@ describe("billing", () => {
     const accounting = createSessionAccounting(run);
 
     expect(await accounting.billing({ ...claude, placement: "headless" }, undefined)).toBe(
-      "metered",
+      "subscription",
     );
     expect(await accounting.billing(claude, undefined)).toBe("subscription");
-    expect(statuses).toEqual([["claude", "auth", "status", "--json"]]);
+    expect(statuses).toEqual([
+      ["claude", "auth", "status", "--json"],
+      ["claude", "auth", "status", "--json"],
+    ]);
     expect(await accounting.billing({ harness: "cursor", model: "x" }, undefined)).toBe("unknown");
   });
 

@@ -15,7 +15,6 @@ export const RUNTIMES = {
       harness: "claude",
       model: "claude-sonnet-5-5",
       placement: "headless",
-      metered: true,
     },
   },
   codex: { execution: { harness: "codex", model: "gpt-6-luna" } },

@@ -84,7 +84,7 @@ export const agents = defineWorkflow({
     await worker.run({ prompt: "Read the ticket and plan the change.", schema: PLAN });
     const [security, tests] = await Promise.all([
       worker.fork({ key: "security", instructions: "Review the plan for security." }),
-      worker.fork({ key: "tests", runtime: { placement: "headless", metered: true } }),
+      worker.fork({ key: "tests", runtime: { placement: "headless" } }),
     ]);
     // #endregion fork
 

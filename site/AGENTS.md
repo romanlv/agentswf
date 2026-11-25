@@ -23,8 +23,8 @@ bun run preview    # serves the build
 - `wf` is a workflow's context and `wfa` the agent's command.
 - Placeholders are `{name}` in prose, and `<name>` only inside CLI usage, in a code block. A bare
   `<name>` in prose is an HTML tag.
-- No claim about spend beyond the records' own words: a headless claude being "metered" is a rule,
-  not a bill, and `reportedCost` is what a harness or provider printed. Never "charged" or "spent".
+- No claim about spend beyond the records' own words: `billing` is read from a login, not a bill,
+  and `reportedCost` is what a harness or provider printed. Never "charged" or "spent".
 - No private project's name.
 - The pitch (the landing page, the overview, the README opening) says "coding agents" or "the
   agents you already use", never a list of harnesses: more are coming. Harnesses are named where
@@ -133,7 +133,7 @@ One page owns each of these; every other page says it in a clause at most and li
 | What a run keeps (out.json, report.md), briefly | `/guide/how-it-works#the-record`; the full layout on `/reference/data` |
 | What `awf init` writes and never overwrites | `/guide/quick-start` |
 | Harness requirements (logins, binaries, Herdr, srt, docker) | `/guide/install` |
-| Subscription vs metered, headless claude needs `metered: true`, API keys in the environment refused | `/guide/harnesses` |
+| Subscription vs metered, API keys in the environment refused | `/guide/harnesses` |
 | The list of refused metered-key variables, and every other environment variable | `/reference/configuration` (harnesses states the rule and links it) |
 | Outcome kinds and what each leaves of the agent; a failed or timed-out turn closes it; fields taught as flags; switching model costs the cache | `/guide/agents` |
 | The JSON Schema subset a typed answer may use | `/guide/agents` (the reference links it) |

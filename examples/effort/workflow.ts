@@ -25,7 +25,6 @@ export const RUNTIMES = {
       model: "claude-sonnet-5-5",
       effort: "low",
       placement: "headless",
-      metered: true,
     },
     switched: { effort: "high", model: "claude-opus-5-5" },
   },

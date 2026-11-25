@@ -12,7 +12,7 @@ import {
  * cannot wait and ask from headless.
  */
 const HEADLESS = {
-  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
+  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless" },
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   pi: {
     harness: "pi",
@@ -22,7 +22,7 @@ const HEADLESS = {
   cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
 } satisfies Record<string, ExecutionConfig>;
 const pane = (execution: ExecutionConfig): ExecutionConfig => {
-  const { placement: _placement, metered: _metered, ...rest } = execution;
+  const { placement: _placement, ...rest } = execution;
   return rest;
 };
 type Pair = { asker: ExecutionConfig; keeper: ExecutionConfig };

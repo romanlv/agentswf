@@ -87,9 +87,7 @@ describe("AgentSessionAdapter conformance", () => {
         execution: {
           harness: implementation.harness,
           model: "test",
-          ...(implementation.name === "headless"
-            ? { placement: "headless" as const, metered: true as const }
-            : {}),
+          ...(implementation.name === "headless" ? { placement: "headless" as const } : {}),
         },
       });
       const turn = await session.start({ id: "turn-1", prompt: "work", deadline }, binding);

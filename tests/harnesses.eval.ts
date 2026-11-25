@@ -4,14 +4,22 @@ import type { OutputRecord } from "../packages/contract/src/records";
 import { assertLiveOptIn, recorded, report, runLive } from "./live";
 
 /**
- * Every harness awf runs, live, on its cheapest model: codex, pi and cursor headless, and claude, pi
- * and cursor in a Herdr pane, each answering a follow-up in the same session. Each must answer right
- * through `wfa result`, and each agent's spend must be read on its subscription, but cursor's: what
- * it bills is unknown, and in a pane it prints no usage. One run of six agents, about 40 s and $0.07
- * at list prices.
+ * Every harness awf runs, live, on its cheapest model: each headless, and claude, pi and cursor in a
+ * Herdr pane, each answering a follow-up in the same session. Each must answer right through
+ * `wfa result`, and each agent's spend must be read on its subscription, but cursor's: what it bills
+ * is unknown, and in a pane it prints no usage. One run of seven agents, about 40 s and $0.08 at
+ * list prices.
  */
 const QUICK_CHECK = join(import.meta.dir, "../examples/quick-check/workflow.ts");
-const HARNESSES = ["codex", "pi", "pi-tui", "claude", "cursor", "cursor-tui"] as const;
+const HARNESSES = [
+  "codex",
+  "pi",
+  "pi-tui",
+  "claude",
+  "claude-headless",
+  "cursor",
+  "cursor-tui",
+] as const;
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
   if (exitCode !== 0 || record?.outcome !== "completed") {

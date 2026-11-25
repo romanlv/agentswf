@@ -60,7 +60,6 @@ export function createSessionAccounting(run: RunProcess = runProcess): SessionAc
     },
     async billing(execution, records) {
       const spec = findHarness(execution.harness);
-      if (spec?.meteredHeadless && placementOf(execution) === "headless") return "metered";
       if (!spec?.billing) return "unknown";
       const providers = new Set(records?.flatMap((record) => record.provider ?? []));
       // One answer per agent: an agent that moved between providers may be paid for two ways.

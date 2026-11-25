@@ -32,7 +32,6 @@ describe("single-agent-review", () => {
       skill: { repo: "owner/repo", skill: "code-review", ref: "v1.2" },
       runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
     });
-    expect(prepare("--runtime", "claude/sonnet").runtime).toMatchObject({ metered: true });
     expect(() => prepare("--skill", "code-review")).toThrow("--skill is owner/repo/skill@ref");
     expect(() => prepare("--skill", "owner/repo/code-review")).toThrow("pinned to a ref");
     expect(() => prepare("--lenses", "a")).toThrow("unknown flag --lenses");

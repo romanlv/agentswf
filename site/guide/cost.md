@@ -7,7 +7,7 @@ description: "What a run took: its time, its tokens and an estimate at dated lis
 
 **Will a run cost you money?** With the defaults, no more than your plans: agents run on your
 Claude, ChatGPT, Cursor or pi logins and draw down those plans' allowance. Per-token billing
-happens only where you opt into it: a headless claude with `metered: true`, pi signed in to a
+happens only where you opt into it: pi signed in to a
 provider with an API key, cursor past its plan into on-demand usage, and
 [decisions](/guide/decisions), which bill your OpenRouter account.
 [Harnesses](/guide/harnesses#subscription-and-metered) has the rules.

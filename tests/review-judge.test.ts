@@ -263,7 +263,7 @@ describe("the panel judge", () => {
       fixture: "/work/d",
       findings: "/work/f",
       voters: [
-        { harness: "claude", model: "a", placement: "headless", metered: true },
+        { harness: "claude", model: "a", placement: "headless" },
         { harness: "codex", model: "b", placement: "headless" },
       ],
       tiebreak: { harness: "codex", model: "c" },

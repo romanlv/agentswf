@@ -290,7 +290,7 @@ printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
       [codex, [{ path: join(root, "nowhere") }], "does not exist"],
       [codex, ["alpha"], "name a source"],
       [
-        { harness: "cursor", model: "m", placement: "headless", metered: true },
+        { harness: "cursor", model: "m", placement: "headless" },
         [{ path: await skill("alpha") }],
         "cursor cannot be given skills on the host",
       ],

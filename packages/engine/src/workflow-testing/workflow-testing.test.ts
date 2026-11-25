@@ -652,7 +652,7 @@ describe("testWorkflow", () => {
       const harnesses = [
         { harness: "codex", model: "m" },
         { harness: "pi", model: "openai-codex/m" },
-        { harness: "claude", model: "m", metered: true },
+        { harness: "claude", model: "m" },
         { harness: "cursor", model: "m" },
       ] as const;
       const boxed = workflowOf<null, string>(async (workflow) => {
@@ -686,12 +686,10 @@ describe("testWorkflow", () => {
     }
   });
 
-  describe("the hosts refuse what the real ones refuse", () => {
-    test("headless claude without metered", async () => {
-      const runtime = { harness: "claude", model: "m", placement: "headless" } as const;
-      const run = await runTest(solo({ runtime }), { agents: { solo: answer("hi") } });
-      expect(() => run.value).toThrow("set metered: true");
-    });
+  test("a headless claude runs as the real host runs it, with no consent to give", async () => {
+    const runtime = { harness: "claude", model: "m", placement: "headless" } as const;
+    const run = await runTest(solo({ runtime }), { agents: { solo: answer("hi") } });
+    expect(run.value).toMatchObject({ kind: "answered", value: "hi" });
   });
 
   describe("a stuck test fails, it doesn't hang", () => {
@@ -1310,7 +1308,7 @@ describe("testWorkflow with a calling session", () => {
 const forking = workflowOf<{ placement?: "tui" }, JsonValue>(async (workflow, args) => {
   const worker = await workflow.agents.open({
     key: "worker",
-    runtime: { alias: "claude", placement: "headless", metered: true },
+    runtime: { alias: "claude", placement: "headless" },
   });
   await worker.run({ prompt: "Plan a cache.", schema: PLAN });
   const tests = await worker
@@ -1551,7 +1549,7 @@ describe("testWorkflow panes", () => {
         await message(
           lead.fork({
             key: "quiet",
-            runtime: { placement: "headless", metered: true },
+            runtime: { placement: "headless" },
             pane: { tab: "q" },
           }),
         ),

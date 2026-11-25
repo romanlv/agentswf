@@ -57,7 +57,6 @@ describe("fork", () => {
     expect(run.value.checks.map((check) => check.problem)).toEqual([undefined, undefined]);
     expect(run.agentOf("fork-claude.to-headless").execution).toMatchObject({
       placement: "headless",
-      metered: true,
     });
     expect(run.agentOf("fork-codex-headless.to-tui").execution).not.toHaveProperty("placement");
   });

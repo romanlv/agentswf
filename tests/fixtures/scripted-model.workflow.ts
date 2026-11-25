@@ -18,7 +18,6 @@ const RUNTIMES = {
     harness: "claude",
     model: SCRIPTED_MODELS.claude,
     placement: "headless",
-    metered: true,
   },
 } as const satisfies Record<string, ExecutionConfig>;
 type Runtime = keyof typeof RUNTIMES;

@@ -145,10 +145,6 @@ skill.
 - **No pane goes beside the calling session.** Its pane is yours: a
   [`pane`](/guide/harnesses#where-panes-go) `beside` it falls back to a tab of its own.
   `awf run --workspace origin` puts the run's tabs in the workspace you typed `awf run` in.
-- **A headless fork of a claude session is metered.** The fork runs on the session's harness, so
-  `runtime: { placement: "headless" }` on claude needs `metered: true`; in its TUI it runs on your
-  subscription.
-  [Harnesses](/guide/harnesses#subscription-and-metered) says why.
 - **A killed run says nothing.** A run that ends, fails or stops tells the session; one whose
   process is killed doesn't, and the session sits waiting for a prompt. Type to it as usual.
 - **A test has no session.** Script one with `testWorkflow`'s

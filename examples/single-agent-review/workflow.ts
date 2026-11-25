@@ -56,12 +56,11 @@ export type SingleReviewResult = {
   findings: SingleFinding[];
 };
 
-/** Claude, headless and so billed per token; a TUI agent needs the operator's Herdr. */
+/** Claude, headless: a TUI agent needs the operator's Herdr. */
 const DEFAULT_RUNTIME: ExecutionConfig = {
   harness: "claude",
   model: "claude-sonnet-5-5",
   placement: "headless",
-  metered: true,
 };
 
 function reviewPrompt(args: SingleReviewArgs): string {
@@ -141,7 +140,6 @@ function parseArgs(invocation: WorkflowInvocation): SingleReviewArgs {
       harness,
       model,
       placement: "headless",
-      ...(harness === "claude" ? { metered: true as const } : {}),
     };
   }
   return args;

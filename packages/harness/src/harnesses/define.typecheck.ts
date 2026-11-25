@@ -11,7 +11,6 @@ const bare = {
   settingsEnv: [],
   meteredCredentials: [],
   herdrSessionIsOwn: false,
-  meteredHeadless: false,
   interactive: () => ({ argv: ["bare"] }),
   headlessTurn: (prompt) => ({ argv: ["bare"], stdin: prompt }),
 } satisfies HarnessDefinition;

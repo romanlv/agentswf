@@ -323,10 +323,9 @@ test("a fork's runtime: an empty one is none, a model is refused, and what it le
           runtime: { alias: "claude", effort: "high" },
         });
         await agent.run({ prompt: "One." });
-        await agent.fork({ key: "headless", runtime: { placement: "headless", metered: true } });
+        await agent.fork({ key: "headless", runtime: { placement: "headless" } });
         const bare = await agent.fork({ key: "bare" });
         const empty = await agent.fork({ key: "bare", runtime: {} });
-        await agent.fork({ key: "tui", runtime: { metered: true } });
         const model = await agent
           .fork({ key: "other", runtime: { model: "gpt-6-luna" } as never })
           .then(
@@ -341,11 +340,8 @@ test("a fork's runtime: an empty one is none, a model is refused, and what it le
   expect(run.value).toEqual([true, expect.stringContaining("not model")]);
   expect(run.agentOf("headless").execution).toMatchObject({
     placement: "headless",
-    metered: true,
     effort: "high",
   });
   expect(run.agentOf("bare").execution).toMatchObject({ effort: "high" });
   expect(run.agentOf("bare").execution).not.toHaveProperty("placement");
-  // A TUI fork drops metered, where it means nothing.
-  expect(run.agentOf("tui").execution).not.toHaveProperty("metered");
 });

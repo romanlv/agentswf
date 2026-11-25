@@ -401,7 +401,7 @@ describe("sandboxed agents", () => {
       "a claude without its setup token",
       (c) =>
         open(c, {
-          runtime: { harness: "claude", model: "m", placement: "headless", metered: true },
+          runtime: { harness: "claude", model: "m", placement: "headless" },
           sandbox: { srt: {} },
         }),
       "a sandboxed claude needs CLAUDE_CODE_OAUTH_TOKEN",

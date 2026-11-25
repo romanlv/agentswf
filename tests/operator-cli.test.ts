@@ -446,7 +446,7 @@ describe("awf run", () => {
     });
     expect(exitCode).toBe(2);
     expect(errors.join("\n")).toContain(
-      "unknown runtime aider; expected codex, pi, pi-tui, claude, cursor, cursor-tui",
+      "unknown runtime aider; expected codex, pi, pi-tui, claude, claude-headless, cursor, cursor-tui",
     );
   });
 

@@ -178,7 +178,7 @@ The guide: [Agents](/guide/agents), [Harnesses](/guide/harnesses).
 | Field | |
 | --- | --- |
 | `key` | Required. The agent's name in this run, such as `review-security`: lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit, as an event's or a stage's name is, since it names the agent's [operations](/reference/data#ops). Opening the same key again returns the same agent when every field given matches; a field that conflicts rejects. `operator`, `awf`, `system` and `user` are reserved, and so is a key a decision in the run already has. A key with a colon is refused: a colon is kept for awf's own event names, `{key}:ended` and `{key}:reply`. |
-| `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement?, metered? }`; or `{ alias, harness?, model?, effort?, placement?, metered? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
+| `runtime` | Required. An alias, `"claude"` or `"codex"`; `{ harness, model, effort?, placement? }`; or `{ alias, harness?, model?, effort?, placement? }` to constrain an alias, where `harness` and `model` must match it and `effort` replaces its effort. |
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }`, an absolute path or `file:` URL of a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Left out, it has what it would have without awf: yours on the host, none in a sandbox. |
 | `sandbox` | A sandbox from [`wf.sandboxes.open`](#sandboxes-open), or an inline spec for a private one. Left out, the agent is unsandboxed. |
@@ -195,7 +195,6 @@ The `runtime` fields:
 | `model` | The harness's own model name. |
 | `effort` | In the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, the harness uses its default. |
 | `placement` | `"tui"`, the default: the harness's own TUI, kept between turns, in a terminal pane in [Herdr](https://herdr.dev) you can watch and type into; or `"headless"`, a process per turn. |
-| `metered` | `true`: required for headless claude. [Subscription and metered](/guide/harnesses#subscription-and-metered) says why. |
 
 The aliases `awf run` installs are `claude` (claude, `sonnet`) and `codex` (codex,
 `gpt-5.6-sol`). Both open in their TUI unless `placement` says otherwise.
@@ -305,7 +304,7 @@ being told again, and reads that context from the provider's cache
   neither sees the other's turns.
 - **A fork has its parent's** harness, model, effort, placement, working directory, sandbox,
   skills and tools. It may name its own `instructions`, `tools` (`{}` for none) and `runtime`,
-  `{ placement?, metered?, effort? }`, as [`open`'s](#agents-open) fields: never a harness or
+  `{ placement?, effort? }`, as [`open`'s](#agents-open) fields: never a harness or
   model, since it continues its parent's session on them. It never inherits `pane`: without
   one it gets a tab of its own. `timeout`, as for [`run`](#agent-run), bounds
   taking the copy and opening the fork.
@@ -315,7 +314,7 @@ being told again, and reads that context from the provider's cache
 
 ### agent.execution {#agent-execution}
 
-The agent's settings now: `harness`, `model`, `effort?`, `placement?`, `metered?`, `alias?` when
+The agent's settings now: `harness`, `model`, `effort?`, `placement?`, `alias?` when
 it was opened through one, and `caller: true` for the calling session, whose `model` is `""`. As it
 was opened, then as the last answered `set` left them.
 
@@ -1010,7 +1009,7 @@ What `agentswf/workflow` exports for a workflow's own signatures, beside the cal
 | `WorkflowMeta`, `WorkflowInvocation` | What `meta` is; and what `prepare` is given, `argv` and `cwd`. |
 | `StageSummary` | One stage an attempt entered, as `report` is given it: `stage`, `source` (`ran` or `reused`) and its outcome. |
 | `RuntimeSelection` | What `runtime` takes: an alias's name, an alias with constraints, or an `ExecutionConfig`. |
-| `ExecutionConfig`, `AgentPlacement`, `Effort` | A complete runtime: `harness`, `model`, `effort?`, `placement?` (`tui` or `headless`) and `metered?`. |
+| `ExecutionConfig`, `AgentPlacement`, `Effort` | A complete runtime: `harness`, `model`, `effort?`, and `placement?` (`tui` or `headless`). |
 | `AgentExecution` | What `agent.execution` is: its `ExecutionConfig`, and the `alias` it was opened through. |
 | `AgentOpenSpec` | What [`open`](#agents-open) takes, for a helper that builds one. |
 | `RunResult<T>` | What `run` resolves to: `{ outcome }`. |

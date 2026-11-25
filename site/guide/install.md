@@ -40,14 +40,13 @@ its first agent on it, so a run that uses only codex needs no claude login.
 
 | Harness | Command on PATH | Login it needs | Headless | In a sandbox, besides the login |
 | --- | --- | --- | --- | --- |
-| claude | `claude` | a Claude subscription: `claude`, then `/login` | only with `metered: true` | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` |
+| claude | `claude` | a Claude subscription: `claude`, then `/login` | yes | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` |
 | codex | `codex` | a ChatGPT login: `codex login` | yes | nothing |
 | pi | `pi` | one per model provider: `pi`, then `/login` | yes | nothing |
 | cursor | `cursor-agent` | `cursor-agent login` | yes | `CURSOR_API_KEY`, from Cursor's dashboard |
 
-A claude TUI agent runs on your plan, and headless claude is refused unless its runtime says
-`metered: true`; [Harnesses](/guide/harnesses#subscription-and-metered) says why, and what awf refuses
-in your environment.
+A claude agent runs on your plan, in its TUI or headless; [Harnesses](/guide/harnesses#subscription-and-metered)
+says what awf refuses in your environment.
 
 claude and codex must be on a subscription login, not an API key; otherwise the agent doesn't open:
 

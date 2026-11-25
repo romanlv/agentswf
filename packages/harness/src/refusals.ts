@@ -1,7 +1,7 @@
 import { type AgentExecution, placementOf } from "@agentswf/contract/workflow";
 import type { HarnessActivation } from "./adapter";
 import { sandboxable } from "./sandbox-needs";
-import { absence, findHarness, harnessSpec, knownHarness } from "./spec";
+import { absence, findHarness, knownHarness } from "./spec";
 import type { Harness } from "./types";
 
 /**
@@ -10,9 +10,6 @@ import type { Harness } from "./types";
  */
 export function headlessRefusal(request: HarnessActivation): string | undefined {
   const harness = knownHarness(request.execution.harness);
-  if (harnessSpec(harness).meteredHeadless && request.execution.metered !== true) {
-    return `headless ${harness} is billed per token even on a subscription login; set metered: true to run it`;
-  }
   if (request.occupant && !sandboxable(harness)) return `${harness} cannot run in a sandbox`;
   return undefined;
 }

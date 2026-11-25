@@ -19,7 +19,6 @@ const PI = {
   // pi logs in to the providers claude and codex do, and reads the same keys.
   meteredCredentials: [],
   herdrSessionIsOwn: true,
-  meteredHeadless: false,
   effort: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
   setHeadless: true,
   setPane: true,

@@ -36,7 +36,7 @@ E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows 
 
 These conclusions changed the design and are stated where the design is. They are not repeated here:
 delivery is feasible and needs a nudge policy; a subscription pane is charged to nobody on the
-measured account while `claude -p` bills metered; cost is a domain, not a metric; branching a session
+measured account; cost is a domain, not a metric; branching a session
 re-pays the context and continuing it keeps the cache; schema constraints belong in the prompt; a
 tool call returning success is not evidence the model received anything. See §2, §4, §6, §7 and §8.
 
@@ -105,6 +105,14 @@ carries the hedge.
 **A later experiment corrected an earlier one.** E3 found `e2/pane-cost.ts` double-counting claude
 pane tokens — one API response is written to the log as several rows sharing a `message.id`. E2's
 delivery conclusion is unaffected; its pane cache figures are inflated.
+
+**A later measurement corrected E3's billing.** E3 read `claude -p` as billed metered on a
+subscription login, untried against a bill. On 2026-11-24, `claude -p` on haiku with a claude.ai Max
+login and no API key printed `apiKeySource: "none"` at init and a `rate_limit_event` on the plan's
+`seven_day` window with `isUsingOverage: false` and overage refused as `out_of_credits`, and the call
+answered: it could only have drawn on the plan. Anthropic's
+[FAQ](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans)
+says the same. awf dropped `meteredHeadless` and `metered: true` with it.
 
 ## What E4 should watch
 

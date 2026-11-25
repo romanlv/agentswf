@@ -19,7 +19,7 @@ import Value from "typebox/value";
 export const PROBES = {
   // luna, codex's cheapest, declined the probe's commands headless and in its TUI.
   coder: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-  tester: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
+  tester: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless" },
   reviewer: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
 } as const satisfies Record<string, ExecutionConfig>;
 
@@ -90,11 +90,7 @@ export default defineWorkflow<ProbePlan, ProbeResult>({
     });
     const probe = async (name: ProbeName): Promise<ProbeReport> => {
       const pane = plan.panes?.includes(name) === true;
-      const {
-        placement: _placement,
-        metered: _metered,
-        ...target
-      } = PROBES[name] as ExecutionConfig;
+      const { placement: _placement, ...target } = PROBES[name] as ExecutionConfig;
       const agent = await wf.agents.open({
         key: name,
         runtime: pane ? target : PROBES[name],

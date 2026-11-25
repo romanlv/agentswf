@@ -19,7 +19,7 @@ export const RUNTIMES = {
     model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
     placement: "headless",
   },
-  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
+  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless" },
   "claude-tui": { harness: "claude", model: "claude-sonnet-5-5" },
 } as const satisfies Record<string, ExecutionConfig>;
 export type RuntimeName = keyof typeof RUNTIMES;

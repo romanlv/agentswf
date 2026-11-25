@@ -265,8 +265,6 @@ const CLAUDE = {
     (await ownFiles(home, claudeProjectsDirectory(home)))
       .filter((name) => /^[^/]+\/[^/]+\.jsonl$/.test(name))
       .map((name) => basename(name, ".jsonl")),
-  // E3: `claude -p` bills metered on a subscription login, with no key in the environment.
-  meteredHeadless: true,
   // `--help`'s list; `/effort` also takes `auto` and `ultracode`, which are not levels (M2).
   effort: ["low", "medium", "high", "xhigh", "max"],
   setHeadless: true,

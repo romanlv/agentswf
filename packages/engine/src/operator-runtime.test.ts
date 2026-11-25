@@ -172,10 +172,7 @@ describe("operator runtime", () => {
           deadline,
           execution: { harness, model: "m", placement: "headless", ...extra },
         });
-      await expect(open("claude")).rejects.toThrow(
-        "headless claude is billed per token even on a subscription login; set metered: true",
-      );
-      await open("claude", { metered: true });
+      await open("claude");
       const codex = await open("codex");
       await open("pi");
       const turn = await codex.start(
@@ -183,13 +180,12 @@ describe("operator runtime", () => {
         { endpoint: "/private/engine.sock", operationId: "op-1" },
       );
       await turn.settled;
-      // The refused claude is reported missing, beside the three that opened.
       expect(
         host
           .inspect()
           .agents.map((agent) => agent.state)
           .sort(),
-      ).toEqual(["idle", "idle", "idle", "missing"]);
+      ).toEqual(["idle", "idle", "idle"]);
       await host.close();
       expect(host.inspect().state).toBe("closed");
       expect(calls.some((call) => call.argv[0] === "herdr")).toBe(false);
@@ -197,12 +193,12 @@ describe("operator runtime", () => {
       expect(agentCall?.env).toHaveProperty("OPENAI_API_KEY", undefined);
       expect(agentCall?.env).toHaveProperty("CODEX_API_KEY", undefined);
 
-      // Billing follows placement: a headless claude is metered whatever its login.
+      // A headless claude draws on its login, as a pane does.
       const accounting = factory.accounting!;
       const claude = { harness: "claude", model: "sonnet" };
-      expect(
-        await accounting.billing({ ...claude, placement: "headless", metered: true }, []),
-      ).toBe("metered");
+      expect(await accounting.billing({ ...claude, placement: "headless" }, [])).toBe(
+        "subscription",
+      );
       expect(await accounting.billing({ harness: "codex", model: "m" }, [])).toBe("subscription");
       const probed = calls.length;
       const headlessCodex = { harness: "codex", model: "m", placement: "headless" } as const;
@@ -427,7 +423,7 @@ describe("operator runtime", () => {
           key: harness,
           cwd: "/repo",
           deadline,
-          execution: { harness, model: "m", placement: "headless", metered: true },
+          execution: { harness, model: "m", placement: "headless" },
         });
       const first = await open().then(
         () => undefined,

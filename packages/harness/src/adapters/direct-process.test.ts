@@ -46,7 +46,6 @@ describe("createHeadlessAdapter", () => {
       harness: "claude",
       model: "opus",
       placement: "headless",
-      metered: true,
     },
   };
   const firstBinding = {
@@ -475,7 +474,6 @@ describe("createHeadlessAdapter", () => {
         harness,
         model,
         placement: "headless",
-        ...(harness === "claude" ? { metered: true } : {}),
       },
     });
     const firstTurn: Record<string, string> = {
@@ -775,7 +773,6 @@ describe("createHeadlessAdapter", () => {
               model: "first",
               effort: "low",
               placement: "headless",
-              metered: true,
             },
           },
         );
@@ -1435,17 +1432,13 @@ describe("createHeadlessAdapter", () => {
     }
   });
 
-  test("runs only headless agents, and claude only when it is marked metered", async () => {
+  test("runs only headless agents", async () => {
     const run: RunProcess = async () => {
       throw new Error("nothing should launch");
     };
     const { placement: _placement, ...pane } = activation.execution;
     await expect(headless(run, {}, { ...activation, execution: pane })).rejects.toThrow(
       "adapter runs headless agents, not tui",
-    );
-    const { metered: _metered, ...unmetered } = activation.execution;
-    await expect(headless(run, {}, { ...activation, execution: unmetered })).rejects.toThrow(
-      "headless claude is billed per token even on a subscription login; set metered: true",
     );
   });
 

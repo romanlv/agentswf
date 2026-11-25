@@ -9,7 +9,7 @@ export const LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh
 /**
  * A runtime as a command line names one, `harness/model` or `harness/model:{effort}`, run
  * headless. The part after the last `:` is an effort only when it names a level: a pi model may end
- * in `:free`. Claude run headless is billed per token, which `metered` consents to.
+ * in `:free`.
  */
 export function runtimeOf(spec: string): ExecutionConfig {
   const slash = spec.indexOf("/");
@@ -26,7 +26,6 @@ export function runtimeOf(spec: string): ExecutionConfig {
     model,
     ...(effort === undefined ? {} : { effort }),
     placement: "headless",
-    ...(harness === "claude" ? { metered: true as const } : {}),
   };
 }
 

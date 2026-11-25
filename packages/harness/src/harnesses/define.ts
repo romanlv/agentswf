@@ -285,11 +285,6 @@ export type HarnessSpec = {
    */
   readCompactSummary?(session: string, cwd: string): Promise<string | undefined>;
   /**
-   * Its headless turns are billed per token even on a subscription login, so a headless agent is
-   * `metered` whatever `billing` says, and runs only when its execution says `metered`.
-   */
-  meteredHeadless: boolean;
-  /**
    * The effort levels it takes, in its own words, lowest first. An agent given one it does not
    * list is refused before anything runs.
    */

@@ -92,7 +92,7 @@ inside one: the sandbox answers what they would ask.
 awf stops rather than run with less than you asked for, or on a login you didn't mean:
 
 - **Per-token billing you didn't ask for:** a key for it in your environment, claude or codex on an
-  API-key login, a headless claude without `metered: true`. [Harnesses](/guide/harnesses#subscription-and-metered)
+  API-key login. [Harnesses](/guide/harnesses#subscription-and-metered)
   has the rules.
 - **A sandboxed claude or cursor without its token:**
 

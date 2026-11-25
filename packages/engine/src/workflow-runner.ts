@@ -4931,15 +4931,10 @@ function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
   return { model, ...(effort === undefined ? {} : { effort }) };
 }
 
-/**
- * A TUI is the default and is left unsaid, and `metered` is kept only where it means something,
- * so the same agent always has one identity.
- */
+/** A TUI is the default and is left unsaid, so the same agent always has one identity. */
 function storedPlacement(choice: PlacementChoice): PlacementChoice {
   knownPlacement(choice);
-  return placementOf(choice) === "headless"
-    ? { placement: "headless", ...(choice.metered === true ? { metered: true as const } : {}) }
-    : {};
+  return placementOf(choice) === "headless" ? { placement: "headless" } : {};
 }
 
 /** A workflow is untyped JavaScript at run time; a misspelt placement must not become a TUI. */
@@ -4961,9 +4956,8 @@ function knownPlacement(choice: PlacementChoice): void {
  * its parent's.
  */
 function forkExecution(parent: AgentExecution, runtime: ForkRuntime = {}): AgentExecution {
-  const { placement: _placement, metered: _metered, ...target } = parent;
-  const choice =
-    runtime.placement === undefined && runtime.metered === undefined ? parent : runtime;
+  const { placement: _placement, ...target } = parent;
+  const choice = runtime.placement === undefined ? parent : runtime;
   return {
     ...target,
     ...(runtime.effort === undefined ? {} : { effort: runtime.effort }),
@@ -4971,7 +4965,7 @@ function forkExecution(parent: AgentExecution, runtime: ForkRuntime = {}): Agent
   };
 }
 
-const FORK_RUNTIME_FIELDS = ["placement", "metered", "effort"] as const;
+const FORK_RUNTIME_FIELDS = ["placement", "effort"] as const;
 
 /** A fork's spec, its `runtime` checked: what a typed caller can't get wrong, a plain one can. */
 function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
@@ -4987,7 +4981,7 @@ function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
   if (runtime === undefined) return rest;
   if (typeof runtime !== "object" || runtime === null || Array.isArray(runtime)) {
     throw new Error(
-      `agent ${spec.key}: a fork's runtime is { placement?, metered?, effort? }, not ${JSON.stringify(runtime)}`,
+      `agent ${spec.key}: a fork's runtime is { placement?, effort? }, not ${JSON.stringify(runtime)}`,
     );
   }
   // A workflow is untyped JavaScript at run time; a harness or model asked for must not be dropped.
@@ -4998,12 +4992,11 @@ function forkSpecOf(spec: CallerForkSpec): CallerForkSpec {
   );
   if (others.length > 0) {
     throw new Error(
-      `agent ${spec.key}: a fork continues its parent's session on its harness and model; its runtime takes placement, metered and effort, not ${others.join(", ")}`,
+      `agent ${spec.key}: a fork continues its parent's session on its harness and model; its runtime takes placement and effort, not ${others.join(", ")}`,
     );
   }
   const given = definedFields({
     placement: runtime.placement,
-    metered: runtime.metered,
     effort: runtime.effort,
   });
   return Object.keys(given).length === 0 ? rest : { ...rest, runtime: given };
@@ -5041,12 +5034,7 @@ function constrainExistingExecution(
   }
   knownPlacement(selection);
   const placed = placementOf(existing);
-  if (
-    (selection.placement !== undefined && placementOf(selection) !== placed) ||
-    (selection.metered !== undefined &&
-      placed === "headless" &&
-      selection.metered !== existing.metered)
-  ) {
+  if (selection.placement !== undefined && placementOf(selection) !== placed) {
     throw new Error("existing agent uses a different placement");
   }
   return existing;

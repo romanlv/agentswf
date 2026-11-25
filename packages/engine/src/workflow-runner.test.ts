@@ -542,12 +542,11 @@ describe("runWorkflow", () => {
         );
       return [
         await open("a", { alias: "review", placement: "headless" }),
-        await open("b", { harness: "fake", model: "fake", placement: "tui", metered: true }),
-        await open("c", { harness: "fake", model: "fake", placement: "headless", metered: true }),
+        await open("b", { harness: "fake", model: "fake", placement: "tui" }),
+        await open("c", { harness: "fake", model: "fake", placement: "headless" }),
         await open("a", { alias: "review", placement: "headless" }),
         await open("a", "review"),
         await open("a", { alias: "review", placement: "tui" }),
-        await open("a", { alias: "review", metered: true }),
         await open("c", { harness: "fake", model: "fake", placement: "headless" }),
         await open("c", { harness: "fake", model: "fake" }),
         await open("c", { harness: "fake", model: "fake", placement: "tui" }),
@@ -581,7 +580,6 @@ describe("runWorkflow", () => {
       "opened",
       "opened",
       "Error: existing agent uses a different placement",
-      "Error: existing agent uses a different placement",
       "opened",
       "opened",
       "Error: existing agent uses a different placement",
@@ -593,7 +591,7 @@ describe("runWorkflow", () => {
     expect(adapter.activations.map((activation) => activation.execution)).toEqual([
       { harness: "fake", model: "fake", alias: "review", placement: "headless" },
       { harness: "fake", model: "fake" },
-      { harness: "fake", model: "fake", placement: "headless", metered: true },
+      { harness: "fake", model: "fake", placement: "headless" },
       // An alias that tries to carry a placement is read for its target only.
       { harness: "fake", model: "fake", alias: "headlessAlias" },
     ]);
@@ -2963,7 +2961,7 @@ describe("keys and routes refused", () => {
       expect(refusal).toContain("a colon, kept for awf's own event names");
   });
 
-  test("a fork's flat placement, metered or effort is refused, naming its runtime", async () => {
+  test("a fork's flat placement or effort is refused, naming its runtime", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
@@ -2975,7 +2973,7 @@ describe("keys and routes refused", () => {
       workflowOf("flat-fork", async (context) => {
         const reviewer = await openReviewer(context);
         await reviewer.run({ prompt: "Review.", schema: ANSWER_SCHEMA });
-        return reviewer.fork({ key: "copy", placement: "headless", metered: true } as never).then(
+        return reviewer.fork({ key: "copy", placement: "headless" } as never).then(
           () => "taken",
           (error: Error) => error.message,
         );
@@ -2984,7 +2982,7 @@ describe("keys and routes refused", () => {
       { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
     );
     expect(result.value).toContain(
-      "a fork's placement, metered go in its runtime: fork({ key, runtime: { placement, metered } })",
+      "a fork's placement go in its runtime: fork({ key, runtime: { placement } })",
     );
   });
 

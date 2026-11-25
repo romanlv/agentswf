@@ -57,7 +57,7 @@ for (const runtime of ["codex", "pi", "claude-headless"]) {
           key: "worker",
           runtime:
             runtime === "claude-headless"
-              ? { harness: "claude", model: "test", placement: "headless", metered: true }
+              ? { harness: "claude", model: "test", placement: "headless" }
               : runtime,
         });
         return (await agent.run({ prompt: "work" })).outcome.kind;

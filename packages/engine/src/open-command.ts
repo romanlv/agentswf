@@ -202,11 +202,6 @@ export async function openCommand(
           `${where.harness} cannot be asked headless: ${spec.absent.resumeTurn}`,
           "usage",
         );
-      if (spec.meteredHeadless && where.execution.metered !== true)
-        throw new OpenRefused(
-          `headless ${where.harness} is billed per token even on a subscription login, and ${options.agent} did not run metered: open it without -p`,
-          "usage",
-        );
     } else if (!spec.operatorResume)
       throw new OpenRefused(
         `${where.harness} has no TUI a person can resume: ${spec.absent.operatorResume}`,

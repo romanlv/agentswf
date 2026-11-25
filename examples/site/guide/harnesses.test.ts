@@ -5,7 +5,6 @@ import planAndList, {
   PLAN,
   reviewers,
   unlisted,
-  unmetered,
 } from "./harnesses";
 
 test("each agent runs on the harness, model, effort and placement it was opened with", async () => {
@@ -31,13 +30,6 @@ test("each agent runs on the harness, model, effort and placement it was opened 
     effort: "low",
     placement: "headless",
   });
-});
-
-test("a headless claude without metered: true is refused as it opens", async () => {
-  const run = await testWorkflow(unmetered, { agents: {} });
-  expect(() => run.value).toThrow(
-    "headless claude is billed per token even on a subscription login; set metered: true to run it",
-  );
 });
 
 test("an effort the harness doesn't list is refused as the agent opens", async () => {
@@ -75,11 +67,10 @@ test("each runtime shape resolves to a harness, model, effort and placement", as
     },
     cursor: { harness: "cursor", model: "gpt-5.6-luna-high" },
     quiet: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-    "metered-claude": {
+    "headless-claude": {
       harness: "claude",
       model: "sonnet",
       placement: "headless",
-      metered: true,
     },
   });
 });

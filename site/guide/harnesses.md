@@ -63,7 +63,7 @@ turn. To change model or effort mid-session, see `set` in
 ## Subscription and metered
 
 awf runs agents on your subscription logins: your Claude plan, your ChatGPT plan, your Cursor
-account, whatever pi is signed in to. Three rules keep them there.
+account, whatever pi is signed in to, in a TUI or headless alike. Two rules keep them there.
 
 **claude and codex must be logged in with a subscription.** When a run opens its first agent on
 one, awf reads `claude auth status` or `codex login status`, and anything but a subscription login
@@ -86,26 +86,18 @@ They are claude's and codex's API keys and base URLs, such as `ANTHROPIC_API_KEY
 the shell you run `awf` from. awf also withholds `OPENROUTER_API_KEY` from every agent, without
 refusing the run.
 
-**Headless claude needs `metered: true`.** `claude -p` is billed per token even on a subscription
-login, so awf refuses a headless claude agent unless its runtime gives that consent:
-
-<<< @/../examples/site/guide/harnesses.ts#unmetered
-
-To stay on your plan, run claude in its TUI, the default. codex, pi and cursor need no such flag,
-headless or not.
-
 ### What the record says
 
 `out.json` marks each agent's turns `subscription`, `metered` or `unknown`:
 
 | Harness | `subscription` | `metered` | `unknown` |
 | --- | --- | --- | --- |
-| claude | every TUI agent | every headless agent | |
+| claude | a claude.ai or setup-token login, TUI or headless | | |
 | codex | every agent on OpenAI's models | | a provider other than OpenAI |
 | pi | the model's provider signed in with `/login` | the provider set up with an API key | neither could be told |
 | cursor | | | always: nothing cursor reports tells plan usage from on-demand usage |
 
-The login checks above are why a claude TUI agent or a codex agent awf opens is never metered; a session
+The login checks above are why a claude or codex agent awf opens is never metered; a session
 you hand the run with `awf run --here` is read as it is logged in. The run's closing line gives one
 word for its agents, leaving the unknown ones out: `subscription`, `metered`, `mixed`, or `unknown`
 when none was known, then `billing known {n}/{m}` when some weren't.

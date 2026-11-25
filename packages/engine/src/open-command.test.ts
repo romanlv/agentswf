@@ -188,7 +188,7 @@ test("a copy of the agent's latest session opens in its harness's TUI, where and
 
 test("-p asks a copy one question headless and prints the answer, or with --json its document", async () => {
   const f = await fixture();
-  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m" });
   const { code, stdout, stderr, seen } = await open(f, [
     "review/r7",
     "fixer",
@@ -212,7 +212,7 @@ test("-p asks a copy one question headless and prints the answer, or with --json
 
 test("-p without text reads stdin, and is refused on a terminal", async () => {
   const f = await fixture();
-  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m" });
   const piped = await open(f, ["review/r7", "fixer", "-p"], { stdin: "from stdin" });
   expect(piped.code).toBe(0);
   expect(piped.seen.runs[1]!.stdin).toBe("from stdin");
@@ -260,8 +260,6 @@ test("each place the session can't be opened from is refused, naming why", async
   );
   await refused(["review/r7", "fixer", "--json"], 2, /a TUI has no JSON/);
   await refused(["review/r7", "fixer", "extra"], 2, /-p takes the question/);
-  // claude headless bills per token: an agent that did not run metered is not asked headless.
-  await refused(["review/r7", "fixer", "-p", "why?"], 2, /billed per token/);
   // Another agent's session is not fixer's to open, as a copy or otherwise.
   session(f.run, { agent: "reviewer", session: "rev-1", operation: "reviewer.1" });
   await refused(
@@ -297,7 +295,7 @@ test("the cwd gone is refused: claude finds a session only from where it ran", a
 
 test("a question the harness fails is refused with its error, and no again", async () => {
   const f = await fixture();
-  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m" });
   const result = await open(f, ["review/r7", "fixer", "-p", "why?"], { exitCode: 1 });
   expect(result.code).toBe(1);
   expect(result.stderr.join("\n")).toContain("claude exited 1");
@@ -481,7 +479,7 @@ test("a forked agent's session line, which names no operation, opens on the agen
 
 test("-p reads `-` as stdin, and a question that starts with a dash as its text", async () => {
   const f = await fixture();
-  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m" });
   const dashed = await open(f, ["review/r7", "fixer", "-p", "-why?"]);
   expect(dashed.seen.runs[1]!.stdin).toBe("-why?");
   const piped = await open(f, ["review/r7", "fixer", "-p", "-"], { stdin: "piped" });
@@ -494,7 +492,7 @@ test("-p reads `-` as stdin, and a question that starts with a dash as its text"
 
 test("a held run is let go when the question fails, as when the harness exits", async () => {
   const f = await fixture();
-  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "fixer.2", f.cwd, { harness: "claude", model: "m" });
   const result = await open(f, ["review/r7", "fixer", "--no-fork", "-p", "why?"], { exitCode: 1 });
   expect(result.code).toBe(1);
   expect(result.seen.runs[0]!.argv.slice(0, 4)).toEqual(["claude", "-p", "--resume", "s-1"]);
@@ -596,7 +594,7 @@ test("a sandboxed home the agent swapped for a link is refused, nothing written 
 test("a sandboxed agent's copy is made inside its sandbox, and -p asks it there", async () => {
   const f = await fixture();
   const box = boxed(f);
-  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m", metered: true });
+  await op(f.run, "boxed.1", f.cwd, { harness: "claude", model: "m" });
   const { code, seen } = await open(f, ["review/r7", "boxed", "-p", "why?"], box.options);
   expect(code).toBe(0);
   const [fork, turn] = seen.runs as (ProcessInput & { group?: true })[];

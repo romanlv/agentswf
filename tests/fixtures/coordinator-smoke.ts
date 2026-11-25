@@ -10,7 +10,7 @@ import {
  * continues the same call, which returns what it was told. Headless, one agent per harness.
  */
 const HEADLESS = {
-  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
+  claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless" },
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   pi: {
     harness: "pi",

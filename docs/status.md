@@ -9,8 +9,8 @@ exists, the code is right, then this page.
 - `awf run {workflow.ts}` loads a trusted local workflow and runs it. Each agent's placement is set
   in the workflow, `tui` by default or `headless` (`pane` until 0.1.0-beta.5): a TUI agent gets a tab in the run's Herdr workspace by default, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude, codex and pi run in
-  their TUI (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
-  as `claude -p` bills per token even on a subscription login. A TUI agent keeps its pane for all its turns (ADR 0008). TUI agents open in a headless Herdr session of
+  their TUI (pi since story 017); claude, codex and pi run headless, claude on its
+  login's plan as in its TUI (2026-11-24; `metered: true` is gone). A TUI agent keeps its pane for all its turns (ADR 0008). TUI agents open in a headless Herdr session of
   their own, `awf` (`AWF_HERDR_SESSION` names another), which awf starts when down from a minimal
   environment and a quiet config, not in the operator's (story 024); `--cwd` sets the directory the workflow works in. A workflow
   places each TUI agent's pane with `pane`, in a tab of its own or beside another agent's pane, and
@@ -425,7 +425,7 @@ is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities).
 - A headless turn killed mid-request, by its 30 s grace after answering or by a follow-up that
   stopped waiting, loses that request from its usage. At run end the runner waits up to 10 s for it
   instead.
-- An agent its host cannot run (claude headless without `metered`) is refused only
+- An agent its host cannot run (a cursor in a sandbox) is refused only
   when it opens, possibly after other agents have spent. pi's billing is inferred from its
   `auth.json`. A headless claude has run live only in a sandbox, on a setup token.
 - A contained `awf-lab` trial ([story 013](stories/013-autoresearch-loop.md)) has an open network,

@@ -21,7 +21,7 @@ will quote.
 
 Fields of the spec the engine reads across every harness, so they are required rather than absent:
 `callingSessionEnv` (withheld from every agent), `meteredCredentials` (withheld, and refuse a run),
-`herdrSessionIsOwn`, `meteredHeadless`.
+`herdrSessionIsOwn`.
 
 A capability added to `HarnessSpec` as optional fails to compile until every harness gives it or
 says why not. A new per-harness table should be a `Record<Harness, X | Absent>` for the same
@@ -44,8 +44,7 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   subagents' files. Whether a pane's new session takes an id given at launch (`interactive`'s
   `sessionHint`), so `awf logs` reads it during its first turn, and where else it names that
   session. Its rows recorded as fixtures for the reader (story 028, M1).
-- **Billing.** What says subscription or metered (`billing`), and whether headless turns are billed
-  per token whatever the login (`meteredHeadless`).
+- **Billing.** What says subscription or metered (`billing`), in either placement.
 - **Plan allowance.** The command that shows what is left of its plan without a model turn, headless
   (`readAllowance`) or only in its TUI (`allowancePane`); its output recorded for the parser, and
   whether a slash command sent headless goes to the model instead (story 022).
@@ -84,9 +83,8 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   `effort.eval.ts`, `calling-session.eval.ts`, `skills.eval.ts` and the `sandbox-*` evals, with
   `examples/quick-check`, `examples/compaction`, `examples/effort` and `examples/fork`. Each lists
   its harnesses.
-- `packages/lab` and `examples/single-agent-review` repeat `meteredHeadless` for claude, and
-  `packages/lab/src/review/format/runtime.ts` every harness's effort levels, as they may not
-  import the harness package.
+- `packages/lab/src/review/format/runtime.ts` repeats every harness's effort levels, as it may
+  not import the harness package.
 - Docs: `status.md`, `site/reference/workflow-api.md` (placements, compaction, effort), `foundation.md` §8 (usage),
   `design/permissions.md` (its permission column), `testing.md`, and a finding for each
   measurement.

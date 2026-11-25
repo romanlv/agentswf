@@ -176,8 +176,7 @@ where its own sandbox is off and the agent's sandbox is the boundary.
 
 As the harness exits, awf prints `again:`, the command that opens the same copy, `--session` and
 its id. `-p` asks one question headless and prints the answer; it runs as the agent's turns did,
-without prompts. Headless claude is billed per token, so `-p` on a claude agent is refused unless
-it ran with `metered: true`.
+without prompts.
 
 `--no-fork` opens the session itself, so what you say stays with the agent: the next attempt
 resumes it with your turns in it, and `awf logs` shows them. It is refused while an attempt runs.

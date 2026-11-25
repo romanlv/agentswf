@@ -73,8 +73,6 @@ lacks shows up on later ones:
 - **You can't watch it or test it.** A TUI agent runs in [Herdr](https://herdr.dev), where
   you see it work and can type to it. [`awf test`](/guide/testing) runs a workflow on scripted
   answers, with no agent started and nothing to pay.
-- **Headless claude is metered,** even on a subscription login. A claude agent in its TUI runs on
-  your plan.
 
 **An agent's own subagents** are good when the agent should decide the plan: it splits the work as
 it goes, and the results come back into its own context. For a one-off task in a session, that is

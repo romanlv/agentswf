@@ -102,7 +102,7 @@ export async function removedForms(): Promise<void> {
   for await (const next of wf.select({ done: turn })) void next;
   // @ts-expect-error agent.is(e), since an agent has at most one started turn.
   void turn.is;
-  // @ts-expect-error A fork's placement, metered and effort go in its runtime.
+  // @ts-expect-error A fork's placement and effort go in its runtime.
   await reviewer.fork({ key: "w2", placement: "headless" });
   // @ts-expect-error The same for the calling session's fork.
   await plain.agents.forkCaller({ key: "me2", effort: "low" });
@@ -130,7 +130,7 @@ export async function caller(): Promise<void> {
   // @ts-expect-error The caller is not an agent the run opened.
   const opened: AgentRef = me;
   void opened;
-  const fork = await me.fork({ key: "me5", runtime: { placement: "headless", metered: true } });
+  const fork = await me.fork({ key: "me5", runtime: { placement: "headless" } });
   const ref: CallerRef = fork;
   await wf.messages.allow({ between: [me, fork], purpose: "Agree on the plan." });
   const won = await wf.race("either", { mine: me, theirs: ref, quiet: "1h" });
