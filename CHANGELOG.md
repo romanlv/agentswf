@@ -41,6 +41,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 - Gemini 4 Neon is priced, at Google's list rates, under each name cursor runs it by
   (`gemini-4-neon-low` to `-xhigh`).
 - Claude Fable 5.2 is priced at its list rates.
+- GPT-5.6 Sol and Luna are priced under the effort names cursor records them by
+  (`gpt-5.6-sol-high`, `gpt-5.6-luna-high` and the like).
 
 ## 0.2.0 — 2026-11-23
 

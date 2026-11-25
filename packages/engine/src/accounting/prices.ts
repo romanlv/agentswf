@@ -65,6 +65,11 @@ const RATES: Record<string, ModelRate> = {
   "gpt-5.6-sol": openai(4, 0.4, 20),
   "gpt-5.6-terra": openai(2, 0.2, 12),
   "gpt-5.6-luna": openai(0.2, 0.02, 1.2),
+  // cursor records these with their effort, at the same rate.
+  ...Object.fromEntries(
+    ["-none", "-high", "-xhigh"].map((effort) => [`gpt-5.6-sol${effort}`, openai(4, 0.4, 20)]),
+  ),
+  "gpt-5.6-luna-high": openai(0.2, 0.02, 1.2),
   // No cache-write charge is listed for these.
   "gpt-5.5": openai(5, 0.5, 30, 5),
   "gpt-5.4": openai(2.5, 0.25, 15, 2.5),

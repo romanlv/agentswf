@@ -173,6 +173,16 @@ describe("published prices", () => {
     expect(PUBLISHED_PRICES.rate("gemini-4-neon-fast")).toBeUndefined();
   });
 
+  test("GPT-5.6 Sol and Luna are priced under the effort names cursor records them by", () => {
+    for (const model of ["gpt-5.6-sol-none", "gpt-5.6-sol-high", "gpt-5.6-sol-xhigh"]) {
+      expect(PUBLISHED_PRICES.rate(model)).toEqual(PUBLISHED_PRICES.rate("gpt-5.6-sol")!);
+    }
+    expect(PUBLISHED_PRICES.rate("gpt-5.6-luna-high")).toEqual(
+      PUBLISHED_PRICES.rate("gpt-5.6-luna")!,
+    );
+    expect(PUBLISHED_PRICES.rate("gpt-5.6-sol-high-fast")).toBeUndefined();
+  });
+
   test("names the table every figure came from", () => {
     expect(PUBLISHED_PRICES.basis).toBe("list prices 2026-11-25");
   });
