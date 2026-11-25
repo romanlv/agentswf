@@ -314,7 +314,7 @@ describe("awf run", () => {
     const saved = JSON.parse(readFileSync(join(result.artifacts, "out.json"), "utf8"));
     expect(saved.ref).toBe(`review-loop/${saved.runId}`);
     expect(saved.accounting).toMatchObject({
-      basis: "list prices 2026-10-07",
+      basis: "list prices 2026-11-25",
       billing: "subscription",
       totals: { agents: 2, known: 2, priced: 2 },
       byModel: [{ model: "claude-sonnet-5" }, { model: "gpt-5.6-sol" }],
