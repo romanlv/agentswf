@@ -32,7 +32,7 @@ function openai(input: number, cached: number, output: number, write = input * 1
 }
 
 /**
- * List prices, read on 2026-09-23 (Claude Sonnet 5.5 on 2026-09-29, GPT-6.1 Sol on 2026-10-01, Claude Haiku 5.5 on 2026-10-07) from https://platform.claude.com/docs/en/about-claude/pricing
+ * List prices, read on 2026-09-23 (Claude Sonnet 5.5 on 2026-09-29, Claude Fable 5.2 on 2026-11-25, GPT-6.1 Sol on 2026-10-01, Claude Haiku 5.5 on 2026-10-07) from https://platform.claude.com/docs/en/about-claude/pricing
  * and https://developers.openai.com/api/docs/pricing, Gemini 4 Neon on 2026-11-25 from
  * https://aistudio.google.com/docs/pricing, and on 2026-09-26 from OpenRouter for Jev. A subscription is not charged per token,
  * but its allowance is drawn down roughly in proportion to these, so they price any run the same
@@ -43,6 +43,7 @@ function openai(input: number, cached: number, output: number, write = input * 1
  * a very long session on either is under-estimated.
  */
 const RATES: Record<string, ModelRate> = {
+  "claude-fable-5-2": anthropic(8, 40, 0.025),
   "claude-fable-5-1": anthropic(10, 50, 0.025),
   "claude-fable-5": anthropic(10, 50),
   "claude-opus-5-5": anthropic(4, 20, 0.05),
