@@ -31,7 +31,7 @@ awf: serving ~/dev/acme at http://127.0.0.1:7420/api
 ```
 
 - Every operator command a page has a use for is an endpoint: `GET /api/runs`, `GET
-  /api/runs/{workflow}/{id}/logs`, `POST /api/runs/{workflow}/{id}/agents/{agent}/replies`, and so
+  /api/runs/{workflow}/{id}/logs`, `POST /api/runs/{workflow}/{id}/replies`, and so
   on. A response body is exactly the document that command prints with `--json`, with the same
   `v`, so one set of types describes both.
 - Logs and the inbox stream as server-sent events. A page opens an `EventSource` and gets each new
@@ -39,6 +39,9 @@ awf: serving ~/dev/acme at http://127.0.0.1:7420/api
   where it stopped.
 - `POST /api/runs` starts a run in the background and answers `202` with its ref. So does the
   CLI, with the new `awf run --detach`.
+- A frontend is written against a base URL, `http://127.0.0.1:7420/api` here, and never assumes
+  `/api`. Later, one server can front several folders, each at `/{prefix}/api`, and the same
+  frontend works there unchanged (see Several folders, later).
 - `GET /api` lists every route, each field it takes and the type it returns. That and the guide
   page are enough for an agent to write the frontend.
 - Nothing is on the network. The server listens on the loopback only, refuses a request without
@@ -104,10 +107,45 @@ a run isn't running. The inbox streams the same way, one item per message, each 
 its `id`, and it never ends on its own.
 
 **One server serves one project,** on that project's engine (ADR 0015). `awf serve` is handed over
-like any command, from the directory it is typed in. It takes no `--cwd`, because hand-over goes by
-the shell's directory. A request can't name another directory. A run reached by its ref in another
-project is found as `awf runs {ref}` finds it. If that project is on another version of the
-engine, the request is refused with `other-engine`.
+like any command, from the directory it is typed in. The project it serves is the one a workflow
+file there would keep its runs in: the nearest directory at or above it holding `.awf`. Without
+one, `awf serve` makes `.awf` where it was typed, so a run it starts lands where it reads. A
+workflow with events, or one that gives `file`, keeps its runs in its file's own project
+(`projectOf`), not under the directory it was started from. When that project isn't the one
+being served, its runs would land where this server can't see them. `awf run` and `awf emit
+--target` with `--this-project` refuse such a workflow as `outside-project`, so the commands
+decide that too, and the operator gets the same check. A plain workflow that doesn't give `file`
+keeps its runs under the served project wherever its file is, and is never refused for it. It
+takes no `--cwd`, because hand-over goes by the shell's directory. A request can't name another
+directory, and a ref finds runs in the served project only. `awf runs {ref}` on its own also looks in every other project awf knows, which would
+let `/api/runs/review/7` answer with another project's run. So every command the server runs gets
+`--this-project`, a new flag that turns that search off, and a ref with no run here is `404
+no-run`. A ref on a page then always belongs to the server that returned it.
+
+### Several folders, later
+
+Serving several folders from one server is a follow-up, [[serve-several-projects]]. It comes after
+this story and is developed alongside a real dashboard, which will show which views across
+projects are worth building. The shape is settled now, because this story has to leave room for
+it:
+
+- **Each folder keeps this API under a prefix,** `/{prefix}/api/…`, unchanged. A gateway, `awf
+  serve {dir}...`, starts one `awf serve --port 0 --json` per folder, each handed over to its own
+  project's engine, and proxies to them. `GET /api/projects` lists the prefixes.
+- **Not a `?project=` parameter on one API.** One process can't load two engines (ADR 0015), so
+  that server would proxy to per-project children all the same. Every URL would carry the
+  parameter. A route without it would have to merge documents from engines of different versions,
+  which breaks the rule that the server only transports.
+- **What this story does so that works later:**
+  - a frontend takes the base URL as one opaque string;
+  - `GET /api` lists paths relative to it (`runs/{workflow}/{id}/logs`);
+  - `ApiRequest` is keyed by those relative paths;
+  - no response carries an absolute URL, so there is no `Location` header, and a page follows a
+    started run by `RunStartedJson.ref`;
+  - a ref is confined to the served project.
+
+  None of those changes any behaviour in this story. Each would break frontends if it were changed
+  after they were written.
 
 The case people ask about first, **"can a web page I visit start a run on my machine?"** No:
 
@@ -119,7 +157,8 @@ The case people ask about first, **"can a web page I visit start a run on my mac
 - The server refuses a `Host` header other than `127.0.0.1:{port}` or `localhost:{port}`, which
   stops DNS rebinding.
 - Starting a run runs trusted code, as `awf run` does, so the file it names and any sandbox spec
-  must be inside the served project, checked after symlinks are resolved.
+  must be inside the served project, checked after symlinks are resolved, and the file's own
+  project must be the served one.
 
 ## The routes
 
@@ -128,26 +167,31 @@ parameter (`?tool=Read&tool=Edit`). A body is a JSON object.
 
 | Method and path | Fields | Command | Returns |
 | --- | --- | --- | --- |
-| `GET /api` | — | — | `ApiJson`: the routes and their fields, the engine's version, the project |
+| `GET /api` | — | — | `ApiJson`: the routes (paths relative to the base) and their fields, the engine's version, the project's absolute path |
 | `GET /api/runs` | `limit` | `awf runs` | `RunsJson` |
-| `POST /api/runs` | `file`, `argv?`, `id?`, `timeout?`, `fromStage?`, `sandbox?`, `workspace?`, `keepPanes?` | `awf run --detach` | `202`, `RunStartedJson` |
+| `POST /api/runs` | `file`, `argv?`, `id?`, `timeout?`, `fromStage?`, `sandbox?`, `workspace?`, `keepPanes?` | `awf run --detach` | `RunStartedJson`: `202` when `ok`, else `200` |
 | `GET /api/runs/{run}` | — | `awf runs {run}` | `RunJson` |
-| `POST /api/runs/{run}/attempts` | `timeout?`, `fromStage?` | `awf run {run} --continue --detach` | `202`, `RunStartedJson` |
+| `POST /api/runs/{run}/attempts` | `timeout?`, `fromStage?` | `awf run {run} --continue --detach` | `RunStartedJson`: `202` when `ok`, else `200` |
 | `GET /api/runs/{run}/logs` | `agent`, `stage`, `tool…`, `grep`, `after`, `limit`, `full` | `awf logs {run}` | `LogsJson`, or a stream of them |
 | `GET /api/runs/{run}/logs/{handle}` | — | `awf logs {run} @{handle}` | `LogsJson` |
 | `GET /api/runs/{run}/inbox` | `open`, `as`, `after` | `awf inbox {run}` | `InboxPageJson`, or a stream of items |
 | `GET /api/inbox` | `workflow`, `open`, `as`, `after` | `awf inbox` | `InboxPageJson`, or a stream of items |
-| `POST /api/runs/{run}/events` | `name`, `data?`, `eventId?`, `source?`, `file?` | `awf emit {run} {name}`, or with `file` `awf emit --target {file} --id {id} {name}` | `EmitResultJson` |
-| `POST /api/runs/{run}/agents/{agent}/replies` | `text`, `to?`, `as?` | `awf reply` | `ParticipantResultJson` |
-| `POST /api/runs/{run}/agents/{agent}/messages` | `text`, `as?` | `awf send` | `ParticipantResultJson` |
+| `POST /api/runs/{run}/events` | `name`, `data?`, `eventId?`, `source?` | `awf emit {run} {name}` | `EmitResultJson` |
+| `POST /api/events` | `file`, `id`, `name`, `data?`, `eventId?`, `source?` | `awf emit --target {file} --id {id} {name}` | `EmitResultJson` |
+| `POST /api/runs/{run}/replies` | `agent`, `text`, `to?`, `as?` | `awf reply` | `ParticipantResultJson` |
+| `POST /api/runs/{run}/messages` | `agent`, `text`, `as?` | `awf send` | `ParticipantResultJson` |
 | `POST /api/runs/{run}/wake` | `timer?` | `awf wake` | `WakeResultJson` |
 | `POST /api/runs/{run}/park` | — | `awf park` | `ParkResultJson` |
 | `GET /api/allowance` | `harness…` | `awf allowance` | `AllowanceReport` |
 
-An event to a run that is there needs no `file`. An event that may start the run, as a webhook's
-first does, names the workflow's `file`, whose `meta.name` must be the ref's workflow, and goes
-by `--target`, which checks `starts` and records the event that began the run. `POST /api/runs`
-starts an event run with no event, as `awf run --id` does.
+An event to a run that is there goes by its ref. An event that may start a run, as a webhook's
+first does, goes to `POST /api/events` with the workflow's `file` and the run's `id`, as `awf
+emit --target` takes them: the file names the workflow, so there is no ref to disagree with it.
+That form checks `starts` and records the event that began the run. `POST /api/runs` starts an
+event run with no event, as `awf run --id` does.
+
+An agent is named in the body, not the path: an agent in a child call has an address with a `/`
+in it (`review/lens-1`), as `awf inbox` prints it.
 
 `argv` is named as ADR 0016 names it: strings `prepare` parses, again at every attempt. A page
 can't send typed `args` here. Only `client().start` records those, as it holds the workflow's
@@ -163,7 +207,9 @@ Not served, each with its reason in `NOT_SERVED`:
   and answer through the inbox.
 - `run --here` takes over the terminal session that typed it.
 - `tick` is a scheduler's job, and `--all` spans projects on other engines.
-- `help` and `--version`: `GET /api` says both.
+- `serve` is the server itself.
+
+`help` and `--version` aren't commands in `COMMANDS`; `GET /api` says both.
 
 **Status codes.** The status comes from the document, never the exit code, because exit codes say
 different things in different commands (`wake` with nothing due exits 2, `emit` exits 1 when a
@@ -175,7 +221,7 @@ refusal answers its code's status, with the refusal document as the body:
 | --- | --- |
 | 400 | `usage`, `id`, `no-id`, `cursor`, `bad-request` |
 | 401 | `unauthorized` |
-| 403 | `forbidden-host`, `forbidden-origin`, `outside-project` |
+| 403 | `forbidden-host`, `forbidden-origin`, `outside-project` (a command's, from `--this-project`) |
 | 404 | `no-run`, `no-session`, `no-participant`, `unknown-agent`, `not-found` |
 | 405 | `method` |
 | 409 | `ambiguous`, `other-args`, `live`, `opened`, `wake`, `park`, `not-started`, `project`, `no-engine`, `other-engine`, and the participant codes `ended`, `closed`, `expired`, `no-route`, `peer-stopped`, `unsupported-version` |
@@ -187,7 +233,7 @@ refusal answers its code's status, with the refusal document as the body:
 
 `unreachable` is 503 everywhere. Whether it is a run's files mid-write or a socket that isn't up
 yet, trying again later is the right answer. The server's own refusals (`unauthorized`,
-`forbidden-*`, `outside-project`, `bad-request`, `not-found`, `method`) have the same `{v, code,
+`forbidden-*`, `bad-request`, `not-found`, `method`) have the same `{v, code,
 error}` shape, `v` being `ApiJson`'s. What a run decided is a value, as it is in the client: an
 event the run refused is a `200` whose `EmitResultJson` says so.
 
@@ -201,9 +247,11 @@ In scope:
 - SSE streams for logs and the inbox, resumable by `Last-Event-ID`.
 - In the CLI: `awf run --detach`, `awf run {run} --continue`, `awf emit {run} {event}` for a
   workflow's own events, `final` on the run head and on each row of the runs list, and a `logs`
-  wait that ends on its signal.
-- The document types and the routes' request types exported from `agentswf/client`, type-only, so
-  a TypeScript frontend imports them.
+  wait that ends on its signal, and `--this-project` on every command that finds a run by ref
+  (`findRunByRef`).
+- `agentswf/api`, a new entry built on the contract alone: the document types, the route table
+  and the request types derived from it, so a browser project type-checks against them with no
+  engine and no Bun types.
 - A guide page on the site, written for the agent that builds the frontend.
 
 Out of scope:
@@ -214,6 +262,7 @@ Out of scope:
 - Reading a log backwards past its last page. `awf logs` pages forward only.
 - Serving a frontend's files (`awf serve --ui {dir}`); the `/api` prefix leaves `/` free for it.
   It is a todo.
+- Several folders behind one server: [[serve-several-projects]], whose shape is settled above.
 - Any address but the loopback, TLS and accounts. The server is local, as the control plane is
   (foundation §10, remote execution).
 - An OpenAPI document, until M1 says it can be made without hand upkeep.
@@ -249,7 +298,9 @@ this repository's `.awf/runs`, nearly all of them ended:
 - Fact: `reply` and `send` read their text from stdin when none is given, after a `--`. `open -p`
   reads stdin only as `-p -`.
 - Fact: run ids and workflow names match `^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$`, and agent keys
-  `^[a-z0-9][a-z0-9._@-]*$`. No path segment can begin with `-` or hold a `/`.
+  `^[a-z0-9][a-z0-9._@-]*$`; neither can begin with `-`. An agent's address in a child call joins
+  keys with `/` (`inbox-command.ts`, `address()`), so an agent is a body field, never a path
+  segment.
 - Fact: an event run, and a run `client().start` makes, start detached through `wake`, whose
   `detachedLaunch` (module-private in `wake.ts`) spawns `awf run {file} --id {id} --continue
   --run-root …` and passes nothing else. A plain run `awf run` starts never runs detached.
@@ -258,6 +309,9 @@ this repository's `.awf/runs`, nearly all of them ended:
 - Fact: `allowance` and `emit --target` refuse `--cwd` and `--run-root`, and the harnesses are
   bare words, not a flag. For `run` they set the run's working directory and run root, an event
   run refuses both, and a continue whose `--cwd` differs from the recorded one is `other-args`.
+- Fact: an event run, and a plain run of a workflow that gives `file`, are kept in
+  `projectOf(file)`: the nearest directory at or above the file holding `.awf`, else the file's
+  own (`projects.ts`, `run-prepare.ts`).
 - Fact: hand-over goes by the process's directory, not `--cwd` (`hand-over.ts`). A child whose
   `AWF_ENGINE` is the realpath of its own `agentswf` folder skips it.
 - Fact: srt denies reading the host home and the run root, and asserts it
@@ -283,25 +337,50 @@ this repository's `.awf/runs`, nearly all of them ended:
   last attempt's file as it does for a reply. `emitToRun` takes only `{key}:reply` today, and
   its `checkEvent` call is for a reply's sender; it gains the operator as sender for own events.
 - `src/logs-command.ts`: the `--wait` sleeps end on the signal.
+- `src/run-state.ts`: `findAnywhere` searches every project awf knows after the run root. With
+  `--this-project`, parsed by `parsePlace` and by `run` (for a new run's file and for continue by
+  ref), it searches the run root only. Every command that finds a run by ref goes through it (`findRunByRef`), so the
+  flag covers them all.
 - `src/run-state.ts`, `src/runs-command.ts`, `src/logs-command.ts`: `final` on the head and on
   each runs-list row, from the rule `client().wait` already uses (`isFinal`).
-- New `src/http/`: `routes.ts` (the table, the field kinds, `NOT_SERVED`, `STATUS`; pure),
-  `server.ts` (`Bun.serve`, token, Host, CORS, dispatch, streams), `token.ts`, `serve-command.ts`
-  and `help/serve.txt`.
+- New `src/serve-command.ts` and `help/serve.txt`, beside the other commands: it parses the
+  flags, finds the served project with `projectOf` (given a path in the directory, as it takes a
+  file; refused as `project` in the home directory itself, as `projectOf` refuses there) and
+  makes its `.awf` when missing, reads or
+  makes the token, and hands the server the project, the token, the command line that runs this
+  engine's `awf` (today a private `CLI` in `wake.ts`, exported for both) and the environment a
+  child runs with, `AWF_ENGINE` set to the realpath of this engine's `agentswf`.
+- New `src/http/`: `routes.ts` (each route's command and `where`, keyed by the contract's routes;
+  `NOT_SERVED`; the `CommandName` coverage check) and `server.ts` (`Bun.serve`, token check, Host, CORS, dispatch, streams). It is given everything
+  it needs and finds nothing itself.
+- `src/run-prepare.ts`, `src/emit-command.ts`: with `--this-project`, a loaded workflow that is
+  kept in `projectOf(file)` (one with events, or one that gives `file`) is refused
+  `outside-project`, a new code in `REFUSAL_CODES`, when that project isn't the run root's
+  (`rootProject`, as `run-state.ts` names a run's project).
 - Tests: `src/http/routes.test.ts` (pure), and `src/http/server.test.ts` against runs built with the
   helpers `runs-command.test.ts` and `logs-command.test.ts` use. `json-refusals.test.ts` gains the
   new forms.
 
 ### `packages/contract`
 
+- New `src/api.ts`: `ROUTES` as data (method, relative path, fields, `place`, `stream`, `ok`,
+  `returns`), the field kinds, `STATUS`, `ApiJson`, `ApiRequest<Method, Path>`. Pure, as the
+  contract is. It names a route's command as a plain string; the engine checks each against
+  `CommandName`.
+
 - `src/records.ts`: `RunStartedJson`, `InboxPageJson`, `ApiJson`, `RunHeadJson.final`; the
-  server's refusal codes; `final` on each `RunsJson` row. `PARTICIPANT_CODES` and
+  server's refusal codes; `outside-project` in `REFUSAL_CODES`; `final` on each `RunsJson` row.
+  `PARTICIPANT_CODES` and
   `INBOX_CODES` in `src/wire.ts` are what `STATUS` must also cover.
 
 ### `packages/agentswf`
 
-- `src/client.ts`: exports the document types and `ApiRequest<Method, Path>`, derived from the
-  table, type-only. A frontend that writes `import type` gets none of the engine in its bundle.
+- `package.json` gains `./api` in `exports`; `@agentswf/contract` gains `./api` in its own.
+- New `src/api.ts`, published as `agentswf/api`: re-exports `@agentswf/contract/api` and the
+  document types from `@agentswf/contract/records`. It imports nothing else, so a frontend's
+  `tsc` checks the contract's files only. `agentswf/client` would pull in the engine: its
+  entry re-exports `engine/client`, which imports `node:os` and the commands, and the package
+  ships `.ts`, so `import type` still type-checks all of it.
 
 ### `scripts/check-boundaries.ts`
 
@@ -318,7 +397,10 @@ Checked and unchanged: the control plane and `wfa` (an agent never talks HTTP), 
 
 ```ts
 type Kind =
-  | "ref" | "agent" | "handle" | "word" | "int" | "flag" | "duration" | "json"
+  | "ref"                  // {workflow}/{id}: two path segments, one word
+  | "handle"               // the word is @{handle}
+  | "agent-address" | "word" | "int" | "flag" | "duration" | "json"
+  | "string"               // any text as a flag's value (grep); a leading "-" is a bad-request
   | "text"                 // free text, sent on stdin
   | "project-file"         // resolved by realpath, inside the served project
   | { oneOf: readonly string[] };
@@ -332,46 +414,61 @@ type Field = {
   repeats?: true;
 };
 
+// In the contract. The engine adds `where: "process" | "child"` per route, keyed by path.
 type Route = {
   method: "GET" | "POST";
-  path: string;                          // "/api/runs/:workflow/:id/logs"
-  command: CommandName;
+  path: string;                          // "runs/{workflow}/{id}/logs", as GET /api lists it
+  command: string;                       // checked against CommandName in the engine
   /** Words before the fields', such as `["--detach"]`. */
   fixed?: readonly string[];
   fields: Record<string, Field>;
-  where: "process" | "child";
+  /** What the server adds: "place", the served `--cwd`, `--run-root` and `--this-project`;
+      "project", `--this-project` alone; "none", nothing. */
+  place: "place" | "project" | "none";
   stream?: "pages" | "items";
   returns: string;                       // the type's name, for GET /api
 };
 ```
 
+- `{run}` in a path is one `ref` field matched from two segments, and a kind formats its own word
+  (`handle` as `@{handle}`), so `ApiRequest` has `run` and `handle` as plain fields.
 - argv is built from the fields alone: words, never a string a shell parses. Each value is
   checked against its kind before it becomes a word. A free-text field goes on stdin, so no text
   is ever read as a flag. A body field the route doesn't declare is a `bad-request`.
-- The server adds `--json` before any `--`. It adds the served `--cwd` and `--run-root` to every
-  command that reads runs by place (those that call `parsePlace`: `runs`, `logs`, `inbox`,
-  `reply`, `send`, `wake`, `park`, `emit` by ref), and that list is derived, not set per route.
-  `run` gets neither: for `run` they mean where the agents work and where the run is kept, and an
-  event run refuses both (`run-prepare.ts`). Its child runs with the project as its working
-  directory instead, as `detachedLaunch` runs a woken attempt in the run's recorded cwd.
-- `ROUTES satisfies readonly Route[]`. The commands named in `ROUTES` and the keys of
-  `NOT_SERVED` must together cover `CommandName`, or the build fails.
+- The server adds `--json` before any `--`. A route with `place: "place"` also gets the served
+  `--cwd`, `--run-root` and `--this-project`: `runs`, `logs`, `inbox`, `reply`, `send`,
+  `wake`, `park` and `emit` by ref. Each route declares it, as one command can have forms that
+  differ. A test runs each route's minimal request and fails on a `usage` refusal, which catches
+  a wrong declaration.
+- `place: "project"` goes on `run` (start and continue) and `emit --target`. For `run`, `--cwd`
+  and `--run-root` mean where the agents work and where the run is kept, and an event run refuses
+  both (`run-prepare.ts`); `emit --target` refuses place flags. So the child runs with the served
+  project as its working directory instead, as `detachedLaunch` runs a woken attempt in the run's
+  recorded cwd. `--this-project` alone then refuses a file kept in another project, and confines
+  a continue by ref.
+- `place: "none"` is `allowance`'s alone.
+- `ROUTES satisfies readonly Route[]`, in the contract. The engine's `routes.ts` gives each a
+  `where` and checks that the commands named in `ROUTES` and the keys of `NOT_SERVED` together
+  cover `CommandName`, or the build fails.
 - `STATUS satisfies Record<RefusalCode | ParticipantCode | InboxCode | ApiCode, number>`.
-- `ApiRequest<"POST", "/api/runs">` is derived from the table's `as const` fields. The request
+- `ApiRequest<"POST", "runs">` is derived from the table's `as const` fields. The request
   types and `GET /api` can't drift from what the server accepts.
 - A test spies on `loadWorkflowFile` and fails when a `process` route calls it.
 
 ### The server
 
 - `awf serve [--port {n}] [--origin {url}]... [--new-token] [--json]`. The port is 7420 by
-  default, and 0 picks one. It runs until interrupted, as a dev server does. It prints the URL and
+  default, and 0 picks one; a port in use is a usage refusal naming `--port`. It runs until
+  interrupted, as a dev server does. It prints the URL and
   token once, or one `{v, url, token, project}` line with `--json`.
 - Listens on `127.0.0.1` only, and has no `--host`. The guide says to use `127.0.0.1` rather than
   `localhost`, which some clients resolve to `::1` first.
 - **Token.** 32 random bytes with an `awf_` prefix, made once in `~/.awf/serve/token` with mode
   `0600` and kept across restarts, so a frontend's `.env` keeps working. `--new-token` replaces it.
   It is sent as `Authorization: Bearer {token}`, or as `?token=` on a stream request only, which
-  is what `EventSource` can send. It is compared in constant time. Every response carries
+  is what `EventSource` can send. It is compared in constant time against the file as it is now,
+  re-read when the file changes, so `--new-token` in one project's server reaches every other
+  one running. Every response carries
   `Referrer-Policy: no-referrer`.
 - **Host.** Only `127.0.0.1:{port}` and `localhost:{port}`; any other is `403 forbidden-host`. The
   guide's Vite example sets `changeOrigin: true`, so a proxied request carries the server's host.
@@ -389,9 +486,11 @@ type Route = {
   is the whole history, as the command gives it; a limit waits for the command to have one.
   `open` is a snapshot with no cursors, so `open` on a stream is a `400`, as the CLI refuses
   `--open` with `--wait`.
-- **Child.** `Bun.spawn([execPath, ownAwf, …words])`, with `AWF_ENGINE` set to the realpath of the
-  server's own `agentswf`, so the child never hands over. The request's abort kills a child that
-  is still running. A `--detach` child is done once it prints.
+- **Child.** `Bun.spawn([...awfCommand, …words])`, with the command line and environment `serve`
+  handed it, whose `AWF_ENGINE` means the child never hands over. The request's abort kills an `emit`
+  child that is still running. A `--detach` child is never killed: it may be making the run or
+  launching it, and a run left with no attempt, under a generated id, would be made again by a
+  retry. Only its response is dropped.
 - A thrown error is `500 internal-error`, and the server goes on.
 
 ### Streams
@@ -408,6 +507,9 @@ type Route = {
   per item, each item's cursor as its `id`. It never ends on its own: the project's inbox
   outlives any one run, and a page following one run closes that run's inbox stream when its log
   stream ends.
+- Over HTTP/1.1 a browser holds six connections per origin, so a page follows one run's log and
+  the inbox, and polls `GET /api/runs` for the rest; the guide says so. More open streams stall
+  the page's plain requests.
 - A comment line every 15 s keeps proxies open. `server.timeout(request, 0)` lifts Bun's idle
   limit for the stream alone.
 - Each subscriber runs its own loop. Ten open streams cost ten pollers, which is fine on one
@@ -424,7 +526,9 @@ type Route = {
   `continued` (a next attempt), or, with `ok: false`, `launch-failed` or `stuck`: the client's
   words for the same outcomes, which `StartResult` keeps. It is a document, not a refusal,
   because the run is kept and the page needs its `ref` to follow or retry it. Exit 0 when `ok`, 1
-  otherwise, as `emit` exits on a launch that failed.
+  otherwise, as `emit` exits on a launch that failed. A retry is `POST …/attempts`: `--detach`
+  records `file` in `run.json`, as a run started with `args` does, because a launch that failed
+  leaves no attempt to read the file from.
 - `prepare` runs twice: in this process to check, and in the attempt, as ADR 0016 has every
   attempt do. A `prepare` with side effects sees both. The help says so.
 - **Continue by ref.** With `--continue` and no `--id`, `awf run`'s word is a run, `{workflow}/{id}`
@@ -478,10 +582,11 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The CLI learns what a page needs: `--detach`, continue and emit by ref, `final`
+- [ ] 1. The CLI learns what a page needs: `--detach`, continue and emit by ref, `final`,
+  `--this-project`
 - [ ] 2. `awf serve`: the table, statuses, token, Host and CORS, in-process and child dispatch
 - [ ] 3. Streams: logs and the inbox as SSE, resumable, ending on abort
-- [ ] 4. Types from `agentswf/client`, the guide page, help, changelog and status
+- [ ] 4. `agentswf/api`, the guide page, help, changelog and status
 
 ## Open questions
 
@@ -508,7 +613,8 @@ deliverable.
 
 Outcome: from the CLI, a run of any workflow starts or continues in the background and says where
 it is. A run is continued, or sent one of its workflow's events, by its ref alone, and the run's
-head says whether anything will go on by itself.
+head says whether anything will go on by itself. `--this-project` keeps any command to the
+project it is given.
 
 Execution:
 
@@ -525,11 +631,20 @@ Done when:
   the next attempt.
 - `prepare` refusing exits 2 with `code: "prepare"`, and no run is left behind.
 - `--detach --here` and `--detach --workspace origin` are usage refusals.
+- `--detach --json` of a workflow with events prints `RunStartedJson`; without `--detach` it is
+  still refused, as today.
 - `awf emit {run} {event}` delivers one of the workflow's own events to a parked run.
 - `final` is true for a completed run and false for a parked event run, in the list, in `runs
   {run}` and in `logs`.
 - `awf run {workflow}/{id} --continue` continues a run started from another directory, and
   `awf run w/id --id x --continue` still reads `w/id` as a file.
+- `awf runs {ref} --this-project` is `no-run` for a run only another project has, which `awf runs
+  {ref}` finds. `awf run {file} --this-project` and `awf emit --target {file} --this-project` are
+  `outside-project` for an event workflow in a subfolder with its own `.awf`, and a plain workflow
+  there that doesn't give `file` runs. `awf run {run} --continue --this-project` is `no-run` for
+  another project's run.
+- After a `launch-failed`, `awf run {run} --continue --detach` launches the run from the file in
+  `run.json`.
 - `json-refusals.test.ts` covers every new form.
 
 ### 2. `awf serve`
@@ -551,12 +666,18 @@ Done when:
 - `routes.test.ts` checks, for each route, the argv from a full request and from a minimal one.
   Text starting with `--` arrives on stdin, and a value that fails its kind is refused.
 - Removing a route, or adding a refusal code with no status, fails `bunx tsc --noEmit`.
+- A served project with no `.awf` gets one, and a run `POST /api/runs` starts there is found by
+  `GET /api/runs/{run}`. An event workflow in a subfolder with its own `.awf` is
+  `outside-project`.
+- An agent address with a `/` is answered through `POST …/replies`.
 - `server.test.ts` runs on port 0 with a temporary home. Every GET route returns the document the
   command prints. A missing token is 401 and a wrong `Host` or `Origin` is 403. A preflight from
   `localhost:5173` passes. A missing run is 404 with the command's refusal. A file or sandbox spec
   outside the project, a symlink out of it included, is 403. A `wake` with nothing due is 409.
-- `POST /api/runs` on a fake launch answers 202 with `RunStartedJson`, and `Location` is readable
-  cross-origin (`Access-Control-Expose-Headers`).
+- `POST /api/runs` on a fake launch answers 202 with `RunStartedJson`, and no response carries an
+  absolute URL.
+- `GET /api/runs/{ref}` for a run that only another project has is a 404, though `awf runs {ref}`
+  without `--this-project` finds it.
 - The `loadWorkflowFile` spy passes for every `process` route.
 
 ### 3. Streams
@@ -589,7 +710,8 @@ Outcome: an agent given the guide page builds a frontend without reading awf's s
 
 Work:
 
-- The type exports from `agentswf/client`, with a typecheck file that imports them type-only.
+- `agentswf/api`, with a typecheck file under a DOM-only tsconfig and no Bun types that imports
+  it, as a Vite frontend would.
 - `site/guide/http.md`, under the site's writing rules: start the server, the token, a curl for
   each kind of route, a stream in ten lines of browser code, the Vite proxy, the status table, and
   what isn't there yet (stop, workflow list). It is written to be pasted into an agent's prompt.
@@ -633,7 +755,7 @@ Draft reviews, 2026-11-25:
   - an inbox page document;
   - SSE default messages;
   - Bun's idle timeout;
-  - `Location` exposed;
+  - `Location` exposed (dropped in round three: no absolute URLs);
   - `?token=` on streams only, `Referrer-Policy`, realpath confinement of the file and the
     sandbox spec;
   - `workspace: origin` refused;
@@ -664,6 +786,48 @@ Second round, 2026-11-26 (fresh subagent, against the code). Taken:
   - the events route's `file` for an event that may start a run;
   - the inbox page rules: `open` not streamed, no partial refusal, whole history on a first read;
   - `final` on the list's rows.
+
+Third round, 2026-11-26: several folders (fresh subagent, both shapes weighed against the code).
+Prefixes behind a gateway, in a follow-up; a `?project=` parameter rejected. Taken into this
+story: the base URL as an opaque string, paths relative to it in `GET /api` and `ApiRequest`, no
+`Location` header, and refs confined to the served project by `--this-project`.
+
+Fourth round, 2026-11-26 (fresh subagent, against the code). Taken:
+  - agents named in the body, since a child call's address holds a `/`;
+  - `place` declared per route and checked by a test, `emit --target` and `allowance` getting none;
+  - starting by event as its own route, `POST /api/events`, so no ref can disagree with the file;
+  - the served project is `projectOf`'s, made when missing, and a workflow kept in another
+    project is `outside-project`;
+  - `--detach --json` for an event workflow;
+  - a port in use.
+  It confirmed that every lookup by ref goes through `findRunByRef`, that the inbox without a run
+  reads the run root only, and that the status table covers every code.
+
+Fifth round, 2026-11-26 (fresh subagent). It found a stale copy of the story's first half
+spliced into Context and evidence by a scripted edit (a `$` and a backtick read as a replace
+pattern); removed, and nothing from rounds three and four was lost. Taken:
+  - the project check moved into `run` and `emit --target` under `--this-project`, and `serve`'s
+    own setup into `serve-command.ts`, so rule 8 holds as written;
+  - route paths held relative, as `GET /api` lists them;
+  - `serve` in `NOT_SERVED`;
+  - `202` only when a start is `ok`.
+
+Sixth round, 2026-11-26 (fresh subagent; integrity clean). Taken: `place` three-valued, so `run`
+and `emit --target` get `--this-project` without `--cwd`/`--run-root` and the project check
+fires; `--this-project` and `outside-project` tested on the CLI in task 1; the child's
+environment handed over by `serve`.
+
+Seventh round, 2026-11-26 (fresh subagent; integrity clean). Taken: the published types moved to
+a pure `agentswf/api` built on the contract, as `agentswf/client` drags the engine into a
+browser's type check; `outside-project` only for a workflow kept in `projectOf(file)`, against
+the run root's project; `{run}` and `@{handle}` formed by their kinds; a `--detach` child
+never killed on abort.
+
+Eighth round, 2026-11-26 (fresh subagent): no blocking issues. Its minor points taken: `file` in
+`run.json` for a detached run, so a failed launch can be retried; `Route` split between the
+contract and the engine's `where`; a `string` kind for `grep`; one stream per page plus the
+inbox, for the six-connection limit; the token re-read when its file changes; the `./api`
+exports, and `serve` refused in the home directory.
 
 ### Task 1
 
