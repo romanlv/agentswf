@@ -184,6 +184,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — a person writes a case, an input and what a good result looks like; `awf-lab` runs
   the workflow as it is now on every case and shows, case by case, what passed, how long it took
   and what it cost; a run can be set beside an earlier one.
+- [[045-http-api|045 — Drive awf from a web page: every command as an HTTP endpoint]] —
+  `ready` — `awf serve` answers on the loopback with each command's `--json` document, streams
+  logs and the inbox, and starts runs detached; one table gives a new command its route.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
