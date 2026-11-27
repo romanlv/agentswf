@@ -56,7 +56,7 @@ const SCRIPTS = { test: "awf test", check: "tsc --noEmit" };
 
 // The versions this repository builds with; the root's catalog holds the same.
 export const DEV_DEPENDENCIES = {
-  "@types/bun": "^1.3.4",
+  "@types/bun": "^1.4.5",
   // agentswf is released at the engine's version; it can't be imported here, it imports the engine.
   agentswf: `^${manifest.version}`,
   typebox: manifest.dependencies.typebox,
