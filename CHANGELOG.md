@@ -31,6 +31,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   longer than 60s (deadline exceeded at …)`. It said only `Deadline exceeded at …`, as the run's
   deadline does. It is still a `DeadlineExceededError`, and its `deadline` is the fork's own, not
   `wf.deadline`.
+- A run starts where `ps` is forbidden, as inside srt: the process takes its own start time from
+  its uptime.
 
 ### Added
 

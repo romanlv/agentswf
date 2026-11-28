@@ -768,8 +768,14 @@ export async function entries(dir: string): Promise<string[]> {
  * `ps -o lstart=` in UTC, as an ISO time to the second: the same on macOS and Linux, and whatever
  * time zone the attempt that wrote it and the one checking it each run in.
  */
-export function processStart(pid: number): string | undefined {
-  const found = probeProcess(pid);
+export function processStart(pid: number, ps: Ps = runPs): string | undefined {
+  const found = probeProcess(pid, ps);
+  // Inside a sandbox that forbids `ps` (srt refuses a setuid program, as `ps` is on macOS), this
+  // process still knows when it started: what `ps` would say, to the second it truncates to.
+  if (found === "unknown" && pid === process.pid) {
+    const started = Math.floor((Date.now() - process.uptime() * 1000) / 1000) * 1000;
+    return new Date(started).toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
   return found === "gone" || found === "unknown" ? undefined : found;
 }
 
