@@ -34,6 +34,14 @@ during a fork run. Herdr itself stayed fast, 0.2 s or less a call.
   on its model's next response; the 30 s release ran out and failed the run.
 - **A provider can refuse.** cursor answered `resource_exhausted` once and worked minutes later.
 
+On 2026-11-27, the factory review in production: four follow-up passes of up to 9 TUI agents each
+(reader, 7 lens forks, an Opus reviewer) beside 5 code-loop fixers, load average 19–29 on 10
+cores. Runs 2619, 2638 and 2639 failed because Herdr couldn't confirm that a prompt reached the
+reader or the Opus reviewer within 30 s. They recovered only after the factory capped new reviews
+(`REVIEW_MAX_NEW=1`) and moved the lenses to `placement: "headless"`. Nothing in awf limits how many
+agents run at once across the runs on one machine. Each run only knows its own agents, so a cap
+inside one workflow can't prevent this.
+
 The first three are a starved terminal, which the plan answers; the last two are the provider, and
 grow with sessions on the account rather than with load on the machine, which Q6 and E4 answer.
 

@@ -92,6 +92,9 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[claude-file-login]] — a sandboxed claude signs in from a login file, not a setup token.
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
 - [[interrupted-accounting-read]] — a Ctrl-C after the work is done keeps the spend.
+- [[fork-deadline]] — a fork's timeout is its own and says so, not the run's deadline.
+- [[unattended-safety-prompts]] — an unwatched claude denies safety-check prompts, sandboxed or not.
+- [[land-workflow-cases-fixes]] — the harness and engine fixes on workflow-cases, onto main.
 
 ### P2
 
@@ -105,6 +108,7 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[workflow-in-sandbox]], [[sandbox-host-protection]], [[sandbox-setsid-escape]] — containment's
   edge cases.
 - [[linux-host-sandbox]] — a sandbox on the host on Linux, where awf refuses srt (X24).
+- [[srt-install-check]] — srt is found however Node is switched.
 - [[split-large-modules]] — the repository's own.
 
 ### P3

@@ -42,6 +42,11 @@ they do.
 
    The engine knows the agents and sessions, and with stages the stage. The continue command is the
    workflow's to state, through its stopped result or a `present` hook.
+
+   Seen 2026-11-27: the factory's review-mr/2640 was cancelled mid-pass to stop the service. A
+   cancelled run is never woken by events (`wake.ts`, `case "cancelled"`), so the MR stayed stuck
+   until someone ran `awf run flow.ts --id 2640 --continue` by hand. `awf runs` showed only
+   `cancelled`. It didn't say that the run could be continued, or that events were waiting for it.
 2. **A debug mode.** With `awf run --keep-on-failure` (name open), a turn that ends unanswered, blocked
    or failed doesn't close its agent:
    - The pane stays open with the session live. A person can talk to the agent, finish the step, and
