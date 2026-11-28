@@ -57,11 +57,14 @@ guard against a review that just says more.
 
 ## Getting started
 
-Datasets are private, so a workspace lives in its own repository. Link the package into it:
+Datasets are private, so a workspace lives in its own repository. Link the package into it, with
+`agentswf` from the same clone so there is one `@agentswf/contract`
+([README](../../README.md#using-a-clone-from-another-project)):
 
 ```sh
 cd packages/lab && bun link
-cd ~/my-workspace && bun link @agentswf/lab
+cd ../agentswf && bun link
+cd ~/my-workspace && bun link @agentswf/lab && bun link agentswf
 ```
 
 A minimal `awf-lab.json`:

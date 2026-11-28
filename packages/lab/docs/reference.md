@@ -527,8 +527,8 @@ in a sandbox needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in awf-
 | score | `score.{scorer}@{major}.{minor}.k{key-revision}.{n}.json` beside its trial, where `n` counts retries |
 | run | `{runs}/{workflow}/{run-id}/`: `out.json` and the attempt's records, not needed by any record |
 
-To use `@agentswf/lab/review` from a workspace outside this repository, run `bun link` in
-`packages/lab`, then `bun link @agentswf/lab` in the workspace.
+To use `@agentswf/lab/review` from a workspace outside this repository, link it and `agentswf`
+from the same clone, as the [README](../README.md#getting-started) shows.
 
 ## Building a dataset
 

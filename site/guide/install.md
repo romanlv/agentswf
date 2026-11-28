@@ -120,7 +120,8 @@ to your coding agent, and it moves the workflow over.
 - **Each harness is its own install.** awf doesn't install or update claude, codex, pi, cursor or
   Herdr; keep each logged in with its own command.
 - **Work on agents.wf itself** runs from a clone instead; the
-  [README](https://github.com/romanlv/agentswf#install) says how.
+  [README](https://github.com/romanlv/agentswf#contributing) says how, and how to run a project's
+  workflows on that clone.
 
 ## Next
 

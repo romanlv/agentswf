@@ -11,7 +11,6 @@ import {
   WORKFLOW_KIND,
   type Workflow,
 } from "@agentswf/contract/workflow";
-import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
 import * as typeboxSurface from "./author-typebox";
@@ -44,7 +43,7 @@ export function authorSurfaceServed(): boolean {
 export function serveAuthorSurface(): void {
   if (surfaceServed) return;
   surfaceServed = true;
-  plugin({
+  Bun.plugin({
     name: "agentswf author surface",
     setup(build) {
       for (const [name, exports] of Object.entries(AUTHOR_SURFACE)) {

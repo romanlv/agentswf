@@ -41,5 +41,6 @@ a schema, regenerate `schema/` with `bun packages/lab/src/write-schemas.ts`.
 
 GitLab is reached only through `glab api`, read-only. Fixtures and their data live outside this
 repository, in the project's own autoresearch repository. It imports the package by name, linked
-from a clone: `bun link` here, then `bun link @agentswf/lab` there. `@agentswf/lab/review` is the
-entry; `@agentswf/lab/review/{dir}/{file}` reaches any other module, with no promise it stays.
+from a clone with `agentswf` from the same clone ([README](README.md#getting-started)).
+`@agentswf/lab/review` is the entry; `@agentswf/lab/review/{dir}/{file}` reaches any other module,
+with no promise it stays.

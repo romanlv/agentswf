@@ -140,4 +140,23 @@ bun run check             # lint, format, types and package boundaries
 
 [`AGENTS.md`](AGENTS.md) covers working in this repository with a coding agent.
 
+### Using a clone from another project
+
+To run a project's workflows on an unreleased clone, link the clone's `agentswf` into it:
+
+```sh
+cd {clone}/packages/agentswf && bun link
+cd {project} && bun link agentswf
+```
+
+The project's `@types/bun` stays its own, at any version. `bun install` keeps the link; to go
+back to the release, `rm node_modules/agentswf && bun install`. `bun link` remembers one clone
+per package, the last one it ran in, so run it again in the clone or worktree you mean.
+
+Link any `@agentswf/*` package, such as `packages/lab`, from the same clone, and link `agentswf`
+with it. One linked beside the released `agentswf`, or from another clone or worktree, brings a
+second `@agentswf/contract`, and `tsc` then rejects the clone's types as not assignable to the
+project's. A `file:` dependency doesn't install: the packages depend on each other by
+`workspace:*`.
+
 MIT licensed: see [`LICENSE`](LICENSE).

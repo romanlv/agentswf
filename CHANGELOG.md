@@ -15,15 +15,18 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   the login. `metered: true` is gone: delete it from every runtime. A workflow that still passes it
   fails to type-check, and a fork's runtime with `metered` is refused at run time.
 
+### Fixed
+
+- A project linked to an awf clone with `bun link agentswf` type-checks against its own
+  `@types/bun`, at any version; it used to load the clone's too, and `tsc` failed on the
+  duplicates. The README's Contributing section says how to link a clone.
+- An attempt after a run's first, as a wake, `awf tick` or `--continue` starts it, says so in its
+  first line: `awf: {workflow}/{id} continued · attempt {n} · watch: …`, no longer `started`.
+
 ### Added
 
 - Gemini 4 Neon is priced, at Google's list rates, under each name cursor runs it by
   (`gemini-4-neon-low` to `-xhigh`).
-
-### Fixed
-
-- An attempt after a run's first, as a wake, `awf tick` or `--continue` starts it, says so in its
-  first line: `awf: {workflow}/{id} continued · attempt {n} · watch: …`, no longer `started`.
 
 ## 0.2.0 — 2026-11-23
 

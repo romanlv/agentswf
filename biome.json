@@ -52,6 +52,23 @@
       "formatter": {
         "lineWidth": 80
       }
+    },
+    {
+      "includes": ["packages/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "bun": "Use the Bun global: a consumer that links this package would load a second copy of bun-types."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }
