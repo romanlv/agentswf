@@ -139,8 +139,9 @@ A coding session can start a run and keep working, or follow a run someone else 
 no tool beyond its shell:
 
 1. **Start it as a long command,** in the background if your harness has one. Its stderr is not a
-   terminal, so the first line is `awf: {workflow}/{id} started · watch: awf logs {workflow}/{id}`.
-   That line's prefix is stable to match on.
+   terminal, so the first line is `awf: {workflow}/{id} started · watch: awf logs {workflow}/{id}`,
+   or `continued · attempt {n}` in place of `started` for a continue. That line's prefix is stable
+   to match on.
 2. **Name the run by that reference** in every later command, never by "the newest": another run
    may start beside it.
 3. **Read with the `watch:` command,** then run each answer's `next:` exactly, and stop at an

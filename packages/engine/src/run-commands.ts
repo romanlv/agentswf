@@ -39,15 +39,22 @@ export function failed(
 
 /**
  * What `awf run` says first where no person watches its progress: the run's reference, the one
- * route a calling agent has to its own run. Its prefix, `awf: {workflow}/{id} started`, is stable.
+ * route a calling agent has to its own run. Its prefix, `awf: {workflow}/{id} started`, or
+ * `continued` for an attempt after the first, is stable.
  */
 export function startedLine(
   workflow: string,
   id: string,
   run: Pick<RunCommand, "cwd" | "cwdGiven" | "runRoot" | "runRootGiven">,
+  continued?: { attempt?: number },
 ): string {
   const ref = `${workflow}/${id}`;
-  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...placeFlags(run)])}`;
+  const did = !continued
+    ? "started"
+    : continued.attempt === undefined
+      ? "continued"
+      : `continued · attempt ${continued.attempt}`;
+  return `awf: ${ref} ${did} · watch: ${shellLine(["awf", "logs", ref, ...placeFlags(run)])}`;
 }
 
 /** `awf logs` from `cursor`: with `--wait` unless the page stopped short of the newest. */

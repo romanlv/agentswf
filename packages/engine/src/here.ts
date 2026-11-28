@@ -131,7 +131,9 @@ export async function startHere(
       "Run the workflow from a shell with awf run instead.",
     );
   }
-  notice(startedLine(ready.loaded.workflow.meta.name, id, command));
+  // The tab claims the attempt's number, after this line.
+  const continued = ready.prepared.continued?.attempts.length ? {} : undefined;
+  notice(startedLine(ready.loaded.workflow.meta.name, id, command, continued));
   stdout(
     [
       `awf: ${basename(ready.loaded.file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,

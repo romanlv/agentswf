@@ -667,7 +667,8 @@ async function runAttempt(
   }
 
   // Before any agent starts; in a terminal, the progress block's header names the run instead.
-  if (!terminal && !quiet) notice(startedLine(meta.name, id, command));
+  if (!terminal && !quiet)
+    notice(startedLine(meta.name, id, command, previous ? { attempt: n } : undefined));
   const progress = watchProgress(`${meta.name}/${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
     // Quiet, only awf's own problems among the progress's lines.
     stderr: quiet ? (line) => line.startsWith("awf: ") && stderr(line) : stderr,

@@ -20,6 +20,11 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 - Gemini 4 Neon is priced, at Google's list rates, under each name cursor runs it by
   (`gemini-4-neon-low` to `-xhigh`).
 
+### Fixed
+
+- An attempt after a run's first, as a wake, `awf tick` or `--continue` starts it, says so in its
+  first line: `awf: {workflow}/{id} continued · attempt {n} · watch: …`, no longer `started`.
+
 ## 0.2.0 — 2026-11-23
 
 Better tools for runs that wait on events: park, wake, and see what woke them.
