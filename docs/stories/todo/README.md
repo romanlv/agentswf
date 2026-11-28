@@ -94,7 +94,6 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[interrupted-accounting-read]] — a Ctrl-C after the work is done keeps the spend.
 - [[fork-deadline]] — a fork's timeout is its own and says so, not the run's deadline.
 - [[unattended-safety-prompts]] — an unwatched claude denies safety-check prompts, sandboxed or not.
-- [[land-workflow-cases-fixes]] — the harness and engine fixes on workflow-cases, onto main.
 
 ### P2
 
@@ -110,6 +109,7 @@ no process left. The autoresearch loop is a long-term bet, and security edge cas
 - [[linux-host-sandbox]] — a sandbox on the host on Linux, where awf refuses srt (X24).
 - [[srt-install-check]] — srt is found however Node is switched.
 - [[split-large-modules]] — the repository's own.
+- [[land-workflow-cases-fixes]] — the box fixes held back on workflow-cases, landed with 046.
 
 ### P3
 
