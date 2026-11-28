@@ -24,6 +24,9 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   first line: `awf: {workflow}/{id} continued · attempt {n} · watch: …`, no longer `started`.
 - `awf runs` shows a running run's cost so far, read from its agents' sessions as they stand, with
   a `?`: a run held open for a warm agent showed no cost until its attempt ended.
+- A spec naming srt on a machine where awf can't find or run it says what it looked for, and under
+  which node, with the command that installs it: `npm i -g @anthropic-ai/sandbox-runtime`. It used
+  to say only `not installed`, which after switching node versions didn't say why.
 
 ### Added
 

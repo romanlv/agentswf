@@ -426,6 +426,17 @@ The spec names a provider that isn't on this machine. Install it
 ([Install](/guide/install#sandboxes)), or name the one you have. A provider that is installed but
 can't be used says why instead: `the srt sandbox provider is not usable: {why}`.
 
+### `no srt on PATH`
+
+```text
+the srt sandbox provider is not usable: no srt on PATH; install it under the node there, /Users/you/.local/share/mise/installs/node/24.22.3/bin/node: npm i -g @anthropic-ai/sandbox-runtime
+```
+
+awf runs the first `srt` on your PATH with the first `node` there. A global npm install belongs to
+one node, so switching node with mise or nvm leaves srt behind under the old one. Run the command
+under the node the message names. `srt --version failed under {node}` means an srt is on PATH but
+doesn't run with that node: install it again the same way.
+
 ### `srt is macOS-only in awf for now`
 
 ```text

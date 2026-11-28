@@ -47,6 +47,8 @@ export type SrtOptions = SrtHost & {
   probe?: boolean;
 };
 
+/** The command a refusal names when srt is missing or does not run. */
+const INSTALL = "npm i -g @anthropic-ai/sandbox-runtime";
 /** How long `srt --version` may take before srt is taken to be missing. */
 const VERSION_MS = 10_000;
 /** The longest a `setTimeout` waits: above it, the timer fires at once. */
@@ -329,17 +331,17 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
 
 /**
  * srt as installed on this machine: the `srt` on `PATH` that answers `--version` (npm releases are
- * 0.0.x; older ones print 1.0.0 outside npm). `undefined` when absent. The
- * toolchain is what `PATH`'s executables under `~` need: their `bin` directories, and each one's
- * install tree (X19): a node package's root, a `bin/` beside a `lib/` (a node or a Python venv),
- * or the executable alone. Never a whole parent of `bin`: `~/.local` holds `state/` and
- * credentials, and `~/.orbstack` an SSH key.
+ * 0.0.x; older ones print 1.0.0 outside npm). Refused when missing or broken, saying where it
+ * looked and the command that installs it. The toolchain is what `PATH`'s executables under `~`
+ * need: their `bin` directories, and each one's install tree (X19): a node package's root, a
+ * `bin/` beside a `lib/` (a node or a Python venv), or the executable alone. Never a whole parent
+ * of `bin`: `~/.local` holds `state/` and credentials, and `~/.orbstack` an SSH key.
  */
 export async function findSrt(
   environment: Readonly<Record<string, string | undefined>>,
   harnessState: readonly string[],
   platform: NodeJS.Platform = process.platform,
-): Promise<SrtOptions | undefined> {
+): Promise<SrtOptions> {
   // On Linux srt 0.0.81 loses a write nested in a read, git, the network with `/tmp` denied, and
   // every Unix socket, the door's among them (docs/findings/sandbox-providers.md, X24).
   if (platform !== "darwin") {
@@ -350,15 +352,23 @@ export async function findSrt(
   const path = (environment.PATH ?? "").split(":").filter(Boolean);
   const cli = await firstExecutable("srt", path);
   const node = await firstExecutable("node", path);
-  if (!cli || !node) return undefined;
+  // A global npm install lives under one node: switching node, as mise or nvm does, loses it.
+  if (!cli && !node) throw new Error(`no srt or node on PATH; install node, then srt: ${INSTALL}`);
+  if (!node) throw new Error(`srt is on PATH at ${cli}, but no node is, which srt runs on`);
+  if (!cli) throw new Error(`no srt on PATH; install it under the node there, ${node}: ${INSTALL}`);
   const version = Bun.spawnSync({
     cmd: [node, cli, "--version"],
     stdout: "pipe",
     stderr: "pipe",
     timeout: VERSION_MS,
   });
-  if (version.exitCode !== 0 || !/^\d+\.\d+\.\d+/.test(version.stdout.toString().trim()))
-    return undefined;
+  if (version.exitCode !== 0 || !/^\d+\.\d+\.\d+/.test(version.stdout.toString().trim())) {
+    const said = version.stderr.toString().trim().split("\n")[0]?.trim();
+    throw new Error(
+      `${cli} --version failed under ${node}${said ? ` (${said})` : ""}; ` +
+        `install it under that node: ${INSTALL}`,
+    );
+  }
   const real = [
     ...new Set(
       (await Promise.all(path.map((entry) => realpath(entry).catch(() => undefined)))).filter(

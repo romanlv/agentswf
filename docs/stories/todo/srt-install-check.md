@@ -10,7 +10,9 @@ depends_on: []
 
 # srt is found however Node is switched
 
-awf finds or brings its own `srt`. When it can't, the refusal names the command that installs it.
+awf finds or brings its own `srt`, so switching Node doesn't lose it. Today the refusal names the
+node it searched and the install command (`findSrt`, `packages/sandbox/src/srt/index.ts`). What's
+left: whether awf depends on the package, and which version it pins.
 
 Why it matters: on 2026-11-26, mise moved the default Node from 22.20.0 to 24.22.3. `srt` was
 installed globally only under the old Node, so every boxed lab trial stopped with "not installed"

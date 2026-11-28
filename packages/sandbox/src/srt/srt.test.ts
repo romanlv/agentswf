@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
-import { mkdir, readdir, readFile, readlink, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentContext, ResolvedSandbox, SandboxContext } from "../seam";
@@ -272,6 +272,37 @@ describe("the srt provider", () => {
   test("refuses Linux, where srt does not yet hold what awf asks of it", async () => {
     await expect(findSrt({ PATH: "/usr/bin" }, [], "linux")).rejects.toThrow(
       'srt is macOS-only in awf for now; on Linux name "docker": {}',
+    );
+  });
+
+  test("missing, names the node it looked under and the command that installs srt there", async () => {
+    const bin = join(root, "no-srt", "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "node"), "#!/bin/sh\n", { mode: 0o755 });
+    await expect(findSrt({ HOME: root, PATH: `${bin}:/usr/bin` }, [], "darwin")).rejects.toThrow(
+      `no srt on PATH; install it under the node there, ${join(bin, "node")}: ` +
+        "npm i -g @anthropic-ai/sandbox-runtime",
+    );
+  });
+
+  test("missing with no node either, says srt needs both", async () => {
+    const bin = join(root, "empty", "bin");
+    await mkdir(bin, { recursive: true });
+    await expect(findSrt({ HOME: root, PATH: bin }, [], "darwin")).rejects.toThrow(
+      "no srt or node on PATH; install node, then srt: npm i -g @anthropic-ai/sandbox-runtime",
+    );
+  });
+
+  test("one that does not run under the node on PATH, says which node and what it said", async () => {
+    const bin = join(root, "broken", "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "node"), "#!/bin/sh\necho 'Cannot find module' >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    await writeFile(join(bin, "srt"), "#!/bin/sh\n", { mode: 0o755 });
+    await expect(findSrt({ HOME: root, PATH: bin }, [], "darwin")).rejects.toThrow(
+      `${join(bin, "srt")} --version failed under ${join(bin, "node")} (Cannot find module); ` +
+        "install it under that node: npm i -g @anthropic-ai/sandbox-runtime",
     );
   });
 

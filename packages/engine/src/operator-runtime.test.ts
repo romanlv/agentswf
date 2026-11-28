@@ -726,10 +726,15 @@ function success(stdout: string): ProcessResult {
 }
 
 describe("installSandboxes", () => {
-  test("installs srt when its CLI is on PATH, and nothing when nothing answers", async () => {
+  test("installs srt when its CLI is on PATH, and says how to when nothing answers", async () => {
     const nothing = await installSandboxes({ PATH: "/nonexistent", HOME: "/" });
     if (process.platform === "darwin") {
-      expect(nothing).toEqual({ installed: {} });
+      expect(nothing).toEqual({
+        installed: {},
+        unavailable: {
+          srt: "no srt or node on PATH; install node, then srt: npm i -g @anthropic-ai/sandbox-runtime",
+        },
+      });
       const here = await installSandboxes(process.env);
       if (Bun.which("srt")) expect(here.installed.srt).toBeDefined();
     } else {
