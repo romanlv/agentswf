@@ -17,7 +17,7 @@ import { writeJson } from "./files";
 import { listOps, OpIds, spendFile } from "./ops";
 import { claimRunLines, readRunLines } from "./run-lines";
 import { createRun, openRun, readAttempts } from "./runs";
-import { keepSpend, readOps, readSpent, settleEarlier, writeSpend } from "./spend";
+import { keepSpend, readOps, readSpent, readSpentSoFar, settleEarlier, writeSpend } from "./spend";
 import { claimLines, createTempRunDirs, future, startNew, submit, writeAttempt } from "./testing";
 import { runWorkflow } from "./workflow-runner";
 
@@ -401,6 +401,28 @@ test("a settling stopped writes nothing, and leaves it for a later attempt", asy
   expect(await Bun.file(spendFile(run.dir, op)).exists()).toBe(false);
   await settle(files.accounting);
   expect(await spendOf(run.dir, op)).toMatchObject({ spend: [{ tokens: tokens(3) }] });
+});
+
+test("an attempt still running is measured as it stands, priced, still unsettled, and nothing written", async () => {
+  const files = sessionFiles();
+  const { run, draw, session } = await earlierRun(Date.now() - 60_000);
+  const worker = draw("worker");
+  await session("worker", "s-worker");
+  files.log("s-worker", 1_000_000);
+  // A calling session's turns are the operator's as much as the run's: not read.
+  draw("caller", { caller: true, model: "" });
+  const attempts = await readAttempts(run);
+  const recorded = await readSpent(run.dir, attempts);
+  const soFar = await readSpentSoFar(run.dir, attempts, {
+    accounting: files.accounting,
+    now: Date.now(),
+  });
+  expect(runEstimate(recorded)).toBeUndefined();
+  expect(runEstimate(soFar)).toBeGreaterThan(0);
+  expect(soFar.map(({ unsettled, unread }) => ({ unsettled, unread }))).toEqual([
+    { unsettled: 2, unread: 0 },
+  ]);
+  expect(await Bun.file(spendFile(run.dir, worker)).exists()).toBe(false);
 });
 
 test("a metered operation the next attempt read has an unknown reported cost: not billed", async () => {

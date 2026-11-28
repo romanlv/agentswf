@@ -2,6 +2,7 @@
 // on from it.
 import { resolve } from "node:path";
 import type { RunLogLine } from "@agentswf/contract/records";
+import type { SessionAccounting } from "@agentswf/harness";
 import { runEstimate, unknownOps } from "./accounting/spent";
 import { continueCommand } from "./attempt-view";
 import { command, type Out, placeFlags, type ReadPlace, shellLine } from "./command-line";
@@ -11,7 +12,7 @@ import { type Cursor, encodeCursor } from "./run-read";
 import { RunNotFound, type RunStatus } from "./run-state";
 import { clockTime } from "./run-text";
 import { runRootOf } from "./runs";
-import { readSpent } from "./spend";
+import { readSpent, readSpentSoFar } from "./spend";
 
 /** The longest `--wait` the commands that read runs take. */
 export const MAX_WAIT_SECONDS = 300;
@@ -148,22 +149,22 @@ export function span(
 
 /**
  * At list prices, today's, over the run's agent operations that recorded their spend, never what
- * was billed; and how many operations' usage isn't known, which makes it a floor.
+ * was billed; and how many operations' usage isn't known, which makes it a floor. With `live`, a
+ * running attempt's operations are counted as their sessions stand, still a floor.
  */
 export async function estimateOf(
   status: RunStatus,
+  live?: LiveSpend,
 ): Promise<{ estimate?: number; unknown: number }> {
-  const spent = await readSpent(status.run.dir, status.attempts, { decisions: false }).catch(
-    () => undefined,
-  );
+  const { dir } = status.run;
+  const spent = await (live && status.state === "running"
+    ? readSpentSoFar(dir, status.attempts, live)
+    : readSpent(dir, status.attempts, { decisions: false })
+  ).catch(() => undefined);
   if (!spent) return { unknown: 0 };
   const estimate = runEstimate(spent);
-  // A running attempt's operations are read as it ends: not yet unknown.
-  const live = status.state === "running" ? status.attempts.at(-1)?.attempt : undefined;
-  return {
-    ...(estimate === undefined ? {} : { estimate }),
-    unknown: unknownOps(
-      spent.map((each) => (each.attempt === live ? { ...each, unsettled: 0 } : each)),
-    ),
-  };
+  return { ...(estimate === undefined ? {} : { estimate }), unknown: unknownOps(spent) };
 }
+
+/** What reads a running attempt's sessions for its cost so far, and the time it reads them to. */
+export type LiveSpend = { accounting: SessionAccounting; now: number };

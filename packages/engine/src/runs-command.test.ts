@@ -7,6 +7,7 @@ import {
   type RunJson,
   type RunsJson,
 } from "@agentswf/contract/records";
+import type { SessionAccounting } from "@agentswf/harness";
 import { writeJson } from "./files";
 import { runLinesFile } from "./run-lines";
 import { createRun, processStart, type Run } from "./runs";
@@ -236,7 +237,7 @@ describe("awf runs", () => {
     // Priced as it is read, from what its operation measured: 3.05M input tokens at $2/M.
     spent(old, "fixer.1", 1, 3_050_000);
     const running = await makeRun(cwd, "review", "new", [{ started: T(10), ...ALIVE }]);
-    // A running attempt's operation has no spend.json until it ends: not an unknown cost yet.
+    // A running attempt's operation has no spend.json until it ends: its figure is a floor.
     spent(running, "fixer.1", 1, 1_000_000);
     mkdirSync(join(running.dir, "ops", "fixer.2"), { recursive: true });
     writeFileSync(
@@ -245,7 +246,7 @@ describe("awf runs", () => {
     );
     const listed = (await awfRuns(cwd)).stdout.split("\n");
     expect(listed[0]).toMatch(/^review\/new {2}running {6}\d\d-\d\d \d\d:\d\d {2}\S+/);
-    expect(listed[0]).toMatch(/\$2\.00$/);
+    expect(listed[0]).toMatch(/\$2\.00\?$/);
     expect(listed[1]).toMatch(
       /^review\/old {2}completed {4}\d\d-\d\d \d\d:\d\d {2}5m 00s {3}\$6\.10$/,
     );
@@ -682,6 +683,61 @@ describe("awf runs", () => {
     expect(read.exitCode).toBe(3);
     expect(read.stderr).toStartWith("awf: ");
   });
+});
+
+test("a running attempt shows what its agents' sessions logged so far, marked a floor", async () => {
+  const cwd = runDirs.tempRunDir();
+  const run = await makeRun(cwd, "review", "open", [{ ...ALIVE }]);
+  spent(run, "reviewer.1", 1, 0);
+  rmSync(join(run.dir, "ops", "reviewer.1", "spend.json"));
+  settle(run, { kind: "session", agent: "reviewer", harness: "claude", session: "s-1" }, T(1));
+  const read: string[][] = [];
+  const accounting: SessionAccounting = {
+    pollMs: 1,
+    stalledMs: 1,
+    statusMs: 1,
+    async read(_execution, sessions) {
+      read.push([...sessions]);
+      const tokens = { input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 0 };
+      const at = [T(2), T(30)];
+      return {
+        records: at.map((each, index) => ({
+          key: `req_${index}`,
+          at: each,
+          model: "claude-sonnet-5",
+          delegated: false,
+          tokens,
+        })),
+        open: true,
+      };
+    },
+    async billing() {
+      throw new Error("billing is not asked of a run still running");
+    },
+  };
+  const awf = async (...argv: string[]) => {
+    const out: string[] = [];
+    await runsCommand(
+      argv,
+      cwd,
+      { stdout: (text) => out.push(text), stderr: () => undefined },
+      Date.parse(T(14)),
+      cwd,
+      accounting,
+    );
+    return out.join("\n");
+  };
+  // 1M input tokens logged by now at $2/M; the request after now isn't counted.
+  expect(await awf()).toMatch(
+    /^review\/open {2}running {6}\d\d-\d\d \d\d:\d\d {2}14m 00s {2}\$2\.00\?$/,
+  );
+  expect((await awf("review/open")).split("\n")[0]).toBe("review/open  running  14m 00s  $2.00?");
+  expect(JSON.parse(await awf("--json")).runs[0]).toMatchObject({ estimate: 2 });
+  expect(read).toEqual([["s-1"], ["s-1"], ["s-1"]]);
+  // Nothing written: its spend.json is the attempt's to keep as it ends.
+  expect(await Bun.file(join(run.dir, "ops", "reviewer.1", "spend.json")).exists()).toBe(false);
+  // Without a reader, as before: no figure.
+  expect((await awfRuns(cwd)).stdout).toMatch(/ 14m 00s$/);
 });
 
 /** An agent operation of `run` that measured `input` tokens of claude-sonnet-5, settled. */

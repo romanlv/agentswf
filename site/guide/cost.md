@@ -63,15 +63,17 @@ Where the time and tokens went:
   `run: 2 attempts, 3m 10s, ~$1.30`. An attempt that was interrupted is counted too: the next
   attempt reads what its agents used as it starts.
 
-`awf runs` lists each run's time and estimate, with a `?` after it when some agent's tokens
-couldn't be read, so you can compare runs at a glance:
+`awf runs` lists each run's time and estimate, with a `?` after it when the figure is a floor: some
+agent's tokens couldn't be read, or the run is still running and the figure is what its agents
+have used so far. So you can compare runs at a glance:
 [Following runs](/guide/following-runs#awf-runs-where-a-run-stands).
 
 ## Where the numbers come from
 
 After an attempt ends, awf reads each agent's tokens from its harness's own session files and keeps
 them, unpriced, in each operation's `spend.json`. An attempt that was interrupted, or whose read a
-second Ctrl-C cut short, is read by the next one as it starts. A figure is priced when it is shown,
+second Ctrl-C cut short, is read by the next one as it starts. While an attempt runs, `awf runs`
+reads its agents' session files as they stand, and keeps nothing. A figure is priced when it is shown,
 with the price table built into awf: one list price per model, read from the vendors' pricing pages
 on a date. So `awf runs` and a continued run's total price every attempt with the table of the awf
 reading them. `out.json` keeps the attempt's figures priced as it ran, and names the table it used,

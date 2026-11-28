@@ -4,7 +4,13 @@ import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import type { HarnessAllowance, RefusalCode } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
-import { type Harness, handBack, type RunProcess, terminalAttached } from "@agentswf/harness";
+import {
+  createSessionAccounting,
+  type Harness,
+  handBack,
+  type RunProcess,
+  terminalAttached,
+} from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
 import { earlierSpent, unreadEarlier } from "./accounting/spent";
@@ -236,7 +242,15 @@ export async function runOperatorCli(
     tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     wake: () => wakeCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     park: () => parkCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
-    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, now(), environment.home),
+    runs: () =>
+      runsCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        now(),
+        environment.home,
+        createSessionAccounting(),
+      ),
     logs: () =>
       logsCommand(
         argv.slice(1),

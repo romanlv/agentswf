@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import type { JsonValue } from "@agentswf/contract/workflow";
+import type { SessionAccounting } from "@agentswf/harness";
 import { duration } from "./accounting/format";
 import { command, type Out, parsePlace, type ReadPlace, shellLine } from "./command-line";
 import { messageOf } from "./errors";
@@ -10,6 +11,7 @@ import {
   continueOf,
   estimateOf,
   failed,
+  type LiveSpend,
   nextLogs,
   shownState,
   span,
@@ -35,6 +37,7 @@ export async function runsCommand(
   out: Out,
   now: number = Date.now(),
   home: string = homedir(),
+  accounting?: SessionAccounting,
 ): Promise<number> {
   let parsed: ReturnType<typeof parsePlace>;
   let limit: number | undefined;
@@ -58,9 +61,10 @@ export async function runsCommand(
     return 2;
   }
   const { place, json } = parsed;
+  const live = accounting ? { accounting, now } : undefined;
   try {
-    if (ref === undefined) return await list(place, limit ?? LISTED, json, out, now);
-    const view = await viewRun(await findRunByRef(ref, place, home));
+    if (ref === undefined) return await list(place, limit ?? LISTED, json, out, now, live);
+    const view = await viewRun(await findRunByRef(ref, place, home), live);
     out.stdout(
       json ? JSON.stringify(runJson(view, place, now), null, 2) : describe(view, place, now),
     );
@@ -91,7 +95,14 @@ type Listed =
 /** How many runs past the limit are read at once for whether they run. */
 const LIVE_READS = 16;
 
-async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
+async function list(
+  place: ReadPlace,
+  limit: number,
+  json: boolean,
+  out: Out,
+  now: number,
+  soFar: LiveSpend | undefined,
+) {
   const runs = await listRunEntries(place.runRoot);
   // A run working now is listed however long ago it started, after the newest: its attempts read
   // alone, a few runs at a time, as a project can hold thousands.
@@ -114,7 +125,7 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
         ? { ref: run.ref, unreadable: run.why }
         : runStatus(run, undefined, now).then(
             async (status) => {
-              return { status, ...(await estimateOf(status)) };
+              return { status, ...(await estimateOf(status, soFar)) };
             },
             (error: unknown) => ({
               ref: `${run.record.workflow}/${run.record.id}`,

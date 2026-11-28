@@ -9,14 +9,23 @@ import type {
 import type { PriceTable } from "./prices";
 import { attemptAccounting, type PricedOperation, sumAttempts, summarizeRun } from "./summary";
 
-/** An operation as its folder records it: `op.json`, and its `spend.json` or decision's record. */
-export type RecordedOp = { op: OpRecord; spend?: SpendRecord; decision?: SettledDecision };
+/**
+ * An operation as its folder records it: `op.json`, and its `spend.json` or decision's record.
+ * `measured` is what one with no `spend.json` used so far, read while its attempt runs: priced, and
+ * still unsettled.
+ */
+export type RecordedOp = {
+  op: OpRecord;
+  spend?: SpendRecord;
+  measured?: Omit<SpendRecord, "version">;
+  decision?: SettledDecision;
+};
 
 /** What one attempt's operations recorded, priced now. */
 export type AttemptSpent = {
   attempt: number;
   accounting: RunAccounting;
-  /** Its agent operations with no `spend.json` yet: their usage is unknown, not zero. */
+  /** Its agent operations with no `spend.json` yet: their usage is unknown, or known only so far. */
   unsettled: number;
   /** Its agent operations settled without their usage: their sessions could not be read. */
   unread: number;
@@ -35,9 +44,10 @@ export function attemptsSpent(
 ): AttemptSpent[] {
   return attempts.map(({ attempt, started, ended }) => {
     const own = ops.filter(({ op }) => op.attempt === attempt);
-    const usage = own.flatMap(({ op, spend }) =>
-      op.kind === "decision" || !spend ? [] : [settledOf(op, spend)],
-    );
+    const usage = own.flatMap(({ op, spend, measured }) => {
+      const known = spend ?? measured;
+      return op.kind === "decision" || !known ? [] : [settledOf(op, known)];
+    });
     const decisions = own.flatMap(({ decision }) => (decision ? [decision] : []));
     const agentOps = own.filter(({ op }) => op.kind !== "decision");
     const finishedAt =
@@ -106,7 +116,10 @@ function costUnknown({ unsettled, unread }: AttemptSpent): boolean {
   return unsettled + unread > 0;
 }
 
-function settledOf(op: Extract<OpRecord, { agent: string }>, spend: SpendRecord): PricedOperation {
+function settledOf(
+  op: Extract<OpRecord, { agent: string }>,
+  spend: Omit<SpendRecord, "version">,
+): PricedOperation {
   return {
     callPath: [],
     agent: op.agent,

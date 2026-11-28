@@ -22,6 +22,8 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   duplicates. The README's Contributing section says how to link a clone.
 - An attempt after a run's first, as a wake, `awf tick` or `--continue` starts it, says so in its
   first line: `awf: {workflow}/{id} continued · attempt {n} · watch: …`, no longer `started`.
+- `awf runs` shows a running run's cost so far, read from its agents' sessions as they stand, with
+  a `?`: a run held open for a warm agent showed no cost until its attempt ended.
 
 ### Added
 

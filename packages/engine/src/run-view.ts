@@ -10,7 +10,7 @@ import type { AgentKey, HarnessKind, JsonValue } from "@agentswf/contract/workfl
 import { messageOf } from "./errors";
 import { readLines } from "./jsonl";
 import { liveFile } from "./ops";
-import { currentStage, estimateOf } from "./run-commands";
+import { currentStage, estimateOf, type LiveSpend } from "./run-commands";
 import { readRunLines } from "./run-lines";
 import { type Cursor, type FileCache, readRun, timeOf } from "./run-read";
 import type { RunStatus } from "./run-state";
@@ -71,7 +71,7 @@ export type RunView = {
   cursor: Cursor;
 };
 
-export async function viewRun(status: RunStatus): Promise<RunView> {
+export async function viewRun(status: RunStatus, live?: LiveSpend): Promise<RunView> {
   const { run, attempts } = status;
   const attempt = attempts.at(-1);
   const files: FileCache = new Map();
@@ -190,7 +190,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
       files: (files.get(session.n)?.files ?? []).map((file) => file.path),
     });
   }
-  const { estimate, unknown } = await estimateOf(status);
+  const { estimate, unknown } = await estimateOf(status, live);
   const lastLine = read.log.lines.at(-1)?.line;
   return {
     status,

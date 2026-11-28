@@ -19,6 +19,7 @@ import { runUntilStopped } from "./deadlines";
 import { messageOf } from "./errors";
 import { isCode, linkNew } from "./files";
 import { opFile, readOpFile, spendFile } from "./ops";
+import { readRunLines } from "./run-lines";
 import { unfenced } from "./run-policy/waits";
 import { ACCOUNTING_GRACE_MILLISECONDS, STATUS_SLACK_MILLISECONDS } from "./run-usage";
 
@@ -35,6 +36,8 @@ type SpendFields = Omit<SpendRecord, "version">;
 
 /** A settling past its deadline, or stopped. */
 const STOPPED: unique symbol = Symbol("stopped");
+
+type Bounded = <T>(call: () => Promise<T>) => Promise<T | typeof STOPPED>;
 
 /** Writes an operation's `spend.json`, once: false when one is there already. */
 export async function writeSpend(
@@ -192,7 +195,7 @@ export async function settleEarlier(
       (accounting?.statusMs ?? 0) +
       STATUS_SLACK_MILLISECONDS,
   };
-  const bounded = <T>(call: () => Promise<T>): Promise<T | typeof STOPPED> =>
+  const bounded: Bounded = (call) =>
     runUntilStopped(call, options.signal, deadline).catch(() => STOPPED);
   const lines = unfenced(options.lines).filter(
     (line): line is SessionLine => line.kind === "session",
@@ -220,19 +223,15 @@ export async function settleEarlier(
         for (const { op } of unsettled) await write(op, { billing: "unknown" });
         continue;
       }
-      const from = Date.parse(theirs[0]!.op.at);
-      const read = accounting
-        ? await bounded(() => readAgent(agent, attempt, theirs, lines, accounting))
-        : undefined;
-      if (read === STOPPED) return { settled, failed };
-      const records = read?.filter((record) => {
-        const at = Date.parse(record.at);
-        const claim = `${record.harness}\u0000${record.key}`;
-        if (claimed.has(claim) || at < from || at > until) return false;
-        claimed.add(claim);
-        return true;
+      const read = await measureAgent(agent, attempt, theirs, {
+        lines,
+        accounting,
+        until,
+        claimed,
+        bounded,
       });
-      const shares = records && share(theirs, records);
+      if (read === STOPPED) return { settled, failed };
+      const { records, shares } = read;
       const billings = new Map<string, Billing>();
       for (const { op } of unsettled) {
         const key = JSON.stringify(op.execution);
@@ -255,7 +254,92 @@ export async function settleEarlier(
   return { settled, failed };
 }
 
+/**
+ * As `readSpent`, with the last attempt, still running, measured as it stands: what its agents'
+ * sessions logged by `now`, shared out to its operations as `settleEarlier` shares them, and never
+ * written, as its spend is the attempt's to keep as it ends. Its operations stay unsettled, so
+ * their figure is a floor. Billing isn't asked: an estimate doesn't need it.
+ */
+export async function readSpentSoFar(
+  runDir: string,
+  attempts: readonly ClaimedAttempt[],
+  options: { accounting: SessionAccounting; now: number },
+): Promise<AttemptSpent[]> {
+  const ops = await readOps(runDir, { decisions: false, refuse: true });
+  const open = attempts.at(-1);
+  const own = ops
+    .filter(
+      (each): each is RecordedOp & { op: AgentOpRecord } =>
+        each.op.kind !== "decision" && each.op.attempt === open?.attempt && !each.spend,
+    )
+    .sort((a, b) => Date.parse(a.op.at) - Date.parse(b.op.at));
+  if (!open || open.ended || own.length === 0)
+    return attemptsSpent(ops, attempts, PUBLISHED_PRICES);
+  // A `run.jsonl` that can't be read names no session: the recorded figure still shows.
+  const read = await readRunLines(runDir).catch(() => ({ lines: [] }));
+  const lines = unfenced(read.lines).filter((line): line is SessionLine => line.kind === "session");
+  const until = untilOf(open.attempt, { attempts, now: options.now });
+  const claimed = new Set<string>();
+  const measured = new Map<string, SpendFields>();
+  for (const agent of [...new Set(own.map(({ op }) => op.agent))]) {
+    const theirs = own.filter(({ op }) => op.agent === agent);
+    if (theirs.some(({ op }) => op.execution.caller)) continue;
+    const read = await measureAgent(agent, open.attempt, theirs, {
+      lines,
+      accounting: options.accounting,
+      until,
+      claimed,
+      bounded: (call) => call(),
+    });
+    if (read === STOPPED || !read.shares) continue;
+    const { shares } = read;
+    for (const { op } of theirs)
+      measured.set(op.id, { billing: "unknown", spend: spendOf(shares.get(op.id) ?? []) });
+  }
+  return attemptsSpent(
+    ops.map((each) => {
+      const found = measured.get(each.op.id);
+      return found ? { ...each, measured: found } : each;
+    }),
+    attempts,
+    PUBLISHED_PRICES,
+  );
+}
+
 type SessionLine = Extract<RunLine, { kind: "session" }>;
+
+/**
+ * An agent's usage in one attempt, read now from its sessions: from its first operation's start
+ * until `until`, less what an agent read before it claimed, and shared out to its operations.
+ */
+async function measureAgent(
+  agent: string,
+  attempt: number,
+  theirs: readonly { op: AgentOpRecord }[],
+  options: {
+    lines: readonly SessionLine[];
+    accounting: SessionAccounting | undefined;
+    until: number;
+    claimed: Set<string>;
+    bounded: Bounded;
+  },
+): Promise<{ records?: UsageRecord[]; shares?: Map<string, UsageRecord[]> } | typeof STOPPED> {
+  const { accounting, claimed, until } = options;
+  const from = Date.parse(theirs[0]!.op.at);
+  const read = accounting
+    ? await options.bounded(() => readAgent(agent, attempt, theirs, options.lines, accounting))
+    : undefined;
+  if (read === STOPPED) return STOPPED;
+  if (read === undefined) return {};
+  const records = read.filter((record) => {
+    const at = Date.parse(record.at);
+    const claim = `${record.harness}\u0000${record.key}`;
+    if (claimed.has(claim) || at < from || at > until) return false;
+    claimed.add(claim);
+    return true;
+  });
+  return { records, shares: share(theirs, records) };
+}
 
 /**
  * Until when an attempt's agents could have logged: it ended, the next attempt claimed, or now,
