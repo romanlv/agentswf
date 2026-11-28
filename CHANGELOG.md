@@ -27,6 +27,10 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
 - A spec naming srt on a machine where awf can't find or run it says what it looked for, and under
   which node, with the command that installs it: `npm i -g @anthropic-ai/sandbox-runtime`. It used
   to say only `not installed`, which after switching node versions didn't say why.
+- A fork that runs out of its own minute says so: `the fork of agent {parent} as {key} took
+  longer than 60s (deadline exceeded at …)`. It said only `Deadline exceeded at …`, as the run's
+  deadline does. It is still a `DeadlineExceededError`, and its `deadline` is the fork's own, not
+  `wf.deadline`.
 
 ### Added
 

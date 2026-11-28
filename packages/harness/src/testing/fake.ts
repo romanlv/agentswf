@@ -69,8 +69,16 @@ export type FakeSet = {
   signal: AbortSignal;
 };
 
-/** A fork the fake made: the agent it copied, the new session, and that agent's turns so far. */
-export type FakeFork = { activation: HarnessActivation; sessionRef: string; turns: number };
+/**
+ * A fork the fake made: the agent it copied, the new session, that agent's turns so far, and the
+ * deadline it was given.
+ */
+export type FakeFork = {
+  activation: HarnessActivation;
+  sessionRef: string;
+  turns: number;
+  deadline: AbsoluteDeadline;
+};
 
 export type FakeAgentSessionAdapter = AgentSessionAdapter & {
   activations: HarnessActivation[];
@@ -92,7 +100,8 @@ export function createFakeAdapter(
      * continued wherever `continues` is passed on.
      */
     forks?: (activation: HarnessActivation) => boolean;
-    onFork?: (fork: FakeFork) => void;
+    /** Told of each fork before it is returned; a rejection fails the fork with it. */
+    onFork?: (fork: FakeFork) => unknown;
     /**
      * Its session is found, not opened, as a handed-over calling session's is: forked by `found`'s
      * own fork, before any turn.
@@ -151,7 +160,7 @@ export function createFakeAdapter(
           : {}),
         ...(forks
           ? {
-              async fork(sessionRef: string, _deadline, into?: SessionCopy): Promise<NativeFork> {
+              async fork(sessionRef: string, deadline, into?: SessionCopy): Promise<NativeFork> {
                 if (isClosed) throw new Error("fake session is closed");
                 // A real harness copies its session's files there.
                 if (into) await mkdir(into.directory, { recursive: true });
@@ -160,7 +169,12 @@ export function createFakeAdapter(
                   sessionRef: `${sessionRef}/${into ? "copy" : "fork"}-${randomUUID()}`,
                   ...(into ? { copied: true as const } : {}),
                 };
-                options.onFork?.({ activation, sessionRef: fork.sessionRef, turns: turn });
+                await options.onFork?.({
+                  activation,
+                  sessionRef: fork.sessionRef,
+                  turns: turn,
+                  deadline,
+                });
                 return fork;
               },
             }

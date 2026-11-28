@@ -2643,7 +2643,12 @@ class WorkflowOwner {
           this.options.progress.agentDropped(spec.key);
         }
         opening.sessions.forks.splice(opening.sessions.forks.indexOf(sessions), 1);
-        throw error;
+        throw forkTimedOut(
+          error,
+          from === CALLING ? CALLING : `agent ${parentKey}`,
+          spec.key,
+          deadline,
+        );
       });
     const sources = parent.identity.skills;
     const forkOpening: AgentOpening = {
@@ -4757,6 +4762,24 @@ type OperationLog = {
 type TurnSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>) & { id: TurnId };
 /** A native fork, and the parent's operation it was copied after: null when it ran none. */
 type TakenFork = { native: NativeFork; after: string | null };
+/**
+ * A fork's own bound passing names the fork, so it is not read as the run's or the call's deadline,
+ * which pass as they are.
+ */
+function forkTimedOut(
+  error: unknown,
+  parent: string,
+  key: string,
+  ceiling: AbsoluteDeadline | undefined,
+): unknown {
+  if (!(error instanceof DeadlineExceededError)) return error;
+  const at = error.deadline.getTime();
+  if (ceiling && at >= ceiling.unixMilliseconds) return error;
+  const named = new DeadlineExceededError({ unixMilliseconds: at });
+  named.message = `the fork of ${parent} as ${key} took longer than ${FORK_TIMEOUT_MS / 1000}s (deadline exceeded at ${error.deadline.toISOString()})`;
+  return named;
+}
+
 type TakeFork = (deadline: AbsoluteDeadline | undefined, into?: SessionCopy) => Promise<TakenFork>;
 
 /** A settled turn or compaction, kept in the run's `log.jsonl`. */

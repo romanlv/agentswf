@@ -1,6 +1,7 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   type AgentRef,
+  DeadlineExceededError,
   defineWorkflow,
   type JsonValue,
   type OutputSchema,
@@ -32,13 +33,17 @@ function forkingAdapter(
   options: {
     act?: (context: FakeAdapterTurnContext) => Promise<void>;
     forks?: (key: string) => boolean;
+    onFork?: (fork: FakeFork) => void | Promise<void>;
   } = {},
 ) {
   const forks: FakeFork[] = [];
   const adapter = createFakeAdapter({
     continues: true,
     forks: (activation) => options.forks?.(activation.key) ?? true,
-    onFork: (fork) => forks.push(fork),
+    onFork: async (fork) => {
+      forks.push(fork);
+      await options.onFork?.(fork);
+    },
     script: (context) => ({
       act: async () => {
         if (options.act) return options.act(context);
@@ -59,6 +64,7 @@ function runtime(adapter: ReturnType<typeof forkingAdapter>): AgentRuntimeConfig
 function run<Result extends JsonValue>(
   adapter: ReturnType<typeof forkingAdapter>,
   body: (context: WorkflowContext) => Promise<Result>,
+  deadline = future(),
 ) {
   const workflow: RunnableWorkflow<null, Result> = {
     meta: { name: "fork", description: "fork" },
@@ -66,7 +72,7 @@ function run<Result extends JsonValue>(
   };
   return runNew(workflow, null, {
     runRoot: runDirs.tempRunDir(),
-    deadline: future(),
+    deadline,
     runtime: runtime(adapter),
   });
 }
@@ -247,6 +253,79 @@ describe("fork", () => {
     ]);
     expect(adapter.activations.filter((activation) => activation.key === "tests")).toHaveLength(1);
     expect(adapter.forks).toHaveLength(0);
+  });
+
+  test("a fork past its own minute says so, where the deadlines around it say only when", async () => {
+    const adapter = forkingAdapter({
+      onFork: (fork) => {
+        throw new DeadlineExceededError(fork.deadline);
+      },
+    });
+    await run(
+      adapter,
+      async (context) => {
+        const worker = await open(context);
+        await ask(worker, "Plan.");
+        const own = await worker.fork({ key: "lens" }).catch((error: unknown) => error);
+        expect(own).toBeInstanceOf(DeadlineExceededError);
+        expect((own as Error).message).toMatch(
+          /^the fork of agent worker as lens took longer than 60s \(deadline exceeded at \d{4}-\d\d-\d\dT[\d:.]+Z\)$/,
+        );
+        const bounded = await worker
+          .fork({ key: "bounded", timeout: "10s" })
+          .catch((error: unknown) => error);
+        expect(bounded).toBeInstanceOf(DeadlineExceededError);
+        expect((bounded as Error).message).toMatch(/^Deadline exceeded at /);
+        return null;
+      },
+      future(60 * 60_000),
+    );
+  });
+
+  test("a fork's minute starts once its parent's turn before it ends, not while it waits", async () => {
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const adapter = forkingAdapter({
+      act: async (context) => {
+        if (context.prompt.includes("Hold.")) {
+          started();
+          await held;
+        }
+        await submit(context.binding!, { answer: context.activation.key });
+      },
+    });
+    const waited = 5 * 60_000;
+    let asked = 0;
+    try {
+      await run(
+        adapter,
+        async (context) => {
+          const worker = await open(context);
+          await ask(worker, "Plan.");
+          const turn = ask(worker, "Hold.");
+          await holding;
+          asked = Date.now();
+          const lens = worker.fork({ key: "lens" });
+          setSystemTime(new Date(asked + waited));
+          release();
+          await turn;
+          await lens;
+          return null;
+        },
+        future(60 * 60_000),
+      );
+    } finally {
+      setSystemTime();
+    }
+    expect(adapter.forks[0]!.deadline.unixMilliseconds).toBeGreaterThanOrEqual(
+      asked + waited + 60_000,
+    );
   });
 
   test("a fork forks once it has run; before its own first turn it is refused", async () => {
