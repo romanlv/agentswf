@@ -71,6 +71,7 @@ const saved = {
   PATH: process.env.PATH,
   CODEX_HOME: process.env.CODEX_HOME,
   CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+  CURSOR_API_KEY: process.env.CURSOR_API_KEY,
 };
 
 beforeAll(async () => {
@@ -88,11 +89,12 @@ beforeAll(async () => {
   process.env.PATH = `${join(root, "bin")}:${saved.PATH}`;
   process.env.CODEX_HOME = join(root, "operator-codex");
   delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.CURSOR_API_KEY;
 });
 
 afterAll(async () => {
   process.env.PATH = saved.PATH;
-  for (const name of ["CODEX_HOME", "CLAUDE_CODE_OAUTH_TOKEN"] as const) {
+  for (const name of ["CODEX_HOME", "CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY"] as const) {
     if (saved[name] === undefined) delete process.env[name];
     else process.env[name] = saved[name];
   }

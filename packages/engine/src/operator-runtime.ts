@@ -311,9 +311,9 @@ export async function installSandboxes(
 }
 
 /**
- * `OPENROUTER_API_KEY` from the environment, else from `.env` in `cwd`. Only that name is read:
- * awf runs bun with `--no-env-file`, and bunfig says the same here, because `.env` can hold a
- * Claude token that would change how every agent logs in.
+ * `OPENROUTER_API_KEY` from the environment, else from `.env` in `cwd`. The `awf` bin has already
+ * read the project's `.env` into the environment (`project-env.ts`); this covers a caller that
+ * builds the runtime without it.
  */
 export async function openRouterKey(
   environment: Readonly<Record<string, string | undefined>>,

@@ -174,7 +174,7 @@ test("every command, and the attempt a wake launches, runs on the project's engi
   expect(existsSync(join(fixture, ".awf"))).toBe(false);
   const plain = await awf(["run", "plain.ts", "--json"], fixture);
   expect(plain.stderr).toContain(`awf ${ENGINE_VERSION} is not this project's ${FIXTURE}`);
-  expect(JSON.parse(plain.stdout).value).toEqual({ fixture: true, env: null });
+  expect(JSON.parse(plain.stdout).value).toEqual({ fixture: true, env: "read" });
   expect(invocations().at(-1)).toEqual({ version: FIXTURE, argv: ["run", "plain.ts", "--json"] });
 
   const emitted = await awf(

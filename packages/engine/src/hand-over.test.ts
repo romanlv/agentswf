@@ -230,8 +230,8 @@ describe("the global awf", () => {
       argv: ["runs", "--json", "x/y"],
       engine,
       cwd: below,
-      // Handed over, it reads no .env, as the global doesn't.
-      env: null,
+      // The global reads the project's .env before it hands over; the project's awf inherits it.
+      env: "read",
     });
     expect(stderr).toBe(
       `awf: awf ${ENGINE_VERSION} is not this project's 0.0.0-fixture; running the project's. Update one, or run bunx awf here.\n`,

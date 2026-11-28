@@ -41,10 +41,10 @@ To hold every agent of a workflow you didn't write to one reach, start it with
 
 ## Your environment and `.env`
 
-`awf run` and `awf test` don't load `.env`, which Bun otherwise does: a token in it would change
-how every agent logs in. They read one name from a `.env` in the folder where you run `awf`,
-`OPENROUTER_API_KEY`, for [decisions](/guide/decisions#the-model-and-its-key). Everything else,
-the tokens a sandboxed claude or cursor needs included, comes from the shell you run `awf` from.
+`awf` reads the project's `.env`: the nearest one from the folder you run it in, up to the
+repository's root. A name your shell already exports wins. Its keys and tokens reach the
+run as if you had exported them, so a `CLAUDE_CODE_OAUTH_TOKEN` there is how every claude agent of
+the project logs in, and a sandboxed claude or cursor finds its token there.
 
 One exception: a run with events that `awf emit` or `awf tick` starts in the background gets the
 `PATH` it was made with, a few plain variables such as `HOME` and `SSH_AUTH_SOCK`, and the

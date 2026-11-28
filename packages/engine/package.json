@@ -20,6 +20,7 @@
     "./workflow-testing": "./src/workflow-testing/index.ts",
     "./cli": "./src/operator-cli.ts",
     "./hand-over": "./src/hand-over.ts",
+    "./project-env": "./src/project-env.ts",
     "./client": "./src/client/published.ts"
   },
   "files": [

@@ -143,7 +143,7 @@ no decision model alias "gpt"; installed: jev
 ```
 
 A [decision](/guide/decisions#the-model-and-its-key) on `jev` needs `OPENROUTER_API_KEY`, in the
-environment or in a `.env` in the folder you run `awf` from. A run without it starts as usual;
+environment or in the project's `.env`. A run without it starts as usual;
 only asking for `jev` fails. The second message is a model name awf doesn't have: `jev` is the
 one built in.
 

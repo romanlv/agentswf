@@ -151,8 +151,8 @@ What they cover between them:
   and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its reported
   cost under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
   `OPENROUTER_API_KEY` is not set, and the runner shows it as skipped, not passed. awf reads the
-  key from the environment, else that one name from `.env` in the working directory; Bun loads no
-  `.env` itself (`bunfig.toml`). Copy `.env` into a worktree.
+  key from the environment, else from the project's `.env`; Bun loads no `.env` itself
+  (`bunfig.toml`), so tests see only what awf reads. Copy `.env` into a worktree.
 - `sandbox-srt` and `sandbox-docker` — the sandbox probe (story 004): codex and claude headless
   sharing a sandbox that writes the working directory, pi in a private one that writes nothing,
   each running a script of fixed commands, which the host wrote, against canaries it planted:

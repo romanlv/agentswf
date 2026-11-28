@@ -89,8 +89,7 @@ those same comments, so text written independently will match less well.
 ## The model and its key
 
 `jev` is [Jev](https://docs.typesafe.ai/concepts/system-one) through OpenRouter. It needs
-`OPENROUTER_API_KEY`, set in the environment or in a `.env` in the folder where you run `awf`.
-That is the only name awf reads from `.env`.
+`OPENROUTER_API_KEY`, set in the environment or in the project's `.env`.
 
 The engine makes the calls and holds the key; it is removed from every agent's environment, so no
 agent can read it. A run without the key starts as usual; only asking for `jev` is refused.

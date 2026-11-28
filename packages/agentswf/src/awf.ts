@@ -1,8 +1,10 @@
 #!/usr/bin/env -S bun --no-env-file
 import { dirname } from "node:path";
 import { handOver } from "@agentswf/engine/hand-over";
+import { loadProjectEnv } from "@agentswf/engine/project-env";
 import manifest from "../package.json" with { type: "json" };
 
+loadProjectEnv(process.cwd());
 // Before the engine loads: a project at another version runs on its own (ADR 0015).
 await handOver({ dir: dirname(import.meta.dir), version: manifest.version });
 const { main } = await import("@agentswf/engine/cli");

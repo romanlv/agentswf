@@ -15,6 +15,13 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   the login. `metered: true` is gone: delete it from every runtime. A workflow that still passes it
   fails to type-check, and a fork's runtime with `metered` is refused at run time.
 
+### Changed
+
+- `awf` reads the project's `.env`, the nearest from the folder you run it in up to the
+  repository's root, for every name your shell doesn't export: a `CLAUDE_CODE_OAUTH_TOKEN` or
+  `CURSOR_API_KEY` there now reaches every run of the project. Before, only `OPENROUTER_API_KEY`
+  was read from it.
+
 ### Fixed
 
 - A project linked to an awf clone with `bun link agentswf` type-checks against its own

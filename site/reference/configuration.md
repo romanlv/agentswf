@@ -8,7 +8,7 @@ outline: [2, 3]
 
 awf has no settings file. A workflow says what a run does; the command line says where
 it runs ([awf commands](/reference/awf)). What is left is a few environment variables, the
-logins each harness keeps, and one name in `.env`.
+logins each harness keeps, and the project's `.env`.
 
 ## Environment variables
 
@@ -87,16 +87,15 @@ Outside a sandbox an agent gets your environment, less a few names:
 
 | File | Read for | Default |
 | --- | --- | --- |
-| `.env` in the folder you run `awf` in | `OPENROUTER_API_KEY` only, when the environment doesn't set it | none |
+| the project's `.env`: the nearest from the folder you run `awf` in, up to the repository's root | every name the environment doesn't set | none |
 | the workflow file | the workflow: `awf run {file}` | none |
 | `--values {file}` | a JSON object of stage values, by stage name, to start part-way ([Runs](/guide/runs#start-part-way)) | none |
 | `--sandbox {file}` | a JSON sandbox spec every agent of the run works in ([Sandboxes](/guide/sandboxes)) | none |
 | `~/.awf/herdr/config.toml` | the config of the Herdr sessions awf starts; awf writes it once and never overwrites it, so your edits stay | toasts and sound off |
 
-`awf run` and `awf test` don't load `.env` as Bun otherwise would: a token in it would change how
-every agent logs in ([Security](/guide/security#your-environment-and-env)). One exception: a run
-with `events` that `awf emit` or `awf tick` starts in the background gets the `PATH` it was made
-with, a few plain variables, and the project's `.env`, not your shell's environment
+A token in `.env` changes how every agent logs in ([Security](/guide/security#your-environment-and-env)).
+A run with `events` that `awf emit` or `awf tick` starts in the background gets the `PATH` it was
+made with, a few plain variables, and the project's `.env`, not your shell's environment
 ([Hosting events](/guide/hosting-events#catches)). `AWF_COORDINATOR_DIR` and `AWF_HERDR_SESSION`
 are among the variables it keeps, so set them where the sender runs.
 
