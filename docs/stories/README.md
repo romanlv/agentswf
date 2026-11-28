@@ -16,6 +16,8 @@ verified, and accepted by a human. Tasks are the ordered units of work inside a 
    story's scope.
 2. Refine selected work into a numbered story in this directory using
    [`_template.md`](_template.md).
+   Its number is the next after the highest in this index, on main. Claim it before writing the
+   story on a branch: commit its index entry to main first, so two branches never take one number.
    Refinement includes reading the relevant code, repository evidence, and external sources when
    they can change the design.
 3. Mark the story `ready` only when every readiness item is satisfied. `ready` means the proposed
@@ -187,6 +189,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [[045-http-api|045 — Drive awf from a web page: every command as an HTTP endpoint]] —
   `ready` — `awf serve` answers on the loopback with each command's `--json` document, streams
   logs and the inbox, and starts runs detached; one table gives a new command its route.
+- [[046-workflow-in-a-box|046 — Run a whole workflow in a box]] —
+  `awaiting-human-review` — `awf run --in srt` runs the engine, the workflow's code and every
+  agent in one box awf makes, carrying each harness login in as a sandboxed agent's; awf-lab's
+  box runs on it. On branch `workflow-cases` until it merges.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
