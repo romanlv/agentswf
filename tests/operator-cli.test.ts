@@ -1890,7 +1890,7 @@ describe("awf run's stages", () => {
     expect(continued.exitCode).toBe(0);
     expect(continued.record.value).toBe(2);
     expect(continued.stderr.split("\n")[0]).toBe(
-      "awf: fixture/r1 started · watch: awf logs fixture/r1",
+      "awf: fixture/r1 continued · attempt 2 · watch: awf logs fixture/r1",
     );
     expect(continued.stderr.split("\n").slice(1).join("\n")).not.toContain("awf: ");
     expect(continued.stderr).toContain("↺ stage implement · feat/a · attempt 1");
