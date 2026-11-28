@@ -35,6 +35,9 @@ Changed, Fixed, Removed. A Breaking entry says what to change. `bun run release 
   its uptime.
 - A cursor agent logged in only by `CURSOR_API_KEY` passes the run's login check, which read
   `cursor-agent status` alone, and that ignores the key.
+- A sandboxed pi agent runs from pi's own installer, whose launcher and releases sit in its state
+  folder `~/.pi/agent`: the sandbox reads those two folders, not the logins beside them. Before,
+  it read the whole folder, and srt refused it as exposing pi's state.
 
 ### Added
 

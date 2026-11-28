@@ -182,6 +182,19 @@ describe("sandboxNeeds", () => {
     }
   });
 
+  test("pi from its own installer: its bin and install, not the logins beside them", async () => {
+    const agent = join(root, "pi-managed", ".pi", "agent");
+    await mkdir(join(agent, "install", "releases"), { recursive: true });
+    await writeFile(join(agent, "auth.json"), "{}");
+    await executable(join(agent, "bin", "pi"));
+    const needs = await sandboxNeeds("pi", agentHome, "openai-codex/gpt-5.6-terra", {
+      ...environment,
+      HOME: join(root, "pi-managed"),
+      PATH: join(agent, "bin"),
+    });
+    expect(needs.reads).toEqual([join(agent, "bin"), join(agent, "install")]);
+  });
+
   test("finds a regular executable file on PATH, as a shell does, and refuses a shim", async () => {
     const decoys = join(root, "decoys");
     await mkdir(join(decoys, "dir", "codex"), { recursive: true });

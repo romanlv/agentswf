@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
@@ -43,7 +44,7 @@ type SandboxedHarness = {
   /** Host directories it writes outside its home, shared; see the seam. */
   sharedWrites?(): string[];
   /** What its executable needs beside itself, where `installReads` cannot tell. */
-  reads?(executable: string): string[];
+  reads?(executable: string): string[] | undefined;
 };
 
 /**
@@ -168,6 +169,13 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
         throw new Error(`no model domains are known for pi's provider ${provider}`);
       }
       return PI_PROVIDER_DOMAINS[provider]!;
+    },
+    // pi's own installer keeps its launcher and releases in its state, `~/.pi/agent/{bin,install}`:
+    // those two, not the logins beside them. An npm install reads as any node package does.
+    reads: (executable) => {
+      const bin = dirname(realpathSync(executable));
+      const install = join(dirname(bin), "install");
+      return basename(bin) === "bin" && existsSync(install) ? [bin, install] : undefined;
     },
     // pi's core has no web search (X15); an extension, the operator's or the project's, could.
     args: ["--no-extensions"],
